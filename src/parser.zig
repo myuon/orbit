@@ -12,12 +12,16 @@ pub const Parser = struct {
     tokens: []ast.Token,
     position: usize,
 
+    fn can_peek(self: *Parser) bool {
+        return self.position < self.tokens.len;
+    }
+
     fn peek(self: *Parser) ?ast.Token {
-        if (self.position >= self.tokens.len) {
+        if (self.can_peek()) {
+            return self.tokens[self.position];
+        } else {
             return null;
         }
-
-        return self.tokens[self.position];
     }
 
     fn consume(self: *Parser) ?ast.Token {
@@ -29,22 +33,30 @@ pub const Parser = struct {
         }
     }
 
-    fn expect(self: *Parser, keyword: ast.Operator) ParserError!void {
+    fn is_next(self: *Parser, keyword: ast.Operator) bool {
         if (self.peek()) |token| {
             switch (token) {
                 .keyword => |op| {
                     if (op == keyword) {
-                        _ = self.consume();
+                        return true;
                     } else {
-                        return error.UnexpectedToken;
+                        return false;
                     }
                 },
                 else => {
-                    return error.UnexpectedToken;
+                    return false;
                 },
             }
+        }
+
+        return false;
+    }
+
+    fn expect(self: *Parser, keyword: ast.Operator) ParserError!void {
+        if (self.is_next(keyword)) {
+            _ = self.consume();
         } else {
-            return error.UnexpectedEos;
+            return ParserError.UnexpectedToken;
         }
     }
 
@@ -64,25 +76,84 @@ pub const Parser = struct {
         }
     }
 
+    pub fn module(self: *Parser) anyerror!ast.Module {
+        var decls = std.ArrayList(ast.Decl).init(Allocator);
+        while (self.peek() != null) {
+            const d = try self.decl();
+            try decls.append(d);
+        }
+
+        return ast.Module{ .decls = decls.items };
+    }
+
+    fn decl(self: *Parser) anyerror!ast.Decl {
+        if (self.peek()) |token| {
+            switch (token) {
+                .keyword => |op2| {
+                    switch (op2) {
+                        .fun => {
+                            try self.expect(ast.Operator.fun);
+
+                            const name = try self.expect_ident();
+
+                            try self.expect(ast.Operator.lparen);
+                            var args = std.ArrayList([]const u8).init(Allocator);
+                            while (self.can_peek()) {
+                                if (self.is_next(ast.Operator.rparen)) {
+                                    break;
+                                }
+
+                                const arg = try self.expect_ident();
+                                try args.append(arg);
+
+                                if (self.is_next(ast.Operator.comma)) {
+                                    try self.expect(ast.Operator.comma);
+                                } else {
+                                    break;
+                                }
+                            }
+                            try self.expect(ast.Operator.rparen);
+
+                            const body = try self.block();
+
+                            return ast.Decl{ .fun = .{
+                                .name = name,
+                                .params = args.items,
+                                .body = body,
+                            } };
+                        },
+                        else => {
+                            return error.UnexpectedToken;
+                        },
+                    }
+                },
+                else => {
+                    std.debug.print("unexpected token: {any}\n", .{self.tokens[self.position..]});
+                    return error.UnexpectedToken;
+                },
+            }
+        }
+
+        return error.UnexpectedToken;
+    }
+
     pub fn block(self: *Parser) anyerror!ast.Block {
         var statements = std.ArrayList(ast.Statement).init(Allocator);
-        statements.deinit();
 
-        while (self.peek() != null) {
+        try self.expect(ast.Operator.do);
+
+        while (self.can_peek()) {
+            if (self.is_next(ast.Operator.end)) {
+                break;
+            }
+
             const s = try self.statement();
             switch (s) {
                 .expr => {
-                    if (self.peek()) |token| {
-                        if (token.keyword == ast.Operator.semicolon) {
-                            try self.expect(ast.Operator.semicolon);
-                            try statements.append(s);
-                            continue;
-                        } else {
-                            const e = try Allocator.create(ast.Expression);
-                            e.* = s.expr;
-
-                            return ast.Block{ .statements = statements.items, .expr = e };
-                        }
+                    if (self.is_next(ast.Operator.semicolon)) {
+                        try self.expect(ast.Operator.semicolon);
+                        try statements.append(s);
+                        continue;
                     } else {
                         const e = try Allocator.create(ast.Expression);
                         e.* = s.expr;
@@ -95,15 +166,13 @@ pub const Parser = struct {
                 },
             }
 
-            if (self.peek()) |token| {
-                if (token.keyword == ast.Operator.semicolon) {
-                    try self.expect(ast.Operator.semicolon);
-                    continue;
-                }
-            } else {
-                break;
+            if (self.is_next(ast.Operator.semicolon)) {
+                try self.expect(ast.Operator.semicolon);
+                continue;
             }
         }
+
+        try self.expect(ast.Operator.end);
 
         return ast.Block{ .statements = statements.items, .expr = null };
     }
@@ -120,6 +189,12 @@ pub const Parser = struct {
                             const value = try self.expr();
 
                             return ast.Statement{ .let = .{ .name = name, .value = value } };
+                        },
+                        .return_ => {
+                            try self.expect(ast.Operator.return_);
+                            const value = try self.expr();
+
+                            return ast.Statement{ .return_ = value };
                         },
                         else => {
                             return error.UnexpectedToken;
@@ -143,9 +218,7 @@ pub const Parser = struct {
                 .keyword => |op| {
                     switch (op) {
                         .do => {
-                            try self.expect(ast.Operator.do);
                             const b = try self.block();
-                            try self.expect(ast.Operator.end);
 
                             return ast.Expression{ .block = b };
                         },
@@ -231,7 +304,7 @@ pub const Parser = struct {
         return current;
     }
 
-    fn expr3(self: *Parser) !ast.Expression {
+    fn expr3(self: *Parser) anyerror!ast.Expression {
         if (self.literal()) |lit| {
             return ast.Expression{ .literal = lit };
         }
@@ -241,7 +314,38 @@ pub const Parser = struct {
                 .ident => |ident| {
                     _ = self.consume();
 
-                    return ast.Expression{ .var_ = ident };
+                    const current = try Allocator.create(ast.Expression);
+                    const identExpr = ast.Expression{ .var_ = ident };
+
+                    if (self.is_next(ast.Operator.lparen)) {
+                        try self.expect(ast.Operator.lparen);
+
+                        var args = std.ArrayList(ast.Expression).init(Allocator);
+                        while (self.can_peek()) {
+                            if (self.is_next(ast.Operator.rparen)) {
+                                break;
+                            }
+
+                            const arg = try self.expr();
+                            try args.append(arg);
+
+                            if (self.is_next(ast.Operator.comma)) {
+                                try self.expect(ast.Operator.comma);
+                            } else {
+                                break;
+                            }
+                        }
+                        try self.expect(ast.Operator.rparen);
+
+                        current.* = ast.Expression{ .call = .{
+                            .name = ident,
+                            .args = args.items,
+                        } };
+                    } else {
+                        current.* = identExpr;
+                    }
+
+                    return current.*;
                 },
                 else => {},
             }

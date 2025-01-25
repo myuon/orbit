@@ -8,13 +8,15 @@ const Allocator = std.heap.page_allocator;
 
 const EvalError = error{
     VariableNotFound,
+    UnexpectedNilValue,
 };
 
 const Compiler = struct {
     env: std.StringHashMap(usize),
+    module: ?ast.Module,
 
     fn init() Compiler {
-        return Compiler{ .env = std.StringHashMap(usize).init(Allocator) };
+        return Compiler{ .env = std.StringHashMap(usize).init(Allocator), .module = null };
     }
 
     fn evalExpr(self: *Compiler, str: []const u8) anyerror!usize {
@@ -35,12 +37,24 @@ const Compiler = struct {
         return try self.evalBlockFromAst(tree);
     }
 
+    fn evalModule(self: *Compiler, str: []const u8) anyerror!?usize {
+        var l = lexer.Lexer{ .source = str, .position = 0 };
+        const tokens = try l.run();
+        var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
+        const tree = try p.module();
+
+        self.module = tree;
+
+        return try self.evalModuleFromAst("main");
+    }
+
     fn evalExprFromAst(self: *Compiler, expr: ast.Expression) anyerror!usize {
         switch (expr) {
             .var_ => |v| {
                 if (self.env.get(v)) |value| {
                     return value;
                 } else {
+                    std.debug.print("Variable not found: {s}\n", .{v});
                     return error.VariableNotFound;
                 }
             },
@@ -67,6 +81,21 @@ const Compiler = struct {
                     },
                 }
             },
+            .call => |call| {
+                var args = std.ArrayList(usize).init(Allocator);
+                defer args.deinit();
+
+                for (call.args) |arg| {
+                    try args.append(try self.evalExprFromAst(arg));
+                }
+
+                const r = try self.callFunction(call.name, args.items);
+                if (r) |value| {
+                    return value;
+                } else {
+                    return error.UnexpectedNilValue;
+                }
+            },
             else => {
                 unreachable;
             },
@@ -79,8 +108,8 @@ const Compiler = struct {
                 .let => |let| {
                     try self.env.put(let.name, try self.evalExprFromAst(let.value));
                 },
-                .return_ => |_| {
-                    unreachable;
+                .return_ => |val| {
+                    return try self.evalExprFromAst(val);
                 },
                 .expr => |expr| {
                     _ = try self.evalExprFromAst(expr);
@@ -93,6 +122,31 @@ const Compiler = struct {
         }
 
         return null;
+    }
+
+    fn evalModuleFromAst(self: *Compiler, entrypoint: []const u8) anyerror!?usize {
+        return self.callFunction(entrypoint, &[_]usize{});
+    }
+
+    fn callFunction(self: *Compiler, name: []const u8, args: []usize) anyerror!?usize {
+        var params: []const []const u8 = undefined;
+        var body: ast.Block = undefined;
+        for (self.module.?.decls) |decl| {
+            switch (decl) {
+                .fun => |f| {
+                    if (std.mem.eql(u8, f.name, name)) {
+                        params = f.params;
+                        body = f.body;
+                    }
+                },
+            }
+        }
+
+        for (args, 0..) |arg, i| {
+            try self.env.put(params[i], arg);
+        }
+
+        return try self.evalBlockFromAst(body);
     }
 };
 
@@ -111,8 +165,26 @@ test "compiler.evalBlock" {
     var c = Compiler.init();
 
     try std.testing.expectEqual(3, try c.evalBlock(
-        \\let x = 1;
-        \\let y = 2;
-        \\x + y
+        \\do
+        \\  let x = 1;
+        \\  let y = 2;
+        \\  x + y
+        \\end
+    ));
+}
+
+test "compiler.evalModule" {
+    var c = Compiler.init();
+
+    try std.testing.expectEqual(13, try c.evalModule(
+        \\fun f(x) do
+        \\  let y = 10;
+        \\
+        \\  return x + y;
+        \\end
+        \\
+        \\fun main() do
+        \\  return f(3);
+        \\end
     ));
 }

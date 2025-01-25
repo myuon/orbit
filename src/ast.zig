@@ -5,9 +5,14 @@ pub const Operator = enum {
     star,
     eq,
     semicolon,
+    comma,
+    lparen,
+    rparen,
     let,
     do,
     end,
+    fun,
+    return_,
 };
 
 pub const TokenType = enum {
@@ -27,6 +32,7 @@ pub const ExpressionType = enum {
     literal,
     binop,
     block,
+    call,
 };
 
 pub const Expression = union(ExpressionType) {
@@ -38,6 +44,10 @@ pub const Expression = union(ExpressionType) {
         rhs: *Expression,
     },
     block: Block,
+    call: struct {
+        name: []const u8,
+        args: []Expression,
+    },
 };
 
 pub const LiteralType = enum {
@@ -70,4 +80,20 @@ pub const Statement = union(StatementType) {
 pub const Block = struct {
     statements: []Statement,
     expr: ?*Expression,
+};
+
+pub const DeclType = enum {
+    fun,
+};
+
+pub const Decl = union(DeclType) {
+    fun: struct {
+        name: []const u8,
+        params: []const []const u8,
+        body: Block,
+    },
+};
+
+pub const Module = struct {
+    decls: []Decl,
 };

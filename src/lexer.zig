@@ -68,10 +68,15 @@ pub const Lexer = struct {
             .{ .str = "+", .operator = ast.Operator.plus },
             .{ .str = "*", .operator = ast.Operator.star },
             .{ .str = ";", .operator = ast.Operator.semicolon },
+            .{ .str = ",", .operator = ast.Operator.comma },
             .{ .str = "=", .operator = ast.Operator.eq },
+            .{ .str = "(", .operator = ast.Operator.lparen },
+            .{ .str = ")", .operator = ast.Operator.rparen },
             .{ .str = "let", .operator = ast.Operator.let },
             .{ .str = "do", .operator = ast.Operator.do },
             .{ .str = "end", .operator = ast.Operator.end },
+            .{ .str = "fun", .operator = ast.Operator.fun },
+            .{ .str = "return", .operator = ast.Operator.return_ },
         };
 
         for (tokenTable) |token| {
