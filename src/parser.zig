@@ -3,6 +3,11 @@ const ast = @import("ast.zig");
 
 const Allocator = std.heap.page_allocator;
 
+pub const ParserError = error{
+    UnexpectedEos,
+    UnexpectedToken,
+};
+
 pub const Parser = struct {
     tokens: []ast.Token,
     position: usize,
@@ -24,7 +29,133 @@ pub const Parser = struct {
         }
     }
 
+    fn expect(self: *Parser, keyword: ast.Operator) ParserError!void {
+        if (self.peek()) |token| {
+            switch (token) {
+                .keyword => |op| {
+                    if (op == keyword) {
+                        _ = self.consume();
+                    } else {
+                        return error.UnexpectedToken;
+                    }
+                },
+                else => {
+                    return error.UnexpectedToken;
+                },
+            }
+        } else {
+            return error.UnexpectedEos;
+        }
+    }
+
+    fn expect_ident(self: *Parser) ParserError![]const u8 {
+        if (self.peek()) |token| {
+            switch (token) {
+                .ident => |ident| {
+                    _ = self.consume();
+                    return ident;
+                },
+                else => {
+                    return error.UnexpectedToken;
+                },
+            }
+        } else {
+            return error.UnexpectedEos;
+        }
+    }
+
+    pub fn block(self: *Parser) anyerror!ast.Block {
+        var statements = std.ArrayList(ast.Statement).init(Allocator);
+        statements.deinit();
+
+        while (self.peek() != null) {
+            const s = try self.statement();
+            switch (s) {
+                .expr => {
+                    if (self.peek()) |token| {
+                        if (token.keyword == ast.Operator.semicolon) {
+                            try self.expect(ast.Operator.semicolon);
+                            try statements.append(s);
+                            continue;
+                        } else {
+                            const e = try Allocator.create(ast.Expression);
+                            e.* = s.expr;
+
+                            return ast.Block{ .statements = statements.items, .expr = e };
+                        }
+                    } else {
+                        const e = try Allocator.create(ast.Expression);
+                        e.* = s.expr;
+
+                        return ast.Block{ .statements = statements.items, .expr = e };
+                    }
+                },
+                else => {
+                    try statements.append(s);
+                },
+            }
+
+            if (self.peek()) |token| {
+                if (token.keyword == ast.Operator.semicolon) {
+                    try self.expect(ast.Operator.semicolon);
+                    continue;
+                }
+            } else {
+                break;
+            }
+        }
+
+        return ast.Block{ .statements = statements.items, .expr = null };
+    }
+
+    fn statement(self: *Parser) anyerror!ast.Statement {
+        if (self.peek()) |token| {
+            switch (token) {
+                .keyword => |op| {
+                    switch (op) {
+                        .let => {
+                            try self.expect(ast.Operator.let);
+                            const name = try self.expect_ident();
+                            try self.expect(ast.Operator.eq);
+                            const value = try self.expr();
+
+                            return ast.Statement{ .let = .{ .name = name, .value = value } };
+                        },
+                        else => {
+                            return error.UnexpectedToken;
+                        },
+                    }
+                },
+                else => {
+                    const e = try self.expr();
+
+                    return ast.Statement{ .expr = e };
+                },
+            }
+        }
+
+        return error.UnexpectedEos;
+    }
+
     pub fn expr(self: *Parser) anyerror!ast.Expression {
+        if (self.peek()) |token| {
+            switch (token) {
+                .keyword => |op| {
+                    switch (op) {
+                        .do => {
+                            try self.expect(ast.Operator.do);
+                            const b = try self.block();
+                            try self.expect(ast.Operator.end);
+
+                            return ast.Expression{ .block = b };
+                        },
+                        else => {},
+                    }
+                },
+                else => {},
+            }
+        }
+
         return self.expr1();
     }
 
@@ -36,7 +167,7 @@ pub const Parser = struct {
                 .keyword => |op| {
                     switch (op) {
                         .plus => {
-                            _ = self.consume();
+                            try self.expect(ast.Operator.plus);
 
                             const rhs = try Allocator.create(ast.Expression);
                             rhs.* = try self.expr2();
@@ -103,6 +234,17 @@ pub const Parser = struct {
     fn expr3(self: *Parser) !ast.Expression {
         if (self.literal()) |lit| {
             return ast.Expression{ .literal = lit };
+        }
+
+        if (self.peek()) |token| {
+            switch (token) {
+                .ident => |ident| {
+                    _ = self.consume();
+
+                    return ast.Expression{ .var_ = ident };
+                },
+                else => {},
+            }
         }
 
         unreachable;

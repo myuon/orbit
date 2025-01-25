@@ -52,12 +52,12 @@ pub const Lexer = struct {
         var n: usize = 0;
 
         while (self.peek()) |ch| {
-            if (ch != ' ') {
+            if (ch == ' ' or ch == '\n' or ch == '\t') {
+                _ = self.consume();
+                n += 1;
+            } else {
                 break;
             }
-
-            _ = self.consume();
-            n += 1;
         }
 
         return n;
@@ -67,7 +67,11 @@ pub const Lexer = struct {
         const tokenTable = comptime [_]struct { str: []const u8, operator: ast.Operator }{
             .{ .str = "+", .operator = ast.Operator.plus },
             .{ .str = "*", .operator = ast.Operator.star },
+            .{ .str = ";", .operator = ast.Operator.semicolon },
+            .{ .str = "=", .operator = ast.Operator.eq },
             .{ .str = "let", .operator = ast.Operator.let },
+            .{ .str = "do", .operator = ast.Operator.do },
+            .{ .str = "end", .operator = ast.Operator.end },
         };
 
         for (tokenTable) |token| {
@@ -78,6 +82,22 @@ pub const Lexer = struct {
         }
 
         return null;
+    }
+
+    fn consume_ident(self: *Lexer) ?[]const u8 {
+        const start = self.position;
+        while (self.peek()) |ch| {
+            if ((ch < 'a' or ch > 'z') and ch != '_' and (ch < 'A' or ch > 'Z') and (ch < '0' or ch > '9')) {
+                break;
+            }
+
+            _ = self.consume();
+        }
+
+        if (start == self.position) {
+            return null;
+        }
+        return self.source[start..self.position];
     }
 
     pub fn run(self: *Lexer) anyerror!std.ArrayList(ast.Token) {
@@ -98,6 +118,12 @@ pub const Lexer = struct {
                 continue;
             }
 
+            if (self.consume_ident()) |ident| {
+                try tokens.append(ast.Token{ .ident = ident });
+                continue;
+            }
+
+            std.debug.print("unexpected token: {s}\n", .{self.source[self.position..]});
             return error.UnexpectedToken;
         }
 
