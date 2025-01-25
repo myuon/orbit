@@ -3,7 +3,7 @@ const ast = @import("ast.zig");
 
 const Allocator = std.heap.page_allocator;
 
-const Parser = struct {
+pub const Parser = struct {
     tokens: []ast.Token,
     position: usize,
 
@@ -24,7 +24,7 @@ const Parser = struct {
         }
     }
 
-    fn expr(self: *Parser) anyerror!ast.Expression {
+    pub fn expr(self: *Parser) anyerror!ast.Expression {
         return self.expr1();
     }
 

@@ -4,11 +4,11 @@ const ast = @import("ast.zig");
 
 const Allocator = std.heap.page_allocator;
 
-const LexerError = error{
+pub const LexerError = error{
     UnexpectedToken,
 };
 
-const Lexer = struct {
+pub const Lexer = struct {
     source: []const u8,
     position: usize,
 
@@ -80,7 +80,7 @@ const Lexer = struct {
         return null;
     }
 
-    fn run(self: *Lexer) anyerror!std.ArrayList(ast.Token) {
+    pub fn run(self: *Lexer) anyerror!std.ArrayList(ast.Token) {
         var tokens = std.ArrayList(ast.Token).init(Allocator);
 
         while (self.position < self.source.len) {
