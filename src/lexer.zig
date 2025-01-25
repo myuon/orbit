@@ -1,78 +1,109 @@
 const std = @import("std");
+const utils = @import("utils.zig");
 
 const Allocator = std.heap.page_allocator;
 
-const Lexeme = enum { Plus, Star, Number };
+const Lexeme = enum { Plus, Star, Let, Number };
 const Token = struct {
     lexeme: Lexeme,
-    number: ?u64 = null,
+    number: ?u32 = null,
 };
 
 const LexerError = error{
-    Eos,
+    UnexpectedToken,
 };
 
 const Lexer = struct {
     source: []const u8,
     position: usize,
 
-    fn peek(self: *Lexer) LexerError!u8 {
+    fn peek(self: *Lexer) ?u8 {
         if (self.position >= self.source.len) {
-            return error.Eos;
+            return null;
         }
 
         return self.source[self.position];
     }
 
-    fn consume(self: *Lexer) LexerError!u8 {
-        const ch = try self.peek();
-        self.position += 1;
-
-        return ch;
+    fn consume(self: *Lexer) ?u8 {
+        if (self.peek()) |ch| {
+            self.position += 1;
+            return ch;
+        } else {
+            return null;
+        }
     }
 
-    fn consume_number(self: *Lexer) !u32 {
+    fn consume_number(self: *Lexer) ?u32 {
+        var happened = false;
         var number: u32 = 0;
-        while (true) {
-            const ch = self.peek() catch |err| {
-                if (err == error.Eos) {
-                    break;
-                }
-                return err;
-            };
+        while (self.peek()) |ch| {
             if (ch < '0' or ch > '9') {
                 break;
             }
 
             number = number * 10 + @as(u32, (ch - @as(u8, '0')));
-            _ = try self.consume();
+            _ = self.consume();
+            happened = true;
         }
 
+        if (!happened) {
+            return null;
+        }
         return number;
     }
 
-    fn run(self: *Lexer) !std.ArrayList(Token) {
+    fn consume_spaces(self: *Lexer) usize {
+        var n: usize = 0;
+
+        while (self.peek()) |ch| {
+            if (ch != ' ') {
+                break;
+            }
+
+            _ = self.consume();
+            n += 1;
+        }
+
+        return n;
+    }
+
+    fn consume_token(self: *Lexer) ?Token {
+        const tokenTable = comptime [_]struct { str: []const u8, lexeme: Lexeme }{
+            .{ .str = "+", .lexeme = Lexeme.Plus },
+            .{ .str = "*", .lexeme = Lexeme.Star },
+            .{ .str = "let", .lexeme = Lexeme.Let },
+        };
+
+        for (tokenTable) |token| {
+            if (utils.startsWith(self.source[self.position..], token.str)) {
+                self.position += token.str.len;
+                return Token{ .lexeme = token.lexeme };
+            }
+        }
+
+        return null;
+    }
+
+    fn run(self: *Lexer) anyerror!std.ArrayList(Token) {
         var tokens = std.ArrayList(Token).init(Allocator);
 
         while (self.position < self.source.len) {
-            const c = self.source[self.position];
-            switch (c) {
-                ' ' => {
-                    _ = try self.consume();
-                },
-                '+' => {
-                    _ = try self.consume();
-                    try tokens.append(Token{ .lexeme = Lexeme.Plus });
-                },
-                '*' => {
-                    _ = try self.consume();
-                    try tokens.append(Token{ .lexeme = Lexeme.Star });
-                },
-                else => {
-                    const number = try self.consume_number();
-                    try tokens.append(Token{ .lexeme = Lexeme.Number, .number = number });
-                },
+            if (self.consume_spaces() > 0) {
+                continue;
             }
+
+            if (self.consume_token()) |token| {
+                try tokens.append(token);
+                continue;
+            }
+
+            if (self.consume_number()) |number| {
+                try tokens.append(Token{ .lexeme = Lexeme.Number, .number = number });
+                continue;
+            }
+
+            return error.UnexpectedToken;
         }
 
         return tokens;
