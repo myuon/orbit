@@ -70,6 +70,7 @@ pub const Lexer = struct {
             .{ .str = "*", .operator = ast.Operator.star },
             .{ .str = ";", .operator = ast.Operator.semicolon },
             .{ .str = ",", .operator = ast.Operator.comma },
+            .{ .str = "==", .operator = ast.Operator.eqeq },
             .{ .str = "=", .operator = ast.Operator.eq },
             .{ .str = "(", .operator = ast.Operator.lparen },
             .{ .str = ")", .operator = ast.Operator.rparen },
@@ -78,6 +79,8 @@ pub const Lexer = struct {
             .{ .str = "end", .operator = ast.Operator.end },
             .{ .str = "fun", .operator = ast.Operator.fun },
             .{ .str = "return", .operator = ast.Operator.return_ },
+            .{ .str = "if", .operator = ast.Operator.if_ },
+            .{ .str = "else", .operator = ast.Operator.else_ },
         };
 
         for (tokenTable) |token| {

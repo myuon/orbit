@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const Operator = enum {
+    eqeq,
     eq,
     semicolon,
     comma,
@@ -14,6 +15,8 @@ pub const Operator = enum {
     end,
     fun,
     return_,
+    if_,
+    else_,
 };
 
 pub const TokenType = enum {
@@ -34,6 +37,7 @@ pub const ExpressionType = enum {
     binop,
     block,
     call,
+    if_,
 };
 
 pub const Expression = union(ExpressionType) {
@@ -48,6 +52,11 @@ pub const Expression = union(ExpressionType) {
     call: struct {
         name: []const u8,
         args: []Expression,
+    },
+    if_: struct {
+        cond: *Expression,
+        then_: Block,
+        else_: ?Block,
     },
 };
 

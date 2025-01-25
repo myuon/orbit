@@ -149,16 +149,25 @@ pub const Parser = struct {
 
             const s = try self.statement();
             switch (s) {
-                .expr => {
+                .expr => |se| {
                     if (self.is_next(ast.Operator.semicolon)) {
                         try self.expect(ast.Operator.semicolon);
                         try statements.append(s);
                         continue;
                     } else {
-                        const e = try Allocator.create(ast.Expression);
-                        e.* = s.expr;
+                        switch (se) {
+                            // セミコロン不要なもの
+                            .if_ => {
+                                try statements.append(s);
+                                continue;
+                            },
+                            else => {
+                                const e = try Allocator.create(ast.Expression);
+                                e.* = s.expr;
 
-                        return ast.Block{ .statements = statements.items, .expr = e };
+                                return ast.Block{ .statements = statements.items, .expr = e };
+                            },
+                        }
                     }
                 },
                 else => {
@@ -197,7 +206,9 @@ pub const Parser = struct {
                             return ast.Statement{ .return_ = value };
                         },
                         else => {
-                            return error.UnexpectedToken;
+                            const e = try self.expr();
+
+                            return ast.Statement{ .expr = e };
                         },
                     }
                 },
@@ -229,7 +240,43 @@ pub const Parser = struct {
             }
         }
 
-        return self.expr1();
+        return self.expr0();
+    }
+
+    fn expr0(self: *Parser) anyerror!ast.Expression {
+        var current = try self.expr1();
+
+        while (self.peek()) |token| {
+            switch (token) {
+                .keyword => |op| {
+                    switch (op) {
+                        .eqeq => {
+                            try self.expect(ast.Operator.eqeq);
+
+                            const rhs = try Allocator.create(ast.Expression);
+                            rhs.* = try self.expr1();
+
+                            const newCurrent = try Allocator.create(ast.Expression);
+                            newCurrent.* = current;
+
+                            current = ast.Expression{ .binop = .{
+                                .op = .eqeq,
+                                .lhs = newCurrent,
+                                .rhs = rhs,
+                            } };
+                        },
+                        else => {
+                            break;
+                        },
+                    }
+                },
+                else => {
+                    break;
+                },
+            }
+        }
+
+        return current;
     }
 
     fn expr1(self: *Parser) anyerror!ast.Expression {
@@ -363,6 +410,35 @@ pub const Parser = struct {
                     return current.*;
                 },
                 else => {},
+            }
+        }
+
+        if (self.is_next(ast.Operator.if_)) {
+            try self.expect(ast.Operator.if_);
+
+            try self.expect(ast.Operator.lparen);
+            const cond = try Allocator.create(ast.Expression);
+            cond.* = try self.expr();
+            try self.expect(ast.Operator.rparen);
+
+            const then_ = try self.block();
+
+            if (self.is_next(ast.Operator.else_)) {
+                try self.expect(ast.Operator.else_);
+
+                const else_ = try self.block();
+
+                return ast.Expression{ .if_ = .{
+                    .cond = cond,
+                    .then_ = then_,
+                    .else_ = else_,
+                } };
+            } else {
+                return ast.Expression{ .if_ = .{
+                    .cond = cond,
+                    .then_ = then_,
+                    .else_ = null,
+                } };
             }
         }
 

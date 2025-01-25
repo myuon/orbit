@@ -79,6 +79,13 @@ pub const Compiler = struct {
                     .star => {
                         return try self.evalExprFromAst(binop.lhs.*) * try self.evalExprFromAst(binop.rhs.*);
                     },
+                    .eqeq => {
+                        if (try self.evalExprFromAst(binop.lhs.*) == try self.evalExprFromAst(binop.rhs.*)) {
+                            return 1;
+                        } else {
+                            return 0;
+                        }
+                    },
                     else => {
                         unreachable;
                     },
@@ -96,6 +103,17 @@ pub const Compiler = struct {
                 if (r) |value| {
                     return value;
                 } else {
+                    return error.UnexpectedNilValue;
+                }
+            },
+            .if_ => |if_| {
+                if (try self.evalExprFromAst(if_.cond.*) == 1) {
+                    return try self.evalBlockFromAst(if_.then_) orelse 0;
+                } else {
+                    if (if_.else_) |else_| {
+                        return try self.evalBlockFromAst(else_) orelse 0;
+                    }
+
                     return error.UnexpectedNilValue;
                 }
             },
@@ -165,6 +183,7 @@ test "compiler.evalExpr" {
     }{
         .{ .program = "1 + 2 * 3 + 4", .expected = 11 },
         .{ .program = "10 - 4", .expected = 6 },
+        .{ .program = "1 + 2 == 3", .expected = 1 },
     };
 
     for (cases) |case| {
@@ -174,29 +193,83 @@ test "compiler.evalExpr" {
 }
 
 test "compiler.evalBlock" {
-    var c = Compiler.init();
+    const cases = comptime [_]struct {
+        program: []const u8,
+        expected: usize,
+    }{
+        .{
+            .program =
+            \\do
+            \\  let x = 1;
+            \\  let y = 2;
+            \\  x + y
+            \\end
+            ,
+            .expected = 3,
+        },
+        .{
+            .program =
+            \\do
+            \\  let x = 1;
+            \\
+            \\  if (x == 1) do
+            \\    3
+            \\  end else do
+            \\    4
+            \\  end
+            \\end
+            ,
+            .expected = 3,
+        },
+        .{
+            .program =
+            \\do
+            \\  let x = 2;
+            \\
+            \\  if (x == 1) do
+            \\    3
+            \\  end else do
+            \\    4
+            \\  end
+            \\
+            \\  if (x == 2) do
+            \\    5
+            \\  end
+            \\end
+            ,
+            .expected = 3,
+        },
+    };
 
-    try std.testing.expectEqual(3, try c.evalBlock(
-        \\do
-        \\  let x = 1;
-        \\  let y = 2;
-        \\  x + y
-        \\end
-    ));
+    for (cases) |case| {
+        var c = Compiler.init();
+        try std.testing.expectEqual(case.expected, try c.evalBlock(case.program));
+    }
 }
 
 test "compiler.evalModule" {
-    var c = Compiler.init();
+    const cases = comptime [_]struct {
+        program: []const u8,
+        expected: usize,
+    }{
+        .{
+            .program =
+            \\fun f(x) do
+            \\  let y = 10;
+            \\
+            \\  return x + y;
+            \\end
+            \\
+            \\fun main() do
+            \\  return f(3);
+            \\end
+            ,
+            .expected = 13,
+        },
+    };
 
-    try std.testing.expectEqual(13, try c.evalModule(
-        \\fun f(x) do
-        \\  let y = 10;
-        \\
-        \\  return x + y;
-        \\end
-        \\
-        \\fun main() do
-        \\  return f(3);
-        \\end
-    ));
+    for (cases) |case| {
+        var c = Compiler.init();
+        try std.testing.expectEqual(case.expected, try c.evalModule(case.program));
+    }
 }
