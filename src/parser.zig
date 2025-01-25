@@ -254,6 +254,21 @@ pub const Parser = struct {
                                 .rhs = rhs,
                             } };
                         },
+                        .minus => {
+                            try self.expect(ast.Operator.minus);
+
+                            const rhs = try Allocator.create(ast.Expression);
+                            rhs.* = try self.expr2();
+
+                            const newCurrent = try Allocator.create(ast.Expression);
+                            newCurrent.* = current;
+
+                            current = ast.Expression{ .binop = .{
+                                .op = .minus,
+                                .lhs = newCurrent,
+                                .rhs = rhs,
+                            } };
+                        },
                         else => {
                             break;
                         },

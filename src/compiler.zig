@@ -73,6 +73,9 @@ pub const Compiler = struct {
                     .plus => {
                         return try self.evalExprFromAst(binop.lhs.*) + try self.evalExprFromAst(binop.rhs.*);
                     },
+                    .minus => {
+                        return try self.evalExprFromAst(binop.lhs.*) - try self.evalExprFromAst(binop.rhs.*);
+                    },
                     .star => {
                         return try self.evalExprFromAst(binop.lhs.*) * try self.evalExprFromAst(binop.rhs.*);
                     },
@@ -161,6 +164,7 @@ test "compiler.evalExpr" {
         expected: usize,
     }{
         .{ .program = "1 + 2 * 3 + 4", .expected = 11 },
+        .{ .program = "10 - 4", .expected = 6 },
     };
 
     for (cases) |case| {

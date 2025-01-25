@@ -66,6 +66,7 @@ pub const Lexer = struct {
     fn consume_token(self: *Lexer) ?ast.Token {
         const tokenTable = comptime [_]struct { str: []const u8, operator: ast.Operator }{
             .{ .str = "+", .operator = ast.Operator.plus },
+            .{ .str = "-", .operator = ast.Operator.minus },
             .{ .str = "*", .operator = ast.Operator.star },
             .{ .str = ";", .operator = ast.Operator.semicolon },
             .{ .str = ",", .operator = ast.Operator.comma },

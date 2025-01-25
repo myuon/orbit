@@ -3,7 +3,7 @@ const compiler = @import("compiler.zig");
 
 pub fn main() !void {
     var c = compiler.Compiler.init();
-    c.evalModule(
+    const result = try c.evalModule(
         \\fun fib(x) do
         \\  if (x == 0) do
         \\    return 1;
@@ -24,7 +24,7 @@ pub fn main() !void {
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    try stdout.print("Result: {any}\n", .{result});
 
     try bw.flush(); // don't forget to flush!
 }

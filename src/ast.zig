@@ -1,13 +1,14 @@
 const std = @import("std");
 
 pub const Operator = enum {
-    plus,
-    star,
     eq,
     semicolon,
     comma,
     lparen,
     rparen,
+    plus,
+    minus,
+    star,
     let,
     do,
     end,
