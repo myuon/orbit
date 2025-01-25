@@ -1,13 +1,25 @@
 const std = @import("std");
-const lexer = @import("lexer.zig");
+const compiler = @import("compiler.zig");
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    var c = compiler.Compiler.init();
+    c.evalModule(
+        \\fun fib(x) do
+        \\  if (x == 0) do
+        \\    return 1;
+        \\  end
+        \\  if (x == 1) do
+        \\    return 1;
+        \\  end
+        \\
+        \\  return fib(x - 1) + fib(x - 2);
+        \\end
+        \\
+        \\fun main() do
+        \\  return fib(30);
+        \\end
+    );
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
     const stdout_file = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();

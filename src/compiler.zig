@@ -6,16 +6,16 @@ const parser = @import("parser.zig");
 
 const Allocator = std.heap.page_allocator;
 
-const EvalError = error{
+pub const EvalError = error{
     VariableNotFound,
     UnexpectedNilValue,
 };
 
-const Compiler = struct {
+pub const Compiler = struct {
     env: std.StringHashMap(usize),
     module: ?ast.Module,
 
-    fn init() Compiler {
+    pub fn init() Compiler {
         return Compiler{ .env = std.StringHashMap(usize).init(Allocator), .module = null };
     }
 
@@ -37,7 +37,7 @@ const Compiler = struct {
         return try self.evalBlockFromAst(tree);
     }
 
-    fn evalModule(self: *Compiler, str: []const u8) anyerror!?usize {
+    pub fn evalModule(self: *Compiler, str: []const u8) anyerror!?usize {
         var l = lexer.Lexer{ .source = str, .position = 0 };
         const tokens = try l.run();
         var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
@@ -156,9 +156,17 @@ test {
 }
 
 test "compiler.evalExpr" {
-    var c = Compiler.init();
+    const cases = comptime [_]struct {
+        program: []const u8,
+        expected: usize,
+    }{
+        .{ .program = "1 + 2 * 3 + 4", .expected = 11 },
+    };
 
-    try std.testing.expectEqual(11, try c.evalExpr("1 + 2 * 3 + 4"));
+    for (cases) |case| {
+        var c = Compiler.init();
+        try std.testing.expectEqual(case.expected, try c.evalExpr(case.program));
+    }
 }
 
 test "compiler.evalBlock" {
