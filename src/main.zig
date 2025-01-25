@@ -27,6 +27,5 @@ test "simple test" {
 test {
     _ = @import("utils.zig");
     _ = @import("ast.zig");
-    _ = @import("lexer.zig");
-    _ = @import("parser.zig");
+    _ = @import("compiler.zig");
 }

@@ -64,16 +64,16 @@ const Lexer = struct {
     }
 
     fn consume_token(self: *Lexer) ?ast.Token {
-        const tokenTable = comptime [_]struct { str: []const u8, lexeme: ast.Lexeme }{
-            .{ .str = "+", .lexeme = ast.Lexeme.Plus },
-            .{ .str = "*", .lexeme = ast.Lexeme.Star },
-            .{ .str = "let", .lexeme = ast.Lexeme.Let },
+        const tokenTable = comptime [_]struct { str: []const u8, operator: ast.Operator }{
+            .{ .str = "+", .operator = ast.Operator.plus },
+            .{ .str = "*", .operator = ast.Operator.star },
+            .{ .str = "let", .operator = ast.Operator.let },
         };
 
         for (tokenTable) |token| {
             if (utils.startsWith(self.source[self.position..], token.str)) {
                 self.position += token.str.len;
-                return ast.Token{ .lexeme = token.lexeme };
+                return ast.Token{ .keyword = token.operator };
             }
         }
 
@@ -94,7 +94,7 @@ const Lexer = struct {
             }
 
             if (self.consume_number()) |number| {
-                try tokens.append(ast.Token{ .lexeme = ast.Lexeme.Number, .number = number });
+                try tokens.append(ast.Token{ .number = number });
                 continue;
             }
 
@@ -111,11 +111,11 @@ test "lexer" {
 
     var expected = std.ArrayList(ast.Token).init(std.testing.allocator);
     defer expected.deinit();
-    try expected.append(ast.Token{ .lexeme = ast.Lexeme.Number, .number = 1 });
-    try expected.append(ast.Token{ .lexeme = ast.Lexeme.Plus });
-    try expected.append(ast.Token{ .lexeme = ast.Lexeme.Number, .number = 20 });
-    try expected.append(ast.Token{ .lexeme = ast.Lexeme.Star });
-    try expected.append(ast.Token{ .lexeme = ast.Lexeme.Number, .number = 300 });
+    try expected.append(ast.Token{ .number = 1 });
+    try expected.append(ast.Token{ .keyword = ast.Operator.plus });
+    try expected.append(ast.Token{ .number = 20 });
+    try expected.append(ast.Token{ .keyword = ast.Operator.star });
+    try expected.append(ast.Token{ .number = 300 });
 
     try std.testing.expectEqualSlices(ast.Token, expected.items, result.items);
 }

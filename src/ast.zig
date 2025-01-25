@@ -1,8 +1,43 @@
 const std = @import("std");
 
-pub const Lexeme = enum { Plus, Star, Let, Number };
+pub const Operator = enum {
+    plus,
+    star,
+    let,
+};
 
-pub const Token = struct {
-    lexeme: Lexeme,
-    number: ?u32 = null,
+pub const TokenType = enum {
+    keyword,
+    number,
+};
+
+pub const Token = union(TokenType) {
+    keyword: Operator,
+    number: u32,
+};
+
+pub const ExpressionType = enum {
+    literal,
+    binop,
+};
+
+pub const Expression = union(ExpressionType) {
+    literal: Literal,
+    binop: struct {
+        op: Operator,
+        lhs: *Expression,
+        rhs: *Expression,
+    },
+};
+
+pub const LiteralType = enum {
+    boolean,
+    number,
+    string,
+};
+
+pub const Literal = union(LiteralType) {
+    boolean: bool,
+    number: u32,
+    string: []const u8,
 };
