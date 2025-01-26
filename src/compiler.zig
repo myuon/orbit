@@ -17,12 +17,14 @@ pub const Compiler = struct {
     env: Env,
     module: ?ast.Module,
     has_returned: bool,
+    call_trace: std.StringHashMap(u32),
 
     pub fn init() Compiler {
         return Compiler{
             .env = Env.init(Allocator),
             .module = null,
             .has_returned = false,
+            .call_trace = std.StringHashMap(u32).init(Allocator),
         };
     }
 
@@ -179,6 +181,16 @@ pub const Compiler = struct {
                     }
                 },
             }
+        }
+
+        if (self.call_trace.get(name)) |count| {
+            if (count == 10) {
+                std.debug.print("Function {s} is marked as a heavy function\n", .{name});
+            }
+
+            try self.call_trace.put(name, count + 1);
+        } else {
+            try self.call_trace.put(name, 1);
         }
 
         const envCloned = try self.env.clone();
