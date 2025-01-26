@@ -12,14 +12,21 @@ pub const EvalError = error{
 };
 
 pub const Compiler = struct {
-    env: std.StringHashMap(usize),
+    const Env = std.StringHashMap(ast.Value);
+
+    env: Env,
     module: ?ast.Module,
+    has_returned: bool,
 
     pub fn init() Compiler {
-        return Compiler{ .env = std.StringHashMap(usize).init(Allocator), .module = null };
+        return Compiler{
+            .env = Env.init(Allocator),
+            .module = null,
+            .has_returned = false,
+        };
     }
 
-    fn evalExpr(self: *Compiler, str: []const u8) anyerror!usize {
+    fn evalExpr(self: *Compiler, str: []const u8) anyerror!ast.Value {
         var l = lexer.Lexer{ .source = str, .position = 0 };
         const tokens = try l.run();
         var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
@@ -28,7 +35,7 @@ pub const Compiler = struct {
         return self.evalExprFromAst(tree);
     }
 
-    fn evalBlock(self: *Compiler, str: []const u8) anyerror!?usize {
+    fn evalBlock(self: *Compiler, str: []const u8) anyerror!?ast.Value {
         var l = lexer.Lexer{ .source = str, .position = 0 };
         const tokens = try l.run();
         var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
@@ -37,7 +44,7 @@ pub const Compiler = struct {
         return try self.evalBlockFromAst(tree);
     }
 
-    pub fn evalModule(self: *Compiler, str: []const u8) anyerror!?usize {
+    pub fn evalModule(self: *Compiler, str: []const u8) anyerror!?ast.Value {
         var l = lexer.Lexer{ .source = str, .position = 0 };
         const tokens = try l.run();
         var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
@@ -48,7 +55,7 @@ pub const Compiler = struct {
         return try self.evalModuleFromAst("main");
     }
 
-    fn evalExprFromAst(self: *Compiler, expr: ast.Expression) anyerror!usize {
+    fn evalExprFromAst(self: *Compiler, expr: ast.Expression) anyerror!ast.Value {
         switch (expr) {
             .var_ => |v| {
                 if (self.env.get(v)) |value| {
@@ -61,7 +68,7 @@ pub const Compiler = struct {
             .literal => |lit| {
                 switch (lit) {
                     .number => |n| {
-                        return n;
+                        return ast.Value{ .i32_ = @intCast(n) };
                     },
                     else => {
                         unreachable;
@@ -71,20 +78,22 @@ pub const Compiler = struct {
             .binop => |binop| {
                 switch (binop.op) {
                     .plus => {
-                        return try self.evalExprFromAst(binop.lhs.*) + try self.evalExprFromAst(binop.rhs.*);
+                        const lhs = try self.evalExprFromAst(binop.lhs.*);
+                        const rhs = try self.evalExprFromAst(binop.rhs.*);
+                        return ast.Value{ .i32_ = try lhs.asI32() + try rhs.asI32() };
                     },
                     .minus => {
-                        return try self.evalExprFromAst(binop.lhs.*) - try self.evalExprFromAst(binop.rhs.*);
+                        const lhs = try self.evalExprFromAst(binop.lhs.*);
+                        const rhs = try self.evalExprFromAst(binop.rhs.*);
+                        return ast.Value{ .i32_ = try lhs.asI32() - try rhs.asI32() };
                     },
                     .star => {
-                        return try self.evalExprFromAst(binop.lhs.*) * try self.evalExprFromAst(binop.rhs.*);
+                        const lhs = try self.evalExprFromAst(binop.lhs.*);
+                        const rhs = try self.evalExprFromAst(binop.rhs.*);
+                        return ast.Value{ .i32_ = try lhs.asI32() * try rhs.asI32() };
                     },
                     .eqeq => {
-                        if (try self.evalExprFromAst(binop.lhs.*) == try self.evalExprFromAst(binop.rhs.*)) {
-                            return 1;
-                        } else {
-                            return 0;
-                        }
+                        return ast.Value{ .bool_ = std.meta.eql(try self.evalExprFromAst(binop.lhs.*), try self.evalExprFromAst(binop.rhs.*)) };
                     },
                     else => {
                         unreachable;
@@ -92,25 +101,20 @@ pub const Compiler = struct {
                 }
             },
             .call => |call| {
-                var args = std.ArrayList(usize).init(Allocator);
+                var args = std.ArrayList(ast.Value).init(Allocator);
                 defer args.deinit();
 
                 for (call.args) |arg| {
                     try args.append(try self.evalExprFromAst(arg));
                 }
 
-                const r = try self.callFunction(call.name, args.items);
-                if (r) |value| {
-                    return value;
-                } else {
-                    return error.UnexpectedNilValue;
-                }
+                return try self.callFunction(call.name, args.items);
             },
             .if_ => |if_| {
-                if (try self.evalExprFromAst(if_.cond.*) == 1) {
-                    return try self.evalBlockFromAst(if_.then_) orelse 0;
+                if (std.meta.eql(try self.evalExprFromAst(if_.cond.*), ast.Value{ .bool_ = true })) {
+                    return try self.evalBlockFromAst(if_.then_);
                 } else {
-                    return try self.evalBlockFromAst(if_.else_) orelse 0;
+                    return try self.evalBlockFromAst(if_.else_);
                 }
             },
             else => {
@@ -119,26 +123,27 @@ pub const Compiler = struct {
         }
     }
 
-    fn evalBlockFromAst(self: *Compiler, block: ast.Block) anyerror!?usize {
+    fn evalBlockFromAst(self: *Compiler, block: ast.Block) anyerror!ast.Value {
         for (block.statements) |stmt| {
             switch (stmt) {
                 .let => |let| {
                     try self.env.put(let.name, try self.evalExprFromAst(let.value));
                 },
                 .return_ => |val| {
+                    self.has_returned = true;
                     return try self.evalExprFromAst(val);
                 },
                 .if_ => |if_| {
-                    if (try self.evalExprFromAst(if_.cond.*) == 1) {
+                    if (std.meta.eql(try self.evalExprFromAst(if_.cond.*), ast.Value{ .bool_ = true })) {
                         const result = try self.evalBlockFromAst(if_.then_);
-                        if (result) |value| {
-                            return value;
+                        if (self.has_returned) {
+                            return result;
                         }
                     } else {
                         if (if_.else_) |else_| {
                             const result = try self.evalBlockFromAst(else_);
-                            if (result) |value| {
-                                return value;
+                            if (self.has_returned) {
+                                return result;
                             }
                         }
                     }
@@ -153,14 +158,14 @@ pub const Compiler = struct {
             return try self.evalExprFromAst(expr.*);
         }
 
-        return null;
+        return ast.Value{ .nil = true };
     }
 
-    fn evalModuleFromAst(self: *Compiler, entrypoint: []const u8) anyerror!?usize {
-        return self.callFunction(entrypoint, &[_]usize{});
+    fn evalModuleFromAst(self: *Compiler, entrypoint: []const u8) anyerror!ast.Value {
+        return self.callFunction(entrypoint, &[_]ast.Value{});
     }
 
-    fn callFunction(self: *Compiler, name: []const u8, args: []usize) anyerror!?usize {
+    fn callFunction(self: *Compiler, name: []const u8, args: []ast.Value) anyerror!ast.Value {
         var params: []const []const u8 = undefined;
         var body: ast.Block = undefined;
         for (self.module.?.decls) |decl| {
@@ -178,7 +183,12 @@ pub const Compiler = struct {
             try self.env.put(params[i], arg);
         }
 
-        return try self.evalBlockFromAst(body);
+        std.debug.print("Calling function: {s}({any})\n", .{ name, args });
+
+        const value = try self.evalBlockFromAst(body);
+        self.has_returned = false;
+
+        return value;
     }
 };
 

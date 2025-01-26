@@ -113,3 +113,33 @@ pub const Decl = union(DeclType) {
 pub const Module = struct {
     decls: []Decl,
 };
+
+pub const ValueError = error{
+    UnexpectedType,
+};
+
+pub const ValueType = enum {
+    nil,
+    i32_,
+    bool_,
+};
+
+pub const Value = union(ValueType) {
+    nil: bool,
+    i32_: i32,
+    bool_: bool,
+
+    pub fn asI32(self: Value) ValueError!i32 {
+        return switch (self) {
+            Value.i32_ => self.i32_,
+            else => error.UnexpectedType,
+        };
+    }
+
+    pub fn asBool(self: Value) ValueError!bool {
+        return switch (self) {
+            Value.bool_ => self.bool_,
+            else => error.UnexpectedType,
+        };
+    }
+};
