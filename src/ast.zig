@@ -7,6 +7,8 @@ pub const Operator = enum {
     comma,
     lparen,
     rparen,
+    langle,
+    rangle,
     plus,
     minus,
     star,
@@ -17,6 +19,7 @@ pub const Operator = enum {
     return_,
     if_,
     else_,
+    while_,
 };
 
 pub const TokenType = enum {
@@ -77,6 +80,8 @@ pub const StatementType = enum {
     return_,
     expr,
     if_,
+    assign,
+    while_,
 };
 
 pub const Statement = union(StatementType) {
@@ -90,6 +95,14 @@ pub const Statement = union(StatementType) {
         cond: *Expression,
         then_: Block,
         else_: ?Block,
+    },
+    assign: struct {
+        name: []const u8,
+        value: Expression,
+    },
+    while_: struct {
+        cond: *Expression,
+        body: Block,
     },
 };
 

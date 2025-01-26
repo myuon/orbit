@@ -246,15 +246,49 @@ pub const Parser = struct {
                                 } };
                             }
                         },
-                        else => {
-                            const e = try self.expr();
+                        .while_ => {
+                            const cond = try self.ast_arena_allocator.allocator().create(ast.Expression);
 
-                            return ast.Statement{ .expr = e };
+                            try self.expect(ast.Operator.while_);
+
+                            try self.expect(ast.Operator.lparen);
+                            cond.* = try self.expr();
+                            try self.expect(ast.Operator.rparen);
+
+                            try self.expect(ast.Operator.do);
+                            const body = try self.block(null);
+                            try self.expect(ast.Operator.end);
+
+                            return ast.Statement{ .while_ = .{
+                                .cond = cond,
+                                .body = body,
+                            } };
+                        },
+                        else => {
+                            unreachable;
                         },
                     }
                 },
                 else => {
                     const e = try self.expr();
+
+                    if (self.is_next(ast.Operator.eq)) {
+                        try self.expect(ast.Operator.eq);
+
+                        switch (e) {
+                            .var_ => |v| {
+                                const value = try self.expr();
+                                return ast.Statement{ .assign = .{
+                                    .name = v,
+                                    .value = value,
+                                } };
+                            },
+                            else => {
+                                std.debug.print("unexpected token: {any}\n", .{self.tokens[self.position..]});
+                                return error.UnexpectedToken;
+                            },
+                        }
+                    }
 
                     return ast.Statement{ .expr = e };
                 },
@@ -287,7 +321,7 @@ pub const Parser = struct {
     }
 
     fn expr0(self: *Parser) anyerror!ast.Expression {
-        var current = try self.expr1();
+        var current = try self.expr01();
 
         while (self.peek()) |token| {
             switch (token) {
@@ -297,13 +331,64 @@ pub const Parser = struct {
                             try self.expect(ast.Operator.eqeq);
 
                             const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            rhs.* = try self.expr1();
+                            rhs.* = try self.expr01();
 
                             const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
                             newCurrent.* = current;
 
                             current = ast.Expression{ .binop = .{
                                 .op = .eqeq,
+                                .lhs = newCurrent,
+                                .rhs = rhs,
+                            } };
+                        },
+                        else => {
+                            break;
+                        },
+                    }
+                },
+                else => {
+                    break;
+                },
+            }
+        }
+
+        return current;
+    }
+
+    fn expr01(self: *Parser) anyerror!ast.Expression {
+        var current = try self.expr1();
+
+        while (self.peek()) |token| {
+            switch (token) {
+                .keyword => |op| {
+                    switch (op) {
+                        .langle => {
+                            try self.expect(ast.Operator.langle);
+
+                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                            rhs.* = try self.expr1();
+
+                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                            newCurrent.* = current;
+
+                            current = ast.Expression{ .binop = .{
+                                .op = .langle,
+                                .lhs = newCurrent,
+                                .rhs = rhs,
+                            } };
+                        },
+                        .rangle => {
+                            try self.expect(ast.Operator.rangle);
+
+                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                            rhs.* = try self.expr1();
+
+                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                            newCurrent.* = current;
+
+                            current = ast.Expression{ .binop = .{
+                                .op = .rangle,
                                 .lhs = newCurrent,
                                 .rhs = rhs,
                             } };

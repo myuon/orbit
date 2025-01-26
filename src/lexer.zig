@@ -87,6 +87,8 @@ pub const Lexer = struct {
             .{ .str = "=", .operator = ast.Operator.eq },
             .{ .str = "(", .operator = ast.Operator.lparen },
             .{ .str = ")", .operator = ast.Operator.rparen },
+            .{ .str = "<", .operator = ast.Operator.langle },
+            .{ .str = ">", .operator = ast.Operator.rangle },
             .{ .str = "let", .operator = ast.Operator.let },
             .{ .str = "do", .operator = ast.Operator.do },
             .{ .str = "end", .operator = ast.Operator.end },
@@ -94,6 +96,7 @@ pub const Lexer = struct {
             .{ .str = "return", .operator = ast.Operator.return_ },
             .{ .str = "if", .operator = ast.Operator.if_ },
             .{ .str = "else", .operator = ast.Operator.else_ },
+            .{ .str = "while", .operator = ast.Operator.while_ },
         };
 
         for (tokenTable) |token| {

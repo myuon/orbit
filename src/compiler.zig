@@ -238,6 +238,9 @@ pub const Compiler = struct {
                     }
                     try buffer.append(ast.Instruction{ .label = label_ifend });
                 },
+                else => {
+                    unreachable;
+                },
             }
         }
     }
@@ -455,6 +458,16 @@ pub const Compiler = struct {
                     .eqeq => {
                         return ast.Value{ .bool_ = std.meta.eql(try self.evalExprFromAst(binop.lhs.*), try self.evalExprFromAst(binop.rhs.*)) };
                     },
+                    .langle => {
+                        const lhs = try self.evalExprFromAst(binop.lhs.*);
+                        const rhs = try self.evalExprFromAst(binop.rhs.*);
+                        return ast.Value{ .bool_ = try lhs.asI32() < try rhs.asI32() };
+                    },
+                    .rangle => {
+                        const lhs = try self.evalExprFromAst(binop.lhs.*);
+                        const rhs = try self.evalExprFromAst(binop.rhs.*);
+                        return ast.Value{ .bool_ = try lhs.asI32() > try rhs.asI32() };
+                    },
                     else => {
                         unreachable;
                     },
@@ -512,6 +525,22 @@ pub const Compiler = struct {
                 },
                 .expr => |expr| {
                     _ = try self.evalExprFromAst(expr);
+                },
+                .assign => |assign| {
+                    try self.env.put(assign.name, try self.evalExprFromAst(assign.value));
+                },
+                .while_ => |while_| {
+                    while (true) {
+                        const cond = try self.evalExprFromAst(while_.cond.*);
+                        if (!try cond.asBool()) {
+                            break;
+                        }
+
+                        const result = try self.evalBlockFromAst(while_.body);
+                        if (self.has_returned) {
+                            return result;
+                        }
+                    }
                 },
             }
         }
@@ -805,6 +834,14 @@ test "compiler.evalBlock" {
             ,
             .expected = 5,
         },
+        .{
+            .program =
+            \\let x = 2;
+            \\x = 5;
+            \\x
+            ,
+            .expected = 5,
+        },
     };
 
     for (cases) |case| {
@@ -849,6 +886,21 @@ test "compiler.evalModule" {
             \\end
             ,
             .expected = 55,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  let s = 0;
+            \\  let n = 0;
+            \\  while (n < 10) do
+            \\    s = s + n;
+            \\    n = n + 1;
+            \\  end
+            \\
+            \\  return s;
+            \\end
+            ,
+            .expected = 45,
         },
     };
 
