@@ -24,10 +24,10 @@ pub const Compiler = struct {
     allocator: std.mem.Allocator,
     ast_arena_allocator: std.heap.ArenaAllocator,
     compiling_context: []const u8,
-    random: std.Random,
+    prng: std.Random.Xoshiro256,
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
-        var prng = std.rand.DefaultPrng.init(blk: {
+        const prng = std.rand.DefaultPrng.init(blk: {
             var seed: u64 = undefined;
             std.posix.getrandom(std.mem.asBytes(&seed)) catch unreachable;
             break :blk seed;
@@ -42,7 +42,7 @@ pub const Compiler = struct {
             .allocator = allocator,
             .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .compiling_context = "",
-            .random = prng.random(),
+            .prng = prng,
         };
     }
 
@@ -177,7 +177,7 @@ pub const Compiler = struct {
             .if_ => |if_| {
                 try self.compileExprFromAst(buffer, if_.cond.*);
 
-                const id = self.random.int(u32);
+                const id = self.prng.random().int(u32);
 
                 const label_ifthen = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_then_{d}", .{id});
                 const label_ifelse = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_else_{d}", .{id});
@@ -222,11 +222,11 @@ pub const Compiler = struct {
                 .if_ => |if_| {
                     try self.compileExprFromAst(buffer, if_.cond.*);
 
-                    const id = self.random.int(u32);
+                    const id = self.prng.random().int(u32);
 
-                    const label_ifthen = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_then_{s}", .{id});
-                    const label_ifelse = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_else_{s}", .{id});
-                    const label_ifend = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_end_{s}", .{id});
+                    const label_ifthen = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_then_{d}", .{id});
+                    const label_ifelse = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_else_{d}", .{id});
+                    const label_ifend = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_end_{d}", .{id});
 
                     try buffer.append(ast.Instruction{ .jump_ifzero = label_ifelse });
                     try buffer.append(ast.Instruction{ .label = label_ifthen });
@@ -255,27 +255,19 @@ pub const Compiler = struct {
             }
         }
 
-        var updater = std.AutoHashMap(usize, ast.Instruction).init(self.allocator);
-        defer updater.deinit();
-
         for (prog, 0..) |inst, i| {
             switch (inst) {
                 .jump => |label| {
-                    try updater.put(i, ast.Instruction{ .jump_d = labels.get(label).? });
+                    prog[i] = ast.Instruction{ .jump_d = labels.get(label).? };
                 },
                 .jump_ifzero => |label| {
-                    try updater.put(i, ast.Instruction{ .jump_ifzero_d = labels.get(label).? });
+                    prog[i] = ast.Instruction{ .jump_ifzero_d = labels.get(label).? };
                 },
                 .label => {
-                    try updater.put(i, ast.Instruction{ .nop = true });
+                    prog[i] = ast.Instruction{ .nop = true };
                 },
                 else => {},
             }
-        }
-
-        var iter = updater.iterator();
-        while (iter.next()) |entry| {
-            prog[entry.key_ptr.*] = entry.value_ptr.*;
         }
     }
 
@@ -590,7 +582,7 @@ pub const Compiler = struct {
 
                 var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
                 try self.compileBlockFromAst(&buffer, body);
-                try self.resolveIrLabels(buffer.items);
+                // try self.resolveIrLabels(buffer.items);
                 const ir = buffer.items;
 
                 self.compiling_context = "";
