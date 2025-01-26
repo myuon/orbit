@@ -448,6 +448,45 @@ pub const Compiler = struct {
         return self.callFunction(entrypoint, &[_]ast.Value{});
     }
 
+    fn callIrFunction(
+        self: *Compiler,
+        name: []const u8,
+        params: []const []const u8,
+        ir: []ast.Instruction,
+        args: []ast.Value,
+    ) anyerror!ast.Value {
+        var stack = std.ArrayList(i32).init(self.allocator);
+        defer stack.deinit();
+
+        var address_map = std.StringHashMap(i32).init(self.allocator);
+        defer address_map.deinit();
+
+        const l: i32 = @intCast(args.len);
+        try address_map.put("return", -2 - l - 1);
+        try stack.append(-2); // return value
+
+        for (args, 0..) |arg, i| {
+            const k: i32 = @intCast(args.len - i);
+            try address_map.put(params[i], -2 - k);
+            try stack.append(try arg.asI32());
+        }
+
+        try stack.append(-1); // pc
+        try stack.append(0); // bp
+
+        var bp = stack.items.len;
+
+        try Compiler.runVm(
+            ir,
+            name,
+            &stack,
+            &bp,
+            address_map,
+        );
+
+        return ast.Value{ .i32_ = stack.items[0] };
+    }
+
     fn callFunction(self: *Compiler, name: []const u8, args: []ast.Value) anyerror!ast.Value {
         var params: []const []const u8 = undefined;
         var body: ast.Block = undefined;
@@ -463,85 +502,25 @@ pub const Compiler = struct {
         }
 
         if (self.ir_cache.get(name)) |prog| {
-            var stack = std.ArrayList(i32).init(self.allocator);
-            defer stack.deinit();
-
-            var address_map = std.StringHashMap(i32).init(self.allocator);
-            defer address_map.deinit();
-
-            const l: i32 = @intCast(args.len);
-            try address_map.put("return", -2 - l - 1);
-            try stack.append(-2); // return value
-
-            for (args, 0..) |arg, i| {
-                const k: i32 = @intCast(args.len - i);
-                try address_map.put(params[i], -2 - k);
-                try stack.append(try arg.asI32());
-            }
-
-            try stack.append(-1); // pc
-            try stack.append(0); // bp
-
-            var bp = stack.items.len;
-
-            try Compiler.runVm(
-                prog,
-                name,
-                &stack,
-                &bp,
-                address_map,
-            );
-
-            const value = ast.Value{ .i32_ = stack.items[0] };
-
-            std.debug.print("Calling function [Compiled+Cached]: {s}({any}) -> {any}\n", .{ name, args, value });
-
+            const value = self.callIrFunction(name, params, prog, args);
             return value;
         }
 
         if (self.call_trace.get(name)) |count| {
-            if (count == 2) {
+            if (count == 5) {
+                const start = try std.time.Instant.now();
                 std.debug.print("Start compiling: {s}\n", .{name});
 
                 var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
-
                 try self.compileBlockFromAst(&buffer, body);
+                const ir = buffer.items;
 
-                std.debug.print("Compiled: {s}\n", .{name});
+                const end = try std.time.Instant.now();
+                const elapsed: f64 = @floatFromInt(end.since(start));
+                std.debug.print("Compiled in {d:.3}ms: {s}\n", .{ elapsed / std.time.ns_per_ms, name });
 
-                var stack = std.ArrayList(i32).init(self.allocator);
-                defer stack.deinit();
-
-                var address_map = std.StringHashMap(i32).init(self.allocator);
-                defer address_map.deinit();
-
-                const l: i32 = @intCast(args.len);
-                try address_map.put("return", -2 - l - 1);
-                try stack.append(-2); // return value
-
-                for (args, 0..) |arg, i| {
-                    const k: i32 = @intCast(args.len - i);
-                    try address_map.put(params[i], -2 - k);
-                    try stack.append(try arg.asI32());
-                }
-
-                try stack.append(-1); // pc
-                try stack.append(0); // bp
-
-                var bp = stack.items.len;
-
-                try Compiler.runVm(
-                    buffer.items,
-                    name,
-                    &stack,
-                    &bp,
-                    address_map,
-                );
-
-                const value = ast.Value{ .i32_ = stack.items[0] };
-
-                std.debug.print("Calling function [Compiled]: {s}({any}) -> {any}\n", .{ name, args, value });
-                try self.ir_cache.put(name, buffer.items);
+                const value = self.callIrFunction(name, params, ir, args);
+                try self.ir_cache.put(name, ir);
 
                 return value;
             }
@@ -562,8 +541,6 @@ pub const Compiler = struct {
 
         self.env.clearAndFree();
         self.env = envCloned;
-
-        std.debug.print("Calling function: {s}({any}) -> {any}\n", .{ name, args, value });
 
         return value;
     }
