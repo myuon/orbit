@@ -34,8 +34,16 @@ pub const Compiler = struct {
         };
     }
 
+    pub fn deinit(self: *Compiler) void {
+        self.env.deinit();
+        self.call_trace.deinit();
+        self.ir_cache.deinit();
+    }
+
     fn evalExpr(self: *Compiler, str: []const u8) anyerror!ast.Value {
-        var l = lexer.Lexer{ .source = str, .position = 0 };
+        var l = lexer.Lexer.init(Allocator, str);
+        defer l.deinit();
+
         const tokens = try l.run();
         var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
         const tree = try p.expr();
@@ -44,7 +52,9 @@ pub const Compiler = struct {
     }
 
     fn evalBlock(self: *Compiler, str: []const u8) anyerror!?ast.Value {
-        var l = lexer.Lexer{ .source = str, .position = 0 };
+        var l = lexer.Lexer.init(Allocator, str);
+        defer l.deinit();
+
         const tokens = try l.run();
         var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
         const tree = try p.block(null);
@@ -53,7 +63,9 @@ pub const Compiler = struct {
     }
 
     pub fn evalModule(self: *Compiler, str: []const u8) anyerror!?ast.Value {
-        var l = lexer.Lexer{ .source = str, .position = 0 };
+        var l = lexer.Lexer.init(Allocator, str);
+        defer l.deinit();
+
         const tokens = try l.run();
         var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
         const tree = try p.module();
@@ -583,7 +595,9 @@ test "compiler.parse_err" {
     };
 
     for (cases) |case| {
-        var l = lexer.Lexer{ .source = case.program, .position = 0 };
+        var l = lexer.Lexer.init(std.testing.allocator, case.program);
+        defer l.deinit();
+
         const tokens = try l.run();
         var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
 
@@ -657,7 +671,9 @@ test "compiler.parseStatement" {
     };
 
     for (cases) |case| {
-        var l = lexer.Lexer{ .source = case.program, .position = 0 };
+        var l = lexer.Lexer.init(std.testing.allocator, case.program);
+        defer l.deinit();
+
         const tokens = try l.run();
         var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
         const e = try p.statement();

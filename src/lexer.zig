@@ -2,15 +2,28 @@ const std = @import("std");
 const utils = @import("utils.zig");
 const ast = @import("ast.zig");
 
-const Allocator = std.heap.page_allocator;
-
 pub const LexerError = error{
     UnexpectedToken,
 };
 
 pub const Lexer = struct {
+    allocator: std.mem.Allocator,
+    astArenaAllocator: std.heap.ArenaAllocator,
     source: []const u8,
     position: usize,
+
+    pub fn init(allocator: std.mem.Allocator, source: []const u8) Lexer {
+        return Lexer{
+            .allocator = allocator,
+            .astArenaAllocator = std.heap.ArenaAllocator.init(allocator),
+            .source = source,
+            .position = 0,
+        };
+    }
+
+    pub fn deinit(self: *Lexer) void {
+        self.astArenaAllocator.deinit();
+    }
 
     fn peek(self: *Lexer) ?u8 {
         if (self.position >= self.source.len) {
@@ -110,7 +123,7 @@ pub const Lexer = struct {
     }
 
     pub fn run(self: *Lexer) anyerror!std.ArrayList(ast.Token) {
-        var tokens = std.ArrayList(ast.Token).init(Allocator);
+        var tokens = std.ArrayList(ast.Token).init(self.astArenaAllocator.allocator());
 
         while (self.position < self.source.len) {
             if (self.consume_spaces() > 0) {
@@ -141,7 +154,9 @@ pub const Lexer = struct {
 };
 
 test "lexer" {
-    var lexer = Lexer{ .source = "1 + 20 * 300", .position = 0 };
+    var lexer = Lexer.init(std.testing.allocator, "1 + 20 * 300");
+    defer lexer.deinit();
+
     const result = try lexer.run();
 
     var expected = std.ArrayList(ast.Token).init(std.testing.allocator);
