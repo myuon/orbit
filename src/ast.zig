@@ -179,6 +179,8 @@ pub const InstructionType = enum {
     set_sp,
     jump_d,
     jump_ifzero_d,
+    get_local_d,
+    set_local_d,
     nop,
 };
 
@@ -202,5 +204,7 @@ pub const Instruction = union(InstructionType) {
     set_sp: bool,
     jump_d: usize,
     jump_ifzero_d: usize,
+    get_local_d: i32,
+    set_local_d: i32,
     nop: bool,
 };

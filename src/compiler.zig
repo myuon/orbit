@@ -274,6 +274,50 @@ pub const Compiler = struct {
         }
     }
 
+    fn resolveLocalAddresses(self: *Compiler, env: std.StringHashMap(i32), prog: []ast.Instruction) anyerror!void {
+        var index: i32 = 0;
+        var variables = std.StringHashMap(i32).init(self.allocator);
+        defer variables.deinit();
+
+        for (prog) |inst| {
+            switch (inst) {
+                .set_local => |name| {
+                    if (variables.getKey(name)) |_| {} else {
+                        try variables.put(name, index);
+                        index += 1;
+                    }
+                },
+                else => {},
+            }
+        }
+
+        for (prog, 0..) |inst, i| {
+            switch (inst) {
+                .set_local => |name| {
+                    if (env.get(name)) |k| {
+                        prog[i] = ast.Instruction{ .set_local_d = k };
+                    } else if (variables.get(name)) |k| {
+                        prog[i] = ast.Instruction{ .set_local_d = k };
+                    } else {
+                        std.debug.print("Variable not found: {s}\n", .{name});
+                        return error.CannotCompileToIr;
+                    }
+                },
+                .get_local => |name| {
+                    if (env.get(name)) |k| {
+                        prog[i] = ast.Instruction{ .get_local_d = k };
+                    } else if (variables.get(name)) |k| {
+                        prog[i] = ast.Instruction{ .get_local_d = k };
+                    } else {
+                        std.debug.print("Variable not found: {s}\n", .{name});
+                        return error.CannotCompileToIr;
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+
     fn runVm(
         program: []ast.Instruction,
         stack: *std.ArrayList(i32),
@@ -387,6 +431,18 @@ pub const Compiler = struct {
                     const index = address_map.get(name).?;
                     const b: i32 = @intCast(bp.*);
                     stack.items[@intCast(b + index)] = value;
+                    pc += 1;
+                },
+                .get_local_d => |k| {
+                    const b: i32 = @intCast(bp.*);
+                    const value = stack.items[@intCast(b + k)];
+                    try stack.append(value);
+                    pc += 1;
+                },
+                .set_local_d => |k| {
+                    const value = stack.pop();
+                    const b: i32 = @intCast(bp.*);
+                    stack.items[@intCast(b + k)] = value;
                     pc += 1;
                 },
                 .label => {
@@ -619,9 +675,21 @@ pub const Compiler = struct {
 
                 self.compiling_context = name;
 
+                var env = std.StringHashMap(i32).init(self.allocator);
+                defer env.deinit();
+
+                const l: i32 = @intCast(args.len);
+                try env.put("return", -2 - l - 1);
+
+                for (args, 0..) |_, i| {
+                    const k: i32 = @intCast(args.len - i);
+                    try env.put(params[i], -2 - k);
+                }
+
                 var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
                 try self.compileBlockFromAst(&buffer, body);
                 try self.resolveIrLabels(buffer.items);
+                try self.resolveLocalAddresses(env, buffer.items);
                 const ir = buffer.items;
 
                 self.compiling_context = "";
