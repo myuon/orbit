@@ -32,7 +32,7 @@ pub const Compiler = struct {
         var l = lexer.Lexer{ .source = str, .position = 0 };
         const tokens = try l.run();
         var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
-        const tree = try p.block();
+        const tree = try p.block(null);
 
         return try self.evalBlockFromAst(tree);
     }
@@ -176,6 +176,121 @@ test {
     _ = @import("parser.zig");
 }
 
+test "compiler.parse_err" {
+    const cases = comptime [_]struct {
+        program: []const u8,
+        err: ?anyerror,
+    }{
+        .{
+            .program =
+            \\fun f(x) do
+            \\  let y = 10;
+            \\
+            \\  return x + y;
+            \\end
+            \\
+            \\fun main() do
+            \\  return f(3);
+            \\end
+            ,
+            .err = null,
+        },
+        .{
+            .program =
+            \\fun f(x) do
+            \\  if (x == 0) do
+            \\    return 1;
+            \\  end
+            \\end
+            ,
+            .err = null,
+        },
+    };
+
+    for (cases) |case| {
+        var l = lexer.Lexer{ .source = case.program, .position = 0 };
+        const tokens = try l.run();
+        var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
+
+        if (case.err != null) {
+            _ = p.module() catch |err| {
+                try std.testing.expectEqual(err, case.err);
+            };
+        } else {
+            _ = p.module() catch |err| {
+                std.debug.print("Unexpected error: {any}\n", .{err});
+                try std.testing.expect(false);
+            };
+        }
+    }
+}
+
+test "compiler.parseExpression" {
+    const cases = comptime [_]struct {
+        program: []const u8,
+        expr: ast.Expression,
+    }{
+        .{
+            .program =
+            \\if (x == 1) do
+            \\  return 1;
+            \\end
+            ,
+            .expr = ast.Expression{ .if_ = .{
+                .cond = @constCast(&ast.Expression{ .binop = .{
+                    .op = ast.Operator.eqeq,
+                    .lhs = @constCast(&ast.Expression{ .var_ = "x" }),
+                    .rhs = @constCast(&ast.Expression{ .literal = ast.Literal{ .number = 1 } }),
+                } }),
+                .then_ = .{
+                    .statements = @constCast(&[_]ast.Statement{
+                        ast.Statement{ .return_ = ast.Expression{ .literal = ast.Literal{ .number = 1 } } },
+                    }),
+                    .expr = null,
+                },
+                .else_ = null,
+            } },
+        },
+        .{
+            .program =
+            \\if (x == 1) do
+            \\  return 1;
+            \\else
+            \\  return 2;
+            \\end
+            ,
+            .expr = ast.Expression{ .if_ = .{
+                .cond = @constCast(&ast.Expression{ .binop = .{
+                    .op = ast.Operator.eqeq,
+                    .lhs = @constCast(&ast.Expression{ .var_ = "x" }),
+                    .rhs = @constCast(&ast.Expression{ .literal = ast.Literal{ .number = 1 } }),
+                } }),
+                .then_ = .{
+                    .statements = @constCast(&[_]ast.Statement{
+                        ast.Statement{ .return_ = ast.Expression{ .literal = ast.Literal{ .number = 1 } } },
+                    }),
+                    .expr = null,
+                },
+                .else_ = ast.Block{
+                    .statements = @constCast(&[_]ast.Statement{
+                        ast.Statement{ .return_ = ast.Expression{ .literal = ast.Literal{ .number = 2 } } },
+                    }),
+                    .expr = null,
+                },
+            } },
+        },
+    };
+
+    for (cases) |case| {
+        var l = lexer.Lexer{ .source = case.program, .position = 0 };
+        const tokens = try l.run();
+        var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
+        const e = try p.expr();
+
+        try std.testing.expectEqualDeep(case.expr, e);
+    }
+}
+
 test "compiler.evalExpr" {
     const cases = comptime [_]struct {
         program: []const u8,
@@ -199,43 +314,23 @@ test "compiler.evalBlock" {
     }{
         .{
             .program =
-            \\do
-            \\  let x = 1;
-            \\  let y = 2;
-            \\  x + y
-            \\end
+            \\let x = 1;
+            \\let y = 2;
+            \\x + y
             ,
             .expected = 3,
         },
         .{
             .program =
-            \\do
-            \\  let x = 1;
+            \\let x = 1;
             \\
-            \\  if (x == 1) do
-            \\    3
-            \\  end else do
-            \\    4
-            \\  end
-            \\end
-            ,
-            .expected = 3,
-        },
-        .{
-            .program =
-            \\do
-            \\  let x = 2;
+            \\let y = if (x == 1) do
+            \\  3
+            \\else
+            \\  4
+            \\end;
             \\
-            \\  if (x == 1) do
-            \\    3
-            \\  end else do
-            \\    4
-            \\  end
-            \\
-            \\  if (x == 2) do
-            \\    5
-            \\  end
-            \\end
+            \\y
             ,
             .expected = 3,
         },

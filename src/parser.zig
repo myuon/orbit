@@ -114,7 +114,9 @@ pub const Parser = struct {
                             }
                             try self.expect(ast.Operator.rparen);
 
-                            const body = try self.block();
+                            try self.expect(ast.Operator.do);
+                            const body = try self.block(null);
+                            try self.expect(ast.Operator.end);
 
                             return ast.Decl{ .fun = .{
                                 .name = name,
@@ -123,6 +125,7 @@ pub const Parser = struct {
                             } };
                         },
                         else => {
+                            std.debug.print("unexpected token: {any}\n", .{self.tokens[self.position..]});
                             return error.UnexpectedToken;
                         },
                     }
@@ -137,13 +140,11 @@ pub const Parser = struct {
         return error.UnexpectedToken;
     }
 
-    pub fn block(self: *Parser) anyerror!ast.Block {
+    pub fn block(self: *Parser, endOp: ?ast.Operator) anyerror!ast.Block {
         var statements = std.ArrayList(ast.Statement).init(Allocator);
 
-        try self.expect(ast.Operator.do);
-
         while (self.can_peek()) {
-            if (self.is_next(ast.Operator.end)) {
+            if (self.is_next(ast.Operator.end) or (endOp != null and self.is_next(endOp.?))) {
                 break;
             }
 
@@ -180,8 +181,6 @@ pub const Parser = struct {
                 continue;
             }
         }
-
-        try self.expect(ast.Operator.end);
 
         return ast.Block{ .statements = statements.items, .expr = null };
     }
@@ -229,7 +228,9 @@ pub const Parser = struct {
                 .keyword => |op| {
                     switch (op) {
                         .do => {
-                            const b = try self.block();
+                            try self.expect(ast.Operator.do);
+                            const b = try self.block(null);
+                            try self.expect(ast.Operator.end);
 
                             return ast.Expression{ .block = b };
                         },
@@ -421,12 +422,13 @@ pub const Parser = struct {
             cond.* = try self.expr();
             try self.expect(ast.Operator.rparen);
 
-            const then_ = try self.block();
+            try self.expect(ast.Operator.do);
+            const then_ = try self.block(ast.Operator.else_);
 
             if (self.is_next(ast.Operator.else_)) {
                 try self.expect(ast.Operator.else_);
-
-                const else_ = try self.block();
+                const else_ = try self.block(null);
+                try self.expect(ast.Operator.end);
 
                 return ast.Expression{ .if_ = .{
                     .cond = cond,
@@ -434,6 +436,7 @@ pub const Parser = struct {
                     .else_ = else_,
                 } };
             } else {
+                try self.expect(ast.Operator.end);
                 return ast.Expression{ .if_ = .{
                     .cond = cond,
                     .then_ = then_,
@@ -442,6 +445,7 @@ pub const Parser = struct {
             }
         }
 
+        std.debug.print("unexpected token: {any}\n", .{self.tokens[self.position..]});
         unreachable;
     }
 
@@ -464,44 +468,54 @@ pub const Parser = struct {
 };
 
 test "parser" {
-    var tokens = [_]ast.Token{
-        .{ .number = 1 },
-        .{ .keyword = ast.Operator.plus },
-        .{ .number = 2 },
-        .{ .keyword = ast.Operator.star },
-        .{ .number = 3 },
-        .{ .keyword = ast.Operator.plus },
-        .{ .number = 4 },
-    };
-
-    var parser = Parser{ .tokens = tokens[0..], .position = 0 };
-    const expr = parser.expr();
-
-    try std.testing.expectEqualDeep(ast.Expression{
-        .binop = .{
-            .op = ast.Operator.plus,
-            .lhs = @constCast(&ast.Expression{
+    const cases = comptime [_]struct {
+        tokens: []ast.Token,
+        expected: ast.Expression,
+    }{
+        .{
+            .tokens = @constCast(&[_]ast.Token{
+                .{ .number = 1 },
+                .{ .keyword = ast.Operator.plus },
+                .{ .number = 2 },
+                .{ .keyword = ast.Operator.star },
+                .{ .number = 3 },
+                .{ .keyword = ast.Operator.plus },
+                .{ .number = 4 },
+            }),
+            .expected = ast.Expression{
                 .binop = .{
                     .op = ast.Operator.plus,
                     .lhs = @constCast(&ast.Expression{
-                        .literal = ast.Literal{ .number = 1 },
-                    }),
-                    .rhs = @constCast(&ast.Expression{
                         .binop = .{
-                            .op = ast.Operator.star,
+                            .op = ast.Operator.plus,
                             .lhs = @constCast(&ast.Expression{
-                                .literal = ast.Literal{ .number = 2 },
+                                .literal = ast.Literal{ .number = 1 },
                             }),
                             .rhs = @constCast(&ast.Expression{
-                                .literal = ast.Literal{ .number = 3 },
+                                .binop = .{
+                                    .op = ast.Operator.star,
+                                    .lhs = @constCast(&ast.Expression{
+                                        .literal = ast.Literal{ .number = 2 },
+                                    }),
+                                    .rhs = @constCast(&ast.Expression{
+                                        .literal = ast.Literal{ .number = 3 },
+                                    }),
+                                },
                             }),
                         },
                     }),
+                    .rhs = @constCast(&ast.Expression{
+                        .literal = ast.Literal{ .number = 4 },
+                    }),
                 },
-            }),
-            .rhs = @constCast(&ast.Expression{
-                .literal = ast.Literal{ .number = 4 },
-            }),
+            },
         },
-    }, expr);
+    };
+
+    for (cases) |case| {
+        var parser = Parser{ .tokens = case.tokens, .position = 0 };
+        const expr = parser.expr();
+
+        try std.testing.expectEqualDeep(case.expected, expr);
+    }
 }
