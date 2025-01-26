@@ -191,7 +191,7 @@ pub const Compiler = struct {
         self.has_returned = false;
         self.env = envCloned;
 
-        std.debug.print("Calling function: {s}({any}) -> {any}\n", .{ name, args, value });
+        // std.debug.print("Calling function: {s}({any}) -> {any}\n", .{ name, args, value });
 
         return value;
     }
