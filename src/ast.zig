@@ -173,7 +173,7 @@ pub const Instruction = union(InstructionType) {
     jump_ifzero: []const u8,
     add: bool,
     sub: bool,
-    call: []const u8,
+    call: usize,
     get_local: []const u8,
     set_local: []const u8,
     label: []const u8,

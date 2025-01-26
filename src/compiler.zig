@@ -23,6 +23,7 @@ pub const Compiler = struct {
     ir_cache: std.StringHashMap([]ast.Instruction),
     allocator: std.mem.Allocator,
     ast_arena_allocator: std.heap.ArenaAllocator,
+    compiling_context: []const u8,
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
         return Compiler{
@@ -33,6 +34,7 @@ pub const Compiler = struct {
             .ir_cache = std.StringHashMap([]ast.Instruction).init(allocator),
             .allocator = allocator,
             .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
+            .compiling_context = "",
         };
     }
 
@@ -154,7 +156,11 @@ pub const Compiler = struct {
                 try buffer.append(ast.Instruction{ .set_bp = true });
 
                 // call
-                try buffer.append(ast.Instruction{ .call = call.name });
+                if (std.mem.eql(u8, call.name, self.compiling_context)) {
+                    try buffer.append(ast.Instruction{ .call = 0 });
+                } else {
+                    return error.CannotCompileToIr;
+                }
 
                 for (call.args) |_| {
                     try buffer.append(ast.Instruction{ .pop = true });
@@ -218,7 +224,6 @@ pub const Compiler = struct {
 
     fn runVm(
         program: []ast.Instruction,
-        current_context: []const u8,
         stack: *std.ArrayList(i32),
         bp: *usize,
         address_map: std.StringHashMap(i32),
@@ -301,14 +306,8 @@ pub const Compiler = struct {
 
                     pc += 1;
                 },
-                .call => |name| {
-                    if (std.mem.eql(u8, name, current_context)) {
-                        pc = 0;
-                        continue;
-                    }
-
-                    std.debug.print("Calling function: {s}\n", .{name});
-                    return error.CannotCompileToIr;
+                .call => |addr| {
+                    pc = addr;
                 },
                 .get_local => |name| {
                     const index = address_map.get(name).?;
@@ -465,13 +464,7 @@ pub const Compiler = struct {
         return self.callFunction(entrypoint, &[_]ast.Value{});
     }
 
-    fn callIrFunction(
-        self: *Compiler,
-        name: []const u8,
-        params: []const []const u8,
-        ir: []ast.Instruction,
-        args: []ast.Value,
-    ) anyerror!ast.Value {
+    fn callIrFunction(self: *Compiler, params: []const []const u8, ir: []ast.Instruction, args: []ast.Value) anyerror!ast.Value {
         var stack = std.ArrayList(i32).init(self.allocator);
         defer stack.deinit();
 
@@ -493,13 +486,7 @@ pub const Compiler = struct {
 
         var bp = stack.items.len;
 
-        try Compiler.runVm(
-            ir,
-            name,
-            &stack,
-            &bp,
-            address_map,
-        );
+        try Compiler.runVm(ir, &stack, &bp, address_map);
 
         return ast.Value{ .i32_ = stack.items[0] };
     }
@@ -519,7 +506,7 @@ pub const Compiler = struct {
         }
 
         if (self.ir_cache.get(name)) |prog| {
-            const value = self.callIrFunction(name, params, prog, args);
+            const value = self.callIrFunction(params, prog, args);
             return value;
         }
 
@@ -528,15 +515,19 @@ pub const Compiler = struct {
                 const start = try std.time.Instant.now();
                 std.debug.print("Start compiling: {s}\n", .{name});
 
+                self.compiling_context = name;
+
                 var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
                 try self.compileBlockFromAst(&buffer, body);
                 const ir = buffer.items;
+
+                self.compiling_context = "";
 
                 const end = try std.time.Instant.now();
                 const elapsed: f64 = @floatFromInt(end.since(start));
                 std.debug.print("Compiled in {d:.3}ms: {s}\n", .{ elapsed / std.time.ns_per_ms, name });
 
-                const value = self.callIrFunction(name, params, ir, args);
+                const value = self.callIrFunction(params, ir, args);
                 try self.ir_cache.put(name, ir);
 
                 return value;
