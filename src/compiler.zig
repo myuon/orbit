@@ -582,7 +582,7 @@ pub const Compiler = struct {
 
                 var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
                 try self.compileBlockFromAst(&buffer, body);
-                // try self.resolveIrLabels(buffer.items);
+                try self.resolveIrLabels(buffer.items);
                 const ir = buffer.items;
 
                 self.compiling_context = "";
