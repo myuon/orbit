@@ -188,14 +188,8 @@ pub const Compiler = struct {
         var target_label: ?[]const u8 = null;
 
         var pc: usize = 0;
-        var loop: usize = 0;
 
         while (pc < program.len) {
-            loop += 1;
-            if (loop > 200) {
-                // unreachable;
-            }
-
             const inst = program[pc];
 
             if (target_label) |t| {

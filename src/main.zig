@@ -16,7 +16,7 @@ pub fn main() !void {
         \\end
         \\
         \\fun main() do
-        \\  return fib(20);
+        \\  return fib(30);
         \\end
     );
 
