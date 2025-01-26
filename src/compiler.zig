@@ -22,6 +22,7 @@ pub const Compiler = struct {
     module: ?ast.Module,
     has_returned: bool,
     call_trace: std.StringHashMap(u32),
+    ir_cache: std.StringHashMap([]ast.Instruction),
 
     pub fn init() Compiler {
         return Compiler{
@@ -29,6 +30,7 @@ pub const Compiler = struct {
             .module = null,
             .has_returned = false,
             .call_trace = std.StringHashMap(u32).init(Allocator),
+            .ir_cache = std.StringHashMap([]ast.Instruction).init(Allocator),
         };
     }
 
@@ -445,12 +447,48 @@ pub const Compiler = struct {
             }
         }
 
+        if (self.ir_cache.get(name)) |prog| {
+            var stack = std.ArrayList(i32).init(Allocator);
+            defer stack.deinit();
+
+            var address_map = std.StringHashMap(i32).init(Allocator);
+            defer address_map.deinit();
+
+            const l: i32 = @intCast(args.len);
+            try address_map.put("return", -2 - l - 1);
+            try stack.append(-2); // return value
+
+            for (args, 0..) |arg, i| {
+                const k: i32 = @intCast(args.len - i);
+                try address_map.put(params[i], -2 - k);
+                try stack.append(try arg.asI32());
+            }
+
+            try stack.append(-1); // pc
+            try stack.append(0); // bp
+
+            var bp = stack.items.len;
+
+            try Compiler.runVm(
+                prog,
+                name,
+                &stack,
+                &bp,
+                address_map,
+            );
+
+            const value = ast.Value{ .i32_ = stack.items[0] };
+
+            std.debug.print("Calling function [Compiled+Cached]: {s}({any}) -> {any}\n", .{ name, args, value });
+
+            return value;
+        }
+
         if (self.call_trace.get(name)) |count| {
             if (count == 2) {
                 std.debug.print("Start compiling: {s}\n", .{name});
 
                 var buffer = std.ArrayList(ast.Instruction).init(Allocator);
-                defer buffer.deinit();
 
                 try self.compileBlockFromAst(&buffer, body);
 
@@ -488,6 +526,7 @@ pub const Compiler = struct {
                 const value = ast.Value{ .i32_ = stack.items[0] };
 
                 std.debug.print("Calling function [Compiled]: {s}({any}) -> {any}\n", .{ name, args, value });
+                try self.ir_cache.put(name, buffer.items);
 
                 return value;
             }
