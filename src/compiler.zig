@@ -45,7 +45,9 @@ pub const Compiler = struct {
         defer l.deinit();
 
         const tokens = try l.run();
-        var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
+        var p = parser.Parser.init(Allocator, tokens.items);
+        defer p.deinit();
+
         const tree = try p.expr();
 
         return self.evalExprFromAst(tree);
@@ -56,7 +58,9 @@ pub const Compiler = struct {
         defer l.deinit();
 
         const tokens = try l.run();
-        var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
+        var p = parser.Parser.init(Allocator, tokens.items);
+        defer p.deinit();
+
         const tree = try p.block(null);
 
         return try self.evalBlockFromAst(tree);
@@ -67,7 +71,9 @@ pub const Compiler = struct {
         defer l.deinit();
 
         const tokens = try l.run();
-        var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
+        var p = parser.Parser.init(Allocator, tokens.items);
+        defer p.deinit();
+
         const tree = try p.module();
 
         self.module = tree;
@@ -599,7 +605,8 @@ test "compiler.parse_err" {
         defer l.deinit();
 
         const tokens = try l.run();
-        var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
+        var p = parser.Parser.init(std.testing.allocator, tokens.items);
+        defer p.deinit();
 
         if (case.err != null) {
             _ = p.module() catch |err| {
@@ -675,7 +682,9 @@ test "compiler.parseStatement" {
         defer l.deinit();
 
         const tokens = try l.run();
-        var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
+        var p = parser.Parser.init(std.testing.allocator, tokens.items);
+        defer p.deinit();
+
         const e = try p.statement();
 
         try std.testing.expectEqualDeep(case.expr, e);

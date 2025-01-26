@@ -1,8 +1,6 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 
-const Allocator = std.heap.page_allocator;
-
 pub const ParserError = error{
     UnexpectedEos,
     UnexpectedToken,
@@ -11,6 +9,19 @@ pub const ParserError = error{
 pub const Parser = struct {
     tokens: []ast.Token,
     position: usize,
+    astArenaAllocator: std.heap.ArenaAllocator,
+
+    pub fn init(allocator: std.mem.Allocator, tokens: []ast.Token) Parser {
+        return Parser{
+            .tokens = tokens,
+            .position = 0,
+            .astArenaAllocator = std.heap.ArenaAllocator.init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Parser) void {
+        self.astArenaAllocator.deinit();
+    }
 
     fn can_peek(self: *Parser) bool {
         return self.position < self.tokens.len;
@@ -78,7 +89,7 @@ pub const Parser = struct {
     }
 
     pub fn module(self: *Parser) anyerror!ast.Module {
-        var decls = std.ArrayList(ast.Decl).init(Allocator);
+        var decls = std.ArrayList(ast.Decl).init(self.astArenaAllocator.allocator());
         while (self.peek() != null) {
             const d = try self.decl();
             try decls.append(d);
@@ -98,7 +109,7 @@ pub const Parser = struct {
                             const name = try self.expect_ident();
 
                             try self.expect(ast.Operator.lparen);
-                            var args = std.ArrayList([]const u8).init(Allocator);
+                            var args = std.ArrayList([]const u8).init(self.astArenaAllocator.allocator());
                             while (self.can_peek()) {
                                 if (self.is_next(ast.Operator.rparen)) {
                                     break;
@@ -142,7 +153,7 @@ pub const Parser = struct {
     }
 
     pub fn block(self: *Parser, endOp: ?ast.Operator) anyerror!ast.Block {
-        var statements = std.ArrayList(ast.Statement).init(Allocator);
+        var statements = std.ArrayList(ast.Statement).init(self.astArenaAllocator.allocator());
 
         while (self.can_peek()) {
             if (self.is_next(ast.Operator.end) or (endOp != null and self.is_next(endOp.?))) {
@@ -164,7 +175,7 @@ pub const Parser = struct {
                                 continue;
                             },
                             else => {
-                                const e = try Allocator.create(ast.Expression);
+                                const e = try self.astArenaAllocator.allocator().create(ast.Expression);
                                 e.* = s.expr;
 
                                 return ast.Block{ .statements = statements.items, .expr = e };
@@ -209,7 +220,7 @@ pub const Parser = struct {
                             try self.expect(ast.Operator.if_);
 
                             try self.expect(ast.Operator.lparen);
-                            const cond = try Allocator.create(ast.Expression);
+                            const cond = try self.astArenaAllocator.allocator().create(ast.Expression);
                             cond.* = try self.expr();
                             try self.expect(ast.Operator.rparen);
 
@@ -285,10 +296,10 @@ pub const Parser = struct {
                         .eqeq => {
                             try self.expect(ast.Operator.eqeq);
 
-                            const rhs = try Allocator.create(ast.Expression);
+                            const rhs = try self.astArenaAllocator.allocator().create(ast.Expression);
                             rhs.* = try self.expr1();
 
-                            const newCurrent = try Allocator.create(ast.Expression);
+                            const newCurrent = try self.astArenaAllocator.allocator().create(ast.Expression);
                             newCurrent.* = current;
 
                             current = ast.Expression{ .binop = .{
@@ -321,10 +332,10 @@ pub const Parser = struct {
                         .plus => {
                             try self.expect(ast.Operator.plus);
 
-                            const rhs = try Allocator.create(ast.Expression);
+                            const rhs = try self.astArenaAllocator.allocator().create(ast.Expression);
                             rhs.* = try self.expr2();
 
-                            const newCurrent = try Allocator.create(ast.Expression);
+                            const newCurrent = try self.astArenaAllocator.allocator().create(ast.Expression);
                             newCurrent.* = current;
 
                             current = ast.Expression{ .binop = .{
@@ -336,10 +347,10 @@ pub const Parser = struct {
                         .minus => {
                             try self.expect(ast.Operator.minus);
 
-                            const rhs = try Allocator.create(ast.Expression);
+                            const rhs = try self.astArenaAllocator.allocator().create(ast.Expression);
                             rhs.* = try self.expr2();
 
-                            const newCurrent = try Allocator.create(ast.Expression);
+                            const newCurrent = try self.astArenaAllocator.allocator().create(ast.Expression);
                             newCurrent.* = current;
 
                             current = ast.Expression{ .binop = .{
@@ -372,10 +383,10 @@ pub const Parser = struct {
                         .star => {
                             _ = self.consume();
 
-                            const rhs = try Allocator.create(ast.Expression);
+                            const rhs = try self.astArenaAllocator.allocator().create(ast.Expression);
                             rhs.* = try self.expr3();
 
-                            const newCurrent = try Allocator.create(ast.Expression);
+                            const newCurrent = try self.astArenaAllocator.allocator().create(ast.Expression);
                             newCurrent.* = current;
 
                             current = ast.Expression{ .binop = .{
@@ -408,13 +419,13 @@ pub const Parser = struct {
                 .ident => |ident| {
                     _ = self.consume();
 
-                    const current = try Allocator.create(ast.Expression);
+                    const current = try self.astArenaAllocator.allocator().create(ast.Expression);
                     const identExpr = ast.Expression{ .var_ = ident };
 
                     if (self.is_next(ast.Operator.lparen)) {
                         try self.expect(ast.Operator.lparen);
 
-                        var args = std.ArrayList(ast.Expression).init(Allocator);
+                        var args = std.ArrayList(ast.Expression).init(self.astArenaAllocator.allocator());
                         while (self.can_peek()) {
                             if (self.is_next(ast.Operator.rparen)) {
                                 break;
@@ -449,7 +460,7 @@ pub const Parser = struct {
             try self.expect(ast.Operator.if_);
 
             try self.expect(ast.Operator.lparen);
-            const cond = try Allocator.create(ast.Expression);
+            const cond = try self.astArenaAllocator.allocator().create(ast.Expression);
             cond.* = try self.expr();
             try self.expect(ast.Operator.rparen);
 
@@ -535,7 +546,9 @@ test "parser" {
     };
 
     for (cases) |case| {
-        var parser = Parser{ .tokens = case.tokens, .position = 0 };
+        var parser = Parser.init(std.testing.allocator, case.tokens);
+        defer parser.deinit();
+
         const expr = parser.expr();
 
         try std.testing.expectEqualDeep(case.expected, expr);
