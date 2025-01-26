@@ -24,8 +24,15 @@ pub const Compiler = struct {
     allocator: std.mem.Allocator,
     ast_arena_allocator: std.heap.ArenaAllocator,
     compiling_context: []const u8,
+    random: std.Random,
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
+        var prng = std.rand.DefaultPrng.init(blk: {
+            var seed: u64 = undefined;
+            std.posix.getrandom(std.mem.asBytes(&seed)) catch unreachable;
+            break :blk seed;
+        });
+
         return Compiler{
             .env = Env.init(allocator),
             .module = null,
@@ -35,6 +42,7 @@ pub const Compiler = struct {
             .allocator = allocator,
             .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .compiling_context = "",
+            .random = prng.random(),
         };
     }
 
@@ -169,13 +177,19 @@ pub const Compiler = struct {
             .if_ => |if_| {
                 try self.compileExprFromAst(buffer, if_.cond.*);
 
-                try buffer.append(ast.Instruction{ .jump_ifzero = "if_else" });
-                try buffer.append(ast.Instruction{ .label = "if_then" });
+                const id = self.random.int(u32);
+
+                const label_ifthen = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_then_{d}", .{id});
+                const label_ifelse = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_else_{d}", .{id});
+                const label_ifend = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_end_{d}", .{id});
+
+                try buffer.append(ast.Instruction{ .jump_ifzero = label_ifelse });
+                try buffer.append(ast.Instruction{ .label = label_ifthen });
                 try self.compileBlockFromAst(buffer, if_.then_);
-                try buffer.append(ast.Instruction{ .jump = "if_end" });
-                try buffer.append(ast.Instruction{ .label = "if_else" });
+                try buffer.append(ast.Instruction{ .jump = label_ifend });
+                try buffer.append(ast.Instruction{ .label = label_ifelse });
                 try self.compileBlockFromAst(buffer, if_.else_);
-                try buffer.append(ast.Instruction{ .label = "if_end" });
+                try buffer.append(ast.Instruction{ .label = label_ifend });
             },
             else => {
                 unreachable;
@@ -208,17 +222,60 @@ pub const Compiler = struct {
                 .if_ => |if_| {
                     try self.compileExprFromAst(buffer, if_.cond.*);
 
-                    try buffer.append(ast.Instruction{ .jump_ifzero = "if_else" });
-                    try buffer.append(ast.Instruction{ .label = "if_then" });
+                    const id = self.random.int(u32);
+
+                    const label_ifthen = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_then_{s}", .{id});
+                    const label_ifelse = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_else_{s}", .{id});
+                    const label_ifend = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_end_{s}", .{id});
+
+                    try buffer.append(ast.Instruction{ .jump_ifzero = label_ifelse });
+                    try buffer.append(ast.Instruction{ .label = label_ifthen });
                     try self.compileBlockFromAst(buffer, if_.then_);
-                    try buffer.append(ast.Instruction{ .jump = "if_end" });
-                    try buffer.append(ast.Instruction{ .label = "if_else" });
+                    try buffer.append(ast.Instruction{ .jump = label_ifend });
+                    try buffer.append(ast.Instruction{ .label = label_ifelse });
                     if (if_.else_) |else_| {
                         try self.compileBlockFromAst(buffer, else_);
                     }
-                    try buffer.append(ast.Instruction{ .label = "if_end" });
+                    try buffer.append(ast.Instruction{ .label = label_ifend });
                 },
             }
+        }
+    }
+
+    fn resolveIrLabels(self: *Compiler, prog: []ast.Instruction) anyerror!void {
+        var labels = std.StringHashMap(usize).init(self.allocator);
+        defer labels.deinit();
+
+        for (prog, 0..) |inst, i| {
+            switch (inst) {
+                .label => |name| {
+                    try labels.put(name, i);
+                },
+                else => {},
+            }
+        }
+
+        var updater = std.AutoHashMap(usize, ast.Instruction).init(self.allocator);
+        defer updater.deinit();
+
+        for (prog, 0..) |inst, i| {
+            switch (inst) {
+                .jump => |label| {
+                    try updater.put(i, ast.Instruction{ .jump_d = labels.get(label).? });
+                },
+                .jump_ifzero => |label| {
+                    try updater.put(i, ast.Instruction{ .jump_ifzero_d = labels.get(label).? });
+                },
+                .label => {
+                    try updater.put(i, ast.Instruction{ .nop = true });
+                },
+                else => {},
+            }
+        }
+
+        var iter = updater.iterator();
+        while (iter.next()) |entry| {
+            prog[entry.key_ptr.*] = entry.value_ptr.*;
         }
     }
 
@@ -254,6 +311,9 @@ pub const Compiler = struct {
             // std.debug.print("[{any},pc:{d},bp:{d}] {any}\n", .{ inst, pc, bp.*, stack.items });
 
             switch (inst) {
+                .nop => {
+                    pc += 1;
+                },
                 .push => |n| {
                     try stack.append(n);
                     pc += 1;
@@ -291,6 +351,17 @@ pub const Compiler = struct {
                     }
 
                     pc += 1;
+                },
+                .jump_d => |c| {
+                    pc = c;
+                },
+                .jump_ifzero_d => |c| {
+                    const cond = stack.pop();
+                    if (cond == 0) {
+                        pc = c;
+                    } else {
+                        pc += 1;
+                    }
                 },
                 .add => {
                     const rhs = stack.pop();
@@ -519,6 +590,7 @@ pub const Compiler = struct {
 
                 var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
                 try self.compileBlockFromAst(&buffer, body);
+                try self.resolveIrLabels(buffer.items);
                 const ir = buffer.items;
 
                 self.compiling_context = "";

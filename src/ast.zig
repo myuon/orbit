@@ -162,6 +162,9 @@ pub const InstructionType = enum {
     set_bp,
     get_sp,
     set_sp,
+    jump_d,
+    jump_ifzero_d,
+    nop,
 };
 
 pub const Instruction = union(InstructionType) {
@@ -169,8 +172,8 @@ pub const Instruction = union(InstructionType) {
     pop: bool,
     ret: bool,
     eq: bool,
-    jump: []const u8,
-    jump_ifzero: []const u8,
+    jump: []u8,
+    jump_ifzero: []u8,
     add: bool,
     sub: bool,
     call: usize,
@@ -182,4 +185,7 @@ pub const Instruction = union(InstructionType) {
     set_bp: bool,
     get_sp: bool,
     set_sp: bool,
+    jump_d: usize,
+    jump_ifzero_d: usize,
+    nop: bool,
 };
