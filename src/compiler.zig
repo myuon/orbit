@@ -4,8 +4,6 @@ const ast = @import("ast.zig");
 const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
 
-const Allocator = std.heap.page_allocator;
-
 pub const EvalError = error{
     VariableNotFound,
     UnexpectedNilValue,
@@ -15,22 +13,26 @@ pub const CompilerError = error{
     CannotCompileToIr,
 };
 
-pub const Compiler = struct {
-    const Env = std.StringHashMap(ast.Value);
+const Env = std.StringHashMap(ast.Value);
 
+pub const Compiler = struct {
     env: Env,
     module: ?ast.Module,
     has_returned: bool,
     call_trace: std.StringHashMap(u32),
     ir_cache: std.StringHashMap([]ast.Instruction),
+    allocator: std.mem.Allocator,
+    ast_arena_allocator: std.heap.ArenaAllocator,
 
-    pub fn init() Compiler {
+    pub fn init(allocator: std.mem.Allocator) Compiler {
         return Compiler{
-            .env = Env.init(Allocator),
+            .env = Env.init(allocator),
             .module = null,
             .has_returned = false,
-            .call_trace = std.StringHashMap(u32).init(Allocator),
-            .ir_cache = std.StringHashMap([]ast.Instruction).init(Allocator),
+            .call_trace = std.StringHashMap(u32).init(allocator),
+            .ir_cache = std.StringHashMap([]ast.Instruction).init(allocator),
+            .allocator = allocator,
+            .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
         };
     }
 
@@ -38,14 +40,15 @@ pub const Compiler = struct {
         self.env.deinit();
         self.call_trace.deinit();
         self.ir_cache.deinit();
+        self.ast_arena_allocator.deinit();
     }
 
     fn evalExpr(self: *Compiler, str: []const u8) anyerror!ast.Value {
-        var l = lexer.Lexer.init(Allocator, str);
+        var l = lexer.Lexer.init(self.allocator, str);
         defer l.deinit();
 
         const tokens = try l.run();
-        var p = parser.Parser.init(Allocator, tokens.items);
+        var p = parser.Parser.init(self.allocator, tokens.items);
         defer p.deinit();
 
         const tree = try p.expr();
@@ -54,11 +57,11 @@ pub const Compiler = struct {
     }
 
     fn evalBlock(self: *Compiler, str: []const u8) anyerror!?ast.Value {
-        var l = lexer.Lexer.init(Allocator, str);
+        var l = lexer.Lexer.init(self.allocator, str);
         defer l.deinit();
 
         const tokens = try l.run();
-        var p = parser.Parser.init(Allocator, tokens.items);
+        var p = parser.Parser.init(self.allocator, tokens.items);
         defer p.deinit();
 
         const tree = try p.block(null);
@@ -67,11 +70,11 @@ pub const Compiler = struct {
     }
 
     pub fn evalModule(self: *Compiler, str: []const u8) anyerror!?ast.Value {
-        var l = lexer.Lexer.init(Allocator, str);
+        var l = lexer.Lexer.init(self.allocator, str);
         defer l.deinit();
 
         const tokens = try l.run();
-        var p = parser.Parser.init(Allocator, tokens.items);
+        var p = parser.Parser.init(self.allocator, tokens.items);
         defer p.deinit();
 
         const tree = try p.module();
@@ -379,7 +382,7 @@ pub const Compiler = struct {
                 }
             },
             .call => |call| {
-                var args = std.ArrayList(ast.Value).init(Allocator);
+                var args = std.ArrayList(ast.Value).init(self.ast_arena_allocator.allocator());
                 defer args.deinit();
 
                 for (call.args) |arg| {
@@ -460,10 +463,10 @@ pub const Compiler = struct {
         }
 
         if (self.ir_cache.get(name)) |prog| {
-            var stack = std.ArrayList(i32).init(Allocator);
+            var stack = std.ArrayList(i32).init(self.allocator);
             defer stack.deinit();
 
-            var address_map = std.StringHashMap(i32).init(Allocator);
+            var address_map = std.StringHashMap(i32).init(self.allocator);
             defer address_map.deinit();
 
             const l: i32 = @intCast(args.len);
@@ -500,16 +503,16 @@ pub const Compiler = struct {
             if (count == 2) {
                 std.debug.print("Start compiling: {s}\n", .{name});
 
-                var buffer = std.ArrayList(ast.Instruction).init(Allocator);
+                var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
 
                 try self.compileBlockFromAst(&buffer, body);
 
                 std.debug.print("Compiled: {s}\n", .{name});
 
-                var stack = std.ArrayList(i32).init(Allocator);
+                var stack = std.ArrayList(i32).init(self.allocator);
                 defer stack.deinit();
 
-                var address_map = std.StringHashMap(i32).init(Allocator);
+                var address_map = std.StringHashMap(i32).init(self.allocator);
                 defer address_map.deinit();
 
                 const l: i32 = @intCast(args.len);
@@ -556,6 +559,8 @@ pub const Compiler = struct {
 
         const value = try self.evalBlockFromAst(body);
         self.has_returned = false;
+
+        self.env.clearAndFree();
         self.env = envCloned;
 
         std.debug.print("Calling function: {s}({any}) -> {any}\n", .{ name, args, value });
@@ -702,7 +707,9 @@ test "compiler.evalExpr" {
     };
 
     for (cases) |case| {
-        var c = Compiler.init();
+        var c = Compiler.init(std.testing.allocator);
+        defer c.deinit();
+
         try std.testing.expectEqual(case.expected, try c.evalExpr(case.program));
     }
 }
@@ -748,7 +755,9 @@ test "compiler.evalBlock" {
     };
 
     for (cases) |case| {
-        var c = Compiler.init();
+        var c = Compiler.init(std.testing.allocator);
+        defer c.deinit();
+
         try std.testing.expectEqual(ast.Value{ .i32_ = case.expected }, try c.evalBlock(case.program));
     }
 }
@@ -791,7 +800,9 @@ test "compiler.evalModule" {
     };
 
     for (cases) |case| {
-        var c = Compiler.init();
+        var c = Compiler.init(std.testing.allocator);
+        defer c.deinit();
+
         try std.testing.expectEqual(ast.Value{ .i32_ = case.expected }, try c.evalModule(case.program));
     }
 }

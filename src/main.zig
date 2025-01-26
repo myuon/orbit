@@ -2,7 +2,19 @@ const std = @import("std");
 const compiler = @import("compiler.zig");
 
 pub fn main() !void {
-    var c = compiler.Compiler.init();
+    var gpallocator = std.heap.GeneralPurposeAllocator(.{}){};
+    defer {
+        switch (gpallocator.deinit()) {
+            .leak => {
+                std.debug.print("**Leaked memory**", .{});
+            },
+            else => {},
+        }
+    }
+
+    var c = compiler.Compiler.init(gpallocator.allocator());
+    defer c.deinit();
+
     const result = try c.evalModule(
         \\fun fib(x) do
         \\  if (x == 0) do
