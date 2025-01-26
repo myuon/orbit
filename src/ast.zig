@@ -143,3 +143,43 @@ pub const Value = union(ValueType) {
         };
     }
 };
+
+pub const InstructionType = enum {
+    push,
+    pop,
+    ret,
+    eq,
+    jump,
+    jump_ifzero,
+    add,
+    sub,
+    call,
+    get_local,
+    set_local,
+    label,
+    get_pc,
+    get_bp,
+    set_bp,
+    get_sp,
+    set_sp,
+};
+
+pub const Instruction = union(InstructionType) {
+    push: i32,
+    pop: bool,
+    ret: bool,
+    eq: bool,
+    jump: []const u8,
+    jump_ifzero: []const u8,
+    add: bool,
+    sub: bool,
+    call: []const u8,
+    get_local: []const u8,
+    set_local: []const u8,
+    label: []const u8,
+    get_pc: bool,
+    get_bp: bool,
+    set_bp: bool,
+    get_sp: bool,
+    set_sp: bool,
+};

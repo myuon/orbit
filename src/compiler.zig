@@ -11,6 +11,10 @@ pub const EvalError = error{
     UnexpectedNilValue,
 };
 
+pub const CompilerError = error{
+    CannotCompileToIr,
+};
+
 pub const Compiler = struct {
     const Env = std.StringHashMap(ast.Value);
 
@@ -55,6 +59,264 @@ pub const Compiler = struct {
         self.module = tree;
 
         return try self.evalModuleFromAst("main");
+    }
+
+    fn compileExprFromAst(self: *Compiler, buffer: *std.ArrayList(ast.Instruction), expr: ast.Expression) anyerror!void {
+        switch (expr) {
+            .var_ => |v| {
+                try buffer.append(ast.Instruction{ .get_local = v });
+            },
+            .literal => |lit| {
+                switch (lit) {
+                    .number => |n| {
+                        try buffer.append(ast.Instruction{ .push = @intCast(n) });
+                    },
+                    else => {
+                        unreachable;
+                    },
+                }
+            },
+            .binop => |binop| {
+                try self.compileExprFromAst(buffer, binop.lhs.*);
+                try self.compileExprFromAst(buffer, binop.rhs.*);
+
+                switch (binop.op) {
+                    .plus => {
+                        try buffer.append(ast.Instruction{ .add = true });
+                    },
+                    .minus => {
+                        try buffer.append(ast.Instruction{ .sub = true });
+                    },
+                    .star => {
+                        return error.CannotCompileToIr;
+                    },
+                    .eqeq => {
+                        try buffer.append(ast.Instruction{ .eq = true });
+                    },
+                    else => {
+                        unreachable;
+                    },
+                }
+            },
+            .call => |call| {
+                // return value
+                try buffer.append(ast.Instruction{ .push = -2 });
+
+                // order from left to right
+                for (call.args) |arg| {
+                    try self.compileExprFromAst(buffer, arg);
+                }
+
+                // prologue
+                try buffer.append(ast.Instruction{ .get_pc = true });
+                try buffer.append(ast.Instruction{ .get_bp = true });
+                try buffer.append(ast.Instruction{ .get_sp = true });
+                try buffer.append(ast.Instruction{ .set_bp = true });
+
+                // call
+                try buffer.append(ast.Instruction{ .call = call.name });
+
+                for (call.args) |_| {
+                    try buffer.append(ast.Instruction{ .pop = true });
+                }
+            },
+            .if_ => |if_| {
+                try self.compileExprFromAst(buffer, if_.cond.*);
+
+                try buffer.append(ast.Instruction{ .jump_ifzero = "if_else" });
+                try buffer.append(ast.Instruction{ .label = "if_then" });
+                try self.compileBlockFromAst(buffer, if_.then_);
+                try buffer.append(ast.Instruction{ .jump = "if_end" });
+                try buffer.append(ast.Instruction{ .label = "if_else" });
+                try self.compileBlockFromAst(buffer, if_.else_);
+                try buffer.append(ast.Instruction{ .label = "if_end" });
+            },
+            else => {
+                unreachable;
+            },
+        }
+    }
+
+    fn compileBlockFromAst(self: *Compiler, buffer: *std.ArrayList(ast.Instruction), block: ast.Block) anyerror!void {
+        for (block.statements) |stmt| {
+            switch (stmt) {
+                .let => |let| {
+                    try self.compileExprFromAst(buffer, let.value);
+                    try buffer.append(ast.Instruction{ .set_local = let.name });
+                },
+                .return_ => |val| {
+                    try self.compileExprFromAst(buffer, val);
+
+                    // epilogue
+                    try buffer.append(ast.Instruction{ .set_local = "return" });
+
+                    try buffer.append(ast.Instruction{ .get_bp = true });
+                    try buffer.append(ast.Instruction{ .set_sp = true });
+                    try buffer.append(ast.Instruction{ .set_bp = true });
+                    try buffer.append(ast.Instruction{ .ret = true });
+                },
+                .expr => |expr| {
+                    try self.compileExprFromAst(buffer, expr);
+                    try buffer.append(ast.Instruction{ .pop = true });
+                },
+                .if_ => |if_| {
+                    try self.compileExprFromAst(buffer, if_.cond.*);
+
+                    try buffer.append(ast.Instruction{ .jump_ifzero = "if_else" });
+                    try buffer.append(ast.Instruction{ .label = "if_then" });
+                    try self.compileBlockFromAst(buffer, if_.then_);
+                    try buffer.append(ast.Instruction{ .jump = "if_end" });
+                    try buffer.append(ast.Instruction{ .label = "if_else" });
+                    if (if_.else_) |else_| {
+                        try self.compileBlockFromAst(buffer, else_);
+                    }
+                    try buffer.append(ast.Instruction{ .label = "if_end" });
+                },
+            }
+        }
+    }
+
+    fn runVm(
+        program: []ast.Instruction,
+        current_context: []const u8,
+        stack: *std.ArrayList(i32),
+        bp: *usize,
+        address_map: std.StringHashMap(i32),
+    ) anyerror!void {
+        var target_label: ?[]const u8 = null;
+
+        var pc: usize = 0;
+        var loop: usize = 0;
+
+        while (pc < program.len) {
+            loop += 1;
+            if (loop > 200) {
+                // unreachable;
+            }
+
+            const inst = program[pc];
+
+            if (target_label) |t| {
+                switch (inst) {
+                    .label => |l| {
+                        if (std.mem.eql(u8, l, t)) {
+                            target_label = null;
+                            pc += 1;
+                            continue;
+                        }
+                    },
+                    else => {
+                        pc += 1;
+                        continue;
+                    },
+                }
+            }
+
+            // std.debug.print("[{any},pc:{d},bp:{d}] {any}\n", .{ inst, pc, bp.*, stack.items });
+
+            switch (inst) {
+                .push => |n| {
+                    try stack.append(n);
+                    pc += 1;
+                },
+                .pop => {
+                    _ = stack.pop();
+                    pc += 1;
+                },
+                .eq => {
+                    const rhs = stack.pop();
+                    const lhs = stack.pop();
+                    if (lhs == rhs) {
+                        try stack.append(1);
+                    } else {
+                        try stack.append(0);
+                    }
+                    pc += 1;
+                },
+                .ret => {
+                    const p = stack.pop();
+                    if (p == -1) {
+                        return;
+                    } else {
+                        pc = @intCast(p + 5);
+                    }
+                },
+                .jump => |label| {
+                    target_label = label;
+                    pc += 1;
+                },
+                .jump_ifzero => |label| {
+                    const cond = stack.pop();
+                    if (cond == 0) {
+                        target_label = label;
+                    }
+
+                    pc += 1;
+                },
+                .add => {
+                    const rhs = stack.pop();
+                    const lhs = stack.pop();
+                    try stack.append(lhs + rhs);
+
+                    pc += 1;
+                },
+                .sub => {
+                    const rhs = stack.pop();
+                    const lhs = stack.pop();
+                    try stack.append(lhs - rhs);
+
+                    pc += 1;
+                },
+                .call => |name| {
+                    if (std.mem.eql(u8, name, current_context)) {
+                        pc = 0;
+                        continue;
+                    }
+
+                    std.debug.print("Calling function: {s}\n", .{name});
+                    return error.CannotCompileToIr;
+                },
+                .get_local => |name| {
+                    const index = address_map.get(name).?;
+                    const b: i32 = @intCast(bp.*);
+                    const value = stack.items[@intCast(b + index)];
+                    try stack.append(value);
+                    pc += 1;
+                },
+                .set_local => |name| {
+                    const value = stack.pop();
+                    const index = address_map.get(name).?;
+                    const b: i32 = @intCast(bp.*);
+                    stack.items[@intCast(b + index)] = value;
+                    pc += 1;
+                },
+                .label => {
+                    pc += 1;
+                },
+                .get_pc => {
+                    try stack.append(@intCast(pc));
+                    pc += 1;
+                },
+                .get_bp => {
+                    try stack.append(@intCast(bp.*));
+                    pc += 1;
+                },
+                .set_bp => {
+                    const value = stack.pop();
+                    bp.* = @intCast(value);
+                    pc += 1;
+                },
+                .get_sp => {
+                    try stack.append(@intCast(stack.items.len));
+                    pc += 1;
+                },
+                .set_sp => {
+                    const value = stack.pop();
+                    stack.shrinkAndFree(@intCast(value));
+                    pc += 1;
+                },
+            }
+        }
     }
 
     fn evalExprFromAst(self: *Compiler, expr: ast.Expression) anyerror!ast.Value {
@@ -184,8 +446,50 @@ pub const Compiler = struct {
         }
 
         if (self.call_trace.get(name)) |count| {
-            if (count == 10) {
-                std.debug.print("Function {s} is marked as a heavy function\n", .{name});
+            if (count == 2) {
+                std.debug.print("Start compiling: {s}\n", .{name});
+
+                var buffer = std.ArrayList(ast.Instruction).init(Allocator);
+                defer buffer.deinit();
+
+                try self.compileBlockFromAst(&buffer, body);
+
+                std.debug.print("Compiled: {s}\n", .{name});
+
+                var stack = std.ArrayList(i32).init(Allocator);
+                defer stack.deinit();
+
+                var address_map = std.StringHashMap(i32).init(Allocator);
+                defer address_map.deinit();
+
+                const l: i32 = @intCast(args.len);
+                try address_map.put("return", -2 - l - 1);
+                try stack.append(-2); // return value
+
+                for (args, 0..) |arg, i| {
+                    const k: i32 = @intCast(args.len - i);
+                    try address_map.put(params[i], -2 - k);
+                    try stack.append(try arg.asI32());
+                }
+
+                try stack.append(-1); // pc
+                try stack.append(0); // bp
+
+                var bp = stack.items.len;
+
+                try Compiler.runVm(
+                    buffer.items,
+                    name,
+                    &stack,
+                    &bp,
+                    address_map,
+                );
+
+                const value = ast.Value{ .i32_ = stack.items[0] };
+
+                std.debug.print("Calling function [Compiled]: {s}({any}) -> {any}\n", .{ name, args, value });
+
+                return value;
             }
 
             try self.call_trace.put(name, count + 1);
@@ -203,7 +507,7 @@ pub const Compiler = struct {
         self.has_returned = false;
         self.env = envCloned;
 
-        // std.debug.print("Calling function: {s}({any}) -> {any}\n", .{ name, args, value });
+        std.debug.print("Calling function: {s}({any}) -> {any}\n", .{ name, args, value });
 
         return value;
     }
