@@ -70,18 +70,35 @@ pub const Compiler = struct {
     }
 
     pub fn evalModule(self: *Compiler, str: []const u8) anyerror!?ast.Value {
+        var start = try std.time.Instant.now();
+
         var l = lexer.Lexer.init(self.allocator, str);
         defer l.deinit();
 
         const tokens = try l.run();
+
+        var end = try std.time.Instant.now();
+        std.debug.print("Lexer.run in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
+        start = end;
+
         var p = parser.Parser.init(self.allocator, tokens.items);
         defer p.deinit();
+
+        end = try std.time.Instant.now();
+        std.debug.print("Parser.run in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
+        start = end;
 
         const tree = try p.module();
 
         self.module = tree;
 
-        return try self.evalModuleFromAst("main");
+        const result = try self.evalModuleFromAst("main");
+
+        end = try std.time.Instant.now();
+        std.debug.print("Compiler.eval in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
+        start = end;
+
+        return result;
     }
 
     fn compileExprFromAst(self: *Compiler, buffer: *std.ArrayList(ast.Instruction), expr: ast.Expression) anyerror!void {
