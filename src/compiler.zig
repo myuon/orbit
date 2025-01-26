@@ -181,14 +181,17 @@ pub const Compiler = struct {
             }
         }
 
+        const envCloned = try self.env.clone();
+
         for (args, 0..) |arg, i| {
             try self.env.put(params[i], arg);
         }
 
-        std.debug.print("Calling function: {s}({any})\n", .{ name, args });
-
         const value = try self.evalBlockFromAst(body);
         self.has_returned = false;
+        self.env = envCloned;
+
+        std.debug.print("Calling function: {s}({any}) -> {any}\n", .{ name, args, value });
 
         return value;
     }
@@ -394,6 +397,22 @@ test "compiler.evalModule" {
             \\end
             ,
             .expected = 13,
+        },
+        .{
+            .program =
+            \\fun sum(x) do
+            \\  if (x == 0) do
+            \\    return 0;
+            \\  end
+            \\
+            \\  return sum(x - 1) + x;
+            \\end
+            \\
+            \\fun main() do
+            \\  return sum(10);
+            \\end
+            ,
+            .expected = 55,
         },
     };
 

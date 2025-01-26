@@ -56,6 +56,7 @@ pub const Parser = struct {
         if (self.is_next(keyword)) {
             _ = self.consume();
         } else {
+            std.debug.print("unexpected token: want {any} but got {any}\n", .{ keyword, self.tokens[self.position..] });
             return ParserError.UnexpectedToken;
         }
     }
