@@ -185,7 +185,7 @@ pub const Parser = struct {
         return ast.Block{ .statements = statements.items, .expr = null };
     }
 
-    fn statement(self: *Parser) anyerror!ast.Statement {
+    pub fn statement(self: *Parser) anyerror!ast.Statement {
         if (self.peek()) |token| {
             switch (token) {
                 .keyword => |op| {
@@ -203,6 +203,36 @@ pub const Parser = struct {
                             const value = try self.expr();
 
                             return ast.Statement{ .return_ = value };
+                        },
+                        .if_ => {
+                            try self.expect(ast.Operator.if_);
+
+                            try self.expect(ast.Operator.lparen);
+                            const cond = try Allocator.create(ast.Expression);
+                            cond.* = try self.expr();
+                            try self.expect(ast.Operator.rparen);
+
+                            try self.expect(ast.Operator.do);
+                            const then_ = try self.block(ast.Operator.else_);
+
+                            if (self.is_next(ast.Operator.else_)) {
+                                try self.expect(ast.Operator.else_);
+                                const else_ = try self.block(null);
+                                try self.expect(ast.Operator.end);
+
+                                return ast.Statement{ .if_ = .{
+                                    .cond = cond,
+                                    .then_ = then_,
+                                    .else_ = else_,
+                                } };
+                            } else {
+                                try self.expect(ast.Operator.end);
+                                return ast.Statement{ .if_ = .{
+                                    .cond = cond,
+                                    .then_ = then_,
+                                    .else_ = null,
+                                } };
+                            }
                         },
                         else => {
                             const e = try self.expr();
@@ -425,24 +455,15 @@ pub const Parser = struct {
             try self.expect(ast.Operator.do);
             const then_ = try self.block(ast.Operator.else_);
 
-            if (self.is_next(ast.Operator.else_)) {
-                try self.expect(ast.Operator.else_);
-                const else_ = try self.block(null);
-                try self.expect(ast.Operator.end);
+            try self.expect(ast.Operator.else_);
+            const else_ = try self.block(null);
+            try self.expect(ast.Operator.end);
 
-                return ast.Expression{ .if_ = .{
-                    .cond = cond,
-                    .then_ = then_,
-                    .else_ = else_,
-                } };
-            } else {
-                try self.expect(ast.Operator.end);
-                return ast.Expression{ .if_ = .{
-                    .cond = cond,
-                    .then_ = then_,
-                    .else_ = null,
-                } };
-            }
+            return ast.Expression{ .if_ = .{
+                .cond = cond,
+                .then_ = then_,
+                .else_ = else_,
+            } };
         }
 
         std.debug.print("unexpected token: {any}\n", .{self.tokens[self.position..]});

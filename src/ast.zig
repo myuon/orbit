@@ -56,7 +56,7 @@ pub const Expression = union(ExpressionType) {
     if_: struct {
         cond: *Expression,
         then_: Block,
-        else_: ?Block,
+        else_: Block,
     },
 };
 
@@ -76,6 +76,7 @@ pub const StatementType = enum {
     let,
     return_,
     expr,
+    if_,
 };
 
 pub const Statement = union(StatementType) {
@@ -85,6 +86,11 @@ pub const Statement = union(StatementType) {
     },
     return_: Expression,
     expr: Expression,
+    if_: struct {
+        cond: *Expression,
+        then_: Block,
+        else_: ?Block,
+    },
 };
 
 pub const Block = struct {

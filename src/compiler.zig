@@ -110,11 +110,7 @@ pub const Compiler = struct {
                 if (try self.evalExprFromAst(if_.cond.*) == 1) {
                     return try self.evalBlockFromAst(if_.then_) orelse 0;
                 } else {
-                    if (if_.else_) |else_| {
-                        return try self.evalBlockFromAst(else_) orelse 0;
-                    }
-
-                    return error.UnexpectedNilValue;
+                    return try self.evalBlockFromAst(if_.else_) orelse 0;
                 }
             },
             else => {
@@ -131,6 +127,21 @@ pub const Compiler = struct {
                 },
                 .return_ => |val| {
                     return try self.evalExprFromAst(val);
+                },
+                .if_ => |if_| {
+                    if (try self.evalExprFromAst(if_.cond.*) == 1) {
+                        const result = try self.evalBlockFromAst(if_.then_);
+                        if (result) |value| {
+                            return value;
+                        }
+                    } else {
+                        if (if_.else_) |else_| {
+                            const result = try self.evalBlockFromAst(else_);
+                            if (result) |value| {
+                                return value;
+                            }
+                        }
+                    }
                 },
                 .expr => |expr| {
                     _ = try self.evalExprFromAst(expr);
@@ -225,10 +236,10 @@ test "compiler.parse_err" {
     }
 }
 
-test "compiler.parseExpression" {
+test "compiler.parseStatement" {
     const cases = comptime [_]struct {
         program: []const u8,
-        expr: ast.Expression,
+        expr: ast.Statement,
     }{
         .{
             .program =
@@ -236,7 +247,7 @@ test "compiler.parseExpression" {
             \\  return 1;
             \\end
             ,
-            .expr = ast.Expression{ .if_ = .{
+            .expr = ast.Statement{ .if_ = .{
                 .cond = @constCast(&ast.Expression{ .binop = .{
                     .op = ast.Operator.eqeq,
                     .lhs = @constCast(&ast.Expression{ .var_ = "x" }),
@@ -259,7 +270,7 @@ test "compiler.parseExpression" {
             \\  return 2;
             \\end
             ,
-            .expr = ast.Expression{ .if_ = .{
+            .expr = ast.Statement{ .if_ = .{
                 .cond = @constCast(&ast.Expression{ .binop = .{
                     .op = ast.Operator.eqeq,
                     .lhs = @constCast(&ast.Expression{ .var_ = "x" }),
@@ -285,7 +296,7 @@ test "compiler.parseExpression" {
         var l = lexer.Lexer{ .source = case.program, .position = 0 };
         const tokens = try l.run();
         var p = parser.Parser{ .tokens = tokens.items, .position = 0 };
-        const e = try p.expr();
+        const e = try p.statement();
 
         try std.testing.expectEqualDeep(case.expr, e);
     }
@@ -333,6 +344,17 @@ test "compiler.evalBlock" {
             \\y
             ,
             .expected = 3,
+        },
+        .{
+            .program =
+            \\let x = 2;
+            \\if (x == 2) do
+            \\  return 5;
+            \\end
+            \\
+            \\return 0;
+            ,
+            .expected = 5,
         },
     };
 
