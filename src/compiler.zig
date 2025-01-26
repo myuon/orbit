@@ -591,6 +591,10 @@ pub const Compiler = struct {
                 const elapsed: f64 = @floatFromInt(end.since(start));
                 std.debug.print("Compiled in {d:.3}ms: {s}\n", .{ elapsed / std.time.ns_per_ms, name });
 
+                for (ir) |inst| {
+                    std.debug.print("{any}\n", .{inst});
+                }
+
                 const value = self.callIrFunction(params, ir, args);
                 try self.ir_cache.put(name, ir);
 
