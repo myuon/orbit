@@ -111,7 +111,8 @@ pub const Compiler = struct {
                 return try self.callFunction(call.name, args.items);
             },
             .if_ => |if_| {
-                if (std.meta.eql(try self.evalExprFromAst(if_.cond.*), ast.Value{ .bool_ = true })) {
+                const cond = try self.evalExprFromAst(if_.cond.*);
+                if (try cond.asBool()) {
                     return try self.evalBlockFromAst(if_.then_);
                 } else {
                     return try self.evalBlockFromAst(if_.else_);
@@ -134,7 +135,8 @@ pub const Compiler = struct {
                     return try self.evalExprFromAst(val);
                 },
                 .if_ => |if_| {
-                    if (std.meta.eql(try self.evalExprFromAst(if_.cond.*), ast.Value{ .bool_ = true })) {
+                    const cond = try self.evalExprFromAst(if_.cond.*);
+                    if (try cond.asBool()) {
                         const result = try self.evalBlockFromAst(if_.then_);
                         if (self.has_returned) {
                             return result;
@@ -315,11 +317,11 @@ test "compiler.parseStatement" {
 test "compiler.evalExpr" {
     const cases = comptime [_]struct {
         program: []const u8,
-        expected: usize,
+        expected: ast.Value,
     }{
-        .{ .program = "1 + 2 * 3 + 4", .expected = 11 },
-        .{ .program = "10 - 4", .expected = 6 },
-        .{ .program = "1 + 2 == 3", .expected = 1 },
+        .{ .program = "1 + 2 * 3 + 4", .expected = ast.Value{ .i32_ = 11 } },
+        .{ .program = "10 - 4", .expected = ast.Value{ .i32_ = 6 } },
+        .{ .program = "1 + 2 == 3", .expected = ast.Value{ .bool_ = true } },
     };
 
     for (cases) |case| {
@@ -331,7 +333,7 @@ test "compiler.evalExpr" {
 test "compiler.evalBlock" {
     const cases = comptime [_]struct {
         program: []const u8,
-        expected: usize,
+        expected: i32,
     }{
         .{
             .program =
@@ -370,14 +372,14 @@ test "compiler.evalBlock" {
 
     for (cases) |case| {
         var c = Compiler.init();
-        try std.testing.expectEqual(case.expected, try c.evalBlock(case.program));
+        try std.testing.expectEqual(ast.Value{ .i32_ = case.expected }, try c.evalBlock(case.program));
     }
 }
 
 test "compiler.evalModule" {
     const cases = comptime [_]struct {
         program: []const u8,
-        expected: usize,
+        expected: i32,
     }{
         .{
             .program =
@@ -397,6 +399,6 @@ test "compiler.evalModule" {
 
     for (cases) |case| {
         var c = Compiler.init();
-        try std.testing.expectEqual(case.expected, try c.evalModule(case.program));
+        try std.testing.expectEqual(ast.Value{ .i32_ = case.expected }, try c.evalModule(case.program));
     }
 }
