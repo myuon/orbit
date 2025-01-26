@@ -468,6 +468,16 @@ pub const Compiler = struct {
                         const rhs = try self.evalExprFromAst(binop.rhs.*);
                         return ast.Value{ .bool_ = try lhs.asI32() > try rhs.asI32() };
                     },
+                    .lte => {
+                        const lhs = try self.evalExprFromAst(binop.lhs.*);
+                        const rhs = try self.evalExprFromAst(binop.rhs.*);
+                        return ast.Value{ .bool_ = try lhs.asI32() <= try rhs.asI32() };
+                    },
+                    .gte => {
+                        const lhs = try self.evalExprFromAst(binop.lhs.*);
+                        const rhs = try self.evalExprFromAst(binop.rhs.*);
+                        return ast.Value{ .bool_ = try lhs.asI32() >= try rhs.asI32() };
+                    },
                     else => {
                         unreachable;
                     },

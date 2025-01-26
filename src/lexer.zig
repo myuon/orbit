@@ -84,6 +84,8 @@ pub const Lexer = struct {
             .{ .str = ";", .operator = ast.Operator.semicolon },
             .{ .str = ",", .operator = ast.Operator.comma },
             .{ .str = "==", .operator = ast.Operator.eqeq },
+            .{ .str = "<=", .operator = ast.Operator.lte },
+            .{ .str = ">=", .operator = ast.Operator.gte },
             .{ .str = "=", .operator = ast.Operator.eq },
             .{ .str = "(", .operator = ast.Operator.lparen },
             .{ .str = ")", .operator = ast.Operator.rparen },

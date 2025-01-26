@@ -16,19 +16,19 @@ pub fn main() !void {
     defer c.deinit();
 
     const result = try c.evalModule(
-        \\fun fib(x) do
-        \\  if (x == 0) do
-        \\    return 1;
-        \\  end
-        \\  if (x == 1) do
-        \\    return 1;
-        \\  end
-        \\
-        \\  return fib(x - 1) + fib(x - 2);
-        \\end
-        \\
         \\fun main() do
-        \\  return fib(30);
+        \\  let a = 1;
+        \\  let b = 1;
+        \\  let n = 0;
+        \\
+        \\  while (n < 40) do
+        \\    let c = a + b;
+        \\    a = b;
+        \\    b = c;
+        \\    n = n + 1;
+        \\  end
+        \\
+        \\  return a;
         \\end
     );
 

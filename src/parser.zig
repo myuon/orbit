@@ -393,6 +393,36 @@ pub const Parser = struct {
                                 .rhs = rhs,
                             } };
                         },
+                        .lte => {
+                            try self.expect(ast.Operator.lte);
+
+                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                            rhs.* = try self.expr1();
+
+                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                            newCurrent.* = current;
+
+                            current = ast.Expression{ .binop = .{
+                                .op = .lte,
+                                .lhs = newCurrent,
+                                .rhs = rhs,
+                            } };
+                        },
+                        .gte => {
+                            try self.expect(ast.Operator.gte);
+
+                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                            rhs.* = try self.expr1();
+
+                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                            newCurrent.* = current;
+
+                            current = ast.Expression{ .binop = .{
+                                .op = .gte,
+                                .lhs = newCurrent,
+                                .rhs = rhs,
+                            } };
+                        },
                         else => {
                             break;
                         },

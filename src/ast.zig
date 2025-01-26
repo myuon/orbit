@@ -2,6 +2,8 @@ const std = @import("std");
 
 pub const Operator = enum {
     eqeq,
+    lte,
+    gte,
     eq,
     semicolon,
     comma,
