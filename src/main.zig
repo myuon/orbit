@@ -16,20 +16,34 @@ pub fn main() !void {
     defer c.deinit();
 
     const result = try c.evalModule(
-        \\fun main() do
-        \\  let a = 1;
-        \\  let b = 1;
-        \\  let n = 0;
-        \\
-        \\  while (n < 40) do
-        \\    let c = a + b;
-        \\    a = b;
-        \\    b = c;
-        \\    n = n + 1;
+        \\fun fib(n) do
+        \\  if (n == 0) do
+        \\    return 0;
+        \\  end
+        \\  if (n == 1) do
+        \\    return 1;
         \\  end
         \\
-        \\  return a;
+        \\  return fib(n - 1) + fib(n - 2);
         \\end
+        \\
+        \\fun main() do
+        \\  return fib(25);
+        \\end
+        // \\fun main() do
+        // \\  let a = 1;
+        // \\  let b = 1;
+        // \\  let n = 0;
+        // \\
+        // \\  while (n < 40) do
+        // \\    let c = a + b;
+        // \\    a = b;
+        // \\    b = c;
+        // \\    n = n + 1;
+        // \\  end
+        // \\
+        // \\  return a;
+        // \\end
     );
 
     const stdout_file = std.io.getStdOut().writer();

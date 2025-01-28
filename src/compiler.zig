@@ -416,6 +416,13 @@ pub const Compiler = struct {
 
                     pc += 1;
                 },
+                .mul => {
+                    const rhs = stack.pop();
+                    const lhs = stack.pop();
+                    try stack.append(lhs * rhs);
+
+                    pc += 1;
+                },
                 .call => |addr| {
                     pc = addr;
                 },
@@ -979,6 +986,25 @@ test "compiler.evalModule" {
             \\end
             ,
             .expected = 45,
+        },
+        .{
+            .program =
+            \\fun fib(n) do
+            \\  if (n == 0) do
+            \\    return 0;
+            \\  end
+            \\  if (n == 1) do
+            \\    return 1;
+            \\  end
+            \\
+            \\  return fib(n - 1) + fib(n - 2);
+            \\end
+            \\
+            \\fun main() do
+            \\  return fib(15);
+            \\end
+            ,
+            .expected = 610,
         },
     };
 
