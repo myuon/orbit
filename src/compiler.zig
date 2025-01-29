@@ -739,6 +739,7 @@ pub const Compiler = struct {
 test {
     _ = @import("lexer.zig");
     _ = @import("parser.zig");
+    _ = @import("jit.zig");
 }
 
 test "compiler.parse_err" {
