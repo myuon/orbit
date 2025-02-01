@@ -131,6 +131,15 @@ const JitRuntime = struct {
         try code.emitLdr(0, tmp2, target);
     }
 
+    fn pushCStack(code: *Arm64, value: Register, tmp1: Register, tmp2: Register, tmp3: Register) anyerror!void {
+        try code.emitLdr(0, reg_c_sp, tmp1);
+        try JitRuntime.setCStack(code, tmp1, value, tmp2, tmp3);
+
+        try JitRuntime.getCSp(code, tmp1);
+        try code.emitAddImm(tmp1, 0x1, tmp1);
+        try code.emitStr(reg_c_sp, tmp1);
+    }
+
     pub fn compile(prog: []ast.Instruction) anyerror!CompiledFn {
         const buf = mman.mmap(
             null,
@@ -149,15 +158,8 @@ const JitRuntime = struct {
         for (prog) |inst| {
             switch (inst) {
                 .push => |n| {
-                    // c_stack[c_sp] = n
-                    try code.emitLdr(0, reg_c_sp, .x9);
-                    try code.emitMovImm(.x10, @intCast(n));
-                    try JitRuntime.setCStack(&code, .x9, .x10, .x15, .x14);
-
-                    // c_sp += 1
-                    try JitRuntime.getCSp(&code, .x9);
-                    try code.emitAddImm(.x9, 0x1, .x9);
-                    try code.emitStr(reg_c_sp, .x9);
+                    try code.emitMovImm(.x9, @intCast(n));
+                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
                 .pop => {
                     try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
@@ -165,7 +167,13 @@ const JitRuntime = struct {
                 .ret => {
                     try code.emitRet();
                 },
-                .eq => {},
+                .eq => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+                    try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
+
+                    try code.emitSubs(.x9, .x9, .x10);
+                    try code.emitCsinc(.x9, .x10, .x9, 0b0001);
+                },
                 else => {
                     unreachable;
                 },
