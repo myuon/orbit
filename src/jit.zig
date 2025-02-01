@@ -3,6 +3,8 @@ const fs = std.fs;
 const mman = @cImport(@cInclude("sys/mman.h"));
 const pthread = @cImport(@cInclude("pthread.h"));
 
+const ast = @import("ast.zig");
+
 const Arm64 = struct {
     code_buf: std.ArrayList(u32),
 
@@ -21,19 +23,23 @@ const Arm64 = struct {
     }
 
     fn emitRet(self: *Arm64) anyerror!void {
-        try self.emit(0xd65f03c0);
+        try self.emit(0xd65f03c0); // ret x30
     }
 
-    fn emitPopX0(self: *Arm64) anyerror!void {
-        try self.emit(0xf84107e1); // ldr x1, [sp], 16
+    fn emitMovImm(self: *Arm64, target: u8, imm: u16) anyerror!void {
+        try self.emit(0xD2800000 | (@as(u32, imm) << 5) | @as(u32, target));
     }
 
-    fn emitPushX0(self: *Arm64) anyerror!void {
-        try self.emit(0xf81f0fe0); // str x0, [sp, -16]!
+    fn emitStr(
+        self: *Arm64,
+        base: u8,
+        value: u8,
+    ) anyerror!void {
+        try self.emit(0xF9000000 | (0x0 << 10) | (@as(u32, base) << 5) | @as(u32, value));
     }
 };
 
-pub fn compileJit() anyerror!*fn () callconv(.C) void {
+pub fn compileJit(prog: []ast.Instruction) anyerror!*fn (*i64) callconv(.C) void {
     const buf = mman.mmap(
         null,
         4096,
@@ -48,21 +54,48 @@ pub fn compileJit() anyerror!*fn () callconv(.C) void {
     var code = Arm64.init(std.testing.allocator);
     defer code.deinit();
 
-    try code.emit(0xd2824680); // mov x0, #0x1234
-    try code.emitPushX0();
-    try code.emitPopX0();
+    // for (prog) |inst| {
+    //     switch (inst) {
+    //         .push => |_| {
+    //             // try code.emitMovkX9Imm(@intCast(n));
+    //             // try code.emitPushX9();
+    //             try code.emit(0xD2800009);
+    //             try code.emit(0xF81F8FE9);
+    //         },
+    //         .ret => {
+    //             // try code.emitPopX9();
+    //             try code.emitRet();
+    //         },
+    //         else => {},
+    //     }
+    // }
+
+    _ = prog;
+
+    try code.emitMovImm(0x9, 1234);
+    try code.emitStr(0x0, 0x9);
+
     try code.emitRet();
 
     pthread.pthread_jit_write_protect_np(0);
     @memcpy(buf_ptr, code.code_buf.items);
     pthread.pthread_jit_write_protect_np(1);
 
+    std.debug.print("buf: {x}\n", .{code.code_buf.items});
+
     return @ptrCast(@alignCast(buf));
 }
 
 test {
-    const fn_ptr = try compileJit();
-    const r = fn_ptr();
+    const fn_ptr = try compileJit(@constCast(&[_]ast.Instruction{
+        .{ .push = 0x12 },
+        .{ .ret = true },
+    }));
 
-    std.debug.print("{any}\n", .{r});
+    var k: i64 = 100;
+
+    // const stack = [_]i64{ 0, 0, 0, 0, 0 };
+    const r = fn_ptr(@constCast(&k));
+
+    std.debug.print("return: {any}, stack: {any}\n", .{ r, k });
 }
