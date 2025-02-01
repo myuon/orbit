@@ -39,7 +39,12 @@ const Arm64 = struct {
     }
 };
 
-pub fn compileJit(prog: []ast.Instruction) anyerror!*fn (*i64) callconv(.C) void {
+const CompiledFn = *fn (
+    c_stack: [*]i64,
+    c_sp: *i64,
+) callconv(.C) void;
+
+pub fn compileJit(prog: []ast.Instruction) anyerror!CompiledFn {
     const buf = mman.mmap(
         null,
         4096,
@@ -75,6 +80,9 @@ pub fn compileJit(prog: []ast.Instruction) anyerror!*fn (*i64) callconv(.C) void
     try code.emitMovImm(0x9, 1234);
     try code.emitStr(0x0, 0x9);
 
+    try code.emitMovImm(0x9, 1);
+    try code.emitStr(0x1, 0x9);
+
     try code.emitRet();
 
     pthread.pthread_jit_write_protect_np(0);
@@ -92,10 +100,10 @@ test {
         .{ .ret = true },
     }));
 
-    var k: i64 = 100;
+    var k: i64 = 0;
 
-    // const stack = [_]i64{ 0, 0, 0, 0, 0 };
-    const r = fn_ptr(@constCast(&k));
+    var stack = [_]i64{ 0, 0, 0, 0, 0 };
+    fn_ptr(@constCast((&stack).ptr), @constCast(&k));
 
-    std.debug.print("return: {any}, stack: {any}\n", .{ r, k });
+    std.debug.print("c_stack: {any}, c_sp: {d}\n", .{ stack, k });
 }
