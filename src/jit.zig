@@ -51,6 +51,10 @@ const Arm64 = struct {
         try self.emit(0x91000000 | (@as(u32, imm) << 10) | @as(u32, @intFromEnum(source) << 5) | @as(u32, @intFromEnum(target)));
     }
 
+    fn emitSubImm(self: *Arm64, source: Register, imm: u12, target: Register) anyerror!void {
+        try self.emit(0xD1000000 | (@as(u32, imm) << 10) | @as(u32, @intFromEnum(source) << 5) | @as(u32, @intFromEnum(target)));
+    }
+
     fn emitMul(self: *Arm64, source1: Register, source2: Register, target: Register) anyerror!void {
         try self.emit(0x9B00FC00 | (@as(u32, @intFromEnum(source1)) << 16) | (@as(u32, @intFromEnum(source2)) << 5) | @as(u32, @intFromEnum(target)));
     }
@@ -102,10 +106,17 @@ pub fn compileJit(prog: []ast.Instruction) anyerror!CompiledFn {
                 try code.emitAddImm(.x9, 0x1, .x9);
                 try code.emitStr(reg_c_sp, .x9);
             },
+            .pop => {
+                try code.emitLdr(0, reg_c_sp, .x9);
+                try code.emitSubImm(.x9, 0x1, .x9);
+                try code.emitStr(reg_c_sp, .x9);
+            },
             .ret => {
                 try code.emitRet();
             },
-            else => {},
+            else => {
+                unreachable;
+            },
         }
     }
 
@@ -133,11 +144,12 @@ test {
                 .{ .push = 0x12 },
                 .{ .push = 0x34 },
                 .{ .push = 0x56 },
+                .{ .pop = true },
                 .{ .ret = true },
             }),
             .expected = .{
-                .c_stack = @constCast(&[_]i64{ 0x12, 0x34, 0x56, 0, 0 }),
-                .c_sp = 3,
+                .c_stack = @constCast(&[_]i64{ 0x12, 0x34 }),
+                .c_sp = 2,
             },
         },
     };
@@ -148,7 +160,7 @@ test {
         const fn_ptr = try compileJit(c.prog);
         fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp));
 
-        try std.testing.expectEqualSlices(i64, c.expected.c_stack, &c_stack);
+        try std.testing.expectEqualSlices(i64, c.expected.c_stack, c_stack[0..@intCast(c_sp)]);
         try std.testing.expectEqual(c.expected.c_sp, c_sp);
     }
 }
