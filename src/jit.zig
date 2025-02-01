@@ -105,6 +105,23 @@ const JitRuntime = struct {
     const reg_c_stack = Register.x0;
     const reg_c_sp = Register.x1;
 
+    /// *c_sp
+    fn getCSp(code: *Arm64, target: Register) anyerror!void {
+        try code.emitLdr(0, reg_c_sp, target);
+    }
+
+    /// getCStackAddress(i, t) === t := &c_stack[i]
+    fn getCStackAddress(code: *Arm64, index: Register, target: Register, tmp1: Register) anyerror!void {
+        try code.emitMovImm(tmp1, 0x8);
+        try code.emitMadd(target, index, tmp1, reg_c_stack);
+    }
+
+    /// setCStack(i, v) === c_stack[i] := v
+    fn setCStack(code: *Arm64, index: Register, value: Register, tmp1: Register, tmp2: Register) anyerror!void {
+        try JitRuntime.getCStackAddress(code, index, tmp1, tmp2);
+        try code.emitStr(tmp1, value);
+    }
+
     pub fn compile(prog: []ast.Instruction) anyerror!CompiledFn {
         const buf = mman.mmap(
             null,
@@ -123,25 +140,26 @@ const JitRuntime = struct {
         for (prog) |inst| {
             switch (inst) {
                 .push => |n| {
+                    // c_stack[c_sp] = n
                     try code.emitLdr(0, reg_c_sp, .x9);
-                    try code.emitMovImm(.x11, 0x8);
-                    try code.emitMadd(.x10, .x11, .x9, reg_c_stack);
+                    try code.emitMovImm(.x10, @intCast(n));
+                    try JitRuntime.setCStack(&code, .x9, .x10, .x15, .x14);
 
-                    try code.emitMovImm(.x9, @intCast(n));
-                    try code.emitStr(.x10, .x9);
-
-                    try code.emitLdr(0, reg_c_sp, .x9);
+                    // c_sp += 1
+                    try JitRuntime.getCSp(&code, .x9);
                     try code.emitAddImm(.x9, 0x1, .x9);
                     try code.emitStr(reg_c_sp, .x9);
                 },
                 .pop => {
-                    try code.emitLdr(0, reg_c_sp, .x9);
+                    // c_sp -= 1
+                    try JitRuntime.getCSp(&code, .x9);
                     try code.emitSubImm(.x9, 0x1, .x9);
                     try code.emitStr(reg_c_sp, .x9);
                 },
                 .ret => {
                     try code.emitRet();
                 },
+                .eq => {},
                 else => {
                     unreachable;
                 },
