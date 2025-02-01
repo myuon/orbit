@@ -172,7 +172,8 @@ const JitRuntime = struct {
                     try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
 
                     try code.emitSubs(.x9, .x9, .x10);
-                    try code.emitCsinc(.x9, .x10, .x9, 0b0001);
+                    try code.emitCsinc(.x9, reg_xzr, reg_xzr, 0b0001);
+                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
                 else => {
                     unreachable;
@@ -186,7 +187,7 @@ const JitRuntime = struct {
         @memcpy(buf_ptr, code.code_buf.items);
         pthread.pthread_jit_write_protect_np(1);
 
-        std.debug.print("buf: {x}\n", .{code.code_buf.items});
+        // std.debug.print("buf: {x}\n", .{code.code_buf.items});
 
         return @ptrCast(@alignCast(buf));
     }
@@ -211,6 +212,30 @@ test {
             .expected = .{
                 .c_stack = @constCast(&[_]i64{ 0x12, 0x34 }),
                 .c_sp = 2,
+            },
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x1 },
+                .{ .push = 0x2 },
+                .{ .eq = true },
+                .{ .ret = true },
+            }),
+            .expected = .{
+                .c_stack = @constCast(&[_]i64{0x0}),
+                .c_sp = 1,
+            },
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x2 },
+                .{ .push = 0x2 },
+                .{ .eq = true },
+                .{ .ret = true },
+            }),
+            .expected = .{
+                .c_stack = @constCast(&[_]i64{0x1}),
+                .c_sp = 1,
             },
         },
     };
