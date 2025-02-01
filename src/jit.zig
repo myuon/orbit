@@ -122,6 +122,15 @@ const JitRuntime = struct {
         try code.emitStr(tmp1, value);
     }
 
+    fn popCStack(code: *Arm64, target: Register, tmp1: Register, tmp2: Register, tmp3: Register) anyerror!void {
+        try JitRuntime.getCSp(code, tmp1);
+        try code.emitSubImm(tmp1, 0x1, tmp1);
+        try code.emitStr(reg_c_sp, tmp1);
+
+        try JitRuntime.getCStackAddress(code, tmp1, tmp2, tmp3);
+        try code.emitLdr(0, tmp2, target);
+    }
+
     pub fn compile(prog: []ast.Instruction) anyerror!CompiledFn {
         const buf = mman.mmap(
             null,
@@ -151,10 +160,7 @@ const JitRuntime = struct {
                     try code.emitStr(reg_c_sp, .x9);
                 },
                 .pop => {
-                    // c_sp -= 1
-                    try JitRuntime.getCSp(&code, .x9);
-                    try code.emitSubImm(.x9, 0x1, .x9);
-                    try code.emitStr(reg_c_sp, .x9);
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
                 },
                 .ret => {
                     try code.emitRet();
