@@ -5,7 +5,10 @@ const pthread = @cImport(@cInclude("pthread.h"));
 
 const ast = @import("ast.zig");
 
-const Register = enum(u32) { x0 = 0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, x30 };
+const Register = enum(u32) { x0 = 0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, x30, x31 };
+const reg_xzr = Register.x31;
+const reg_sp = Register.x31;
+
 const Arm64 = struct {
     code_buf: std.ArrayList(u32),
 
@@ -59,6 +62,7 @@ const Arm64 = struct {
         try self.emit(0x9B00FC00 | (@as(u32, @intFromEnum(source1)) << 16) | (@as(u32, @intFromEnum(source2)) << 5) | @as(u32, @intFromEnum(target)));
     }
 
+    /// madd t, s1, s2, b === t = s1 * s2 + b
     fn emitMadd(self: *Arm64, target: Register, source1: Register, source2: Register, base: Register) anyerror!void {
         const t: u32 = @intFromEnum(target);
         const b: u32 = @intFromEnum(base);
@@ -67,6 +71,29 @@ const Arm64 = struct {
 
         try self.emit(0x9B000000 | (s1 << 16) | (b << 10) | (s2 << 5) | t);
     }
+
+    fn emitSubs(self: *Arm64, target: Register, source1: Register, source2: Register) anyerror!void {
+        const t: u32 = @intFromEnum(target);
+        const s1: u32 = @intFromEnum(source1);
+        const s2: u32 = @intFromEnum(source2);
+
+        try self.emit(0xEB000000 | (s1 << 16) | (s2 << 5) | t);
+    }
+
+    fn emitMrsNzcv(self: *Arm64, target: Register) anyerror!void {
+        const t: u32 = @intFromEnum(target);
+
+        try self.emit(0xD53B4200 | t);
+    }
+
+    fn emitCsinc(self: *Arm64, target: Register, source1: Register, source2: Register, condition: u4) anyerror!void {
+        const t: u32 = @intFromEnum(target);
+        const s1: u32 = @intFromEnum(source1);
+        const s2: u32 = @intFromEnum(source2);
+        const c: u32 = condition;
+
+        try self.emit(0x9A800400 | (c << 12) | (s1 << 16) | (s2 << 5) | t);
+    }
 };
 
 const CompiledFn = *fn (
@@ -74,62 +101,64 @@ const CompiledFn = *fn (
     c_sp: *i64,
 ) callconv(.C) void;
 
-pub fn compileJit(prog: []ast.Instruction) anyerror!CompiledFn {
-    const buf = mman.mmap(
-        null,
-        4096,
-        mman.PROT_WRITE | mman.PROT_EXEC,
-        mman.MAP_PRIVATE | mman.MAP_ANONYMOUS | mman.MAP_JIT,
-        -1,
-        0,
-    ) orelse unreachable;
-
-    const buf_ptr: [*]u32 = @ptrCast(@alignCast(buf));
-
-    var code = Arm64.init(std.testing.allocator);
-    defer code.deinit();
-
+const JitRuntime = struct {
     const reg_c_stack = Register.x0;
     const reg_c_sp = Register.x1;
 
-    for (prog) |inst| {
-        switch (inst) {
-            .push => |n| {
-                try code.emitLdr(0, reg_c_sp, .x9);
-                try code.emitMovImm(.x11, 0x8);
-                try code.emitMadd(.x10, .x11, .x9, reg_c_stack);
+    pub fn compile(prog: []ast.Instruction) anyerror!CompiledFn {
+        const buf = mman.mmap(
+            null,
+            4096,
+            mman.PROT_WRITE | mman.PROT_EXEC,
+            mman.MAP_PRIVATE | mman.MAP_ANONYMOUS | mman.MAP_JIT,
+            -1,
+            0,
+        ) orelse unreachable;
 
-                try code.emitMovImm(.x9, @intCast(n));
-                try code.emitStr(.x10, .x9);
+        const buf_ptr: [*]u32 = @ptrCast(@alignCast(buf));
 
-                try code.emitLdr(0, reg_c_sp, .x9);
-                try code.emitAddImm(.x9, 0x1, .x9);
-                try code.emitStr(reg_c_sp, .x9);
-            },
-            .pop => {
-                try code.emitLdr(0, reg_c_sp, .x9);
-                try code.emitSubImm(.x9, 0x1, .x9);
-                try code.emitStr(reg_c_sp, .x9);
-            },
-            .ret => {
-                try code.emitRet();
-            },
-            else => {
-                unreachable;
-            },
+        var code = Arm64.init(std.testing.allocator);
+        defer code.deinit();
+
+        for (prog) |inst| {
+            switch (inst) {
+                .push => |n| {
+                    try code.emitLdr(0, reg_c_sp, .x9);
+                    try code.emitMovImm(.x11, 0x8);
+                    try code.emitMadd(.x10, .x11, .x9, reg_c_stack);
+
+                    try code.emitMovImm(.x9, @intCast(n));
+                    try code.emitStr(.x10, .x9);
+
+                    try code.emitLdr(0, reg_c_sp, .x9);
+                    try code.emitAddImm(.x9, 0x1, .x9);
+                    try code.emitStr(reg_c_sp, .x9);
+                },
+                .pop => {
+                    try code.emitLdr(0, reg_c_sp, .x9);
+                    try code.emitSubImm(.x9, 0x1, .x9);
+                    try code.emitStr(reg_c_sp, .x9);
+                },
+                .ret => {
+                    try code.emitRet();
+                },
+                else => {
+                    unreachable;
+                },
+            }
         }
+
+        try code.emitRet();
+
+        pthread.pthread_jit_write_protect_np(0);
+        @memcpy(buf_ptr, code.code_buf.items);
+        pthread.pthread_jit_write_protect_np(1);
+
+        std.debug.print("buf: {x}\n", .{code.code_buf.items});
+
+        return @ptrCast(@alignCast(buf));
     }
-
-    try code.emitRet();
-
-    pthread.pthread_jit_write_protect_np(0);
-    @memcpy(buf_ptr, code.code_buf.items);
-    pthread.pthread_jit_write_protect_np(1);
-
-    std.debug.print("buf: {x}\n", .{code.code_buf.items});
-
-    return @ptrCast(@alignCast(buf));
-}
+};
 
 test {
     const cases = [_]struct {
@@ -157,7 +186,7 @@ test {
     for (cases) |c| {
         var c_sp: i64 = 0;
         var c_stack = [_]i64{ 0, 0, 0, 0, 0 };
-        const fn_ptr = try compileJit(c.prog);
+        const fn_ptr = try JitRuntime.compile(c.prog);
         fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp));
 
         try std.testing.expectEqualSlices(i64, c.expected.c_stack, c_stack[0..@intCast(c_sp)]);
