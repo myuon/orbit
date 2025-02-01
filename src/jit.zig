@@ -54,12 +54,20 @@ const Arm64 = struct {
         try self.emit(0x91000000 | (@as(u32, imm) << 10) | @as(u32, @intFromEnum(source) << 5) | @as(u32, @intFromEnum(target)));
     }
 
+    fn emitSub(self: *Arm64, target: Register, source1: Register, source2: Register) anyerror!void {
+        const t: u32 = @intFromEnum(target);
+        const s1: u32 = @intFromEnum(source1);
+        const s2: u32 = @intFromEnum(source2);
+
+        try self.emit(0xCB000000 | (s1 << 16) | (s2 << 5) | t);
+    }
+
     fn emitSubImm(self: *Arm64, source: Register, imm: u12, target: Register) anyerror!void {
         try self.emit(0xD1000000 | (@as(u32, imm) << 10) | @as(u32, @intFromEnum(source) << 5) | @as(u32, @intFromEnum(target)));
     }
 
     fn emitMul(self: *Arm64, source1: Register, source2: Register, target: Register) anyerror!void {
-        try self.emit(0x9B00FC00 | (@as(u32, @intFromEnum(source1)) << 16) | (@as(u32, @intFromEnum(source2)) << 5) | @as(u32, @intFromEnum(target)));
+        try self.emitMadd(target, source1, source2, reg_xzr);
     }
 
     /// madd t, s1, s2, b === t = s1 * s2 + b
@@ -175,6 +183,27 @@ const JitRuntime = struct {
                     try code.emitCsinc(.x9, reg_xzr, reg_xzr, 0b0001);
                     try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
+                .add => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+                    try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
+
+                    try code.emitAdd(.x9, .x10, .x9);
+                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+                },
+                .sub => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+                    try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
+
+                    try code.emitSub(.x9, .x10, .x9);
+                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+                },
+                .mul => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+                    try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
+
+                    try code.emitMul(.x9, .x10, .x9);
+                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+                },
                 else => {
                     unreachable;
                 },
@@ -235,6 +264,42 @@ test {
             }),
             .expected = .{
                 .c_stack = @constCast(&[_]i64{0x1}),
+                .c_sp = 1,
+            },
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x12 },
+                .{ .push = 0x34 },
+                .{ .add = true },
+                .{ .ret = true },
+            }),
+            .expected = .{
+                .c_stack = @constCast(&[_]i64{0x46}),
+                .c_sp = 1,
+            },
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x12 },
+                .{ .push = 0x34 },
+                .{ .sub = true },
+                .{ .ret = true },
+            }),
+            .expected = .{
+                .c_stack = @constCast(&[_]i64{0x22}),
+                .c_sp = 1,
+            },
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x12 },
+                .{ .push = 0x8 },
+                .{ .mul = true },
+                .{ .ret = true },
+            }),
+            .expected = .{
+                .c_stack = @constCast(&[_]i64{0x90}),
                 .c_sp = 1,
             },
         },

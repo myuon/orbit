@@ -190,15 +190,15 @@ pub const Instruction = union(InstructionType) {
     pop: bool,
     ret: bool,
     eq: bool,
-    jump: []const u8,
-    jump_ifzero: []const u8,
+    jump: []const u8, // (resolve_label phase) replaced with jump_d
+    jump_ifzero: []const u8, // (resolve_label phase) replaced with jump_ifzero_d
     add: bool,
     sub: bool,
     mul: bool,
     call: usize,
-    get_local: []const u8,
-    set_local: []const u8,
-    label: []const u8,
+    get_local: []const u8, // (resolve_local phase) replaced with get_local_d
+    set_local: []const u8, // (resolve_local phase) replaced with set_local_d
+    label: []const u8, // (resolve_label phase) replaced with nop
     get_pc: bool,
     get_bp: bool,
     set_bp: bool,
