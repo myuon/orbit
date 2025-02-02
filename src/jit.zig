@@ -43,6 +43,7 @@ const Arm64 = struct {
     }
 
     fn emitLdr(self: *Arm64, offset: u9, source: Register, target: Register) anyerror!void {
+        std.debug.assert(source != target);
         try self.emit(0xF8400400 | (@as(u32, offset) << 12) | (@as(u32, @intFromEnum(source) << 5) | @as(u32, @intFromEnum(target))));
     }
 
@@ -312,6 +313,24 @@ const JitRuntime = struct {
                     try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
                     try JitRuntime.setCSp(&code, .x9);
                 },
+                .get_local_d => |k| {
+                    try code.emitMovImm(.x9, @intCast(k));
+                    try JitRuntime.getCBp(&code, .x10);
+                    try code.emitAdd(.x9, .x10, .x9);
+
+                    try JitRuntime.getCStackAddress(&code, .x9, .x9, .x15);
+                    try code.emitLdr(0, .x9, .x10);
+
+                    try JitRuntime.pushCStack(&code, .x10, .x15, .x14, .x13);
+                },
+                .set_local_d => |k| {
+                    try code.emitMovImm(.x9, @intCast(k));
+                    try JitRuntime.getCBp(&code, .x10);
+                    try code.emitAdd(.x9, .x10, .x9);
+
+                    try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
+                    try JitRuntime.setCStack(&code, .x9, .x10, .x15, .x14);
+                },
                 else => {
                     unreachable;
                 },
@@ -468,6 +487,26 @@ test {
                 .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{0x3}),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x1 },
+                .{ .push = 0x2 },
+                .{ .push = 0x3 },
+                .{ .get_local_d = 1 },
+                .{ .ret = true },
+            }),
+            .expected = @constCast(&[_]i64{ 0x1, 0x2, 0x3, 0x2 }),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x1 },
+                .{ .push = 0x2 },
+                .{ .push = 0x3 },
+                .{ .set_local_d = 1 },
+                .{ .ret = true },
+            }),
+            .expected = @constCast(&[_]i64{ 0x1, 0x3 }),
         },
     };
 
