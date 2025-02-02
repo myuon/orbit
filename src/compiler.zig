@@ -1032,3 +1032,95 @@ test "compiler.evalModule" {
         try std.testing.expectEqual(ast.Value{ .i32_ = case.expected }, try c.evalModule(case.program));
     }
 }
+
+test "compiler.runVm" {
+    const cases = comptime [_]struct {
+        prog: []ast.Instruction,
+        initial_stack: []i32 = &[_]i32{},
+        initial_bp: usize = 0,
+        expected: []i32,
+    }{
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x34 },
+                .{ .push = 0x12 },
+                .{ .sub = true },
+            }),
+            .expected = @constCast(&[_]i32{0x22}),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x1 },
+                .{ .push = 0x2 },
+                .{ .push = 0x3 },
+                .{ .push = 0x4 },
+                .{ .push = 0x5 },
+                .{ .push = 0x3 },
+                .{ .set_bp = true },
+                .{ .push = 0x12 },
+                .{ .set_local_d = -1 },
+            }),
+            .expected = @constCast(&[_]i32{ 0x1, 0x2, 0x12, 0x4, 0x5 }),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .get_local_d = -3 },
+                .{ .push = 0 },
+                .{ .eq = true },
+                .{ .jump_ifzero_d = 12 },
+                .{ .nop = true },
+                .{ .push = 0 },
+                .{ .set_local_d = -4 },
+                .{ .get_bp = true },
+                .{ .set_sp = true },
+                .{ .set_bp = true },
+                .{ .ret = true },
+                .{ .jump_d = 13 },
+                .{ .nop = true },
+                .{ .nop = true },
+                .{ .get_local_d = -3 },
+                .{ .push = -2 },
+                .{ .get_local_d = -3 },
+                .{ .push = 1 },
+                .{ .sub = true },
+                .{ .get_pc = true },
+                .{ .get_bp = true },
+                .{ .get_sp = true },
+                .{ .set_bp = true },
+                .{ .call = 0 },
+                .{ .pop = true },
+                .{ .add = true },
+                .{ .set_local_d = -4 },
+                .{ .get_bp = true },
+                .{ .set_sp = true },
+                .{ .set_bp = true },
+                .{ .ret = true },
+            }),
+            .initial_stack = @constCast(&[_]i32{ -2, 2, -1, 0 }),
+            .initial_bp = 4,
+            .expected = @constCast(&[_]i32{ 3, 2 }),
+        },
+    };
+
+    for (cases) |case| {
+        var stack = std.ArrayList(i32).init(std.testing.allocator);
+        defer stack.deinit();
+
+        var bp: usize = 0;
+        var address_map = std.StringHashMap(i32).init(std.testing.allocator);
+        defer address_map.deinit();
+
+        if (case.initial_stack.len > 0) {
+            for (case.initial_stack) |item| {
+                try stack.append(item);
+            }
+        }
+        if (case.initial_bp > 0) {
+            bp = case.initial_bp;
+        }
+
+        try Compiler.runVm(case.prog, &stack, &bp, address_map);
+
+        try std.testing.expectEqualSlices(i32, case.expected, stack.items);
+    }
+}
