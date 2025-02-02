@@ -102,6 +102,26 @@ const Arm64 = struct {
 
         try self.emit(0x9A800400 | (c << 12) | (s1 << 16) | (s2 << 5) | t);
     }
+
+    fn emitB(self: *Arm64, offset: i26) anyerror!void {
+        try self.emit(Arm64.getBInstr(offset));
+    }
+
+    fn emitBL(self: *Arm64, offset: i26) anyerror!void {
+        try self.emit(Arm64.getBLInstr(offset));
+    }
+
+    fn getBLInstr(offset: i26) u32 {
+        const o = @as(u32, @intCast(@as(u26, @bitCast(offset))));
+
+        return 0x94000000 | o;
+    }
+
+    fn getBInstr(offset: i26) u32 {
+        const o = @as(u32, @intCast(@as(u26, @bitCast(offset))));
+
+        return 0x14000000 | o;
+    }
 };
 
 const CompiledFn = *fn (
@@ -149,6 +169,31 @@ const JitRuntime = struct {
     }
 
     pub fn compile(prog: []ast.Instruction) anyerror!CompiledFn {
+        var jumpSources = std.AutoHashMap(usize, usize).init(std.testing.allocator);
+        defer jumpSources.deinit();
+
+        var jumpTargets = std.AutoHashMap(usize, usize).init(std.testing.allocator);
+        defer jumpTargets.deinit();
+
+        for (prog, 0..) |inst, source| {
+            switch (inst) {
+                .jump_d => |target| {
+                    try jumpSources.put(source, std.math.maxInt(usize));
+                    try jumpTargets.put(target, std.math.maxInt(usize));
+                },
+                .jump_ifzero_d => |target| {
+                    try jumpSources.put(source, std.math.maxInt(usize));
+                    try jumpTargets.put(target, std.math.maxInt(usize));
+                },
+                .call => |target| {
+                    try jumpSources.put(source, std.math.maxInt(usize));
+                    try jumpTargets.put(target, std.math.maxInt(usize));
+                    std.debug.print("call: {d} -> {d}\n", .{ source, target });
+                },
+                else => {},
+            }
+        }
+
         const buf = mman.mmap(
             null,
             4096,
@@ -163,7 +208,11 @@ const JitRuntime = struct {
         var code = Arm64.init(std.testing.allocator);
         defer code.deinit();
 
-        for (prog) |inst| {
+        for (prog, 0..) |inst, p| {
+            if (jumpTargets.contains(p)) {
+                try jumpTargets.put(p, @intCast(code.code_buf.items.len));
+            }
+
             switch (inst) {
                 .push => |n| {
                     try code.emitMovImm(.x9, @intCast(n));
@@ -204,6 +253,14 @@ const JitRuntime = struct {
                     try code.emitMul(.x9, .x10, .x9);
                     try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
+                .call => {
+                    try code.emit(0x0);
+                    try jumpSources.put(p, @intCast(code.code_buf.items.len - 1));
+                },
+                .jump_d => {
+                    try code.emit(0x0);
+                    try jumpSources.put(p, @intCast(code.code_buf.items.len - 1));
+                },
                 else => {
                     unreachable;
                 },
@@ -212,11 +269,40 @@ const JitRuntime = struct {
 
         try code.emitRet();
 
+        for (prog, 0..) |inst, source| {
+            switch (inst) {
+                .call => |target| {
+                    const source_addr = jumpSources.get(source) orelse unreachable;
+                    const target_addr = jumpTargets.get(target) orelse unreachable;
+                    std.debug.assert(source_addr < code.code_buf.items.len);
+                    std.debug.assert(target_addr < code.code_buf.items.len);
+
+                    const offset = @as(i26, @intCast(target_addr)) - @as(i26, @intCast(source_addr));
+                    std.debug.assert(code.code_buf.items[source_addr] == 0x0);
+                    code.code_buf.items[source_addr] = Arm64.getBLInstr(offset);
+                },
+                .jump_d => |target| {
+                    const source_addr = jumpSources.get(source) orelse unreachable;
+                    const target_addr = jumpTargets.get(target) orelse unreachable;
+                    std.debug.assert(source_addr < code.code_buf.items.len);
+                    std.debug.assert(target_addr < code.code_buf.items.len);
+
+                    const offset = @as(i26, @intCast(target_addr)) - @as(i26, @intCast(source_addr));
+                    std.debug.assert(code.code_buf.items[source_addr] == 0x0);
+                    code.code_buf.items[source_addr] = Arm64.getBInstr(offset);
+                },
+                else => {},
+            }
+        }
+
         pthread.pthread_jit_write_protect_np(0);
         @memcpy(buf_ptr, code.code_buf.items);
         pthread.pthread_jit_write_protect_np(1);
 
-        // std.debug.print("buf: {x}\n", .{code.code_buf.items});
+        std.debug.print("buf: {x}\n", .{code.code_buf.items});
+        for (code.code_buf.items) |instr| {
+            std.debug.print("{x:0>2}{x:0>2}{x:0>2}{x:0>2}\n", .{ instr & 0xff, (instr >> 8) & 0xff, (instr >> 16) & 0xff, (instr >> 24) & 0xff });
+        }
 
         return @ptrCast(@alignCast(buf));
     }
@@ -301,6 +387,32 @@ test {
             .expected = .{
                 .c_stack = @constCast(&[_]i64{0x90}),
                 .c_sp = 1,
+            },
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x1 },
+                .{ .jump_d = 3 },
+                .{ .push = 0x2 },
+                .{ .push = 0x3 },
+                .{ .ret = true },
+            }),
+            .expected = .{
+                .c_stack = @constCast(&[_]i64{ 0x1, 0x3 }),
+                .c_sp = 2,
+            },
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x1 },
+                .{ .jump_d = 2 },
+                .{ .push = 0x2 },
+                .{ .push = 0x3 },
+                .{ .ret = true },
+            }),
+            .expected = .{
+                .c_stack = @constCast(&[_]i64{ 0x1, 0x2, 0x3 }),
+                .c_sp = 3,
             },
         },
     };
