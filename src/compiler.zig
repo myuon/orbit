@@ -650,26 +650,26 @@ pub const Compiler = struct {
         try stack.append(-1); // pc
         try stack.append(0); // bp
 
-        var bp = stack.items.len;
-        try Compiler.runVm(ir, &stack, &bp, address_map);
-        return ast.Value{ .i32_ = stack.items[0] };
+        // var bp = stack.items.len;
+        // try Compiler.runVm(ir, &stack, &bp, address_map);
+        // return ast.Value{ .i32_ = stack.items[0] };
 
-        // var bp_64 = @as(i64, @intCast(stack.items.len));
+        var bp_64 = @as(i64, @intCast(stack.items.len));
 
-        // var runtime = jit.JitRuntime.init(self.allocator);
-        // const fn_ptr = try runtime.compile(ir);
+        var runtime = jit.JitRuntime.init(self.allocator);
+        const fn_ptr = try runtime.compile(ir);
 
-        // var stack_64 = std.ArrayList(i64).init(self.allocator);
-        // defer stack_64.deinit();
+        var stack_64 = std.ArrayList(i64).init(self.allocator);
+        defer stack_64.deinit();
 
-        // for (stack.items) |item| {
-        //     try stack_64.append(@intCast(item));
-        // }
+        for (stack.items) |item| {
+            try stack_64.append(@intCast(item));
+        }
 
-        // var sp = @as(i64, @intCast(stack_64.items.len));
-        // fn_ptr((&stack_64.items).ptr, &sp, &bp_64);
+        var sp = @as(i64, @intCast(stack_64.items.len));
+        fn_ptr((&stack_64.items).ptr, &sp, &bp_64);
 
-        // return ast.Value{ .i32_ = @intCast(stack_64.items[0]) };
+        return ast.Value{ .i32_ = @intCast(stack_64.items[0]) };
     }
 
     fn callFunction(self: *Compiler, name: []const u8, args: []ast.Value) anyerror!ast.Value {
@@ -721,9 +721,9 @@ pub const Compiler = struct {
                 const elapsed: f64 = @floatFromInt(end.since(start));
                 std.debug.print("Compiled in {d:.3}ms: {s}\n", .{ elapsed / std.time.ns_per_ms, name });
 
-                for (ir) |inst| {
-                    std.debug.print("{any}\n", .{inst});
-                }
+                // for (ir) |inst| {
+                //     std.debug.print("{any}\n", .{inst});
+                // }
 
                 const value = self.callIrFunction(params, ir, args);
                 try self.ir_cache.put(name, ir);

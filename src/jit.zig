@@ -266,7 +266,6 @@ pub const JitRuntime = struct {
                 .call => |target| {
                     try jumpSources.put(source, std.math.maxInt(usize));
                     try jumpTargets.put(target, std.math.maxInt(usize));
-                    std.debug.print("call: {d} -> {d}\n", .{ source, target });
                 },
                 else => {},
             }
@@ -283,7 +282,7 @@ pub const JitRuntime = struct {
 
         const buf_ptr: [*]u32 = @ptrCast(@alignCast(buf));
 
-        var code = Arm64.init(std.testing.allocator);
+        var code = Arm64.init(self.allocator);
         defer code.deinit();
 
         for (prog, 0..) |inst, p| {
@@ -461,10 +460,10 @@ pub const JitRuntime = struct {
         @memcpy(buf_ptr, code.code_buf.items);
         pthread.pthread_jit_write_protect_np(1);
 
-        std.debug.print("buf: {x}\n", .{code.code_buf.items});
-        for (code.code_buf.items) |instr| {
-            std.debug.print("{x:0>2}{x:0>2}{x:0>2}{x:0>2}\n", .{ instr & 0xff, (instr >> 8) & 0xff, (instr >> 16) & 0xff, (instr >> 24) & 0xff });
-        }
+        // std.debug.print("buf: {x}\n", .{code.code_buf.items});
+        // for (code.code_buf.items) |instr| {
+        //     std.debug.print("{x:0>2}{x:0>2}{x:0>2}{x:0>2}\n", .{ instr & 0xff, (instr >> 8) & 0xff, (instr >> 16) & 0xff, (instr >> 24) & 0xff });
+        // }
 
         return @ptrCast(@alignCast(buf));
     }
@@ -652,61 +651,6 @@ test {
             .expected = @constCast(&[_]i64{ 55, 10 }),
         },
     };
-    //
-    // .{ .get_local_d = -3 },
-    // .{ .push = 0 },
-    // .{ .eq = true },
-    // .{ .jump_ifzero_d = 12 },
-    // .{ .nop = true },
-    // .{ .push = 0 },
-    // .{ .set_local_d = -4 },
-    // .{ .get_bp = true },
-    // .{ .set_sp = true },
-    // .{ .set_bp = true },
-    // .{ .ret = true },
-    // .{ .jump_d = 13 },
-    // .{ .nop = true },
-    // .{ .nop = true },
-    // .{ .get_local_d = -3 },
-    // .{ .push = 1 },
-    // .{ .eq = true },
-    // .{ .jump_ifzero_d = 26 },
-    // .{ .nop = true },
-    // .{ .push = 1 },
-    // .{ .set_local_d = -4 },
-    // .{ .get_bp = true },
-    // .{ .set_sp = true },
-    // .{ .set_bp = true },
-    // .{ .ret = true },
-    // .{ .jump_d = 27 },
-    // .{ .nop = true },
-    // .{ .nop = true },
-    // .{ .push = -2 },
-    // .{ .get_local_d = -3 },
-    // .{ .push = 1 },
-    // .{ .sub = true },
-    // .{ .get_pc = true },
-    // .{ .get_bp = true },
-    // .{ .get_sp = true },
-    // .{ .set_bp = true },
-    // .{ .call = 0 },
-    // .{ .pop = true },
-    // .{ .push = -2 },
-    // .{ .get_local_d = -3 },
-    // .{ .push = 2 },
-    // .{ .sub = true },
-    // .{ .get_pc = true },
-    // .{ .get_bp = true },
-    // .{ .get_sp = true },
-    // .{ .set_bp = true },
-    // .{ .call = 0 },
-    // .{ .pop = true },
-    // .{ .add = true },
-    // .{ .set_local_d = -4 },
-    // .{ .get_bp = true },
-    // .{ .set_sp = true },
-    // .{ .set_bp = true },
-    // .{ .ret = true },
 
     for (cases) |c| {
         var c_bp: i64 = 0;
