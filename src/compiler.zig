@@ -1053,6 +1053,15 @@ test "compiler.runVm" {
                 .{ .push = 0x1 },
                 .{ .push = 0x2 },
                 .{ .push = 0x3 },
+                .{ .get_local_d = 1 },
+            }),
+            .expected = @constCast(&[_]i32{ 0x1, 0x2, 0x3, 0x2 }),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x1 },
+                .{ .push = 0x2 },
+                .{ .push = 0x3 },
                 .{ .push = 0x4 },
                 .{ .push = 0x5 },
                 .{ .push = 0x3 },
@@ -1061,6 +1070,28 @@ test "compiler.runVm" {
                 .{ .set_local_d = -1 },
             }),
             .expected = @constCast(&[_]i32{ 0x1, 0x2, 0x12, 0x4, 0x5 }),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x1 },
+                .{ .push = 0x2 },
+                .{ .push = 0x3 },
+                .{ .push = 0x4 },
+                .{ .push = 0x5 },
+                .{ .push = 0x3 },
+                .{ .set_bp = true },
+                .{ .get_local_d = -1 },
+            }),
+            .expected = @constCast(&[_]i32{ 0x1, 0x2, 0x3, 0x4, 0x5, 0x3 }),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x1 },
+                .{ .jump_ifzero_d = 3 },
+                .{ .push = 0x2 },
+                .{ .push = 0x3 },
+            }),
+            .expected = @constCast(&[_]i32{ 0x2, 0x3 }),
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -1096,9 +1127,9 @@ test "compiler.runVm" {
                 .{ .set_bp = true },
                 .{ .ret = true },
             }),
-            .initial_stack = @constCast(&[_]i32{ -2, 2, -1, 0 }),
+            .initial_stack = @constCast(&[_]i32{ -2, 10, -1, 0 }),
             .initial_bp = 4,
-            .expected = @constCast(&[_]i32{ 3, 2 }),
+            .expected = @constCast(&[_]i32{ 55, 10 }),
         },
     };
 

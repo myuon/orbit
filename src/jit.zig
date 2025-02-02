@@ -286,12 +286,13 @@ pub const JitRuntime = struct {
         var code = Arm64.init(std.testing.allocator);
         defer code.deinit();
 
-        // prologue for a subroutine
-        try code.emitStpPreIndex(.x29, .x30, reg_sp, -16);
-
         for (prog, 0..) |inst, p| {
             if (jumpTargets.contains(p)) {
                 try jumpTargets.put(p, @intCast(code.code_buf.items.len));
+            }
+            if (p == 0) {
+                // prologue for a subroutine
+                try code.emitStpPreIndex(.x29, .x30, reg_sp, -16);
             }
 
             switch (inst) {
@@ -332,7 +333,7 @@ pub const JitRuntime = struct {
                     try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
                     try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
 
-                    try code.emitSub(.x9, .x10, .x9);
+                    try code.emitSub(.x9, .x9, .x10);
                     try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
                 .mul => {
@@ -468,11 +469,10 @@ pub const JitRuntime = struct {
 };
 
 test {
-    const cases = [_]struct {
+    const cases = comptime [_]struct {
         prog: []ast.Instruction,
-        initial_stack: ?[]i64 = null,
+        initial_stack: []i64 = &[_]i64{},
         initial_bp: i64 = 0,
-        initial_sp: i64 = 0,
         expected: []i64,
     }{
         .{
@@ -510,8 +510,8 @@ test {
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
-                .{ .push = 0x12 },
                 .{ .push = 0x34 },
+                .{ .push = 0x12 },
                 .{ .sub = true },
             }),
             .expected = @constCast(&[_]i64{0x22}),
@@ -627,6 +627,7 @@ test {
                 .{ .jump_d = 13 },
                 .{ .nop = true },
                 .{ .nop = true },
+                .{ .get_local_d = -3 },
                 .{ .push = -2 },
                 .{ .get_local_d = -3 },
                 .{ .push = 1 },
@@ -635,98 +636,97 @@ test {
                 .{ .get_bp = true },
                 .{ .get_sp = true },
                 .{ .set_bp = true },
-                // .{ .call = 0 },
-                // .{ .pop = true },
-                // .{ .get_local_d = -3 },
-                // .{ .add = true },
-                // .{ .set_local_d = -4 },
-                // .{ .get_bp = true },
-                // .{ .set_sp = true },
-                // .{ .set_bp = true },
-                // .{ .ret = true },
-                //
-                // .{ .get_local_d = -3 },
-                // .{ .push = 0 },
-                // .{ .eq = true },
-                // .{ .jump_ifzero_d = 12 },
-                // .{ .nop = true },
-                // .{ .push = 0 },
-                // .{ .set_local_d = -4 },
-                // .{ .get_bp = true },
-                // .{ .set_sp = true },
-                // .{ .set_bp = true },
-                // .{ .ret = true },
-                // .{ .jump_d = 13 },
-                // .{ .nop = true },
-                // .{ .nop = true },
-                // .{ .get_local_d = -3 },
-                // .{ .push = 1 },
-                // .{ .eq = true },
-                // .{ .jump_ifzero_d = 26 },
-                // .{ .nop = true },
-                // .{ .push = 1 },
-                // .{ .set_local_d = -4 },
-                // .{ .get_bp = true },
-                // .{ .set_sp = true },
-                // .{ .set_bp = true },
-                // .{ .ret = true },
-                // .{ .jump_d = 27 },
-                // .{ .nop = true },
-                // .{ .nop = true },
-                // .{ .push = -2 },
-                // .{ .get_local_d = -3 },
-                // .{ .push = 1 },
-                // .{ .sub = true },
-                // .{ .get_pc = true },
-                // .{ .get_bp = true },
-                // .{ .get_sp = true },
-                // .{ .set_bp = true },
-                // .{ .call = 0 },
-                // .{ .pop = true },
-                // .{ .push = -2 },
-                // .{ .get_local_d = -3 },
-                // .{ .push = 2 },
-                // .{ .sub = true },
-                // .{ .get_pc = true },
-                // .{ .get_bp = true },
-                // .{ .get_sp = true },
-                // .{ .set_bp = true },
-                // .{ .call = 0 },
-                // .{ .pop = true },
-                // .{ .add = true },
-                // .{ .set_local_d = -4 },
-                // .{ .get_bp = true },
-                // .{ .set_sp = true },
-                // .{ .set_bp = true },
-                // .{ .ret = true },
+                .{ .call = 0 },
+                .{ .pop = true },
+                .{ .add = true },
+                .{ .set_local_d = -4 },
+                .{ .get_bp = true },
+                .{ .set_sp = true },
+                .{ .set_bp = true },
+                .{ .ret = true },
             }),
-            .initial_stack = @constCast(&[_]i64{ -2, 2, -1, 0 }),
+            .initial_stack = @constCast(&[_]i64{ -2, 10, -1, 0 }),
             .initial_bp = 4,
-            .initial_sp = 4,
-            .expected = @constCast(&[_]i64{}),
+            .expected = @constCast(&[_]i64{ 45, 10, -1 }),
         },
     };
+    //
+    // .{ .get_local_d = -3 },
+    // .{ .push = 0 },
+    // .{ .eq = true },
+    // .{ .jump_ifzero_d = 12 },
+    // .{ .nop = true },
+    // .{ .push = 0 },
+    // .{ .set_local_d = -4 },
+    // .{ .get_bp = true },
+    // .{ .set_sp = true },
+    // .{ .set_bp = true },
+    // .{ .ret = true },
+    // .{ .jump_d = 13 },
+    // .{ .nop = true },
+    // .{ .nop = true },
+    // .{ .get_local_d = -3 },
+    // .{ .push = 1 },
+    // .{ .eq = true },
+    // .{ .jump_ifzero_d = 26 },
+    // .{ .nop = true },
+    // .{ .push = 1 },
+    // .{ .set_local_d = -4 },
+    // .{ .get_bp = true },
+    // .{ .set_sp = true },
+    // .{ .set_bp = true },
+    // .{ .ret = true },
+    // .{ .jump_d = 27 },
+    // .{ .nop = true },
+    // .{ .nop = true },
+    // .{ .push = -2 },
+    // .{ .get_local_d = -3 },
+    // .{ .push = 1 },
+    // .{ .sub = true },
+    // .{ .get_pc = true },
+    // .{ .get_bp = true },
+    // .{ .get_sp = true },
+    // .{ .set_bp = true },
+    // .{ .call = 0 },
+    // .{ .pop = true },
+    // .{ .push = -2 },
+    // .{ .get_local_d = -3 },
+    // .{ .push = 2 },
+    // .{ .sub = true },
+    // .{ .get_pc = true },
+    // .{ .get_bp = true },
+    // .{ .get_sp = true },
+    // .{ .set_bp = true },
+    // .{ .call = 0 },
+    // .{ .pop = true },
+    // .{ .add = true },
+    // .{ .set_local_d = -4 },
+    // .{ .get_bp = true },
+    // .{ .set_sp = true },
+    // .{ .set_bp = true },
+    // .{ .ret = true },
 
     for (cases) |c| {
         var c_bp: i64 = 0;
         var c_sp: i64 = 0;
         var c_stack = [_]i64{0} ** 1024;
 
-        if (c.initial_stack != null) {
-            for (c.initial_stack.?, 0..) |v, i| {
+        if (c.initial_stack.len > 0) {
+            for (c.initial_stack, 0..) |v, i| {
                 c_stack[i] = v;
             }
+
+            c_sp = @intCast(c.initial_stack.len);
         }
         if (c.initial_bp != 0) {
             c_bp = c.initial_bp;
-        }
-        if (c.initial_sp != 0) {
-            c_sp = c.initial_sp;
         }
 
         var runtime = JitRuntime.init(std.testing.allocator);
         const fn_ptr = try runtime.compile(c.prog);
         fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp));
+
+        std.debug.print("c_sp: {d}\n", .{c_sp});
 
         try std.testing.expectEqualSlices(i64, c.expected, c_stack[0..@min(@as(usize, @intCast(c_sp)), c_stack.len)]);
     }
