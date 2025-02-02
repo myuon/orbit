@@ -38,6 +38,13 @@ const Arm64 = struct {
         return 0xD2800000 | (@as(u32, imm) << 5) | @as(u32, @intFromEnum(target));
     }
 
+    fn emitMovnImm(self: *Arm64, target: Register, imm: u16) anyerror!void {
+        const t: u32 = @intFromEnum(target);
+        const i: u32 = @as(u32, @intCast(imm));
+
+        try self.emit(0x92800000 | (i << 5) | t);
+    }
+
     fn emitMov(self: *Arm64, source: Register, target: Register) anyerror!void {
         try self.emit(0xAA000000 | (@as(u32, @intFromEnum(source)) << 16 | @as(u32, @intFromEnum(source)) << 5 | @as(u32, @intFromEnum(target))));
     }
@@ -289,7 +296,12 @@ pub const JitRuntime = struct {
 
             switch (inst) {
                 .push => |n| {
-                    try code.emitMovImm(.x9, @bitCast(@as(i16, @intCast(n))));
+                    if (n >= 0) {
+                        try code.emitMovImm(.x9, @intCast(n));
+                    } else {
+                        try code.emitMovnImm(.x9, @intCast(@abs(n) - 1));
+                    }
+
                     try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
                 .pop => {
@@ -592,6 +604,106 @@ test {
                 .{ .set_local_d = -1 },
             }),
             .expected = @constCast(&[_]i64{ 0x1, 0x2, 0x12, 0x4, 0x5 }),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = -1 },
+            }),
+            .expected = @constCast(&[_]i64{-1}),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .get_local_d = -3 },
+                .{ .push = 0 },
+                .{ .eq = true },
+                .{ .jump_ifzero_d = 12 },
+                .{ .nop = true },
+                .{ .push = 0 },
+                .{ .set_local_d = -4 },
+                .{ .get_bp = true },
+                .{ .set_sp = true },
+                .{ .set_bp = true },
+                .{ .ret = true },
+                .{ .jump_d = 13 },
+                .{ .nop = true },
+                .{ .nop = true },
+                .{ .push = -2 },
+                .{ .get_local_d = -3 },
+                .{ .push = 1 },
+                .{ .sub = true },
+                .{ .get_pc = true },
+                .{ .get_bp = true },
+                .{ .get_sp = true },
+                .{ .set_bp = true },
+                // .{ .call = 0 },
+                // .{ .pop = true },
+                // .{ .get_local_d = -3 },
+                // .{ .add = true },
+                // .{ .set_local_d = -4 },
+                // .{ .get_bp = true },
+                // .{ .set_sp = true },
+                // .{ .set_bp = true },
+                // .{ .ret = true },
+                //
+                // .{ .get_local_d = -3 },
+                // .{ .push = 0 },
+                // .{ .eq = true },
+                // .{ .jump_ifzero_d = 12 },
+                // .{ .nop = true },
+                // .{ .push = 0 },
+                // .{ .set_local_d = -4 },
+                // .{ .get_bp = true },
+                // .{ .set_sp = true },
+                // .{ .set_bp = true },
+                // .{ .ret = true },
+                // .{ .jump_d = 13 },
+                // .{ .nop = true },
+                // .{ .nop = true },
+                // .{ .get_local_d = -3 },
+                // .{ .push = 1 },
+                // .{ .eq = true },
+                // .{ .jump_ifzero_d = 26 },
+                // .{ .nop = true },
+                // .{ .push = 1 },
+                // .{ .set_local_d = -4 },
+                // .{ .get_bp = true },
+                // .{ .set_sp = true },
+                // .{ .set_bp = true },
+                // .{ .ret = true },
+                // .{ .jump_d = 27 },
+                // .{ .nop = true },
+                // .{ .nop = true },
+                // .{ .push = -2 },
+                // .{ .get_local_d = -3 },
+                // .{ .push = 1 },
+                // .{ .sub = true },
+                // .{ .get_pc = true },
+                // .{ .get_bp = true },
+                // .{ .get_sp = true },
+                // .{ .set_bp = true },
+                // .{ .call = 0 },
+                // .{ .pop = true },
+                // .{ .push = -2 },
+                // .{ .get_local_d = -3 },
+                // .{ .push = 2 },
+                // .{ .sub = true },
+                // .{ .get_pc = true },
+                // .{ .get_bp = true },
+                // .{ .get_sp = true },
+                // .{ .set_bp = true },
+                // .{ .call = 0 },
+                // .{ .pop = true },
+                // .{ .add = true },
+                // .{ .set_local_d = -4 },
+                // .{ .get_bp = true },
+                // .{ .set_sp = true },
+                // .{ .set_bp = true },
+                // .{ .ret = true },
+            }),
+            .initial_stack = @constCast(&[_]i64{ -2, 2, -1, 0 }),
+            .initial_bp = 4,
+            .initial_sp = 4,
+            .expected = @constCast(&[_]i64{}),
         },
     };
 
