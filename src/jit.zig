@@ -309,6 +309,8 @@ pub const JitRuntime = struct {
                     try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
                 },
                 .ret => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+
                     // epilogue for a subroutine
                     try code.emitLdpPostIndex(.x29, .x30, reg_sp, 16);
 
@@ -647,7 +649,7 @@ test {
             }),
             .initial_stack = @constCast(&[_]i64{ -2, 10, -1, 0 }),
             .initial_bp = 4,
-            .expected = @constCast(&[_]i64{ 45, 10, -1 }),
+            .expected = @constCast(&[_]i64{ 55, 10 }),
         },
     };
     //
