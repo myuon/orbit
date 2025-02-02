@@ -31,7 +31,11 @@ const Arm64 = struct {
     }
 
     fn emitMovImm(self: *Arm64, target: Register, imm: u16) anyerror!void {
-        try self.emit(0xD2800000 | (@as(u32, imm) << 5) | @as(u32, @intFromEnum(target)));
+        try self.emit(Arm64.getMovImmInstr(target, imm));
+    }
+
+    fn getMovImmInstr(target: Register, imm: u16) u32 {
+        return 0xD2800000 | (@as(u32, imm) << 5) | @as(u32, @intFromEnum(target));
     }
 
     fn emitMov(self: *Arm64, source: Register, target: Register) anyerror!void {
@@ -135,6 +139,24 @@ const Arm64 = struct {
         const o: u32 = @as(u32, @intCast(@as(u19, @bitCast(offset))));
 
         return o << 5;
+    }
+
+    fn emitStpPreIndex(self: *Arm64, source1: Register, source2: Register, base: Register, offset: i7) anyerror!void {
+        const s1: u32 = @intFromEnum(source1);
+        const s2: u32 = @intFromEnum(source2);
+        const b: u32 = @intFromEnum(base);
+        const o: u32 = @as(u32, @intCast(@as(u7, @bitCast(offset))));
+
+        try self.emit(0xA9800000 | (o << 15) | (s2 << 10) | (b << 5) | s1);
+    }
+
+    fn emitLdpPostIndex(self: *Arm64, source1: Register, source2: Register, base: Register, offset: i7) anyerror!void {
+        const s1: u32 = @intFromEnum(source1);
+        const s2: u32 = @intFromEnum(source2);
+        const b: u32 = @intFromEnum(base);
+        const o: u32 = @as(u32, @intCast(@as(u7, @bitCast(offset))));
+
+        try self.emit(0xA8C00000 | (o << 15) | (s2 << 10) | (b << 5) | s1);
     }
 };
 
@@ -257,6 +279,9 @@ pub const JitRuntime = struct {
         var code = Arm64.init(std.testing.allocator);
         defer code.deinit();
 
+        // prologue for a subroutine
+        try code.emitStpPreIndex(.x29, .x30, reg_sp, -16);
+
         for (prog, 0..) |inst, p| {
             if (jumpTargets.contains(p)) {
                 try jumpTargets.put(p, @intCast(code.code_buf.items.len));
@@ -264,13 +289,16 @@ pub const JitRuntime = struct {
 
             switch (inst) {
                 .push => |n| {
-                    try code.emitMovImm(.x9, @intCast(n));
+                    try code.emitMovImm(.x9, @bitCast(@as(i16, @intCast(n))));
                     try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
                 .pop => {
                     try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
                 },
                 .ret => {
+                    // epilogue for a subroutine
+                    try code.emitLdpPostIndex(.x29, .x30, reg_sp, 16);
+
                     try code.emitRet();
                 },
                 .eq => {
@@ -327,6 +355,10 @@ pub const JitRuntime = struct {
                     try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
                     try JitRuntime.setCBp(&code, .x9);
                 },
+                .get_sp => {
+                    try JitRuntime.getCSp(&code, .x9);
+                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+                },
                 .set_sp => {
                     try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
                     try JitRuntime.setCSp(&code, .x9);
@@ -363,10 +395,14 @@ pub const JitRuntime = struct {
                 },
                 .nop => {},
                 else => {
+                    std.debug.print("unhandled instruction: {any}\n", .{inst});
                     unreachable;
                 },
             }
         }
+
+        // epilogue for a subroutine
+        try code.emitLdpPostIndex(.x29, .x30, reg_sp, 16);
 
         try code.emitRet();
 
@@ -422,6 +458,9 @@ pub const JitRuntime = struct {
 test {
     const cases = [_]struct {
         prog: []ast.Instruction,
+        initial_stack: ?[]i64 = null,
+        initial_bp: i64 = 0,
+        initial_sp: i64 = 0,
         expected: []i64,
     }{
         .{
@@ -430,7 +469,6 @@ test {
                 .{ .push = 0x34 },
                 .{ .push = 0x56 },
                 .{ .pop = true },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{ 0x12, 0x34 }),
         },
@@ -439,7 +477,6 @@ test {
                 .{ .push = 0x1 },
                 .{ .push = 0x2 },
                 .{ .eq = true },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{0x0}),
         },
@@ -448,7 +485,6 @@ test {
                 .{ .push = 0x2 },
                 .{ .push = 0x2 },
                 .{ .eq = true },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{0x1}),
         },
@@ -457,7 +493,6 @@ test {
                 .{ .push = 0x12 },
                 .{ .push = 0x34 },
                 .{ .add = true },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{0x46}),
         },
@@ -466,7 +501,6 @@ test {
                 .{ .push = 0x12 },
                 .{ .push = 0x34 },
                 .{ .sub = true },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{0x22}),
         },
@@ -475,7 +509,6 @@ test {
                 .{ .push = 0x12 },
                 .{ .push = 0x8 },
                 .{ .mul = true },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{0x90}),
         },
@@ -485,7 +518,6 @@ test {
                 .{ .jump_d = 3 },
                 .{ .push = 0x2 },
                 .{ .push = 0x3 },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{ 0x1, 0x3 }),
         },
@@ -495,7 +527,6 @@ test {
                 .{ .jump_d = 2 },
                 .{ .push = 0x2 },
                 .{ .push = 0x3 },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{ 0x1, 0x2, 0x3 }),
         },
@@ -505,7 +536,6 @@ test {
                 .{ .jump_ifzero_d = 3 },
                 .{ .push = 0x2 },
                 .{ .push = 0x3 },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{ 0x2, 0x3 }),
         },
@@ -515,7 +545,6 @@ test {
                 .{ .jump_ifzero_d = 3 },
                 .{ .push = 0x2 },
                 .{ .push = 0x3 },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{0x3}),
         },
@@ -525,7 +554,6 @@ test {
                 .{ .push = 0x2 },
                 .{ .push = 0x3 },
                 .{ .get_local_d = 1 },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{ 0x1, 0x2, 0x3, 0x2 }),
         },
@@ -535,7 +563,6 @@ test {
                 .{ .push = 0x2 },
                 .{ .push = 0x3 },
                 .{ .set_local_d = 1 },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{ 0x1, 0x3 }),
         },
@@ -549,7 +576,6 @@ test {
                 .{ .push = 0x3 },
                 .{ .set_bp = true },
                 .{ .get_local_d = -1 },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{ 0x1, 0x2, 0x3, 0x4, 0x5, 0x3 }),
         },
@@ -564,7 +590,6 @@ test {
                 .{ .set_bp = true },
                 .{ .push = 0x12 },
                 .{ .set_local_d = -1 },
-                .{ .ret = true },
             }),
             .expected = @constCast(&[_]i64{ 0x1, 0x2, 0x12, 0x4, 0x5 }),
         },
@@ -573,7 +598,19 @@ test {
     for (cases) |c| {
         var c_bp: i64 = 0;
         var c_sp: i64 = 0;
-        var c_stack = [_]i64{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+        var c_stack = [_]i64{0} ** 1024;
+
+        if (c.initial_stack != null) {
+            for (c.initial_stack.?, 0..) |v, i| {
+                c_stack[i] = v;
+            }
+        }
+        if (c.initial_bp != 0) {
+            c_bp = c.initial_bp;
+        }
+        if (c.initial_sp != 0) {
+            c_sp = c.initial_sp;
+        }
 
         var runtime = JitRuntime.init(std.testing.allocator);
         const fn_ptr = try runtime.compile(c.prog);

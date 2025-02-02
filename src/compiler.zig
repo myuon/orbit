@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("ast.zig");
 const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
+const jit = @import("jit.zig");
 
 pub const EvalError = error{
     VariableNotFound,
@@ -650,10 +651,25 @@ pub const Compiler = struct {
         try stack.append(0); // bp
 
         var bp = stack.items.len;
-
         try Compiler.runVm(ir, &stack, &bp, address_map);
-
         return ast.Value{ .i32_ = stack.items[0] };
+
+        // var bp_64 = @as(i64, @intCast(stack.items.len));
+
+        // var runtime = jit.JitRuntime.init(self.allocator);
+        // const fn_ptr = try runtime.compile(ir);
+
+        // var stack_64 = std.ArrayList(i64).init(self.allocator);
+        // defer stack_64.deinit();
+
+        // for (stack.items) |item| {
+        //     try stack_64.append(@intCast(item));
+        // }
+
+        // var sp = @as(i64, @intCast(stack_64.items.len));
+        // fn_ptr((&stack_64.items).ptr, &sp, &bp_64);
+
+        // return ast.Value{ .i32_ = @intCast(stack_64.items[0]) };
     }
 
     fn callFunction(self: *Compiler, name: []const u8, args: []ast.Value) anyerror!ast.Value {
