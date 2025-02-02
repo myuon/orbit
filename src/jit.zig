@@ -353,6 +353,7 @@ const JitRuntime = struct {
                     try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
                     try JitRuntime.setCStack(&code, .x9, .x10, .x15, .x14);
                 },
+                .nop => {},
                 else => {
                     unreachable;
                 },
