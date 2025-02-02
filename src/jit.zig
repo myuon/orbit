@@ -138,16 +138,24 @@ const Arm64 = struct {
     }
 };
 
-const CompiledFn = *fn (
+pub const CompiledFn = *fn (
     c_stack: [*]i64, // .x0
     c_sp: *i64, // .x1
     c_bp: *i64, // .x2
 ) callconv(.C) void;
 
-const JitRuntime = struct {
+pub const JitRuntime = struct {
+    allocator: std.mem.Allocator,
+
     const reg_c_stack = Register.x0;
     const reg_c_sp = Register.x1;
     const reg_c_bp = Register.x2;
+
+    pub fn init(allocator: std.mem.Allocator) JitRuntime {
+        return JitRuntime{
+            .allocator = allocator,
+        };
+    }
 
     /// *c_sp
     fn getCSp(code: *Arm64, target: Register) anyerror!void {
@@ -209,11 +217,11 @@ const JitRuntime = struct {
         try JitRuntime.incrementCSp(code, tmp1);
     }
 
-    pub fn compile(prog: []ast.Instruction) anyerror!CompiledFn {
-        var jumpSources = std.AutoHashMap(usize, usize).init(std.testing.allocator);
+    pub fn compile(self: *JitRuntime, prog: []ast.Instruction) anyerror!CompiledFn {
+        var jumpSources = std.AutoHashMap(usize, usize).init(self.allocator);
         defer jumpSources.deinit();
 
-        var jumpTargets = std.AutoHashMap(usize, usize).init(std.testing.allocator);
+        var jumpTargets = std.AutoHashMap(usize, usize).init(self.allocator);
         defer jumpTargets.deinit();
 
         for (prog, 0..) |inst, source| {
@@ -566,7 +574,9 @@ test {
         var c_bp: i64 = 0;
         var c_sp: i64 = 0;
         var c_stack = [_]i64{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-        const fn_ptr = try JitRuntime.compile(c.prog);
+
+        var runtime = JitRuntime.init(std.testing.allocator);
+        const fn_ptr = try runtime.compile(c.prog);
         fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp));
 
         try std.testing.expectEqualSlices(i64, c.expected, c_stack[0..@min(@as(usize, @intCast(c_sp)), c_stack.len)]);
