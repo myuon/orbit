@@ -122,20 +122,50 @@ const Arm64 = struct {
 
         return 0x14000000 | o;
     }
+
+    fn emitCbz(self: *Arm64, source: Register, offset: i19) anyerror!void {
+        const s: u32 = @intFromEnum(source);
+        const o: u32 = @as(u32, @intCast(@as(u19, @bitCast(offset))));
+
+        try self.emit(0xB4000000 | (o << 5) | s);
+    }
+
+    fn getCBZOffset(offset: i19) u32 {
+        const o: u32 = @as(u32, @intCast(@as(u19, @bitCast(offset))));
+
+        return o << 5;
+    }
 };
 
 const CompiledFn = *fn (
-    c_stack: [*]i64,
-    c_sp: *i64,
+    c_stack: [*]i64, // .x0
+    c_sp: *i64, // .x1
+    c_bp: *i64, // .x2
 ) callconv(.C) void;
 
 const JitRuntime = struct {
     const reg_c_stack = Register.x0;
     const reg_c_sp = Register.x1;
+    const reg_c_bp = Register.x2;
 
     /// *c_sp
     fn getCSp(code: *Arm64, target: Register) anyerror!void {
         try code.emitLdr(0, reg_c_sp, target);
+    }
+
+    /// *c_sp = value
+    fn setCSp(code: *Arm64, value: Register) anyerror!void {
+        try code.emitStr(reg_c_sp, value);
+    }
+
+    /// *c_bp
+    fn getCBp(code: *Arm64, target: Register) anyerror!void {
+        try code.emitLdr(0, reg_c_bp, target);
+    }
+
+    /// *c_bp = value
+    fn setCBp(code: *Arm64, value: Register) anyerror!void {
+        try code.emitStr(reg_c_bp, value);
     }
 
     /// getCStackAddress(i, t) === t := &c_stack[i]
@@ -153,7 +183,7 @@ const JitRuntime = struct {
     fn popCStack(code: *Arm64, target: Register, tmp1: Register, tmp2: Register, tmp3: Register) anyerror!void {
         try JitRuntime.getCSp(code, tmp1);
         try code.emitSubImm(tmp1, 0x1, tmp1);
-        try code.emitStr(reg_c_sp, tmp1);
+        try JitRuntime.setCSp(code, tmp1);
 
         try JitRuntime.getCStackAddress(code, tmp1, tmp2, tmp3);
         try code.emitLdr(0, tmp2, target);
@@ -165,7 +195,7 @@ const JitRuntime = struct {
 
         try JitRuntime.getCSp(code, tmp1);
         try code.emitAddImm(tmp1, 0x1, tmp1);
-        try code.emitStr(reg_c_sp, tmp1);
+        try JitRuntime.setCSp(code, tmp1);
     }
 
     pub fn compile(prog: []ast.Instruction) anyerror!CompiledFn {
@@ -261,6 +291,27 @@ const JitRuntime = struct {
                     try code.emit(0x0);
                     try jumpSources.put(p, @intCast(code.code_buf.items.len - 1));
                 },
+                .jump_ifzero_d => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+                    try code.emitCbz(.x9, 0x0);
+                    try jumpSources.put(p, @intCast(code.code_buf.items.len - 1));
+                },
+                .get_pc => {
+                    // push(0)
+                    try JitRuntime.pushCStack(&code, reg_xzr, .x15, .x14, .x13);
+                },
+                .get_bp => {
+                    try JitRuntime.getCBp(&code, .x9);
+                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+                },
+                .set_bp => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+                    try JitRuntime.setCBp(&code, .x9);
+                },
+                .set_sp => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+                    try JitRuntime.setCSp(&code, .x9);
+                },
                 else => {
                     unreachable;
                 },
@@ -291,6 +342,16 @@ const JitRuntime = struct {
                     std.debug.assert(code.code_buf.items[source_addr] == 0x0);
                     code.code_buf.items[source_addr] = Arm64.getBInstr(offset);
                 },
+                .jump_ifzero_d => |target| {
+                    const source_addr = jumpSources.get(source) orelse unreachable;
+                    const target_addr = jumpTargets.get(target) orelse unreachable;
+                    std.debug.assert(source_addr < code.code_buf.items.len);
+                    std.debug.assert(target_addr < code.code_buf.items.len);
+
+                    const offset = @as(i19, @intCast(target_addr)) - @as(i19, @intCast(source_addr));
+                    std.debug.assert(code.code_buf.items[source_addr] & 0xFF000000 == 0xB4000000);
+                    code.code_buf.items[source_addr] |= Arm64.getCBZOffset(offset);
+                },
                 else => {},
             }
         }
@@ -311,10 +372,7 @@ const JitRuntime = struct {
 test {
     const cases = [_]struct {
         prog: []ast.Instruction,
-        expected: struct {
-            c_stack: []i64,
-            c_sp: i64,
-        },
+        expected: []i64,
     }{
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -324,10 +382,7 @@ test {
                 .{ .pop = true },
                 .{ .ret = true },
             }),
-            .expected = .{
-                .c_stack = @constCast(&[_]i64{ 0x12, 0x34 }),
-                .c_sp = 2,
-            },
+            .expected = @constCast(&[_]i64{ 0x12, 0x34 }),
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -336,10 +391,7 @@ test {
                 .{ .eq = true },
                 .{ .ret = true },
             }),
-            .expected = .{
-                .c_stack = @constCast(&[_]i64{0x0}),
-                .c_sp = 1,
-            },
+            .expected = @constCast(&[_]i64{0x0}),
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -348,10 +400,7 @@ test {
                 .{ .eq = true },
                 .{ .ret = true },
             }),
-            .expected = .{
-                .c_stack = @constCast(&[_]i64{0x1}),
-                .c_sp = 1,
-            },
+            .expected = @constCast(&[_]i64{0x1}),
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -360,10 +409,7 @@ test {
                 .{ .add = true },
                 .{ .ret = true },
             }),
-            .expected = .{
-                .c_stack = @constCast(&[_]i64{0x46}),
-                .c_sp = 1,
-            },
+            .expected = @constCast(&[_]i64{0x46}),
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -372,10 +418,7 @@ test {
                 .{ .sub = true },
                 .{ .ret = true },
             }),
-            .expected = .{
-                .c_stack = @constCast(&[_]i64{0x22}),
-                .c_sp = 1,
-            },
+            .expected = @constCast(&[_]i64{0x22}),
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -384,10 +427,7 @@ test {
                 .{ .mul = true },
                 .{ .ret = true },
             }),
-            .expected = .{
-                .c_stack = @constCast(&[_]i64{0x90}),
-                .c_sp = 1,
-            },
+            .expected = @constCast(&[_]i64{0x90}),
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -397,10 +437,7 @@ test {
                 .{ .push = 0x3 },
                 .{ .ret = true },
             }),
-            .expected = .{
-                .c_stack = @constCast(&[_]i64{ 0x1, 0x3 }),
-                .c_sp = 2,
-            },
+            .expected = @constCast(&[_]i64{ 0x1, 0x3 }),
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -410,20 +447,37 @@ test {
                 .{ .push = 0x3 },
                 .{ .ret = true },
             }),
-            .expected = .{
-                .c_stack = @constCast(&[_]i64{ 0x1, 0x2, 0x3 }),
-                .c_sp = 3,
-            },
+            .expected = @constCast(&[_]i64{ 0x1, 0x2, 0x3 }),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x1 },
+                .{ .jump_ifzero_d = 3 },
+                .{ .push = 0x2 },
+                .{ .push = 0x3 },
+                .{ .ret = true },
+            }),
+            .expected = @constCast(&[_]i64{ 0x2, 0x3 }),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 0x0 },
+                .{ .jump_ifzero_d = 3 },
+                .{ .push = 0x2 },
+                .{ .push = 0x3 },
+                .{ .ret = true },
+            }),
+            .expected = @constCast(&[_]i64{0x3}),
         },
     };
 
     for (cases) |c| {
+        var c_bp: i64 = 0;
         var c_sp: i64 = 0;
         var c_stack = [_]i64{ 0, 0, 0, 0, 0 };
         const fn_ptr = try JitRuntime.compile(c.prog);
-        fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp));
+        fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp));
 
-        try std.testing.expectEqualSlices(i64, c.expected.c_stack, c_stack[0..@intCast(c_sp)]);
-        try std.testing.expectEqual(c.expected.c_sp, c_sp);
+        try std.testing.expectEqualSlices(i64, c.expected, c_stack[0..@intCast(c_sp)]);
     }
 }
