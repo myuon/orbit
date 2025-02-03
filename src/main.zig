@@ -18,7 +18,7 @@ pub fn main() !void {
     const result = try c.evalModule(
         \\fun fib(n) do
         \\  if (n == 0) do
-        \\    return 0;
+        \\    return 1;
         \\  end
         \\  if (n == 1) do
         \\    return 1;
@@ -28,7 +28,7 @@ pub fn main() !void {
         \\end
         \\
         \\fun main() do
-        \\  return fib(30);
+        \\  return fib(40);
         \\end
         // \\fun main() do
         // \\  let a = 1;
