@@ -631,7 +631,7 @@ pub const Compiler = struct {
     }
 
     fn callIrFunction(self: *Compiler, params: []const []const u8, ir: []ast.Instruction, args: []ast.Value) anyerror!ast.Value {
-        var stack = std.ArrayList(i32).init(self.allocator);
+        var stack = std.ArrayList(i64).init(self.allocator);
         defer stack.deinit();
 
         var address_map = std.StringHashMap(i32).init(self.allocator);
@@ -654,22 +654,15 @@ pub const Compiler = struct {
         // try Compiler.runVm(ir, &stack, &bp, address_map);
         // return ast.Value{ .i32_ = stack.items[0] };
 
-        var bp_64 = @as(i64, @intCast(stack.items.len));
+        var bp = @as(i64, @intCast(stack.items.len));
 
         var runtime = jit.JitRuntime.init(self.allocator);
         const fn_ptr = try runtime.compile(ir);
 
-        var stack_64 = std.ArrayList(i64).init(self.allocator);
-        defer stack_64.deinit();
+        var sp = @as(i64, @intCast(stack.items.len));
+        fn_ptr((&stack.items).ptr, &sp, &bp);
 
-        for (stack.items) |item| {
-            try stack_64.append(@intCast(item));
-        }
-
-        var sp = @as(i64, @intCast(stack_64.items.len));
-        fn_ptr((&stack_64.items).ptr, &sp, &bp_64);
-
-        return ast.Value{ .i32_ = @intCast(stack_64.items[0]) };
+        return ast.Value{ .i32_ = @intCast(stack.items[0]) };
     }
 
     fn callFunction(self: *Compiler, name: []const u8, args: []ast.Value) anyerror!ast.Value {
