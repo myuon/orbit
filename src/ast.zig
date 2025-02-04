@@ -14,6 +14,7 @@ pub const Operator = enum {
     plus,
     minus,
     star,
+    percent,
     let,
     do,
     end,
@@ -22,6 +23,8 @@ pub const Operator = enum {
     if_,
     else_,
     while_,
+    true_,
+    false_,
 };
 
 pub const TokenType = enum {
@@ -183,6 +186,9 @@ pub const InstructionType = enum {
     get_local_d,
     set_local_d,
     nop,
+    mod,
+    lt,
+    lte,
 };
 
 pub const Instruction = union(InstructionType) {
@@ -209,4 +215,7 @@ pub const Instruction = union(InstructionType) {
     get_local_d: i32,
     set_local_d: i32,
     nop: bool,
+    mod: bool,
+    lt: bool,
+    lte: bool,
 };

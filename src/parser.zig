@@ -474,6 +474,21 @@ pub const Parser = struct {
                                 .rhs = rhs,
                             } };
                         },
+                        .percent => {
+                            try self.expect(ast.Operator.percent);
+
+                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                            rhs.* = try self.expr2();
+
+                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                            newCurrent.* = current;
+
+                            current = ast.Expression{ .binop = .{
+                                .op = .percent,
+                                .lhs = newCurrent,
+                                .rhs = rhs,
+                            } };
+                        },
                         else => {
                             break;
                         },
@@ -604,6 +619,23 @@ pub const Parser = struct {
                     _ = self.consume();
 
                     return ast.Literal{ .number = n };
+                },
+                .keyword => |op| {
+                    switch (op) {
+                        .true_ => {
+                            _ = self.consume();
+
+                            return ast.Literal{ .boolean = true };
+                        },
+                        .false_ => {
+                            _ = self.consume();
+
+                            return ast.Literal{ .boolean = false };
+                        },
+                        else => {
+                            return null;
+                        },
+                    }
                 },
                 else => {
                     return null;

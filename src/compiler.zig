@@ -122,6 +122,13 @@ pub const Compiler = struct {
                     .number => |n| {
                         try buffer.append(ast.Instruction{ .push = @intCast(n) });
                     },
+                    .boolean => |b| {
+                        if (b) {
+                            try buffer.append(ast.Instruction{ .push = 1 });
+                        } else {
+                            try buffer.append(ast.Instruction{ .push = 0 });
+                        }
+                    },
                     else => {
                         unreachable;
                     },
@@ -139,12 +146,22 @@ pub const Compiler = struct {
                         try buffer.append(ast.Instruction{ .sub = true });
                     },
                     .star => {
-                        return error.CannotCompileToIr;
+                        try buffer.append(ast.Instruction{ .mul = true });
                     },
                     .eqeq => {
                         try buffer.append(ast.Instruction{ .eq = true });
                     },
+                    .percent => {
+                        try buffer.append(ast.Instruction{ .mod = true });
+                    },
+                    .langle => {
+                        try buffer.append(ast.Instruction{ .lt = true });
+                    },
+                    .lte => {
+                        try buffer.append(ast.Instruction{ .lte = true });
+                    },
                     else => {
+                        std.log.info("op: {}\n", .{binop.op});
                         unreachable;
                     },
                 }
@@ -239,8 +256,24 @@ pub const Compiler = struct {
                     }
                     try buffer.append(ast.Instruction{ .label = label_ifend });
                 },
-                else => {
-                    unreachable;
+                .while_ => |while_| {
+                    const id = self.prng.random().int(u32);
+
+                    const label_whilecond = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "while_cond_{d}", .{id});
+                    const label_whilebody = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "while_body_{d}", .{id});
+                    const label_whileend = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "while_end_{d}", .{id});
+
+                    try buffer.append(ast.Instruction{ .label = label_whilecond });
+                    try self.compileExprFromAst(buffer, while_.cond.*);
+                    try buffer.append(ast.Instruction{ .jump_ifzero = label_whileend });
+                    try buffer.append(ast.Instruction{ .label = label_whilebody });
+                    try self.compileBlockFromAst(buffer, while_.body);
+                    try buffer.append(ast.Instruction{ .jump = label_whilecond });
+                    try buffer.append(ast.Instruction{ .label = label_whileend });
+                },
+                .assign => |assign| {
+                    try self.compileExprFromAst(buffer, assign.value);
+                    try buffer.append(ast.Instruction{ .set_local = assign.name });
                 },
             }
         }
@@ -497,6 +530,9 @@ pub const Compiler = struct {
                     .number => |n| {
                         return ast.Value{ .i32_ = @intCast(n) };
                     },
+                    .boolean => |b| {
+                        return ast.Value{ .bool_ = b };
+                    },
                     else => {
                         unreachable;
                     },
@@ -541,6 +577,11 @@ pub const Compiler = struct {
                         const lhs = try self.evalExprFromAst(binop.lhs.*);
                         const rhs = try self.evalExprFromAst(binop.rhs.*);
                         return ast.Value{ .bool_ = try lhs.asI32() >= try rhs.asI32() };
+                    },
+                    .percent => {
+                        const lhs = try self.evalExprFromAst(binop.lhs.*);
+                        const rhs = try self.evalExprFromAst(binop.rhs.*);
+                        return ast.Value{ .i32_ = @mod(try lhs.asI32(), try rhs.asI32()) };
                     },
                     else => {
                         unreachable;
@@ -630,6 +671,8 @@ pub const Compiler = struct {
         return self.callFunction(entrypoint, &[_]ast.Value{});
     }
 
+    const enable_native_jit = false;
+
     fn callIrFunction(self: *Compiler, params: []const []const u8, ir: []ast.Instruction, args: []ast.Value) anyerror!ast.Value {
         var stack = std.ArrayList(i64).init(self.allocator);
         defer stack.deinit();
@@ -650,19 +693,21 @@ pub const Compiler = struct {
         try stack.append(-1); // pc
         try stack.append(0); // bp
 
-        // var bp = stack.items.len;
-        // try Compiler.runVm(ir, &stack, &bp, address_map);
-        // return ast.Value{ .i32_ = stack.items[0] };
+        if (enable_native_jit) {
+            var bp = @as(i64, @intCast(stack.items.len));
 
-        var bp = @as(i64, @intCast(stack.items.len));
+            var runtime = jit.JitRuntime.init(self.allocator);
+            const fn_ptr = try runtime.compile(ir);
 
-        var runtime = jit.JitRuntime.init(self.allocator);
-        const fn_ptr = try runtime.compile(ir);
+            var sp = @as(i64, @intCast(stack.items.len));
+            fn_ptr((&stack.items).ptr, &sp, &bp);
 
-        var sp = @as(i64, @intCast(stack.items.len));
-        fn_ptr((&stack.items).ptr, &sp, &bp);
-
-        return ast.Value{ .i32_ = @intCast(stack.items[0]) };
+            return ast.Value{ .i32_ = @intCast(stack.items[0]) };
+        } else {
+            var bp = stack.items.len;
+            try Compiler.runVm(ir, &stack, &bp, address_map);
+            return ast.Value{ .i32_ = stack.items[0] };
+        }
     }
 
     fn callFunction(self: *Compiler, name: []const u8, args: []ast.Value) anyerror!ast.Value {
@@ -1001,7 +1046,7 @@ test "compiler.evalModule" {
             .program =
             \\fun fib(n) do
             \\  if (n == 0) do
-            \\    return 0;
+            \\    return 1;
             \\  end
             \\  if (n == 1) do
             \\    return 1;
@@ -1014,7 +1059,7 @@ test "compiler.evalModule" {
             \\  return fib(15);
             \\end
             ,
-            .expected = 610,
+            .expected = 987,
         },
     };
 
