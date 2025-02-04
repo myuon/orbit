@@ -354,9 +354,9 @@ pub const Compiler = struct {
 
     fn runVm(
         program: []ast.Instruction,
-        stack: *std.ArrayList(i32),
+        stack: *std.ArrayList(i64),
         bp: *usize,
-        address_map: std.StringHashMap(i32),
+        address_map: *std.StringHashMap(i32),
     ) anyerror!void {
         var target_label: ?[]const u8 = null;
 
@@ -469,9 +469,19 @@ pub const Compiler = struct {
                 },
                 .set_local => |name| {
                     const value = stack.pop();
-                    const index = address_map.get(name).?;
+
+                    const result = try address_map.getOrPut(name);
+                    if (!result.found_existing) {
+                        const i = stack.items.len;
+                        const v = @as(i32, @intCast(i)) - @as(i32, @intCast(bp.*));
+                        result.value_ptr.* = v;
+
+                        try stack.append(0);
+                        try address_map.put(name, @intCast(v));
+                    }
+
                     const b: i32 = @intCast(bp.*);
-                    stack.items[@intCast(b + index)] = value;
+                    stack.items[@intCast(b + result.value_ptr.*)] = value;
                     pc += 1;
                 },
                 .get_local_d => |k| {
@@ -511,6 +521,33 @@ pub const Compiler = struct {
                     stack.shrinkAndFree(@intCast(value));
                     pc += 1;
                 },
+                .mod => {
+                    const rhs = stack.pop();
+                    const lhs = stack.pop();
+                    try stack.append(@mod(lhs, rhs));
+
+                    pc += 1;
+                },
+                .lt => {
+                    const rhs = stack.pop();
+                    const lhs = stack.pop();
+                    if (lhs < rhs) {
+                        try stack.append(1);
+                    } else {
+                        try stack.append(0);
+                    }
+                    pc += 1;
+                },
+                .lte => {
+                    const rhs = stack.pop();
+                    const lhs = stack.pop();
+                    if (lhs <= rhs) {
+                        try stack.append(1);
+                    } else {
+                        try stack.append(0);
+                    }
+                    pc += 1;
+                },
             }
         }
     }
@@ -528,7 +565,7 @@ pub const Compiler = struct {
             .literal => |lit| {
                 switch (lit) {
                     .number => |n| {
-                        return ast.Value{ .i32_ = @intCast(n) };
+                        return ast.Value{ .i64_ = @intCast(n) };
                     },
                     .boolean => |b| {
                         return ast.Value{ .bool_ = b };
@@ -543,17 +580,17 @@ pub const Compiler = struct {
                     .plus => {
                         const lhs = try self.evalExprFromAst(binop.lhs.*);
                         const rhs = try self.evalExprFromAst(binop.rhs.*);
-                        return ast.Value{ .i32_ = try lhs.asI32() + try rhs.asI32() };
+                        return ast.Value{ .i64_ = try lhs.asI64() + try rhs.asI64() };
                     },
                     .minus => {
                         const lhs = try self.evalExprFromAst(binop.lhs.*);
                         const rhs = try self.evalExprFromAst(binop.rhs.*);
-                        return ast.Value{ .i32_ = try lhs.asI32() - try rhs.asI32() };
+                        return ast.Value{ .i64_ = try lhs.asI64() - try rhs.asI64() };
                     },
                     .star => {
                         const lhs = try self.evalExprFromAst(binop.lhs.*);
                         const rhs = try self.evalExprFromAst(binop.rhs.*);
-                        return ast.Value{ .i32_ = try lhs.asI32() * try rhs.asI32() };
+                        return ast.Value{ .i64_ = try lhs.asI64() * try rhs.asI64() };
                     },
                     .eqeq => {
                         return ast.Value{ .bool_ = std.meta.eql(try self.evalExprFromAst(binop.lhs.*), try self.evalExprFromAst(binop.rhs.*)) };
@@ -561,27 +598,27 @@ pub const Compiler = struct {
                     .langle => {
                         const lhs = try self.evalExprFromAst(binop.lhs.*);
                         const rhs = try self.evalExprFromAst(binop.rhs.*);
-                        return ast.Value{ .bool_ = try lhs.asI32() < try rhs.asI32() };
+                        return ast.Value{ .bool_ = try lhs.asI64() < try rhs.asI64() };
                     },
                     .rangle => {
                         const lhs = try self.evalExprFromAst(binop.lhs.*);
                         const rhs = try self.evalExprFromAst(binop.rhs.*);
-                        return ast.Value{ .bool_ = try lhs.asI32() > try rhs.asI32() };
+                        return ast.Value{ .bool_ = try lhs.asI64() > try rhs.asI64() };
                     },
                     .lte => {
                         const lhs = try self.evalExprFromAst(binop.lhs.*);
                         const rhs = try self.evalExprFromAst(binop.rhs.*);
-                        return ast.Value{ .bool_ = try lhs.asI32() <= try rhs.asI32() };
+                        return ast.Value{ .bool_ = try lhs.asI64() <= try rhs.asI64() };
                     },
                     .gte => {
                         const lhs = try self.evalExprFromAst(binop.lhs.*);
                         const rhs = try self.evalExprFromAst(binop.rhs.*);
-                        return ast.Value{ .bool_ = try lhs.asI32() >= try rhs.asI32() };
+                        return ast.Value{ .bool_ = try lhs.asI64() >= try rhs.asI64() };
                     },
                     .percent => {
                         const lhs = try self.evalExprFromAst(binop.lhs.*);
                         const rhs = try self.evalExprFromAst(binop.rhs.*);
-                        return ast.Value{ .i32_ = @mod(try lhs.asI32(), try rhs.asI32()) };
+                        return ast.Value{ .i64_ = @mod(try lhs.asI64(), try rhs.asI64()) };
                     },
                     else => {
                         unreachable;
@@ -671,7 +708,7 @@ pub const Compiler = struct {
         return self.callFunction(entrypoint, &[_]ast.Value{});
     }
 
-    const enable_native_jit = false;
+    const enable_native_jit = true;
 
     fn callIrFunction(self: *Compiler, params: []const []const u8, ir: []ast.Instruction, args: []ast.Value) anyerror!ast.Value {
         var stack = std.ArrayList(i64).init(self.allocator);
@@ -687,7 +724,7 @@ pub const Compiler = struct {
         for (args, 0..) |arg, i| {
             const k: i32 = @intCast(args.len - i);
             try address_map.put(params[i], -2 - k);
-            try stack.append(try arg.asI32());
+            try stack.append(try arg.asI64());
         }
 
         try stack.append(-1); // pc
@@ -702,11 +739,11 @@ pub const Compiler = struct {
             var sp = @as(i64, @intCast(stack.items.len));
             fn_ptr((&stack.items).ptr, &sp, &bp);
 
-            return ast.Value{ .i32_ = @intCast(stack.items[0]) };
+            return ast.Value{ .i64_ = stack.items[0] };
         } else {
             var bp = stack.items.len;
-            try Compiler.runVm(ir, &stack, &bp, address_map);
-            return ast.Value{ .i32_ = stack.items[0] };
+            try Compiler.runVm(ir, &stack, &bp, &address_map);
+            return ast.Value{ .i64_ = stack.items[0] };
         }
     }
 

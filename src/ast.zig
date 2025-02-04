@@ -138,18 +138,18 @@ pub const ValueError = error{
 
 pub const ValueType = enum {
     nil,
-    i32_,
+    i64_,
     bool_,
 };
 
 pub const Value = union(ValueType) {
     nil: bool,
-    i32_: i32,
+    i64_: i64,
     bool_: bool,
 
-    pub fn asI32(self: Value) ValueError!i32 {
+    pub fn asI64(self: Value) ValueError!i64 {
         return switch (self) {
-            Value.i32_ => self.i32_,
+            Value.i64_ => self.i64_,
             else => error.UnexpectedType,
         };
     }
