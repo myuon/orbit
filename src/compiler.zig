@@ -22,6 +22,7 @@ pub const Compiler = struct {
     has_returned: bool,
     call_trace: std.StringHashMap(u32),
     ir_cache: std.StringHashMap([]ast.Instruction),
+    jit_cache: std.StringHashMap(jit.CompiledFn),
     allocator: std.mem.Allocator,
     ast_arena_allocator: std.heap.ArenaAllocator,
     compiling_context: []const u8,
@@ -40,6 +41,7 @@ pub const Compiler = struct {
             .has_returned = false,
             .call_trace = std.StringHashMap(u32).init(allocator),
             .ir_cache = std.StringHashMap([]ast.Instruction).init(allocator),
+            .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
             .allocator = allocator,
             .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .compiling_context = "",
@@ -51,6 +53,7 @@ pub const Compiler = struct {
         self.env.deinit();
         self.call_trace.deinit();
         self.ir_cache.deinit();
+        self.jit_cache.deinit();
         self.ast_arena_allocator.deinit();
     }
 
@@ -710,7 +713,7 @@ pub const Compiler = struct {
 
     const enable_native_jit = true;
 
-    fn callIrFunction(self: *Compiler, params: []const []const u8, ir: []ast.Instruction, args: []ast.Value) anyerror!ast.Value {
+    fn callIrFunction(self: *Compiler, name: []const u8, params: []const []const u8, ir: []ast.Instruction, args: []ast.Value) anyerror!ast.Value {
         var stack = std.ArrayList(i64).init(self.allocator);
         defer stack.deinit();
 
@@ -731,13 +734,21 @@ pub const Compiler = struct {
         try stack.append(0); // bp
 
         if (enable_native_jit) {
+            const start = try std.time.Instant.now();
+
             var bp = @as(i64, @intCast(stack.items.len));
 
             var runtime = jit.JitRuntime.init(self.allocator);
             const fn_ptr = try runtime.compile(ir);
 
+            const end = try std.time.Instant.now();
+            const elapsed: f64 = @floatFromInt(end.since(start));
+            std.debug.print("Compiled(jit) in {d:.3}ms {s}\n", .{ elapsed / std.time.ns_per_ms, name });
+
             var sp = @as(i64, @intCast(stack.items.len));
             fn_ptr((&stack.items).ptr, &sp, &bp);
+
+            try self.jit_cache.put(name, fn_ptr);
 
             return ast.Value{ .i64_ = stack.items[0] };
         } else {
@@ -761,8 +772,39 @@ pub const Compiler = struct {
             }
         }
 
+        if (self.jit_cache.get(name)) |fn_ptr| {
+            std.debug.print("Using JIT cache: {s} {any}\n", .{ name, args });
+
+            var stack = std.ArrayList(i64).init(self.allocator);
+            defer stack.deinit();
+
+            var address_map = std.StringHashMap(i32).init(self.allocator);
+            defer address_map.deinit();
+
+            const l: i32 = @intCast(args.len);
+            try address_map.put("return", -2 - l - 1);
+            try stack.append(-2); // return value
+
+            for (args, 0..) |arg, i| {
+                const k: i32 = @intCast(args.len - i);
+                try address_map.put(params[i], -2 - k);
+                try stack.append(try arg.asI64());
+            }
+
+            try stack.append(-1); // pc
+            try stack.append(0); // bp
+
+            var sp = @as(i64, @intCast(stack.items.len));
+            var bp = @as(i64, @intCast(stack.items.len));
+            fn_ptr((&stack.items).ptr, &sp, &bp);
+
+            return ast.Value{ .i64_ = stack.items[0] };
+        }
+
         if (self.ir_cache.get(name)) |prog| {
-            const value = self.callIrFunction(params, prog, args);
+            std.debug.print("Using IR cache: {s} {any}\n", .{ name, args });
+
+            const value = self.callIrFunction(name, params, prog, args);
             return value;
         }
 
@@ -800,7 +842,7 @@ pub const Compiler = struct {
                 //     std.debug.print("{any}\n", .{inst});
                 // }
 
-                const value = self.callIrFunction(params, ir, args);
+                const value = self.callIrFunction(name, params, ir, args);
                 try self.ir_cache.put(name, ir);
 
                 return value;
