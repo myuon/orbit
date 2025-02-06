@@ -672,8 +672,6 @@ test {
         const fn_ptr = try runtime.compile(c.prog);
         fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp));
 
-        std.debug.print("c_sp: {d}\n", .{c_sp});
-
         try std.testing.expectEqualSlices(i64, c.expected, c_stack[0..@min(@as(usize, @intCast(c_sp)), c_stack.len)]);
     }
 }

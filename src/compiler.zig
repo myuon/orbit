@@ -359,7 +359,7 @@ pub const Compiler = struct {
         program: []ast.Instruction,
         stack: *std.ArrayList(i64),
         bp: *usize,
-        address_map: *std.StringHashMap(i32),
+        address_map: *std.StringHashMap(i64),
     ) anyerror!void {
         var target_label: ?[]const u8 = null;
 
@@ -1002,8 +1002,8 @@ test "compiler.evalExpr" {
         program: []const u8,
         expected: ast.Value,
     }{
-        .{ .program = "1 + 2 * 3 + 4", .expected = ast.Value{ .i32_ = 11 } },
-        .{ .program = "10 - 4", .expected = ast.Value{ .i32_ = 6 } },
+        .{ .program = "1 + 2 * 3 + 4", .expected = ast.Value{ .i64_ = 11 } },
+        .{ .program = "10 - 4", .expected = ast.Value{ .i64_ = 6 } },
         .{ .program = "1 + 2 == 3", .expected = ast.Value{ .bool_ = true } },
     };
 
@@ -1018,7 +1018,7 @@ test "compiler.evalExpr" {
 test "compiler.evalBlock" {
     const cases = comptime [_]struct {
         program: []const u8,
-        expected: i32,
+        expected: i64,
     }{
         .{
             .program =
@@ -1067,14 +1067,14 @@ test "compiler.evalBlock" {
         var c = Compiler.init(std.testing.allocator);
         defer c.deinit();
 
-        try std.testing.expectEqual(ast.Value{ .i32_ = case.expected }, try c.evalBlock(case.program));
+        try std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalBlock(case.program));
     }
 }
 
 test "compiler.evalModule" {
     const cases = comptime [_]struct {
         program: []const u8,
-        expected: i32,
+        expected: i64,
     }{
         .{
             .program =
@@ -1146,16 +1146,16 @@ test "compiler.evalModule" {
         var c = Compiler.init(std.testing.allocator);
         defer c.deinit();
 
-        try std.testing.expectEqual(ast.Value{ .i32_ = case.expected }, try c.evalModule(case.program));
+        try std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalModule(case.program));
     }
 }
 
 test "compiler.runVm" {
     const cases = comptime [_]struct {
         prog: []ast.Instruction,
-        initial_stack: []i32 = &[_]i32{},
+        initial_stack: []i64 = &[_]i64{},
         initial_bp: usize = 0,
-        expected: []i32,
+        expected: []i64,
     }{
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -1163,7 +1163,7 @@ test "compiler.runVm" {
                 .{ .push = 0x12 },
                 .{ .sub = true },
             }),
-            .expected = @constCast(&[_]i32{0x22}),
+            .expected = @constCast(&[_]i64{0x22}),
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -1172,7 +1172,7 @@ test "compiler.runVm" {
                 .{ .push = 0x3 },
                 .{ .get_local_d = 1 },
             }),
-            .expected = @constCast(&[_]i32{ 0x1, 0x2, 0x3, 0x2 }),
+            .expected = @constCast(&[_]i64{ 0x1, 0x2, 0x3, 0x2 }),
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -1186,7 +1186,7 @@ test "compiler.runVm" {
                 .{ .push = 0x12 },
                 .{ .set_local_d = -1 },
             }),
-            .expected = @constCast(&[_]i32{ 0x1, 0x2, 0x12, 0x4, 0x5 }),
+            .expected = @constCast(&[_]i64{ 0x1, 0x2, 0x12, 0x4, 0x5 }),
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -1199,7 +1199,7 @@ test "compiler.runVm" {
                 .{ .set_bp = true },
                 .{ .get_local_d = -1 },
             }),
-            .expected = @constCast(&[_]i32{ 0x1, 0x2, 0x3, 0x4, 0x5, 0x3 }),
+            .expected = @constCast(&[_]i64{ 0x1, 0x2, 0x3, 0x4, 0x5, 0x3 }),
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -1208,7 +1208,7 @@ test "compiler.runVm" {
                 .{ .push = 0x2 },
                 .{ .push = 0x3 },
             }),
-            .expected = @constCast(&[_]i32{ 0x2, 0x3 }),
+            .expected = @constCast(&[_]i64{ 0x2, 0x3 }),
         },
         .{
             .prog = @constCast(&[_]ast.Instruction{
@@ -1244,18 +1244,18 @@ test "compiler.runVm" {
                 .{ .set_bp = true },
                 .{ .ret = true },
             }),
-            .initial_stack = @constCast(&[_]i32{ -2, 10, -1, 0 }),
+            .initial_stack = @constCast(&[_]i64{ -2, 10, -1, 0 }),
             .initial_bp = 4,
-            .expected = @constCast(&[_]i32{ 55, 10 }),
+            .expected = @constCast(&[_]i64{ 55, 10 }),
         },
     };
 
     for (cases) |case| {
-        var stack = std.ArrayList(i32).init(std.testing.allocator);
+        var stack = std.ArrayList(i64).init(std.testing.allocator);
         defer stack.deinit();
 
         var bp: usize = 0;
-        var address_map = std.StringHashMap(i32).init(std.testing.allocator);
+        var address_map = std.StringHashMap(i64).init(std.testing.allocator);
         defer address_map.deinit();
 
         if (case.initial_stack.len > 0) {
@@ -1267,8 +1267,8 @@ test "compiler.runVm" {
             bp = case.initial_bp;
         }
 
-        try Compiler.runVm(case.prog, &stack, &bp, address_map);
+        try Compiler.runVm(case.prog, &stack, &bp, &address_map);
 
-        try std.testing.expectEqualSlices(i32, case.expected, stack.items);
+        try std.testing.expectEqualSlices(i64, case.expected, stack.items);
     }
 }
