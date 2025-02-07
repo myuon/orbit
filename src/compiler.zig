@@ -26,16 +26,8 @@ pub const Compiler = struct {
     jit_cache: std.StringHashMap(jit.CompiledFn),
     allocator: std.mem.Allocator,
     ast_arena_allocator: std.heap.ArenaAllocator,
-    compiling_context: []const u8,
-    prng: std.Random.Xoshiro256,
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
-        const prng = std.rand.DefaultPrng.init(blk: {
-            var seed: u64 = undefined;
-            std.posix.getrandom(std.mem.asBytes(&seed)) catch unreachable;
-            break :blk seed;
-        });
-
         return Compiler{
             .env = Env.init(allocator),
             .module = null,
@@ -45,8 +37,6 @@ pub const Compiler = struct {
             .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
             .allocator = allocator,
             .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
-            .compiling_context = "",
-            .prng = prng,
         };
     }
 
@@ -379,24 +369,9 @@ pub const Compiler = struct {
                 const start = try std.time.Instant.now();
                 std.debug.print("Start compiling: {s}\n", .{name});
 
-                self.compiling_context = name;
-
-                var env = std.StringHashMap(i32).init(self.allocator);
-                defer env.deinit();
-
-                const l: i32 = @intCast(args.len);
-                try env.put("return", -2 - l - 1);
-
-                for (args, 0..) |_, i| {
-                    const k: i32 = @intCast(args.len - i);
-                    try env.put(params[i], -2 - k);
-                }
-
                 var vmc = vm.Vm.init(self.allocator);
                 defer vmc.deinit();
                 const ir = try vmc.compile(name, params, body);
-
-                self.compiling_context = "";
 
                 const end = try std.time.Instant.now();
                 const elapsed: f64 = @floatFromInt(end.since(start));
