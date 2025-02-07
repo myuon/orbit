@@ -358,7 +358,7 @@ pub const Compiler = struct {
     fn runVm(
         program: []ast.Instruction,
         stack: *std.ArrayList(i64),
-        bp: *usize,
+        bp: *i64,
         address_map: *std.StringHashMap(i64),
     ) anyerror!void {
         var target_label: ?[]const u8 = null;
@@ -717,7 +717,7 @@ pub const Compiler = struct {
         var stack = std.ArrayList(i64).init(self.allocator);
         defer stack.deinit();
 
-        var address_map = std.StringHashMap(i32).init(self.allocator);
+        var address_map = std.StringHashMap(i64).init(self.allocator);
         defer address_map.deinit();
 
         const l: i32 = @intCast(args.len);
@@ -739,7 +739,12 @@ pub const Compiler = struct {
             var bp = @as(i64, @intCast(stack.items.len));
 
             var runtime = jit.JitRuntime.init(self.allocator);
-            const fn_ptr = try runtime.compile(ir);
+            const fn_ptr = runtime.compile(ir) catch |err| {
+                std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
+
+                try Compiler.runVm(ir, &stack, &bp, &address_map);
+                return ast.Value{ .i64_ = stack.items[0] };
+            };
 
             const end = try std.time.Instant.now();
             const elapsed: f64 = @floatFromInt(end.since(start));
@@ -1140,6 +1145,41 @@ test "compiler.evalModule" {
             ,
             .expected = 987,
         },
+        // .{
+        //     .program =
+        //     \\fun is_prime(n) do
+        //     \\  if (n < 2) do
+        //     \\    return false;
+        //     \\  end
+        //     \\
+        //     \\  let i = 2;
+        //     \\  while (i * i <= n) do
+        //     \\    if (n % i == 0) do
+        //     \\      return false;
+        //     \\    end
+        //     \\    i = i + 1;
+        //     \\  end
+        //     \\
+        //     \\  return true;
+        //     \\end
+        //     \\
+        //     \\fun main() do
+        //     \\  let n = 1000;
+        //     \\  let sum = 0;
+        //     \\
+        //     \\  while (n > 0) do
+        //     \\    n = n - 1;
+        //     \\
+        //     \\    if (is_prime(n)) do
+        //     \\      sum = sum + n;
+        //     \\    end
+        //     \\  end
+        //     \\
+        //     \\  return sum;
+        //     \\end
+        //     ,
+        //     .expected = 76127,
+        // },
     };
 
     for (cases) |case| {
@@ -1154,7 +1194,7 @@ test "compiler.runVm" {
     const cases = comptime [_]struct {
         prog: []ast.Instruction,
         initial_stack: []i64 = &[_]i64{},
-        initial_bp: usize = 0,
+        initial_bp: i64 = 0,
         expected: []i64,
     }{
         .{
@@ -1254,7 +1294,7 @@ test "compiler.runVm" {
         var stack = std.ArrayList(i64).init(std.testing.allocator);
         defer stack.deinit();
 
-        var bp: usize = 0;
+        var bp: i64 = 0;
         var address_map = std.StringHashMap(i64).init(std.testing.allocator);
         defer address_map.deinit();
 

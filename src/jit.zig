@@ -167,6 +167,8 @@ const Arm64 = struct {
     }
 };
 
+pub const JitRuntimeError = error{InstructionNotSupported};
+
 pub const CompiledFn = *fn (
     c_stack: [*]i64, // .x0
     c_sp: *i64, // .x1
@@ -410,7 +412,7 @@ pub const JitRuntime = struct {
                 .nop => {},
                 else => {
                     std.debug.print("unhandled instruction: {any}\n", .{inst});
-                    unreachable;
+                    return error.InstructionNotSupported;
                 },
             }
         }
