@@ -2,6 +2,17 @@ const std = @import("std");
 const compiler = @import("compiler.zig");
 const debugger = @import("debugger.zig");
 
+fn readFile(allocator: std.mem.Allocator, path: []const u8, content: *std.ArrayList(u8)) anyerror!void {
+    var file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    while (try file.reader().readUntilDelimiterOrEofAlloc(allocator, '\n', std.math.maxInt(usize))) |line| {
+        defer allocator.free(line);
+
+        try content.appendSlice(line);
+    }
+}
+
 pub fn main() !void {
     var gpallocator = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
@@ -29,22 +40,23 @@ pub fn main() !void {
 
     const command = argv[1][0..std.mem.len(argv[1])];
     if (std.mem.eql(u8, command, "run")) {
-        var file = try std.fs.cwd().openFile(argv[2][0..std.mem.len(argv[2])], .{});
-        defer file.close();
-
         var content = std.ArrayList(u8).init(allocator);
         defer content.deinit();
-        while (try file.reader().readUntilDelimiterOrEofAlloc(allocator, '\n', std.math.maxInt(usize))) |line| {
-            defer allocator.free(line);
 
-            try content.appendSlice(line);
-        }
+        try readFile(allocator, argv[2][0..std.mem.len(argv[2])], &content);
 
         const result = try c.evalModule(content.items);
 
         try stdout.print("Result: {any}\n", .{result});
         try bw.flush();
     } else if (std.mem.eql(u8, command, "dbg")) {
+        var content = std.ArrayList(u8).init(allocator);
+        defer content.deinit();
+
+        try readFile(allocator, argv[2][0..std.mem.len(argv[2])], &content);
+
+        try c.loadModule(content.items);
+
         var dbg = try debugger.Debugger.init(allocator);
         defer dbg.deinit();
 
@@ -53,6 +65,17 @@ pub fn main() !void {
         while (true) {
             const event = try dbg.fetchEvent();
             if (!try dbg.handle_event(event)) break;
+
+            switch (event) {
+                .key_press => |key| {
+                    if (key.matches('n', .{})) {
+                        c.step();
+
+                        std.debug.print("Pressed n", .{});
+                    }
+                },
+                else => {},
+            }
 
             try dbg.draw();
         }
