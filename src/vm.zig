@@ -338,26 +338,20 @@ pub const Vm = struct {
 };
 
 pub const VmRuntime = struct {
-    target_label: ?[]const u8 = null,
     pc: usize = 0,
 
     pub fn init() VmRuntime {
         return VmRuntime{};
     }
 
-    fn find_label(self: *VmRuntime, program: []ast.Instruction) anyerror!?usize {
+    fn find_label(program: []ast.Instruction, target_label: []const u8) anyerror!?usize {
         var count: usize = 0;
-        while (self.target_label) |t| {
+        while (count < program.len) {
             count += 1;
-
-            if (count > program.len) {
-                return null;
-            }
 
             switch (program[count]) {
                 .label => |l| {
-                    if (std.mem.eql(u8, l, t)) {
-                        self.target_label = null;
+                    if (std.mem.eql(u8, l, target_label)) {
                         return count;
                     }
                 },
@@ -412,14 +406,12 @@ pub const VmRuntime = struct {
                 }
             },
             .jump => |label| {
-                self.target_label = label;
-                self.pc = (try self.find_label(program)).?;
+                self.pc = (try VmRuntime.find_label(program, label)).?;
             },
             .jump_ifzero => |label| {
                 const cond = stack.pop();
                 if (cond == 0) {
-                    self.target_label = label;
-                    self.pc = (try self.find_label(program)).?;
+                    self.pc = (try VmRuntime.find_label(program, label)).?;
                 }
 
                 self.pc += 1;
@@ -460,8 +452,7 @@ pub const VmRuntime = struct {
                 self.pc = addr;
             },
             .call => |label| {
-                self.target_label = label;
-                self.pc = (try self.find_label(program)).?;
+                self.pc = (try VmRuntime.find_label(program, label)).?;
             },
             .get_local => |name| {
                 const index = address_map.get(name).?;
