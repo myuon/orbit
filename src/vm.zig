@@ -178,12 +178,7 @@ pub const Vm = struct {
                 try buffer.append(ast.Instruction{ .set_bp = true });
 
                 // call
-                if (std.mem.eql(u8, call.name, self.compiling_context)) {
-                    // should use .call for this place
-                    try buffer.append(ast.Instruction{ .call_d = 0 });
-                } else {
-                    try buffer.append(ast.Instruction{ .call = call.name });
-                }
+                try buffer.append(ast.Instruction{ .call = call.name });
 
                 for (call.args) |_| {
                     try buffer.append(ast.Instruction{ .pop = true });
@@ -312,6 +307,9 @@ pub const Vm = struct {
                     // set_local in the reverse order
                     for (0..f.params.len) |i| {
                         try buffer.append(ast.Instruction{ .set_local = f.params[f.params.len - 1 - i] });
+                    }
+                    for (f.params) |param| {
+                        try buffer.append(ast.Instruction{ .get_local = param });
                     }
 
                     self.compiling_context = f.name;

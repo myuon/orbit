@@ -116,12 +116,27 @@ pub fn main() !void {
                         defer next.deinit();
                         try std.json.stringify(prog[vmc.pc], .{}, next.writer());
 
+                        var adm = std.ArrayList(u8).init(allocator);
+                        defer adm.deinit();
+
+                        var iter = address_map.iterator();
+                        while (iter.next()) |entry| {
+                            try adm.appendSlice(entry.key_ptr.*);
+                            try adm.appendSlice(" -> ");
+                            try adm.appendSlice(try std.fmt.allocPrint(arena_allocator.allocator(), "{d}", .{entry.value_ptr.*}));
+                            try adm.appendSlice(" (");
+                            try adm.appendSlice(try std.fmt.allocPrint(arena_allocator.allocator(), "{d}", .{stack.items[@intCast(bp + entry.value_ptr.*)]}));
+                            try adm.appendSlice(")");
+                            try adm.appendSlice("\n");
+                        }
+
                         try dbg.set_text("stack", try std.fmt.allocPrint(
                             arena_allocator.allocator(),
                             \\pc: {d}, bp: {d}, next: {s}
                             \\stack: {any}
+                            \\address_map: {s}
                         ,
-                            .{ vmc.pc, bp, next.items, stack.items },
+                            .{ vmc.pc, bp, next.items, stack.items, adm.items },
                         ));
                     } else if (key.matches(vaxis.Key.up, .{})) {
                         scroll -= 1;
