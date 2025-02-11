@@ -309,6 +309,11 @@ pub const Vm = struct {
                 .fun => |f| {
                     try buffer.append(ast.Instruction{ .label = f.name });
 
+                    // set_local in the reverse order
+                    for (0..f.params.len) |i| {
+                        try buffer.append(ast.Instruction{ .set_local = f.params[f.params.len - 1 - i] });
+                    }
+
                     self.compiling_context = f.name;
 
                     try buffer.appendSlice(try self.compile(f.name, f.body));
