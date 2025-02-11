@@ -2,6 +2,7 @@ const std = @import("std");
 const compiler = @import("compiler.zig");
 const tui = @import("tui.zig");
 const vm = @import("vm.zig");
+const vaxis = @import("vaxis");
 
 fn readFile(allocator: std.mem.Allocator, path: []const u8, content: *std.ArrayList(u8)) anyerror!void {
     var file = try std.fs.cwd().openFile(path, .{});
@@ -97,6 +98,8 @@ pub fn main() !void {
         try dbg.set_text("ir", progStack.items);
         try dbg.set_text("stack", "");
 
+        var scroll: i32 = 0;
+
         while (true) {
             const event = try dbg.fetchEvent();
             if (!try dbg.handle_event(event)) break;
@@ -120,6 +123,34 @@ pub fn main() !void {
                         ,
                             .{ vmc.pc, bp, next.items, stack.items },
                         ));
+                    } else if (key.matches(vaxis.Key.up, .{})) {
+                        scroll -= 1;
+
+                        progStack.clearAndFree();
+                        for (prog[@intCast(scroll)..]) |inst| {
+                            var next = std.ArrayList(u8).init(allocator);
+                            defer next.deinit();
+                            try std.json.stringify(inst, .{}, next.writer());
+
+                            try progStack.appendSlice(next.items);
+                            try progStack.appendSlice("\n");
+                        }
+
+                        try dbg.set_text("ir", progStack.items);
+                    } else if (key.matches(vaxis.Key.down, .{})) {
+                        scroll += 1;
+
+                        progStack.clearAndFree();
+                        for (prog[@intCast(scroll)..]) |inst| {
+                            var next = std.ArrayList(u8).init(allocator);
+                            defer next.deinit();
+                            try std.json.stringify(inst, .{}, next.writer());
+
+                            try progStack.appendSlice(next.items);
+                            try progStack.appendSlice("\n");
+                        }
+
+                        try dbg.set_text("ir", progStack.items);
                     }
                 },
                 else => {},

@@ -345,6 +345,29 @@ pub const VmRuntime = struct {
         return VmRuntime{};
     }
 
+    fn find_label(self: *VmRuntime, program: []ast.Instruction) anyerror!?usize {
+        var count: usize = 0;
+        while (self.target_label) |t| {
+            count += 1;
+
+            if (count > program.len) {
+                return null;
+            }
+
+            switch (program[count]) {
+                .label => |l| {
+                    if (std.mem.eql(u8, l, t)) {
+                        self.target_label = null;
+                        return count;
+                    }
+                },
+                else => {},
+            }
+        }
+
+        return null;
+    }
+
     pub fn step(
         self: *VmRuntime,
         program: []ast.Instruction,
@@ -357,34 +380,6 @@ pub const VmRuntime = struct {
         }
 
         const inst = program[self.pc];
-
-        var count: usize = 0;
-        while (self.target_label) |t| {
-            count += 1;
-            if (count > program.len) {
-                return ControlFlow.Terminated;
-            }
-
-            if (self.pc == program.len) {
-                self.pc = 0;
-            }
-
-            switch (inst) {
-                .label => |l| {
-                    if (std.mem.eql(u8, l, t)) {
-                        self.target_label = null;
-                        self.pc += 1;
-                        continue;
-                    }
-                },
-                else => {
-                    self.pc += 1;
-                    continue;
-                },
-            }
-        }
-
-        // std.debug.print("[{any},pc:{d},bp:{d}] {any}\n", .{ inst, pc, bp.*, stack.items });
 
         switch (inst) {
             .nop => {
@@ -418,12 +413,13 @@ pub const VmRuntime = struct {
             },
             .jump => |label| {
                 self.target_label = label;
-                self.pc += 1;
+                self.pc = (try self.find_label(program)).?;
             },
             .jump_ifzero => |label| {
                 const cond = stack.pop();
                 if (cond == 0) {
                     self.target_label = label;
+                    self.pc = (try self.find_label(program)).?;
                 }
 
                 self.pc += 1;
@@ -465,7 +461,7 @@ pub const VmRuntime = struct {
             },
             .call => |label| {
                 self.target_label = label;
-                self.pc += 1;
+                self.pc = (try self.find_label(program)).?;
             },
             .get_local => |name| {
                 const index = address_map.get(name).?;
