@@ -170,9 +170,10 @@ pub const Vm = struct {
 
                 // call
                 if (std.mem.eql(u8, call.name, self.compiling_context)) {
+                    // should use .call for this place
                     try buffer.append(ast.Instruction{ .call_d = 0 });
                 } else {
-                    return error.CannotCompileToIr;
+                    try buffer.append(ast.Instruction{ .call = call.name });
                 }
 
                 for (call.args) |_| {
@@ -431,6 +432,10 @@ pub const Vm = struct {
                 },
                 .call_d => |addr| {
                     pc = addr;
+                },
+                .call => |label| {
+                    target_label = label;
+                    pc += 1;
                 },
                 .get_local => |name| {
                     const index = address_map.get(name).?;
