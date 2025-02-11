@@ -356,9 +356,15 @@ pub const VmRuntime = struct {
 
         const inst = program[self.pc];
 
+        var count: usize = 0;
         while (self.target_label) |t| {
-            if (self.pc >= program.len) {
+            count += 1;
+            if (count > program.len) {
                 return ControlFlow.Terminated;
+            }
+
+            if (self.pc == program.len) {
+                self.pc = 0;
             }
 
             switch (inst) {
