@@ -17,6 +17,8 @@ pub const CompilerError = error{
 
 const Env = std.StringHashMap(ast.Value);
 
+const ControlFlow = enum {};
+
 pub const Compiler = struct {
     env: Env,
     module: ?ast.Module,

@@ -20,7 +20,7 @@ pub fn main() !void {
 
     const argv = std.os.argv;
     if (argv.len < 2) {
-        return std.debug.print("Usage: orbit [fib, prime, run, dbg]\n", .{});
+        return std.debug.print("Usage: orbit [run, dbg] <file>\n", .{});
     }
 
     const stdout_file = std.io.getStdOut().writer();
@@ -45,7 +45,17 @@ pub fn main() !void {
         try stdout.print("Result: {any}\n", .{result});
         try bw.flush();
     } else if (std.mem.eql(u8, command, "dbg")) {
-        try debugger.start(allocator);
+        var dbg = try debugger.Debugger.init(allocator);
+        defer dbg.deinit();
+
+        try dbg.start();
+
+        while (true) {
+            const event = try dbg.fetchEvent();
+            if (!try dbg.handle_event(event)) break;
+
+            try dbg.draw();
+        }
     } else {
         return std.debug.print("Unknown command: {s}", .{command});
     }
