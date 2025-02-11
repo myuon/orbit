@@ -69,7 +69,7 @@ pub fn main() !void {
             switch (event) {
                 .key_press => |key| {
                     if (key.matches('n', .{})) {
-                        c.step();
+                        // c.step();
 
                         std.debug.print("Pressed n", .{});
                     }
