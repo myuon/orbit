@@ -307,6 +307,8 @@ pub const Vm = struct {
         for (module.decls) |decl| {
             switch (decl) {
                 .fun => |f| {
+                    try buffer.append(ast.Instruction{ .label = f.name });
+
                     self.compiling_context = entrypoint;
 
                     try buffer.appendSlice(try self.compile(f.name, f.body));
