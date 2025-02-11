@@ -76,6 +76,60 @@ pub const Compiler = struct {
         return try self.evalBlockFromAst(tree);
     }
 
+    pub fn evalModuleWithIr(self: *Compiler, str: []const u8) anyerror!?ast.Value {
+        var start = try std.time.Instant.now();
+
+        var l = lexer.Lexer.init(self.allocator, str);
+        defer l.deinit();
+
+        const tokens = try l.run();
+
+        var end = try std.time.Instant.now();
+        std.debug.print("Lexer.run in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
+        start = end;
+
+        var p = parser.Parser.init(self.allocator, tokens.items);
+        defer p.deinit();
+
+        end = try std.time.Instant.now();
+        std.debug.print("Parser.run in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
+        start = end;
+
+        const tree = try p.module();
+
+        self.module = tree;
+
+        var vmc = vm.Vm.init(self.allocator);
+        defer vmc.deinit();
+
+        const ir = try vmc.compileModule("main", tree);
+
+        end = try std.time.Instant.now();
+        std.debug.print("Compiler.compile in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
+        start = end;
+
+        var stack = std.ArrayList(i64).init(self.allocator);
+        defer stack.deinit();
+
+        var address_map = std.StringHashMap(i64).init(self.allocator);
+        defer address_map.deinit();
+
+        try address_map.put("return", -2 - 1);
+        try stack.append(-2); // return value
+        try stack.append(-1); // pc
+        try stack.append(0); // bp
+
+        var bp: i64 = @intCast(stack.items.len);
+
+        try vm.Vm.run(ir, &stack, &bp, &address_map);
+
+        end = try std.time.Instant.now();
+        std.debug.print("Compiler.eval in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
+        start = end;
+
+        return ast.Value{ .i64_ = stack.items[0] };
+    }
+
     pub fn evalModule(self: *Compiler, str: []const u8) anyerror!?ast.Value {
         var start = try std.time.Instant.now();
 
@@ -726,5 +780,6 @@ test "compiler.evalModule" {
         defer c.deinit();
 
         try std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalModule(case.program));
+        try std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalModuleWithIr(case.program));
     }
 }

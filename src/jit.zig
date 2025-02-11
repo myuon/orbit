@@ -265,7 +265,7 @@ pub const JitRuntime = struct {
                     try jumpSources.put(source, std.math.maxInt(usize));
                     try jumpTargets.put(target, std.math.maxInt(usize));
                 },
-                .call => |target| {
+                .call_d => |target| {
                     try jumpSources.put(source, std.math.maxInt(usize));
                     try jumpTargets.put(target, std.math.maxInt(usize));
                 },
@@ -346,7 +346,7 @@ pub const JitRuntime = struct {
                     try code.emitMul(.x9, .x10, .x9);
                     try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
-                .call => {
+                .call_d => {
                     try code.emit(0x0);
                     try jumpSources.put(p, @intCast(code.code_buf.items.len - 1));
                 },
@@ -424,7 +424,7 @@ pub const JitRuntime = struct {
 
         for (prog, 0..) |inst, source| {
             switch (inst) {
-                .call => |target| {
+                .call_d => |target| {
                     const source_addr = jumpSources.get(source) orelse unreachable;
                     const target_addr = jumpTargets.get(target) orelse unreachable;
                     std.debug.assert(source_addr < code.code_buf.items.len);
@@ -639,7 +639,7 @@ test {
                 .{ .get_bp = true },
                 .{ .get_sp = true },
                 .{ .set_bp = true },
-                .{ .call = 0 },
+                .{ .call_d = 0 },
                 .{ .pop = true },
                 .{ .add = true },
                 .{ .set_local_d = -4 },

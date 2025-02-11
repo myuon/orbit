@@ -170,7 +170,7 @@ pub const Vm = struct {
 
                 // call
                 if (std.mem.eql(u8, call.name, self.compiling_context)) {
-                    try buffer.append(ast.Instruction{ .call = 0 });
+                    try buffer.append(ast.Instruction{ .call_d = 0 });
                 } else {
                     return error.CannotCompileToIr;
                 }
@@ -277,6 +277,34 @@ pub const Vm = struct {
         try self.compileBlockFromAst(&buffer, body);
 
         self.compiling_context = "";
+
+        return buffer.items;
+    }
+
+    pub fn compileModule(
+        self: *Vm,
+        entrypoint: []const u8,
+        module: ast.Module,
+    ) anyerror![]ast.Instruction {
+        var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
+        try self.compileExprFromAst(&buffer, ast.Expression{
+            .call = .{
+                .name = entrypoint,
+                .args = &[_]ast.Expression{},
+            },
+        });
+
+        for (module.decls) |decl| {
+            switch (decl) {
+                .fun => |f| {
+                    self.compiling_context = entrypoint;
+
+                    try buffer.appendSlice(try self.compile(f.name, f.body));
+
+                    self.compiling_context = "";
+                },
+            }
+        }
 
         return buffer.items;
     }
@@ -401,7 +429,7 @@ pub const Vm = struct {
 
                     pc += 1;
                 },
-                .call => |addr| {
+                .call_d => |addr| {
                     pc = addr;
                 },
                 .get_local => |name| {
@@ -582,7 +610,7 @@ test "vm.run" {
                 .{ .get_bp = true },
                 .{ .get_sp = true },
                 .{ .set_bp = true },
-                .{ .call = 0 },
+                .{ .call_d = 0 },
                 .{ .pop = true },
                 .{ .add = true },
                 .{ .set_local_d = -4 },
