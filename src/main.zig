@@ -100,76 +100,89 @@ pub fn main() !void {
 
         var scroll: i32 = 0;
 
+        var mode_resume = false;
+
         while (true) {
-            const event = try dbg.fetchEvent();
-            if (!try dbg.handle_event(event)) break;
+            if (!mode_resume) {
+                const event = try dbg.fetchEvent();
+                if (!try dbg.handle_event(event)) break;
 
-            switch (event) {
-                .key_press => |key| {
-                    if (key.matches('n', .{})) {
-                        const result = try vmc.step(prog, &stack, &bp, &address_map);
-                        if (result.isTerminated()) {
-                            break;
+                switch (event) {
+                    .key_press => |key| {
+                        if (key.matches('n', .{})) {
+                            const result = try vmc.step(prog, &stack, &bp, &address_map);
+                            if (result.isTerminated()) {
+                                break;
+                            }
+                        } else if (key.matches('k', .{})) {
+                            mode_resume = true;
+                        } else if (key.matches(vaxis.Key.up, .{})) {
+                            scroll -= 1;
+
+                            progStack.clearAndFree();
+                            for (prog[@intCast(scroll)..]) |inst| {
+                                var next = std.ArrayList(u8).init(allocator);
+                                defer next.deinit();
+                                try std.json.stringify(inst, .{}, next.writer());
+
+                                try progStack.appendSlice(next.items);
+                                try progStack.appendSlice("\n");
+                            }
+
+                            try dbg.set_text("ir", progStack.items);
+                        } else if (key.matches(vaxis.Key.down, .{})) {
+                            scroll += 1;
+
+                            progStack.clearAndFree();
+                            for (prog[@intCast(scroll)..]) |inst| {
+                                var next = std.ArrayList(u8).init(allocator);
+                                defer next.deinit();
+                                try std.json.stringify(inst, .{}, next.writer());
+
+                                try progStack.appendSlice(next.items);
+                                try progStack.appendSlice("\n");
+                            }
+
+                            try dbg.set_text("ir", progStack.items);
                         }
-
-                        var next = std.ArrayList(u8).init(allocator);
-                        defer next.deinit();
-                        try std.json.stringify(prog[vmc.pc], .{}, next.writer());
-
-                        var adm = std.ArrayList(u8).init(allocator);
-                        defer adm.deinit();
-
-                        var iter = address_map.iterator();
-                        while (iter.next()) |entry| {
-                            try adm.appendSlice(entry.key_ptr.*);
-                            try adm.appendSlice(" -> ");
-                            try adm.appendSlice(try std.fmt.allocPrint(arena_allocator.allocator(), "{d}", .{entry.value_ptr.*}));
-                            try adm.appendSlice(" (");
-                            try adm.appendSlice(try std.fmt.allocPrint(arena_allocator.allocator(), "{d}", .{stack.items[@intCast(bp + entry.value_ptr.*)]}));
-                            try adm.appendSlice(")");
-                            try adm.appendSlice("\n");
-                        }
-
-                        try dbg.set_text("stack", try std.fmt.allocPrint(
-                            arena_allocator.allocator(),
-                            \\pc: {d}, bp: {d}, next: {s}
-                            \\stack: {any}
-                            \\address_map: {s}
-                        ,
-                            .{ vmc.pc, bp, next.items, stack.items, adm.items },
-                        ));
-                    } else if (key.matches(vaxis.Key.up, .{})) {
-                        scroll -= 1;
-
-                        progStack.clearAndFree();
-                        for (prog[@intCast(scroll)..]) |inst| {
-                            var next = std.ArrayList(u8).init(allocator);
-                            defer next.deinit();
-                            try std.json.stringify(inst, .{}, next.writer());
-
-                            try progStack.appendSlice(next.items);
-                            try progStack.appendSlice("\n");
-                        }
-
-                        try dbg.set_text("ir", progStack.items);
-                    } else if (key.matches(vaxis.Key.down, .{})) {
-                        scroll += 1;
-
-                        progStack.clearAndFree();
-                        for (prog[@intCast(scroll)..]) |inst| {
-                            var next = std.ArrayList(u8).init(allocator);
-                            defer next.deinit();
-                            try std.json.stringify(inst, .{}, next.writer());
-
-                            try progStack.appendSlice(next.items);
-                            try progStack.appendSlice("\n");
-                        }
-
-                        try dbg.set_text("ir", progStack.items);
-                    }
-                },
-                else => {},
+                    },
+                    else => {},
+                }
             }
+
+            if (mode_resume) {
+                const result = try vmc.step(prog, &stack, &bp, &address_map);
+                if (result.isTerminated()) {
+                    break;
+                }
+            }
+
+            var next = std.ArrayList(u8).init(allocator);
+            defer next.deinit();
+            try std.json.stringify(prog[vmc.pc], .{}, next.writer());
+
+            var adm = std.ArrayList(u8).init(allocator);
+            defer adm.deinit();
+
+            var iter = address_map.iterator();
+            while (iter.next()) |entry| {
+                try adm.appendSlice(entry.key_ptr.*);
+                try adm.appendSlice(" -> ");
+                try adm.appendSlice(try std.fmt.allocPrint(arena_allocator.allocator(), "{d}", .{entry.value_ptr.*}));
+                try adm.appendSlice(" (");
+                try adm.appendSlice(try std.fmt.allocPrint(arena_allocator.allocator(), "{d}", .{stack.items[@intCast(bp + entry.value_ptr.*)]}));
+                try adm.appendSlice(")");
+                try adm.appendSlice("\n");
+            }
+
+            try dbg.set_text("stack", try std.fmt.allocPrint(
+                arena_allocator.allocator(),
+                \\pc: {d}, bp: {d}, next: {s}
+                \\stack: {any}
+                \\address_map: {s}
+            ,
+                .{ vmc.pc, bp, next.items, stack.items, adm.items },
+            ));
 
             try dbg.draw();
         }
