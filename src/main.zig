@@ -1,5 +1,6 @@
 const std = @import("std");
 const compiler = @import("compiler.zig");
+const debugger = @import("debugger.zig");
 
 pub fn main() !void {
     var gpallocator = std.heap.GeneralPurposeAllocator(.{}){};
@@ -12,12 +13,14 @@ pub fn main() !void {
         }
     }
 
-    var c = compiler.Compiler.init(gpallocator.allocator());
+    const allocator = gpallocator.allocator();
+
+    var c = compiler.Compiler.init(allocator);
     defer c.deinit();
 
     const argv = std.os.argv;
     if (argv.len < 2) {
-        return std.debug.print("Usage: orbit [fib, prime, debugger]", .{});
+        return std.debug.print("Usage: orbit [fib, prime, dbg]\n", .{});
     }
 
     const stdout_file = std.io.getStdOut().writer();
@@ -82,6 +85,8 @@ pub fn main() !void {
         try stdout.print("Result: {any}\n", .{result});
 
         try bw.flush(); // don't forget to flush!
+    } else if (std.mem.eql(u8, command, "dbg")) {
+        try debugger.start(allocator);
     } else {
         return std.debug.print("Unknown command: {s}", .{command});
     }
