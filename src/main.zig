@@ -83,6 +83,20 @@ pub fn main() !void {
 
         try dbg.start();
 
+        var progStack = std.ArrayList(u8).init(allocator);
+        defer progStack.deinit();
+        for (prog) |inst| {
+            var next = std.ArrayList(u8).init(allocator);
+            defer next.deinit();
+            try std.json.stringify(inst, .{}, next.writer());
+
+            try progStack.appendSlice(next.items);
+            try progStack.appendSlice("\n");
+        }
+
+        try dbg.set_text("ir", progStack.items);
+        try dbg.set_text("stack", "");
+
         while (true) {
             const event = try dbg.fetchEvent();
             if (!try dbg.handle_event(event)) break;
@@ -99,7 +113,7 @@ pub fn main() !void {
                         defer next.deinit();
                         try std.json.stringify(prog[vmc.pc], .{}, next.writer());
 
-                        dbg.set_text(try std.fmt.allocPrint(
+                        try dbg.set_text("stack", try std.fmt.allocPrint(
                             arena_allocator.allocator(),
                             \\pc: {d}, bp: {d}, next: {s}
                             \\stack: {any}

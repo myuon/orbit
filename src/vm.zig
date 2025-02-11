@@ -309,7 +309,7 @@ pub const Vm = struct {
                 .fun => |f| {
                     try buffer.append(ast.Instruction{ .label = f.name });
 
-                    self.compiling_context = entrypoint;
+                    self.compiling_context = f.name;
 
                     try buffer.appendSlice(try self.compile(f.name, f.body));
 

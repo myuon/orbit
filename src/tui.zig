@@ -16,8 +16,7 @@ pub const Tui = struct {
     tty: vaxis.Tty,
     vx: vaxis.Vaxis,
     loop: vaxis.Loop(TuiEvent),
-    view: vaxis.widgets.View,
-    text: []u8 = "",
+    texts: std.StringHashMap([]u8),
 
     pub fn init(allocator: std.mem.Allocator) anyerror!Tui {
         var tty = try vaxis.Tty.init();
@@ -29,24 +28,18 @@ pub const Tui = struct {
         };
         try loop.init();
 
-        const view = try vaxis.widgets.View.init(
-            allocator,
-            &vx.unicode,
-            .{ .width = 80, .height = 24 },
-        );
-
         return Tui{
             .allocator = allocator,
             .tty = tty,
             .vx = vx,
             .loop = loop,
-            .view = view,
+            .texts = std.StringHashMap([]u8).init(allocator),
         };
     }
 
     pub fn deinit(self: *Tui) void {
         self.loop.stop();
-        self.view.deinit();
+        self.texts.deinit();
         self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
     }
@@ -77,16 +70,26 @@ pub const Tui = struct {
         win.clear();
 
         const child = win.child(.{
-            .x_off = @intCast(win.width / 2 - 20),
-            .y_off = @intCast(win.height / 2 - 3),
+            .x_off = 0,
+            .y_off = 0,
             .width = 80,
-            .height = 10,
+            .height = 60,
             .border = .{
                 .where = .all,
             },
         });
+        _ = child.printSegment(.{ .text = self.texts.get("ir").? }, .{});
 
-        _ = child.printSegment(.{ .text = self.text }, .{});
+        const child2 = win.child(.{
+            .x_off = 90,
+            .y_off = 0,
+            .width = 80,
+            .height = 60,
+            .border = .{
+                .where = .all,
+            },
+        });
+        _ = child2.printSegment(.{ .text = self.texts.get("stack").? }, .{});
 
         try self.vx.render(self.tty.anyWriter());
     }
@@ -101,7 +104,7 @@ pub const Tui = struct {
         return self.loop.nextEvent();
     }
 
-    pub fn set_text(self: *Tui, text: []u8) void {
-        self.text = text;
+    pub fn set_text(self: *Tui, key: []const u8, text: []u8) anyerror!void {
+        try self.texts.put(key, text);
     }
 };
