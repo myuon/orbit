@@ -76,7 +76,7 @@ pub const Compiler = struct {
         return try self.evalBlockFromAst(tree);
     }
 
-    pub fn loadModule(self: *Compiler, str: []const u8) anyerror!void {
+    pub fn evalModule(self: *Compiler, str: []const u8) anyerror!?ast.Value {
         var start = try std.time.Instant.now();
 
         var l = lexer.Lexer.init(self.allocator, str);
@@ -98,16 +98,10 @@ pub const Compiler = struct {
         const tree = try p.module();
 
         self.module = tree;
-    }
-
-    pub fn evalModule(self: *Compiler, str: []const u8) anyerror!?ast.Value {
-        try self.loadModule(str);
-
-        var start = try std.time.Instant.now();
 
         const result = try self.evalModuleFromAst("main");
 
-        var end = try std.time.Instant.now();
+        end = try std.time.Instant.now();
         std.debug.print("Compiler.eval in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
         start = end;
 
