@@ -4,6 +4,8 @@ const tui = @import("tui.zig");
 const vm = @import("vm.zig");
 const vaxis = @import("vaxis");
 
+pub const panic = vaxis.panic_handler;
+
 fn readFile(allocator: std.mem.Allocator, path: []const u8, content: *std.ArrayList(u8)) anyerror!void {
     var file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
@@ -13,6 +15,42 @@ fn readFile(allocator: std.mem.Allocator, path: []const u8, content: *std.ArrayL
 
         try content.appendSlice(line);
     }
+}
+
+fn writeStack(allocator: std.mem.Allocator, stack: []i64, bp: i64) ![]u8 {
+    var stack_frames = std.AutoHashMap(i64, bool).init(allocator);
+    defer stack_frames.deinit();
+
+    var b = bp;
+    while (b >= 2) {
+        try stack_frames.put(b - 1, true);
+        b = stack[@intCast(b - 1)];
+    }
+
+    var result = std.ArrayList(u8).init(allocator);
+
+    const h = try std.fmt.allocPrint(allocator, "stack <#{d}>\n", .{stack.len});
+    defer allocator.free(h);
+    try result.appendSlice(h);
+
+    for (0..stack.len) |ri| {
+        const i = stack.len - ri - 1;
+
+        const p = try std.fmt.allocPrint(allocator, "#{d} | {d}", .{ i, stack[i] });
+        defer allocator.free(p);
+        try result.appendSlice(p);
+
+        if (stack_frames.contains(@intCast(i + 1))) {
+            try result.appendSlice(" (pc)");
+        }
+        if (stack_frames.contains(@intCast(i))) {
+            try result.appendSlice(" === stackframe");
+        }
+
+        try result.appendSlice("\n");
+    }
+
+    return result.items;
 }
 
 pub fn main() !void {
@@ -171,19 +209,28 @@ pub fn main() !void {
                 try adm.appendSlice(" -> ");
                 try adm.appendSlice(try std.fmt.allocPrint(arena_allocator.allocator(), "{d}", .{entry.value_ptr.*}));
                 try adm.appendSlice(" (");
-                try adm.appendSlice(try std.fmt.allocPrint(arena_allocator.allocator(), "{d}", .{stack.items[@intCast(bp + entry.value_ptr.*)]}));
+
+                const v = bp + entry.value_ptr.*;
+                if (v >= 0 and v < stack.items.len) {
+                    const t = try std.fmt.allocPrint(allocator, "{d}", .{stack.items[@intCast(v)]});
+                    defer allocator.free(t);
+                    try adm.appendSlice(t);
+                }
                 try adm.appendSlice(")");
                 try adm.appendSlice("\n");
             }
 
-            try dbg.set_text("stack", try std.fmt.allocPrint(
-                arena_allocator.allocator(),
+            const s = try writeStack(allocator, stack.items, bp);
+            // defer allocator.free(s);
+
+            const k = try std.fmt.allocPrint(allocator,
                 \\pc: {d}, bp: {d}, next: {s}
-                \\stack: {any}
                 \\address_map: {s}
-            ,
-                .{ vmc.pc, bp, next.items, stack.items, adm.items },
-            ));
+                \\stack: {s}
+            , .{ vmc.pc, bp, next.items, adm.items, s });
+            // defer allocator.free(k);
+
+            try dbg.set_text("stack", k);
 
             try dbg.draw();
         }

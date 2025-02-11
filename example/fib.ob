@@ -10,5 +10,5 @@ fun fib(n) do
 end
 
 fun main() do
-  return fib(0);
+  return fib(1);
 end

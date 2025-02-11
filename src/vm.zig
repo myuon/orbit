@@ -293,11 +293,20 @@ pub const Vm = struct {
         module: ast.Module,
     ) anyerror![]ast.Instruction {
         var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
-        try self.compileExprFromAst(&buffer, ast.Expression{
-            .call = .{
-                .name = entrypoint,
-                .args = &[_]ast.Expression{},
-            },
+
+        try buffer.append(ast.Instruction{ .clone_env = true });
+        try self.compileBlockFromAst(&buffer, ast.Block{
+            .statements = @constCast(&[_]ast.Statement{
+                .{
+                    .return_ = .{
+                        .call = .{
+                            .name = entrypoint,
+                            .args = &[_]ast.Expression{},
+                        },
+                    },
+                },
+            }),
+            .expr = null,
         });
 
         for (module.decls) |decl| {
