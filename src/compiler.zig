@@ -17,8 +17,6 @@ pub const CompilerError = error{
 
 const Env = std.StringHashMap(ast.Value);
 
-const ControlFlow = enum {};
-
 pub const Compiler = struct {
     env: Env,
     module: ?ast.Module,
@@ -50,6 +48,7 @@ pub const Compiler = struct {
         self.ir_cache.deinit();
         self.jit_cache.deinit();
         self.ast_arena_allocator.deinit();
+        self.vmc.deinit();
     }
 
     fn evalExpr(self: *Compiler, str: []const u8) anyerror!ast.Value {
@@ -101,10 +100,7 @@ pub const Compiler = struct {
 
         self.module = tree;
 
-        var vmc = vm.Vm.init(self.allocator);
-        // defer vmc.deinit();
-
-        const ir = try vmc.compileModule("main", tree);
+        const ir = try self.vmc.compileModule("main", tree);
 
         end = try std.time.Instant.now();
         std.debug.print("Compiler.compile in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
@@ -405,7 +401,9 @@ pub const Compiler = struct {
             const fn_ptr = runtime.compile(ir) catch |err| {
                 std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
 
-                try self.vmc.run(ir, &stack, &bp, &address_map);
+                var vmr = vm.VmRuntime.init();
+
+                try vmr.run(ir, &stack, &bp, &address_map);
                 return ast.Value{ .i64_ = stack.items[0] };
             };
 

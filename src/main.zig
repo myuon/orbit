@@ -71,7 +71,7 @@ pub fn main() !void {
 
         var bp: i64 = @intCast(stack.items.len);
 
-        var vmc = vm.Vm.init(allocator);
+        var vmc = vm.VmRuntime.init();
 
         var dbg = try tui.Tui.init(allocator);
         defer dbg.deinit();

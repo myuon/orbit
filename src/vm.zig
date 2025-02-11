@@ -9,8 +9,6 @@ pub const Vm = struct {
     ast_arena_allocator: std.heap.ArenaAllocator,
     compiling_context: []const u8 = "",
     prng: std.Random.Xoshiro256,
-    target_label: ?[]const u8 = null,
-    pc: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator) Vm {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -328,9 +326,18 @@ pub const Vm = struct {
 
         try self.resolveLocalAddresses(env, prog);
     }
+};
+
+pub const VmRuntime = struct {
+    target_label: ?[]const u8 = null,
+    pc: usize = 0,
+
+    pub fn init() VmRuntime {
+        return VmRuntime{};
+    }
 
     pub fn step(
-        self: *Vm,
+        self: *VmRuntime,
         program: []ast.Instruction,
         stack: *std.ArrayList(i64),
         bp: *i64,
@@ -529,7 +536,7 @@ pub const Vm = struct {
     }
 
     pub fn run(
-        self: *Vm,
+        self: *VmRuntime,
         program: []ast.Instruction,
         stack: *std.ArrayList(i64),
         bp: *i64,
