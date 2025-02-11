@@ -37,7 +37,6 @@ fn writeStack(allocator: std.mem.Allocator, stack: []i64, bp: i64) ![]u8 {
         const i = stack.len - ri - 1;
 
         const p = try std.fmt.allocPrint(allocator, "#{d} | {d}", .{ i, stack[i] });
-        defer allocator.free(p);
         try result.appendSlice(p);
 
         if (stack_frames.contains(@intCast(i + 1))) {
@@ -115,7 +114,7 @@ pub fn main() !void {
 
         var bp: i64 = @intCast(stack.items.len);
 
-        var vmc = vm.VmRuntime.init(allocator);
+        var vmc = vm.VmRuntime.init(arena_allocator.allocator());
         defer vmc.deinit();
 
         var dbg = try tui.Tui.init(allocator);
@@ -196,39 +195,38 @@ pub fn main() !void {
                 }
             }
 
-            var next = std.ArrayList(u8).init(allocator);
-            defer next.deinit();
+            var draw_allocator_arena = std.heap.ArenaAllocator.init(allocator);
+            const draw_allocator = draw_allocator_arena.allocator();
+            defer draw_allocator_arena.deinit();
+
+            var next = std.ArrayList(u8).init(draw_allocator);
             try std.json.stringify(prog[vmc.pc], .{}, next.writer());
 
-            var adm = std.ArrayList(u8).init(allocator);
+            var adm = std.ArrayList(u8).init(draw_allocator);
             defer adm.deinit();
 
             var iter = address_map.iterator();
             while (iter.next()) |entry| {
                 try adm.appendSlice(entry.key_ptr.*);
                 try adm.appendSlice(" -> ");
-                try adm.appendSlice(try std.fmt.allocPrint(arena_allocator.allocator(), "{d}", .{entry.value_ptr.*}));
+                try adm.appendSlice(try std.fmt.allocPrint(draw_allocator, "{d}", .{entry.value_ptr.*}));
                 try adm.appendSlice(" (");
 
                 const v = bp + entry.value_ptr.*;
                 if (v >= 0 and v < stack.items.len) {
-                    const t = try std.fmt.allocPrint(allocator, "{d}", .{stack.items[@intCast(v)]});
-                    defer allocator.free(t);
+                    const t = try std.fmt.allocPrint(draw_allocator, "{d}", .{stack.items[@intCast(v)]});
                     try adm.appendSlice(t);
                 }
                 try adm.appendSlice(")");
                 try adm.appendSlice("\n");
             }
 
-            const s = try writeStack(allocator, stack.items, bp);
-            // defer allocator.free(s);
-
-            const k = try std.fmt.allocPrint(allocator,
+            const s = try writeStack(draw_allocator, stack.items, bp);
+            const k = try std.fmt.allocPrint(draw_allocator,
                 \\pc: {d}, bp: {d}, next: {s}
                 \\address_map: {s}
                 \\stack: {s}
             , .{ vmc.pc, bp, next.items, adm.items, s });
-            // defer allocator.free(k);
 
             try dbg.set_text("stack", k);
 
