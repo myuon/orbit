@@ -156,6 +156,12 @@ pub const Vm = struct {
                     .lte => {
                         try buffer.append(ast.Instruction{ .lte = true });
                     },
+                    .rangle => {
+                        try buffer.append(ast.Instruction{ .gt = true });
+                    },
+                    .gte => {
+                        try buffer.append(ast.Instruction{ .gte = true });
+                    },
                     else => {
                         std.log.info("op: {}\n", .{binop.op});
                         unreachable;
@@ -573,6 +579,26 @@ pub const VmRuntime = struct {
                 const rhs = stack.pop();
                 const lhs = stack.pop();
                 if (lhs <= rhs) {
+                    try stack.append(1);
+                } else {
+                    try stack.append(0);
+                }
+                self.pc += 1;
+            },
+            .gt => {
+                const rhs = stack.pop();
+                const lhs = stack.pop();
+                if (lhs > rhs) {
+                    try stack.append(1);
+                } else {
+                    try stack.append(0);
+                }
+                self.pc += 1;
+            },
+            .gte => {
+                const rhs = stack.pop();
+                const lhs = stack.pop();
+                if (lhs >= rhs) {
                     try stack.append(1);
                 } else {
                     try stack.append(0);

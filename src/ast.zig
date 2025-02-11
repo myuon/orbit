@@ -193,6 +193,8 @@ pub const InstructionType = enum {
     mod,
     lt,
     lte,
+    gt,
+    gte,
 };
 
 pub const Instruction = union(InstructionType) {
@@ -226,4 +228,6 @@ pub const Instruction = union(InstructionType) {
     mod: bool,
     lt: bool,
     lte: bool,
+    gt: bool,
+    gte: bool,
 };
