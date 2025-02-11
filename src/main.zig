@@ -26,6 +26,8 @@ pub fn main() !void {
     }
 
     const allocator = gpallocator.allocator();
+    var arena_allocator = std.heap.ArenaAllocator.init(allocator);
+    defer arena_allocator.deinit();
 
     var c = compiler.Compiler.init(allocator);
     defer c.deinit();
@@ -60,6 +62,9 @@ pub fn main() !void {
 
         var stack = std.ArrayList(i64).init(allocator);
         defer stack.deinit();
+        defer {
+            std.debug.print("stack: {any}\n", .{stack.items});
+        }
 
         var address_map = std.StringHashMap(i64).init(allocator);
         defer address_map.deinit();
@@ -85,9 +90,22 @@ pub fn main() !void {
             switch (event) {
                 .key_press => |key| {
                     if (key.matches('n', .{})) {
-                        try vmc.step(prog, &stack, &bp, &address_map);
+                        const result = try vmc.step(prog, &stack, &bp, &address_map);
+                        if (result.isTerminated()) {
+                            break;
+                        }
 
-                        std.debug.print(".{any}\n", .{stack.items});
+                        var next = std.ArrayList(u8).init(allocator);
+                        defer next.deinit();
+                        try std.json.stringify(prog[vmc.pc], .{}, next.writer());
+
+                        dbg.set_text(try std.fmt.allocPrint(
+                            arena_allocator.allocator(),
+                            \\pc: {d}, bp: {d}, next: {s}
+                            \\stack: {any}
+                        ,
+                            .{ vmc.pc, bp, next.items, stack.items },
+                        ));
                     }
                 },
                 else => {},

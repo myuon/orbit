@@ -2,7 +2,14 @@ const std = @import("std");
 
 const ast = @import("ast.zig");
 
-const ControlFlow = enum { Continue };
+const ControlFlow = enum {
+    Continue,
+    Terminated,
+
+    pub fn isTerminated(self: ControlFlow) bool {
+        return self == ControlFlow.Terminated;
+    }
+};
 
 pub const Vm = struct {
     allocator: std.mem.Allocator,
@@ -342,21 +349,29 @@ pub const VmRuntime = struct {
         stack: *std.ArrayList(i64),
         bp: *i64,
         address_map: *std.StringHashMap(i64),
-    ) anyerror!void {
+    ) anyerror!ControlFlow {
+        if (self.pc >= program.len) {
+            return ControlFlow.Terminated;
+        }
+
         const inst = program[self.pc];
 
-        if (self.target_label) |t| {
+        while (self.target_label) |t| {
+            if (self.pc >= program.len) {
+                return ControlFlow.Terminated;
+            }
+
             switch (inst) {
                 .label => |l| {
                     if (std.mem.eql(u8, l, t)) {
                         self.target_label = null;
                         self.pc += 1;
-                        return;
+                        continue;
                     }
                 },
                 else => {
                     self.pc += 1;
-                    return;
+                    continue;
                 },
             }
         }
@@ -388,7 +403,7 @@ pub const VmRuntime = struct {
             .ret => {
                 const p = stack.pop();
                 if (p == -1) {
-                    return;
+                    return ControlFlow.Terminated;
                 } else {
                     self.pc = @intCast(p + 5);
                 }
@@ -533,6 +548,8 @@ pub const VmRuntime = struct {
                 self.pc += 1;
             },
         }
+
+        return ControlFlow.Continue;
     }
 
     pub fn run(
@@ -543,7 +560,12 @@ pub const VmRuntime = struct {
         address_map: *std.StringHashMap(i64),
     ) anyerror!void {
         while (self.pc < program.len) {
-            try self.step(program, stack, bp, address_map);
+            switch (try self.step(program, stack, bp, address_map)) {
+                .Terminated => {
+                    break;
+                },
+                else => {},
+            }
         }
     }
 };

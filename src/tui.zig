@@ -16,7 +16,8 @@ pub const Tui = struct {
     tty: vaxis.Tty,
     vx: vaxis.Vaxis,
     loop: vaxis.Loop(TuiEvent),
-    text_input: vaxis.widgets.TextInput,
+    view: vaxis.widgets.View,
+    text: []u8 = "",
 
     pub fn init(allocator: std.mem.Allocator) anyerror!Tui {
         var tty = try vaxis.Tty.init();
@@ -28,22 +29,30 @@ pub const Tui = struct {
         };
         try loop.init();
 
-        const text_input = TextInput.init(allocator, &vx.unicode);
+        const view = try vaxis.widgets.View.init(
+            allocator,
+            &vx.unicode,
+            .{ .width = 80, .height = 24 },
+        );
 
         return Tui{
             .allocator = allocator,
             .tty = tty,
             .vx = vx,
             .loop = loop,
-            .text_input = text_input,
+            .view = view,
         };
     }
 
     pub fn deinit(self: *Tui) void {
         self.loop.stop();
-        self.text_input.deinit();
+        self.view.deinit();
         self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
+    }
+
+    pub fn recover_panic() void {
+        vaxis.panic_handler("Panic Recovered", null, null);
     }
 
     pub fn handle_event(self: *Tui, event: TuiEvent) anyerror!bool {
@@ -68,16 +77,16 @@ pub const Tui = struct {
         win.clear();
 
         const child = win.child(.{
-            .x_off = win.width / 2 - 20,
-            .y_off = win.height / 2 - 3,
-            .width = 40,
-            .height = 3,
+            .x_off = @intCast(win.width / 2 - 20),
+            .y_off = @intCast(win.height / 2 - 3),
+            .width = 80,
+            .height = 10,
             .border = .{
                 .where = .all,
             },
         });
 
-        self.text_input.draw(child);
+        _ = child.printSegment(.{ .text = self.text }, .{});
 
         try self.vx.render(self.tty.anyWriter());
     }
@@ -90,5 +99,9 @@ pub const Tui = struct {
 
     pub fn fetchEvent(self: *Tui) !TuiEvent {
         return self.loop.nextEvent();
+    }
+
+    pub fn set_text(self: *Tui, text: []u8) void {
+        self.text = text;
     }
 };
