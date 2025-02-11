@@ -177,6 +177,8 @@ pub const InstructionType = enum {
     get_local,
     set_local,
     register_local,
+    clone_env,
+    restore_env,
     label,
     get_pc,
     get_bp,
@@ -208,6 +210,8 @@ pub const Instruction = union(InstructionType) {
     get_local: []const u8, // (resolve_local phase) replaced with get_local_d
     set_local: []const u8, // (resolve_local phase) replaced with set_local_d
     register_local: struct { name: []const u8, offset: i64 }, // (resolve_local phase) replaced with nop
+    clone_env: bool,
+    restore_env: bool,
     label: []const u8, // (resolve_label phase) replaced with nop
     get_pc: bool,
     get_bp: bool,

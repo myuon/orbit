@@ -401,7 +401,8 @@ pub const Compiler = struct {
             const fn_ptr = runtime.compile(ir) catch |err| {
                 std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
 
-                var vmr = vm.VmRuntime.init();
+                var vmr = vm.VmRuntime.init(self.allocator);
+                defer vmr.deinit();
 
                 try vmr.run(ir, &stack, &bp, &address_map);
                 return ast.Value{ .i64_ = stack.items[0] };

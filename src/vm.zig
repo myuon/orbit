@@ -223,6 +223,7 @@ pub const Vm = struct {
                     try buffer.append(ast.Instruction{ .get_bp = true });
                     try buffer.append(ast.Instruction{ .set_sp = true });
                     try buffer.append(ast.Instruction{ .set_bp = true });
+                    try buffer.append(ast.Instruction{ .restore_env = true });
                     try buffer.append(ast.Instruction{ .ret = true });
                 },
                 .expr => |expr| {
@@ -304,6 +305,8 @@ pub const Vm = struct {
                 .fun => |f| {
                     try buffer.append(ast.Instruction{ .label = f.name });
 
+                    try buffer.append(ast.Instruction{ .clone_env = true });
+
                     try buffer.append(ast.Instruction{ .register_local = .{
                         .name = "return",
                         .offset = -3 - @as(i64, @intCast(f.params.len)),
@@ -346,10 +349,18 @@ pub const Vm = struct {
 };
 
 pub const VmRuntime = struct {
-    pc: usize = 0,
+    pc: usize,
+    envs: std.ArrayList(std.StringHashMap(i64)),
 
-    pub fn init() VmRuntime {
-        return VmRuntime{};
+    pub fn init(allocator: std.mem.Allocator) VmRuntime {
+        return VmRuntime{
+            .pc = 0,
+            .envs = std.ArrayList(std.StringHashMap(i64)).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *VmRuntime) void {
+        self.envs.deinit();
     }
 
     fn find_label(program: []ast.Instruction, target_label: []const u8) anyerror!?usize {
@@ -557,6 +568,15 @@ pub const VmRuntime = struct {
                 } else {
                     try stack.append(0);
                 }
+                self.pc += 1;
+            },
+            .clone_env => {
+                try self.envs.append(try address_map.clone());
+                self.pc += 1;
+            },
+            .restore_env => {
+                address_map.clearAndFree();
+                address_map.* = self.envs.pop();
                 self.pc += 1;
             },
         }
