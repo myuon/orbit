@@ -373,7 +373,9 @@ pub const Compiler = struct {
 
                 var vmc = vm.Vm.init(self.allocator);
                 defer vmc.deinit();
-                const ir = try vmc.compile(name, params, body);
+                const ir = try vmc.compile(name, body);
+                try vmc.resolveIrLabels(ir);
+                try vmc.resolveLocals(params, ir);
 
                 const end = try std.time.Instant.now();
                 const elapsed: f64 = @floatFromInt(end.since(start));

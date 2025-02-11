@@ -26,7 +26,7 @@ pub const Vm = struct {
         self.ast_arena_allocator.deinit();
     }
 
-    fn resolveIrLabels(self: *Vm, prog: []ast.Instruction) anyerror!void {
+    pub fn resolveIrLabels(self: *Vm, prog: []ast.Instruction) anyerror!void {
         var labels = std.StringHashMap(usize).init(self.allocator);
         defer labels.deinit();
 
@@ -269,11 +269,19 @@ pub const Vm = struct {
     pub fn compile(
         self: *Vm,
         entrypoint: []const u8,
-        params: []const []const u8,
         body: ast.Block,
     ) anyerror![]ast.Instruction {
         self.compiling_context = entrypoint;
 
+        var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
+        try self.compileBlockFromAst(&buffer, body);
+
+        self.compiling_context = "";
+
+        return buffer.items;
+    }
+
+    pub fn resolveLocals(self: *Vm, params: []const []const u8, prog: []ast.Instruction) anyerror!void {
         var env = std.StringHashMap(i32).init(self.allocator);
         defer env.deinit();
 
@@ -285,14 +293,7 @@ pub const Vm = struct {
             try env.put(params[i], -2 - k);
         }
 
-        var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
-        try self.compileBlockFromAst(&buffer, body);
-        try self.resolveIrLabels(buffer.items);
-        try self.resolveLocalAddresses(env, buffer.items);
-
-        self.compiling_context = "";
-
-        return buffer.items;
+        try self.resolveLocalAddresses(env, prog);
     }
 
     pub fn run(
