@@ -1,6 +1,7 @@
 const std = @import("std");
 const compiler = @import("compiler.zig");
-const debugger = @import("debugger.zig");
+const tui = @import("tui.zig");
+const vm = @import("vm.zig");
 
 fn readFile(allocator: std.mem.Allocator, path: []const u8, content: *std.ArrayList(u8)) anyerror!void {
     var file = try std.fs.cwd().openFile(path, .{});
@@ -55,9 +56,24 @@ pub fn main() !void {
 
         try readFile(allocator, argv[2][0..std.mem.len(argv[2])], &content);
 
-        try c.loadModule(content.items);
+        const prog = try c.compileInIr(content.items);
 
-        var dbg = try debugger.Debugger.init(allocator);
+        var stack = std.ArrayList(i64).init(allocator);
+        defer stack.deinit();
+
+        var address_map = std.StringHashMap(i64).init(allocator);
+        defer address_map.deinit();
+
+        try address_map.put("return", -2 - 1);
+        try stack.append(-2); // return value
+        try stack.append(-1); // pc
+        try stack.append(0); // bp
+
+        var bp: i64 = @intCast(stack.items.len);
+
+        var vmc = vm.Vm.init(allocator);
+
+        var dbg = try tui.Tui.init(allocator);
         defer dbg.deinit();
 
         try dbg.start();
@@ -69,9 +85,9 @@ pub fn main() !void {
             switch (event) {
                 .key_press => |key| {
                     if (key.matches('n', .{})) {
-                        c.step();
+                        try vmc.step(prog, &stack, &bp, &address_map);
 
-                        std.debug.print("Pressed n", .{});
+                        std.debug.print(".{any}\n", .{stack.items});
                     }
                 },
                 else => {},

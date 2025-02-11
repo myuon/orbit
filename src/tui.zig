@@ -5,24 +5,24 @@ const Cell = vaxis.Cell;
 const TextInput = vaxis.widgets.TextInput;
 const border = vaxis.widgets.border;
 
-const Event = union(enum) {
+const TuiEvent = union(enum) {
     key_press: vaxis.Key,
     winsize: vaxis.Winsize,
     focus_in,
 };
 
-pub const Debugger = struct {
+pub const Tui = struct {
     allocator: std.mem.Allocator,
     tty: vaxis.Tty,
     vx: vaxis.Vaxis,
-    loop: vaxis.Loop(Event),
+    loop: vaxis.Loop(TuiEvent),
     text_input: vaxis.widgets.TextInput,
 
-    pub fn init(allocator: std.mem.Allocator) anyerror!Debugger {
+    pub fn init(allocator: std.mem.Allocator) anyerror!Tui {
         var tty = try vaxis.Tty.init();
         var vx = try vaxis.init(allocator, .{});
 
-        var loop: vaxis.Loop(Event) = .{
+        var loop: vaxis.Loop(TuiEvent) = .{
             .tty = &tty,
             .vaxis = &vx,
         };
@@ -30,7 +30,7 @@ pub const Debugger = struct {
 
         const text_input = TextInput.init(allocator, &vx.unicode);
 
-        return Debugger{
+        return Tui{
             .allocator = allocator,
             .tty = tty,
             .vx = vx,
@@ -39,14 +39,14 @@ pub const Debugger = struct {
         };
     }
 
-    pub fn deinit(self: *Debugger) void {
+    pub fn deinit(self: *Tui) void {
         self.loop.stop();
         self.text_input.deinit();
         self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
     }
 
-    pub fn handle_event(self: *Debugger, event: Event) anyerror!bool {
+    pub fn handle_event(self: *Tui, event: TuiEvent) anyerror!bool {
         switch (event) {
             .key_press => |key| {
                 if (key.matches('c', .{ .ctrl = true })) {
@@ -63,7 +63,7 @@ pub const Debugger = struct {
         return true;
     }
 
-    pub fn draw(self: *Debugger) anyerror!void {
+    pub fn draw(self: *Tui) anyerror!void {
         const win = self.vx.window();
         win.clear();
 
@@ -82,13 +82,13 @@ pub const Debugger = struct {
         try self.vx.render(self.tty.anyWriter());
     }
 
-    pub fn start(self: *Debugger) anyerror!void {
+    pub fn start(self: *Tui) anyerror!void {
         try self.loop.start();
         try self.vx.enterAltScreen(self.tty.anyWriter());
         try self.vx.queryTerminal(self.tty.anyWriter(), 1 * std.time.ns_per_s);
     }
 
-    pub fn fetchEvent(self: *Debugger) !Event {
+    pub fn fetchEvent(self: *Tui) !TuiEvent {
         return self.loop.nextEvent();
     }
 };

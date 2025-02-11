@@ -28,6 +28,7 @@ pub const Compiler = struct {
     jit_cache: std.StringHashMap(jit.CompiledFn),
     allocator: std.mem.Allocator,
     ast_arena_allocator: std.heap.ArenaAllocator,
+    vmc: vm.Vm,
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
         return Compiler{
@@ -39,6 +40,7 @@ pub const Compiler = struct {
             .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
             .allocator = allocator,
             .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
+            .vmc = vm.Vm.init(allocator),
         };
     }
 
@@ -74,6 +76,60 @@ pub const Compiler = struct {
         const tree = try p.block(null);
 
         return try self.evalBlockFromAst(tree);
+    }
+
+    pub fn compileInIr(self: *Compiler, str: []const u8) anyerror![]ast.Instruction {
+        var start = try std.time.Instant.now();
+
+        var l = lexer.Lexer.init(self.allocator, str);
+        defer l.deinit();
+
+        const tokens = try l.run();
+
+        var end = try std.time.Instant.now();
+        std.debug.print("Lexer.run in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
+        start = end;
+
+        var p = parser.Parser.init(self.allocator, tokens.items);
+        defer p.deinit();
+
+        end = try std.time.Instant.now();
+        std.debug.print("Parser.run in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
+        start = end;
+
+        const tree = try p.module();
+
+        self.module = tree;
+
+        var vmc = vm.Vm.init(self.allocator);
+        // defer vmc.deinit();
+
+        const ir = try vmc.compileModule("main", tree);
+
+        end = try std.time.Instant.now();
+        std.debug.print("Compiler.compile in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
+        start = end;
+
+        return ir;
+    }
+
+    pub fn startVm(self: *Compiler, ir: []ast.Instruction) anyerror!ast.Value {
+        var stack = std.ArrayList(i64).init(self.allocator);
+        defer stack.deinit();
+
+        var address_map = std.StringHashMap(i64).init(self.allocator);
+        defer address_map.deinit();
+
+        try address_map.put("return", -2 - 1);
+        try stack.append(-2); // return value
+        try stack.append(-1); // pc
+        try stack.append(0); // bp
+
+        var bp: i64 = @intCast(stack.items.len);
+
+        try vm.Vm.run(ir, &stack, &bp, &address_map);
+
+        return ast.Value{ .i64_ = stack.items[0] };
     }
 
     pub fn evalModuleWithIr(self: *Compiler, str: []const u8) anyerror!?ast.Value {
@@ -349,7 +405,7 @@ pub const Compiler = struct {
             const fn_ptr = runtime.compile(ir) catch |err| {
                 std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
 
-                try vm.Vm.run(ir, &stack, &bp, &address_map);
+                try self.vmc.run(ir, &stack, &bp, &address_map);
                 return ast.Value{ .i64_ = stack.items[0] };
             };
 

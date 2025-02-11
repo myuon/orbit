@@ -2,11 +2,15 @@ const std = @import("std");
 
 const ast = @import("ast.zig");
 
+const ControlFlow = enum { Continue };
+
 pub const Vm = struct {
     allocator: std.mem.Allocator,
     ast_arena_allocator: std.heap.ArenaAllocator,
     compiling_context: []const u8 = "",
     prng: std.Random.Xoshiro256,
+    target_label: ?[]const u8 = null,
+    pc: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator) Vm {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -325,207 +329,214 @@ pub const Vm = struct {
         try self.resolveLocalAddresses(env, prog);
     }
 
-    pub fn run(
+    pub fn step(
+        self: *Vm,
         program: []ast.Instruction,
         stack: *std.ArrayList(i64),
         bp: *i64,
         address_map: *std.StringHashMap(i64),
     ) anyerror!void {
-        var target_label: ?[]const u8 = null;
+        const inst = program[self.pc];
 
-        var pc: usize = 0;
-
-        while (pc < program.len) {
-            const inst = program[pc];
-
-            if (target_label) |t| {
-                switch (inst) {
-                    .label => |l| {
-                        if (std.mem.eql(u8, l, t)) {
-                            target_label = null;
-                            pc += 1;
-                            continue;
-                        }
-                    },
-                    else => {
-                        pc += 1;
-                        continue;
-                    },
-                }
-            }
-
-            // std.debug.print("[{any},pc:{d},bp:{d}] {any}\n", .{ inst, pc, bp.*, stack.items });
-
+        if (self.target_label) |t| {
             switch (inst) {
-                .nop => {
-                    pc += 1;
-                },
-                .push => |n| {
-                    try stack.append(n);
-                    pc += 1;
-                },
-                .pop => {
-                    _ = stack.pop();
-                    pc += 1;
-                },
-                .eq => {
-                    const rhs = stack.pop();
-                    const lhs = stack.pop();
-                    if (lhs == rhs) {
-                        try stack.append(1);
-                    } else {
-                        try stack.append(0);
-                    }
-                    pc += 1;
-                },
-                .ret => {
-                    const p = stack.pop();
-                    if (p == -1) {
+                .label => |l| {
+                    if (std.mem.eql(u8, l, t)) {
+                        self.target_label = null;
+                        self.pc += 1;
                         return;
-                    } else {
-                        pc = @intCast(p + 5);
                     }
                 },
-                .jump => |label| {
-                    target_label = label;
-                    pc += 1;
-                },
-                .jump_ifzero => |label| {
-                    const cond = stack.pop();
-                    if (cond == 0) {
-                        target_label = label;
-                    }
-
-                    pc += 1;
-                },
-                .jump_d => |c| {
-                    pc = c;
-                },
-                .jump_ifzero_d => |c| {
-                    const cond = stack.pop();
-                    if (cond == 0) {
-                        pc = c;
-                    } else {
-                        pc += 1;
-                    }
-                },
-                .add => {
-                    const rhs = stack.pop();
-                    const lhs = stack.pop();
-                    try stack.append(lhs + rhs);
-
-                    pc += 1;
-                },
-                .sub => {
-                    const rhs = stack.pop();
-                    const lhs = stack.pop();
-                    try stack.append(lhs - rhs);
-
-                    pc += 1;
-                },
-                .mul => {
-                    const rhs = stack.pop();
-                    const lhs = stack.pop();
-                    try stack.append(lhs * rhs);
-
-                    pc += 1;
-                },
-                .call_d => |addr| {
-                    pc = addr;
-                },
-                .call => |label| {
-                    target_label = label;
-                    pc += 1;
-                },
-                .get_local => |name| {
-                    const index = address_map.get(name).?;
-                    const b: i32 = @intCast(bp.*);
-                    const value = stack.items[@intCast(b + index)];
-                    try stack.append(value);
-                    pc += 1;
-                },
-                .set_local => |name| {
-                    const value = stack.pop();
-
-                    const result = try address_map.getOrPut(name);
-                    if (!result.found_existing) {
-                        const i = stack.items.len;
-                        const v = @as(i32, @intCast(i)) - @as(i32, @intCast(bp.*));
-                        result.value_ptr.* = v;
-
-                        try stack.append(0);
-                        try address_map.put(name, @intCast(v));
-                    }
-
-                    const b: i32 = @intCast(bp.*);
-                    stack.items[@intCast(b + result.value_ptr.*)] = value;
-                    pc += 1;
-                },
-                .get_local_d => |k| {
-                    const b: i32 = @intCast(bp.*);
-                    const value = stack.items[@intCast(b + k)];
-                    try stack.append(value);
-                    pc += 1;
-                },
-                .set_local_d => |k| {
-                    const value = stack.pop();
-                    const b: i32 = @intCast(bp.*);
-                    stack.items[@intCast(b + k)] = value;
-                    pc += 1;
-                },
-                .label => {
-                    pc += 1;
-                },
-                .get_pc => {
-                    try stack.append(@intCast(pc));
-                    pc += 1;
-                },
-                .get_bp => {
-                    try stack.append(@intCast(bp.*));
-                    pc += 1;
-                },
-                .set_bp => {
-                    const value = stack.pop();
-                    bp.* = @intCast(value);
-                    pc += 1;
-                },
-                .get_sp => {
-                    try stack.append(@intCast(stack.items.len));
-                    pc += 1;
-                },
-                .set_sp => {
-                    const value = stack.pop();
-                    stack.shrinkAndFree(@intCast(value));
-                    pc += 1;
-                },
-                .mod => {
-                    const rhs = stack.pop();
-                    const lhs = stack.pop();
-                    try stack.append(@mod(lhs, rhs));
-
-                    pc += 1;
-                },
-                .lt => {
-                    const rhs = stack.pop();
-                    const lhs = stack.pop();
-                    if (lhs < rhs) {
-                        try stack.append(1);
-                    } else {
-                        try stack.append(0);
-                    }
-                    pc += 1;
-                },
-                .lte => {
-                    const rhs = stack.pop();
-                    const lhs = stack.pop();
-                    if (lhs <= rhs) {
-                        try stack.append(1);
-                    } else {
-                        try stack.append(0);
-                    }
-                    pc += 1;
+                else => {
+                    self.pc += 1;
+                    return;
                 },
             }
+        }
+
+        // std.debug.print("[{any},pc:{d},bp:{d}] {any}\n", .{ inst, pc, bp.*, stack.items });
+
+        switch (inst) {
+            .nop => {
+                self.pc += 1;
+            },
+            .push => |n| {
+                try stack.append(n);
+                self.pc += 1;
+            },
+            .pop => {
+                _ = stack.pop();
+                self.pc += 1;
+            },
+            .eq => {
+                const rhs = stack.pop();
+                const lhs = stack.pop();
+                if (lhs == rhs) {
+                    try stack.append(1);
+                } else {
+                    try stack.append(0);
+                }
+                self.pc += 1;
+            },
+            .ret => {
+                const p = stack.pop();
+                if (p == -1) {
+                    return;
+                } else {
+                    self.pc = @intCast(p + 5);
+                }
+            },
+            .jump => |label| {
+                self.target_label = label;
+                self.pc += 1;
+            },
+            .jump_ifzero => |label| {
+                const cond = stack.pop();
+                if (cond == 0) {
+                    self.target_label = label;
+                }
+
+                self.pc += 1;
+            },
+            .jump_d => |c| {
+                self.pc = c;
+            },
+            .jump_ifzero_d => |c| {
+                const cond = stack.pop();
+                if (cond == 0) {
+                    self.pc = c;
+                } else {
+                    self.pc += 1;
+                }
+            },
+            .add => {
+                const rhs = stack.pop();
+                const lhs = stack.pop();
+                try stack.append(lhs + rhs);
+
+                self.pc += 1;
+            },
+            .sub => {
+                const rhs = stack.pop();
+                const lhs = stack.pop();
+                try stack.append(lhs - rhs);
+
+                self.pc += 1;
+            },
+            .mul => {
+                const rhs = stack.pop();
+                const lhs = stack.pop();
+                try stack.append(lhs * rhs);
+
+                self.pc += 1;
+            },
+            .call_d => |addr| {
+                self.pc = addr;
+            },
+            .call => |label| {
+                self.target_label = label;
+                self.pc += 1;
+            },
+            .get_local => |name| {
+                const index = address_map.get(name).?;
+                const b: i32 = @intCast(bp.*);
+                const value = stack.items[@intCast(b + index)];
+                try stack.append(value);
+                self.pc += 1;
+            },
+            .set_local => |name| {
+                const value = stack.pop();
+
+                const result = try address_map.getOrPut(name);
+                if (!result.found_existing) {
+                    const i = stack.items.len;
+                    const v = @as(i32, @intCast(i)) - @as(i32, @intCast(bp.*));
+                    result.value_ptr.* = v;
+
+                    try stack.append(0);
+                    try address_map.put(name, @intCast(v));
+                }
+
+                const b: i32 = @intCast(bp.*);
+                stack.items[@intCast(b + result.value_ptr.*)] = value;
+                self.pc += 1;
+            },
+            .get_local_d => |k| {
+                const b: i32 = @intCast(bp.*);
+                const value = stack.items[@intCast(b + k)];
+                try stack.append(value);
+                self.pc += 1;
+            },
+            .set_local_d => |k| {
+                const value = stack.pop();
+                const b: i32 = @intCast(bp.*);
+                stack.items[@intCast(b + k)] = value;
+                self.pc += 1;
+            },
+            .label => {
+                self.pc += 1;
+            },
+            .get_pc => {
+                try stack.append(@intCast(self.pc));
+                self.pc += 1;
+            },
+            .get_bp => {
+                try stack.append(@intCast(bp.*));
+                self.pc += 1;
+            },
+            .set_bp => {
+                const value = stack.pop();
+                bp.* = @intCast(value);
+                self.pc += 1;
+            },
+            .get_sp => {
+                try stack.append(@intCast(stack.items.len));
+                self.pc += 1;
+            },
+            .set_sp => {
+                const value = stack.pop();
+                stack.shrinkAndFree(@intCast(value));
+                self.pc += 1;
+            },
+            .mod => {
+                const rhs = stack.pop();
+                const lhs = stack.pop();
+                try stack.append(@mod(lhs, rhs));
+
+                self.pc += 1;
+            },
+            .lt => {
+                const rhs = stack.pop();
+                const lhs = stack.pop();
+                if (lhs < rhs) {
+                    try stack.append(1);
+                } else {
+                    try stack.append(0);
+                }
+                self.pc += 1;
+            },
+            .lte => {
+                const rhs = stack.pop();
+                const lhs = stack.pop();
+                if (lhs <= rhs) {
+                    try stack.append(1);
+                } else {
+                    try stack.append(0);
+                }
+                self.pc += 1;
+            },
+        }
+    }
+
+    pub fn run(
+        self: *Vm,
+        program: []ast.Instruction,
+        stack: *std.ArrayList(i64),
+        bp: *i64,
+        address_map: *std.StringHashMap(i64),
+    ) anyerror!void {
+        while (self.pc < program.len) {
+            try self.step(program, stack, bp, address_map);
         }
     }
 };
