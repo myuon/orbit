@@ -176,6 +176,7 @@ pub const InstructionType = enum {
     call_d,
     get_local,
     set_local,
+    register_local,
     label,
     get_pc,
     get_bp,
@@ -206,6 +207,7 @@ pub const Instruction = union(InstructionType) {
     call_d: usize,
     get_local: []const u8, // (resolve_local phase) replaced with get_local_d
     set_local: []const u8, // (resolve_local phase) replaced with set_local_d
+    register_local: struct { name: []const u8, offset: i64 }, // (resolve_local phase) replaced with nop
     label: []const u8, // (resolve_label phase) replaced with nop
     get_pc: bool,
     get_bp: bool,

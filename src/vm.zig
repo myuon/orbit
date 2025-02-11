@@ -304,12 +304,17 @@ pub const Vm = struct {
                 .fun => |f| {
                     try buffer.append(ast.Instruction{ .label = f.name });
 
-                    // set_local in the reverse order
-                    for (0..f.params.len) |i| {
-                        try buffer.append(ast.Instruction{ .set_local = f.params[f.params.len - 1 - i] });
-                    }
-                    for (f.params) |param| {
-                        try buffer.append(ast.Instruction{ .get_local = param });
+                    try buffer.append(ast.Instruction{ .register_local = .{
+                        .name = "return",
+                        .offset = -3 - @as(i64, @intCast(f.params.len)),
+                    } });
+
+                    // register names in the reverse order
+                    for (f.params, 0..) |param, i| {
+                        try buffer.append(ast.Instruction{ .register_local = .{
+                            .name = param,
+                            .offset = @intCast(-@as(i64, @intCast(f.params.len - i)) - 2),
+                        } });
                     }
 
                     self.compiling_context = f.name;
@@ -479,6 +484,15 @@ pub const VmRuntime = struct {
 
                 const b: i32 = @intCast(bp.*);
                 stack.items[@intCast(b + result.value_ptr.*)] = value;
+                self.pc += 1;
+            },
+            .register_local => |data| {
+                const name = data.name;
+                const offset = data.offset;
+
+                // NeedToFix: care for duplicated names?
+                try address_map.put(name, offset);
+
                 self.pc += 1;
             },
             .get_local_d => |k| {
