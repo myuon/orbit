@@ -1,0 +1,11 @@
+fun sum(x) do
+  if (x == 0) do
+    return 0;
+  end
+
+  return sum(x - 1) + x;
+end
+
+fun main() do
+  return sum(10);
+end

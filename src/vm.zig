@@ -380,9 +380,7 @@ pub const VmRuntime = struct {
 
     fn find_label(program: []ast.Instruction, target_label: []const u8) anyerror!?usize {
         var count: usize = 0;
-        while (count < program.len) {
-            count += 1;
-
+        while (count < program.len) : (count += 1) {
             switch (program[count]) {
                 .label => |l| {
                     if (std.mem.eql(u8, l, target_label)) {
@@ -754,7 +752,8 @@ test "vm.run" {
             bp = case.initial_bp;
         }
 
-        try Vm.run(case.prog, &stack, &bp, &address_map);
+        var vmr = VmRuntime.init(std.testing.allocator);
+        try vmr.run(case.prog, &stack, &bp, &address_map);
 
         try std.testing.expectEqualSlices(i64, case.expected, stack.items);
     }

@@ -81,12 +81,19 @@ pub fn main() !void {
 
     const command = argv[1][0..std.mem.len(argv[1])];
     if (std.mem.eql(u8, command, "run")) {
+        var enableJit = true;
+        for (argv[2..]) |arg| {
+            if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--nojit")) {
+                enableJit = false;
+            }
+        }
+
         var content = std.ArrayList(u8).init(allocator);
         defer content.deinit();
 
         try readFile(allocator, argv[2][0..std.mem.len(argv[2])], &content);
 
-        const result = try c.evalModule(content.items);
+        const result = try c.evalModule(content.items, .{ .enable_jit = enableJit });
 
         try stdout.print("Result: {any}\n", .{result});
         try bw.flush();
