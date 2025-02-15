@@ -90,14 +90,11 @@ pub const Compiler = struct {
         return ast.Value{ .i64_ = stack.items[0] };
     }
 
-    pub fn evalModuleWithIr(self: *Compiler, str: []const u8) anyerror!ast.Value {
-        const ir = try self.compileInIr(str);
-        return try self.startVm(ir);
-    }
-
     pub fn evalModule(self: *Compiler, str: []const u8, options: struct { enable_jit: bool }) anyerror!ast.Value {
         self.enable_jit = options.enable_jit;
-        return try self.evalModuleWithIr(str);
+
+        const ir = try self.compileInIr(str);
+        return try self.startVm(ir);
     }
 
     fn callIrFunction(self: *Compiler, name: []const u8, params: []const []const u8, ir: []ast.Instruction, args: []ast.Value) anyerror!ast.Value {
@@ -399,6 +396,5 @@ test "compiler.evalModule" {
 
         try std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalModule(case.program, .{ .enable_jit = false }));
         try std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalModule(case.program, .{ .enable_jit = true }));
-        try std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalModuleWithIr(case.program));
     }
 }
