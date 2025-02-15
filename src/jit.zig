@@ -173,6 +173,7 @@ pub const CompiledFn = *fn (
     c_stack: [*]i64, // .x0
     c_sp: *i64, // .x1
     c_bp: *i64, // .x2
+    c_ip: *i64, // .x3
 ) callconv(.C) void;
 
 pub const JitRuntime = struct {
@@ -181,6 +182,7 @@ pub const JitRuntime = struct {
     const reg_c_stack = Register.x0;
     const reg_c_sp = Register.x1;
     const reg_c_bp = Register.x2;
+    const reg_c_ip = Register.x3;
 
     pub fn init(allocator: std.mem.Allocator) JitRuntime {
         return JitRuntime{
@@ -220,6 +222,23 @@ pub const JitRuntime = struct {
     /// *c_bp = value
     fn setCBp(code: *Arm64, value: Register) anyerror!void {
         try code.emitStr(reg_c_bp, value);
+    }
+
+    /// *c_ip
+    fn getCIp(code: *Arm64, target: Register) anyerror!void {
+        try code.emitLdr(0, reg_c_ip, target);
+    }
+
+    /// *c_ip += 1
+    fn incrementCIp(code: *Arm64, tmp1: Register) anyerror!void {
+        try JitRuntime.getCIp(code, tmp1);
+        try code.emitAddImm(tmp1, 0x1, tmp1);
+        try JitRuntime.setCIp(code, tmp1);
+    }
+
+    /// *c_ip = value
+    fn setCIp(code: *Arm64, value: Register) anyerror!void {
+        try code.emitStr(reg_c_ip, value);
     }
 
     /// getCStackAddress(i, t) === t := &c_stack[i]
@@ -296,6 +315,8 @@ pub const JitRuntime = struct {
                 try code.emitStpPreIndex(.x29, .x30, reg_sp, -16);
             }
 
+            try JitRuntime.incrementCIp(&code, .x15);
+
             switch (inst) {
                 .push => |n| {
                     if (n >= 0) {
@@ -346,15 +367,24 @@ pub const JitRuntime = struct {
                     try code.emitMul(.x9, .x10, .x9);
                     try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
-                .call_d => {
+                .call_d => |n| {
+                    try code.emitMovImm(.x9, @intCast(n));
+                    try JitRuntime.setCIp(&code, .x9);
+
                     try code.emit(0x0);
                     try jumpSources.put(p, @intCast(code.code_buf.items.len - 1));
                 },
-                .jump_d => {
+                .jump_d => |n| {
+                    try code.emitMovImm(.x9, @intCast(n));
+                    try JitRuntime.setCIp(&code, .x9);
+
                     try code.emit(0x0);
                     try jumpSources.put(p, @intCast(code.code_buf.items.len - 1));
                 },
-                .jump_ifzero_d => {
+                .jump_ifzero_d => |n| {
+                    try code.emitMovImm(.x9, @intCast(n));
+                    try JitRuntime.setCIp(&code, .x9);
+
                     try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
                     try code.emitCbz(.x9, 0x0);
                     try jumpSources.put(p, @intCast(code.code_buf.items.len - 1));
@@ -462,10 +492,10 @@ pub const JitRuntime = struct {
         @memcpy(buf_ptr, code.code_buf.items);
         pthread.pthread_jit_write_protect_np(1);
 
-        // std.debug.print("buf: {x}\n", .{code.code_buf.items});
-        // for (code.code_buf.items) |instr| {
-        //     std.debug.print("{x:0>2}{x:0>2}{x:0>2}{x:0>2}\n", .{ instr & 0xff, (instr >> 8) & 0xff, (instr >> 16) & 0xff, (instr >> 24) & 0xff });
-        // }
+        std.debug.print("buf: {x}\n", .{code.code_buf.items});
+        for (code.code_buf.items) |instr| {
+            std.debug.print("{x:0>2}{x:0>2}{x:0>2}{x:0>2}\n", .{ instr & 0xff, (instr >> 8) & 0xff, (instr >> 16) & 0xff, (instr >> 24) & 0xff });
+        }
 
         return @ptrCast(@alignCast(buf));
     }
@@ -658,6 +688,7 @@ test {
         var c_bp: i64 = 0;
         var c_sp: i64 = 0;
         var c_stack = [_]i64{0} ** 1024;
+        var c_ip: i64 = 0;
 
         if (c.initial_stack.len > 0) {
             for (c.initial_stack, 0..) |v, i| {
@@ -672,7 +703,7 @@ test {
 
         var runtime = JitRuntime.init(std.testing.allocator);
         const fn_ptr = try runtime.compile(c.prog);
-        fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp));
+        fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp), @constCast(&c_ip));
 
         try std.testing.expectEqualSlices(i64, c.expected, c_stack[0..@min(@as(usize, @intCast(c_sp)), c_stack.len)]);
     }

@@ -531,7 +531,10 @@ pub const VmRuntime = struct {
                             const start = try std.time.Instant.now();
 
                             const call_block_start = try VmRuntime.find_label(program, label);
-                            const call_block_end = try VmRuntime.find_label(program, try std.fmt.allocPrint(self.allocator, "end_of_{s}", .{label}));
+
+                            const end_label = try std.fmt.allocPrint(self.allocator, "end_of_{s}", .{label});
+                            defer self.allocator.free(end_label);
+                            const call_block_end = try VmRuntime.find_label(program, end_label);
 
                             const ir_block = program[call_block_start.?..call_block_end.?];
 
@@ -541,6 +544,7 @@ pub const VmRuntime = struct {
                             try vmc.resolveIrLabels(ir_block);
 
                             var params = std.ArrayList([]const u8).init(self.allocator);
+                            defer params.deinit();
                             // var iter = address_map.keyIterator();
                             // while (iter.next()) |i| {
                             //     try params.append(i.*);
@@ -565,12 +569,18 @@ pub const VmRuntime = struct {
                             fn_ptr = f;
                         }
 
-                        std.log.info("stack: {any}", .{stack.items});
+                        std.log.info("stack: {any}, sp: {d}, pc: {d}", .{ stack.items, stack.items.len, self.pc });
 
                         var sp = @as(i64, @intCast(stack.items.len));
-                        fn_ptr((&stack.items).ptr, &sp, bp);
 
-                        std.log.info("stack: {any}", .{stack.items});
+                        var pc: i64 = @intCast(self.pc);
+                        fn_ptr((&stack.items).ptr, &sp, bp, &pc);
+
+                        self.pc = @intCast(pc);
+
+                        stack.shrinkAndFree(@intCast(sp));
+
+                        std.log.info("stack: {any}, sp: {d}, pc: {d}", .{ stack.items, sp, pc });
 
                         return ControlFlow.Continue;
                     }
@@ -637,6 +647,10 @@ pub const VmRuntime = struct {
                 self.pc += 1;
             },
             .set_bp => {
+                if (stack.items.len == 0) {
+                    std.log.info("stack: {any}, pc: {d}, bp: {d}", .{ stack.items, self.pc, bp.* });
+                }
+                std.debug.assert(stack.items.len > 0);
                 const value = stack.pop();
                 bp.* = @intCast(value);
                 self.pc += 1;
@@ -702,7 +716,7 @@ pub const VmRuntime = struct {
                 self.pc += 1;
             },
             .restore_env => {
-                address_map.clearAndFree();
+                address_map.deinit();
                 address_map.* = self.envs.pop();
                 self.pc += 1;
             },

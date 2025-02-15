@@ -22,7 +22,7 @@ fn writeStack(allocator: std.mem.Allocator, stack: []i64, bp: i64) ![]u8 {
     defer stack_frames.deinit();
 
     var b = bp;
-    while (b >= 2) {
+    while (b >= 2 and b <= stack.len) {
         try stack_frames.put(b - 1, true);
         b = stack[@intCast(b - 1)];
     }
@@ -163,6 +163,9 @@ pub fn main() !void {
                             mode_resume = true;
                         } else if (key.matches(vaxis.Key.up, .{})) {
                             scroll -= 1;
+                            if (scroll < 0) {
+                                scroll = 0;
+                            }
 
                             progStack.clearAndFree();
                             for (prog[@intCast(scroll)..]) |inst| {
