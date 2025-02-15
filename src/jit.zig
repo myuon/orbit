@@ -832,6 +832,14 @@ test {
             }),
             .expected = @constCast(&[_]i64{7}),
         },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 25 },
+                .{ .push = 5 },
+                .{ .mod = true },
+            }),
+            .expected = @constCast(&[_]i64{0}),
+        },
     };
 
     for (cases) |c| {

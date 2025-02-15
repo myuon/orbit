@@ -369,7 +369,6 @@ pub const Vm = struct {
     }
 
     pub fn resolveLocals(self: *Vm, params: []const []const u8, prog: []ast.Instruction) anyerror!void {
-        std.log.err("resolveLocals: {any}", .{prog});
         var env = std.StringHashMap(i32).init(self.allocator);
         defer env.deinit();
 
