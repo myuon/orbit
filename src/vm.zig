@@ -38,8 +38,6 @@ pub const Vm = struct {
     }
 
     pub fn resolveIrLabels(self: *Vm, prog: []ast.Instruction) anyerror!void {
-        std.log.info("{any}", .{prog});
-
         var labels = std.StringHashMap(usize).init(self.allocator);
         defer labels.deinit();
 
@@ -536,7 +534,11 @@ pub const VmRuntime = struct {
                             defer self.allocator.free(end_label);
                             const call_block_end = try VmRuntime.find_label(program, end_label);
 
-                            const ir_block = program[call_block_start.?..call_block_end.?];
+                            var ir_block_list = std.ArrayList(ast.Instruction).init(self.allocator);
+                            defer ir_block_list.deinit();
+
+                            try ir_block_list.appendSlice(program[call_block_start.?..call_block_end.?]);
+                            const ir_block = ir_block_list.items;
 
                             var vmc = Vm.init(self.allocator);
                             defer vmc.deinit();
@@ -569,18 +571,14 @@ pub const VmRuntime = struct {
                             fn_ptr = f;
                         }
 
-                        std.log.info("stack: {any}, sp: {d}, pc: {d}", .{ stack.items, stack.items.len, self.pc });
-
                         var sp = @as(i64, @intCast(stack.items.len));
 
-                        var pc: i64 = @intCast(self.pc);
-                        fn_ptr((&stack.items).ptr, &sp, bp, &pc);
+                        fn_ptr((&stack.items).ptr, &sp, bp);
 
-                        self.pc = @intCast(pc);
+                        // epilogue here
+                        self.pc += 1;
 
                         stack.shrinkAndFree(@intCast(sp));
-
-                        std.log.info("stack: {any}, sp: {d}, pc: {d}", .{ stack.items, sp, pc });
 
                         return ControlFlow.Continue;
                     }
@@ -591,7 +589,10 @@ pub const VmRuntime = struct {
                 self.pc = (try VmRuntime.find_label(program, label)).?;
             },
             .get_local => |name| {
-                const index = address_map.get(name).?;
+                const index = address_map.get(name) orelse {
+                    std.log.err("Variable not found: {s}\n", .{name});
+                    unreachable;
+                };
                 const b: i32 = @intCast(bp.*);
                 const value = stack.items[@intCast(b + index)];
                 try stack.append(value);
@@ -611,6 +612,9 @@ pub const VmRuntime = struct {
                 }
 
                 const b: i32 = @intCast(bp.*);
+                if (b + result.value_ptr.* < 0) {
+                    std.log.err("Invalid address: {s} {d}+{d}\n", .{ name, b, result.value_ptr.* });
+                }
                 stack.items[@intCast(b + result.value_ptr.*)] = value;
                 self.pc += 1;
             },
@@ -647,10 +651,8 @@ pub const VmRuntime = struct {
                 self.pc += 1;
             },
             .set_bp => {
-                if (stack.items.len == 0) {
-                    std.log.info("stack: {any}, pc: {d}, bp: {d}", .{ stack.items, self.pc, bp.* });
-                }
                 std.debug.assert(stack.items.len > 0);
+
                 const value = stack.pop();
                 bp.* = @intCast(value);
                 self.pc += 1;
