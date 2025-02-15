@@ -658,7 +658,6 @@ test {
         var c_bp: i64 = 0;
         var c_sp: i64 = 0;
         var c_stack = [_]i64{0} ** 1024;
-        var c_ip: i64 = 0;
 
         if (c.initial_stack.len > 0) {
             for (c.initial_stack, 0..) |v, i| {
@@ -673,7 +672,7 @@ test {
 
         var runtime = JitRuntime.init(std.testing.allocator);
         const fn_ptr = try runtime.compile(c.prog);
-        fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp), @constCast(&c_ip));
+        fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp));
 
         try std.testing.expectEqualSlices(i64, c.expected, c_stack[0..@min(@as(usize, @intCast(c_sp)), c_stack.len)]);
     }

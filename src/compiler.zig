@@ -18,7 +18,6 @@ pub const CompilerError = error{
 pub const Compiler = struct {
     jit_cache: std.StringHashMap(jit.CompiledFn),
     allocator: std.mem.Allocator,
-    ast_arena_allocator: std.heap.ArenaAllocator,
     vmc: vm.Vm,
     enable_jit: bool,
 
@@ -26,7 +25,6 @@ pub const Compiler = struct {
         return Compiler{
             .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
             .allocator = allocator,
-            .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .vmc = vm.Vm.init(allocator),
             .enable_jit = false,
         };
@@ -34,7 +32,6 @@ pub const Compiler = struct {
 
     pub fn deinit(self: *Compiler) void {
         self.jit_cache.deinit();
-        self.ast_arena_allocator.deinit();
         self.vmc.deinit();
     }
 
@@ -95,63 +92,6 @@ pub const Compiler = struct {
 
         const ir = try self.compileInIr(str);
         return try self.startVm(ir);
-    }
-
-    fn callIrFunction(self: *Compiler, name: []const u8, params: []const []const u8, ir: []ast.Instruction, args: []ast.Value) anyerror!ast.Value {
-        var stack = std.ArrayList(i64).init(self.allocator);
-        defer stack.deinit();
-
-        var address_map = std.StringHashMap(i64).init(self.allocator);
-        defer address_map.deinit();
-
-        const l: i32 = @intCast(args.len);
-        try address_map.put("return", -2 - l - 1);
-        try stack.append(-2); // return value
-
-        for (args, 0..) |arg, i| {
-            const k: i32 = @intCast(args.len - i);
-            try address_map.put(params[i], -2 - k);
-            try stack.append(try arg.asI64());
-        }
-
-        try stack.append(-1); // pc
-        try stack.append(0); // bp
-
-        if (self.enable_jit) {
-            const start = try std.time.Instant.now();
-
-            var bp = @as(i64, @intCast(stack.items.len));
-
-            var runtime = jit.JitRuntime.init(self.allocator);
-            const fn_ptr = runtime.compile(ir) catch |err| {
-                std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
-
-                var vmr = vm.VmRuntime.init(self.allocator);
-                defer vmr.deinit();
-
-                try vmr.run(ir, &stack, &bp, &address_map);
-                return ast.Value{ .i64_ = stack.items[0] };
-            };
-
-            const end = try std.time.Instant.now();
-            const elapsed: f64 = @floatFromInt(end.since(start));
-            std.debug.print("Compiled(jit) in {d:.3}ms {s}\n", .{ elapsed / std.time.ns_per_ms, name });
-
-            var sp = @as(i64, @intCast(stack.items.len));
-            fn_ptr((&stack.items).ptr, &sp, &bp);
-
-            try self.jit_cache.put(name, fn_ptr);
-
-            return ast.Value{ .i64_ = stack.items[0] };
-        } else {
-            var bp: i64 = @intCast(stack.items.len);
-
-            var vmr = vm.VmRuntime.init(self.allocator);
-            defer vmr.deinit();
-
-            try vmr.run(ir, &stack, &bp, &address_map);
-            return ast.Value{ .i64_ = stack.items[0] };
-        }
     }
 };
 
