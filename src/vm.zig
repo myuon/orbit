@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const ast = @import("ast.zig");
+const jit = @import("jit.zig");
 
 const ControlFlow = enum {
     Continue,
@@ -11,6 +12,7 @@ const ControlFlow = enum {
     }
 };
 
+// This is a compiler for AOT compilation
 pub const Vm = struct {
     allocator: std.mem.Allocator,
     ast_arena_allocator: std.heap.ArenaAllocator,
@@ -107,6 +109,15 @@ pub const Vm = struct {
                         std.debug.print("Variable not found: {s}\n", .{name});
                         return error.CannotCompileToIr;
                     }
+                },
+                .clone_env => {
+                    prog[i] = ast.Instruction{ .nop = true };
+                },
+                .restore_env => {
+                    prog[i] = ast.Instruction{ .nop = true };
+                },
+                .register_local => {
+                    prog[i] = ast.Instruction{ .nop = true };
                 },
                 else => {},
             }
@@ -345,6 +356,9 @@ pub const Vm = struct {
                     try buffer.appendSlice(try self.compile(f.name, f.body));
 
                     self.compiling_context = "";
+
+                    const end_of_f = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "end_of_{s}", .{f.name});
+                    try buffer.append(ast.Instruction{ .label = end_of_f });
                 },
             }
         }
@@ -375,16 +389,26 @@ pub const VmRuntimeError = error{
 pub const VmRuntime = struct {
     pc: usize,
     envs: std.ArrayList(std.StringHashMap(i64)),
+    enable_jit: bool,
+    hot_spot_labels: std.StringHashMap(usize),
+    jit_cache: std.StringHashMap(jit.CompiledFn),
+    allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) VmRuntime {
         return VmRuntime{
             .pc = 0,
             .envs = std.ArrayList(std.StringHashMap(i64)).init(allocator),
+            .hot_spot_labels = std.StringHashMap(usize).init(allocator),
+            .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
+            .enable_jit = true,
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *VmRuntime) void {
         self.envs.deinit();
+        self.hot_spot_labels.deinit();
+        self.jit_cache.deinit();
     }
 
     fn find_label(program: []ast.Instruction, target_label: []const u8) anyerror!?usize {
@@ -494,6 +518,66 @@ pub const VmRuntime = struct {
                 self.pc = addr;
             },
             .call => |label| {
+                const entry = try self.hot_spot_labels.getOrPut(label);
+                if (entry.found_existing) {
+                    entry.value_ptr.* += 1;
+
+                    if (entry.value_ptr.* > 10) {
+                        var fn_ptr: jit.CompiledFn = undefined;
+
+                        if (self.jit_cache.get(label)) |f| {
+                            fn_ptr = f;
+                        } else {
+                            const start = try std.time.Instant.now();
+
+                            const call_block_start = try VmRuntime.find_label(program, label);
+                            const call_block_end = try VmRuntime.find_label(program, try std.fmt.allocPrint(self.allocator, "end_of_{s}", .{label}));
+
+                            const ir_block = program[call_block_start.?..call_block_end.?];
+
+                            var vmc = Vm.init(self.allocator);
+                            defer vmc.deinit();
+
+                            try vmc.resolveIrLabels(ir_block);
+
+                            var params = std.ArrayList([]const u8).init(self.allocator);
+                            // var iter = address_map.keyIterator();
+                            // while (iter.next()) |i| {
+                            //     try params.append(i.*);
+                            // }
+                            try params.append("n");
+
+                            try vmc.resolveLocals(params.items, ir_block);
+
+                            var runtime = jit.JitRuntime.init(self.allocator);
+                            const f = runtime.compile(ir_block) catch |err| {
+                                std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
+
+                                unreachable;
+                            };
+
+                            const end = try std.time.Instant.now();
+                            const elapsed: f64 = @floatFromInt(end.since(start));
+                            std.debug.print("Compiled(jit) in {d:.3}ms {s}\n", .{ elapsed / std.time.ns_per_ms, label });
+
+                            try self.jit_cache.put(label, f);
+
+                            fn_ptr = f;
+                        }
+
+                        std.log.info("stack: {any}", .{stack.items});
+
+                        var sp = @as(i64, @intCast(stack.items.len));
+                        fn_ptr((&stack.items).ptr, &sp, bp);
+
+                        std.log.info("stack: {any}", .{stack.items});
+
+                        return ControlFlow.Continue;
+                    }
+                } else {
+                    entry.value_ptr.* = 1;
+                }
+
                 self.pc = (try VmRuntime.find_label(program, label)).?;
             },
             .get_local => |name| {
