@@ -1,0 +1,14 @@
+fun fib(n) do
+  if (n == 0) do
+    return 1;
+  end
+  if (n == 1) do
+    return 1;
+  end
+
+  return fib(n - 1) + fib(n - 2);
+end
+
+fun main() do
+  return fib(20);
+end

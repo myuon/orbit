@@ -65,7 +65,7 @@ pub const Compiler = struct {
         return ir;
     }
 
-    pub fn startVm(self: *Compiler, ir: []ast.Instruction) anyerror!ast.Value {
+    pub fn startVm(self: *Compiler, ir: []ast.Instruction, options: struct { enable_jit: bool }) anyerror!ast.Value {
         var stack = std.ArrayList(i64).init(self.allocator);
         defer stack.deinit();
 
@@ -82,16 +82,16 @@ pub const Compiler = struct {
         var vmr = vm.VmRuntime.init(self.allocator);
         defer vmr.deinit();
 
+        vmr.enable_jit = options.enable_jit;
+
         try vmr.run(ir, &stack, &bp, &address_map);
 
         return ast.Value{ .i64_ = stack.items[0] };
     }
 
     pub fn evalModule(self: *Compiler, str: []const u8, options: struct { enable_jit: bool }) anyerror!ast.Value {
-        self.enable_jit = options.enable_jit;
-
         const ir = try self.compileInIr(str);
-        return try self.startVm(ir);
+        return try self.startVm(ir, .{ .enable_jit = options.enable_jit });
     }
 };
 

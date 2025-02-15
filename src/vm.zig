@@ -517,7 +517,7 @@ pub const VmRuntime = struct {
             },
             .call => |label| {
                 const entry = try self.hot_spot_labels.getOrPut(label);
-                if (entry.found_existing) {
+                if (self.enable_jit and entry.found_existing) {
                     entry.value_ptr.* += 1;
 
                     if (entry.value_ptr.* > 10) {
