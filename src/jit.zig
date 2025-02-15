@@ -9,6 +9,46 @@ const Register = enum(u32) { x0 = 0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x1
 const reg_xzr = Register.x31;
 const reg_sp = Register.x31;
 
+const Condition = enum(u4) {
+    eq = 0b0000,
+    ne = 0b0001,
+    hs = 0b0010,
+    lo = 0b0011,
+    mi = 0b0100,
+    pl = 0b0101,
+    vs = 0b0110,
+    vc = 0b0111,
+    hi = 0b1000,
+    ls = 0b1001,
+    ge = 0b1010,
+    lt = 0b1011,
+    gt = 0b1100,
+    le = 0b1101,
+    al = 0b1110,
+    nv = 0b1111,
+
+    fn not(self: Condition) Condition {
+        switch (self) {
+            .eq => return .ne,
+            .ne => return .eq,
+            .hs => return .lo,
+            .lo => return .hs,
+            .mi => return .pl,
+            .pl => return .mi,
+            .vs => return .vc,
+            .vc => return .vs,
+            .hi => return .ls,
+            .ls => return .hi,
+            .ge => return .lt,
+            .lt => return .ge,
+            .gt => return .le,
+            .le => return .gt,
+            .al => return .nv,
+            .nv => return .al,
+        }
+    }
+};
+
 const Arm64 = struct {
     code_buf: std.ArrayList(u32),
 
@@ -92,6 +132,24 @@ const Arm64 = struct {
         try self.emit(0x9B000000 | (s1 << 16) | (b << 10) | (s2 << 5) | t);
     }
 
+    /// msub t, s1, s2, b === t = b - s1 * s2
+    fn emitMsub(self: *Arm64, target: Register, source1: Register, source2: Register, base: Register) anyerror!void {
+        const t: u32 = @intFromEnum(target);
+        const b: u32 = @intFromEnum(base);
+        const s1: u32 = @intFromEnum(source1);
+        const s2: u32 = @intFromEnum(source2);
+
+        try self.emit(0x9B008000 | (s1 << 16) | (b << 10) | (s2 << 5) | t);
+    }
+
+    fn emitSdiv(self: *Arm64, target: Register, source1: Register, source2: Register) anyerror!void {
+        const t: u32 = @intFromEnum(target);
+        const s1: u32 = @intFromEnum(source1);
+        const s2: u32 = @intFromEnum(source2);
+
+        try self.emit(0x9AC00C00 | (s1 << 16) | (s2 << 5) | t);
+    }
+
     fn emitSubs(self: *Arm64, target: Register, source1: Register, source2: Register) anyerror!void {
         const t: u32 = @intFromEnum(target);
         const s1: u32 = @intFromEnum(source1);
@@ -100,17 +158,28 @@ const Arm64 = struct {
         try self.emit(0xEB000000 | (s1 << 16) | (s2 << 5) | t);
     }
 
+    fn emitCset(self: *Arm64, target: Register, condition: Condition) anyerror!void {
+        return self.emitCsinc(target, reg_xzr, reg_xzr, condition.not());
+    }
+
+    fn emitCmp(self: *Arm64, source1: Register, source2: Register) anyerror!void {
+        const s1: u32 = @intFromEnum(source1);
+        const s2: u32 = @intFromEnum(source2);
+
+        try self.emit(0xEB00001F | (s1 << 16) | (s2 << 5));
+    }
+
     fn emitMrsNzcv(self: *Arm64, target: Register) anyerror!void {
         const t: u32 = @intFromEnum(target);
 
         try self.emit(0xD53B4200 | t);
     }
 
-    fn emitCsinc(self: *Arm64, target: Register, source1: Register, source2: Register, condition: u4) anyerror!void {
+    fn emitCsinc(self: *Arm64, target: Register, source1: Register, source2: Register, condition: Condition) anyerror!void {
         const t: u32 = @intFromEnum(target);
         const s1: u32 = @intFromEnum(source1);
         const s2: u32 = @intFromEnum(source2);
-        const c: u32 = condition;
+        const c: u32 = @intFromEnum(condition);
 
         try self.emit(0x9A800400 | (c << 12) | (s1 << 16) | (s2 << 5) | t);
     }
@@ -322,7 +391,7 @@ pub const JitRuntime = struct {
                     try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
 
                     try code.emitSubs(.x9, .x9, .x10);
-                    try code.emitCsinc(.x9, reg_xzr, reg_xzr, 0b0001);
+                    try code.emitCset(.x9, Condition.eq);
                     try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
                 .add => {
@@ -344,6 +413,53 @@ pub const JitRuntime = struct {
                     try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
 
                     try code.emitMul(.x9, .x10, .x9);
+                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+                },
+                .div => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+                    try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
+
+                    try code.emitSdiv(.x11, .x9, .x10);
+                    try JitRuntime.pushCStack(&code, .x11, .x15, .x14, .x13);
+                },
+                .mod => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+                    try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
+
+                    try code.emitSdiv(.x11, .x9, .x10);
+                    try code.emitMsub(.x11, .x9, .x11, .x10);
+                    try JitRuntime.pushCStack(&code, .x11, .x15, .x14, .x13);
+                },
+                .lt => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+                    try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
+
+                    try code.emitCmp(.x9, .x10);
+                    try code.emitCset(.x9, Condition.lt);
+                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+                },
+                .lte => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+                    try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
+
+                    try code.emitCmp(.x9, .x10);
+                    try code.emitCset(.x9, Condition.le);
+                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+                },
+                .gt => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+                    try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
+
+                    try code.emitSubs(.x9, .x9, .x10);
+                    try code.emitCset(.x9, Condition.gt);
+                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+                },
+                .gte => {
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
+                    try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
+
+                    try code.emitSubs(.x9, .x9, .x10);
+                    try code.emitCset(.x9, Condition.ge);
                     try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
                 .call_d => {
@@ -652,6 +768,70 @@ test {
             .initial_bp = 4,
             .expected = @constCast(&[_]i64{ 55, 10 }),
         },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 7 },
+                .{ .push = 5 },
+                .{ .lt = true },
+            }),
+            .expected = @constCast(&[_]i64{0}),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 5 },
+                .{ .push = 7 },
+                .{ .lt = true },
+            }),
+            .expected = @constCast(&[_]i64{1}),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 5 },
+                .{ .push = 5 },
+                .{ .lt = true },
+            }),
+            .expected = @constCast(&[_]i64{0}),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 7 },
+                .{ .push = 5 },
+                .{ .lte = true },
+            }),
+            .expected = @constCast(&[_]i64{0}),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 5 },
+                .{ .push = 7 },
+                .{ .lte = true },
+            }),
+            .expected = @constCast(&[_]i64{1}),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 5 },
+                .{ .push = 5 },
+                .{ .lte = true },
+            }),
+            .expected = @constCast(&[_]i64{1}),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 37 },
+                .{ .push = 10 },
+                .{ .div = true },
+            }),
+            .expected = @constCast(&[_]i64{3}),
+        },
+        .{
+            .prog = @constCast(&[_]ast.Instruction{
+                .{ .push = 37 },
+                .{ .push = 10 },
+                .{ .mod = true },
+            }),
+            .expected = @constCast(&[_]i64{7}),
+        },
     };
 
     for (cases) |c| {
@@ -674,6 +854,8 @@ test {
         const fn_ptr = try runtime.compile(c.prog);
         fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp));
 
-        try std.testing.expectEqualSlices(i64, c.expected, c_stack[0..@min(@as(usize, @intCast(c_sp)), c_stack.len)]);
+        std.testing.expectEqualSlices(i64, c.expected, c_stack[0..@min(@as(usize, @intCast(c_sp)), c_stack.len)]) catch |err| {
+            std.debug.panic("prog: {any}, error: {any}\n", .{ c.prog, err });
+        };
     }
 }

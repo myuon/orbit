@@ -37,6 +37,7 @@ pub const Vm = struct {
         self.ast_arena_allocator.deinit();
     }
 
+    /// This function MUST NOT move the label positions.
     pub fn resolveIrLabels(self: *Vm, prog: []ast.Instruction) anyerror!void {
         var labels = std.StringHashMap(usize).init(self.allocator);
         defer labels.deinit();
@@ -69,6 +70,7 @@ pub const Vm = struct {
         }
     }
 
+    /// This function MUST NOT move the label positions.
     fn resolveLocalAddresses(self: *Vm, env: std.StringHashMap(i32), prog: []ast.Instruction) anyerror!void {
         var index: i32 = 0;
         var variables = std.StringHashMap(i32).init(self.allocator);
@@ -114,7 +116,9 @@ pub const Vm = struct {
                 .restore_env => {
                     prog[i] = ast.Instruction{ .nop = true };
                 },
-                .register_local => {
+                .register_local => |data| {
+                    try variables.put(data.name, @intCast(data.offset));
+
                     prog[i] = ast.Instruction{ .nop = true };
                 },
                 else => {},
@@ -365,6 +369,7 @@ pub const Vm = struct {
     }
 
     pub fn resolveLocals(self: *Vm, params: []const []const u8, prog: []ast.Instruction) anyerror!void {
+        std.log.err("resolveLocals: {any}", .{prog});
         var env = std.StringHashMap(i32).init(self.allocator);
         defer env.deinit();
 
@@ -664,6 +669,13 @@ pub const VmRuntime = struct {
             .set_sp => {
                 const value = stack.pop();
                 stack.shrinkAndFree(@intCast(value));
+                self.pc += 1;
+            },
+            .div => {
+                const rhs = stack.pop();
+                const lhs = stack.pop();
+                try stack.append(@divTrunc(lhs, rhs));
+
                 self.pc += 1;
             },
             .mod => {
