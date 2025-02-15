@@ -59,6 +59,9 @@ pub const Vm = struct {
                 .label => {
                     prog[i] = ast.Instruction{ .nop = true };
                 },
+                .call => |label| {
+                    prog[i] = ast.Instruction{ .call_d = labels.get(label).? };
+                },
                 else => {},
             }
         }
@@ -363,6 +366,10 @@ pub const Vm = struct {
     }
 };
 
+pub const VmRuntimeError = error{
+    LabelNotFound,
+};
+
 pub const VmRuntime = struct {
     pc: usize,
     envs: std.ArrayList(std.StringHashMap(i64)),
@@ -391,7 +398,8 @@ pub const VmRuntime = struct {
             }
         }
 
-        return null;
+        std.log.err("Label not found: {s}\n", .{target_label});
+        return error.LabelNotFound;
     }
 
     pub fn step(
