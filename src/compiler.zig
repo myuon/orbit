@@ -15,14 +15,7 @@ pub const CompilerError = error{
     CannotCompileToIr,
 };
 
-const Env = std.StringHashMap(ast.Value);
-
 pub const Compiler = struct {
-    env: Env,
-    module: ?ast.Module,
-    has_returned: bool,
-    call_trace: std.StringHashMap(u32),
-    ir_cache: std.StringHashMap([]ast.Instruction),
     jit_cache: std.StringHashMap(jit.CompiledFn),
     allocator: std.mem.Allocator,
     ast_arena_allocator: std.heap.ArenaAllocator,
@@ -31,11 +24,6 @@ pub const Compiler = struct {
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
         return Compiler{
-            .env = Env.init(allocator),
-            .module = null,
-            .has_returned = false,
-            .call_trace = std.StringHashMap(u32).init(allocator),
-            .ir_cache = std.StringHashMap([]ast.Instruction).init(allocator),
             .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
             .allocator = allocator,
             .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
@@ -45,9 +33,6 @@ pub const Compiler = struct {
     }
 
     pub fn deinit(self: *Compiler) void {
-        self.env.deinit();
-        self.call_trace.deinit();
-        self.ir_cache.deinit();
         self.jit_cache.deinit();
         self.ast_arena_allocator.deinit();
         self.vmc.deinit();
@@ -73,8 +58,6 @@ pub const Compiler = struct {
         start = end;
 
         const tree = try p.module();
-
-        self.module = tree;
 
         const ir = try self.vmc.compileModule("main", tree);
 
