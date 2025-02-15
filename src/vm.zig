@@ -36,6 +36,8 @@ pub const Vm = struct {
     }
 
     pub fn resolveIrLabels(self: *Vm, prog: []ast.Instruction) anyerror!void {
+        std.log.info("{any}", .{prog});
+
         var labels = std.StringHashMap(usize).init(self.allocator);
         defer labels.deinit();
 

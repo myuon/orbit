@@ -138,38 +138,9 @@ pub const Compiler = struct {
         return try self.startVm(ir);
     }
 
-    pub fn evalModule(self: *Compiler, str: []const u8, options: struct { enable_jit: bool }) anyerror!?ast.Value {
+    pub fn evalModule(self: *Compiler, str: []const u8, options: struct { enable_jit: bool }) anyerror!ast.Value {
         self.enable_jit = options.enable_jit;
-
-        var start = try std.time.Instant.now();
-
-        var l = lexer.Lexer.init(self.allocator, str);
-        defer l.deinit();
-
-        const tokens = try l.run();
-
-        var end = try std.time.Instant.now();
-        std.debug.print("Lexer.run in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
-        start = end;
-
-        var p = parser.Parser.init(self.allocator, tokens.items);
-        defer p.deinit();
-
-        end = try std.time.Instant.now();
-        std.debug.print("Parser.run in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
-        start = end;
-
-        const tree = try p.module();
-
-        self.module = tree;
-
-        const result = try self.evalModuleFromAst("main");
-
-        end = try std.time.Instant.now();
-        std.debug.print("Compiler.eval in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
-        start = end;
-
-        return result;
+        return try self.evalModuleWithIr(str);
     }
 
     fn evalExprFromAst(self: *Compiler, expr: ast.Expression) anyerror!ast.Value {
@@ -702,91 +673,91 @@ test "compiler.evalModule" {
             ,
             .expected = 13,
         },
-        // .{
-        //     .program =
-        //     \\fun sum(x) do
-        //     \\  if (x == 0) do
-        //     \\    return 0;
-        //     \\  end
-        //     \\
-        //     \\  return sum(x - 1) + x;
-        //     \\end
-        //     \\
-        //     \\fun main() do
-        //     \\  return sum(10);
-        //     \\end
-        //     ,
-        //     .expected = 55,
-        // },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  let s = 0;
-        //     \\  let n = 0;
-        //     \\  while (n < 10) do
-        //     \\    s = s + n;
-        //     \\    n = n + 1;
-        //     \\  end
-        //     \\
-        //     \\  return s;
-        //     \\end
-        //     ,
-        //     .expected = 45,
-        // },
-        // .{
-        //     .program =
-        //     \\fun fib(n) do
-        //     \\  if (n == 0) do
-        //     \\    return 1;
-        //     \\  end
-        //     \\  if (n == 1) do
-        //     \\    return 1;
-        //     \\  end
-        //     \\
-        //     \\  return fib(n - 1) + fib(n - 2);
-        //     \\end
-        //     \\
-        //     \\fun main() do
-        //     \\  return fib(15);
-        //     \\end
-        //     ,
-        //     .expected = 987,
-        // },
-        // .{
-        //     .program =
-        //     \\fun is_prime(n) do
-        //     \\  if (n < 2) do
-        //     \\    return false;
-        //     \\  end
-        //     \\
-        //     \\  let i = 2;
-        //     \\  while (i * i <= n) do
-        //     \\    if (n % i == 0) do
-        //     \\      return false;
-        //     \\    end
-        //     \\    i = i + 1;
-        //     \\  end
-        //     \\
-        //     \\  return true;
-        //     \\end
-        //     \\
-        //     \\fun main() do
-        //     \\  let n = 1000;
-        //     \\  let sum = 0;
-        //     \\
-        //     \\  while (n > 0) do
-        //     \\    n = n - 1;
-        //     \\
-        //     \\    if (is_prime(n)) do
-        //     \\      sum = sum + n;
-        //     \\    end
-        //     \\  end
-        //     \\
-        //     \\  return sum;
-        //     \\end
-        //     ,
-        //     .expected = 76127,
-        // },
+        .{
+            .program =
+            \\fun sum(x) do
+            \\  if (x == 0) do
+            \\    return 0;
+            \\  end
+            \\
+            \\  return sum(x - 1) + x;
+            \\end
+            \\
+            \\fun main() do
+            \\  return sum(10);
+            \\end
+            ,
+            .expected = 55,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  let s = 0;
+            \\  let n = 0;
+            \\  while (n < 10) do
+            \\    s = s + n;
+            \\    n = n + 1;
+            \\  end
+            \\
+            \\  return s;
+            \\end
+            ,
+            .expected = 45,
+        },
+        .{
+            .program =
+            \\fun fib(n) do
+            \\  if (n == 0) do
+            \\    return 1;
+            \\  end
+            \\  if (n == 1) do
+            \\    return 1;
+            \\  end
+            \\
+            \\  return fib(n - 1) + fib(n - 2);
+            \\end
+            \\
+            \\fun main() do
+            \\  return fib(15);
+            \\end
+            ,
+            .expected = 987,
+        },
+        .{
+            .program =
+            \\fun is_prime(n) do
+            \\  if (n < 2) do
+            \\    return false;
+            \\  end
+            \\
+            \\  let i = 2;
+            \\  while (i * i <= n) do
+            \\    if (n % i == 0) do
+            \\      return false;
+            \\    end
+            \\    i = i + 1;
+            \\  end
+            \\
+            \\  return true;
+            \\end
+            \\
+            \\fun main() do
+            \\  let n = 1000;
+            \\  let sum = 0;
+            \\
+            \\  while (n > 0) do
+            \\    n = n - 1;
+            \\
+            \\    if (is_prime(n)) do
+            \\      sum = sum + n;
+            \\    end
+            \\  end
+            \\
+            \\  return sum;
+            \\end
+            ,
+            .expected = 76127,
+        },
     };
 
     for (cases) |case| {
