@@ -119,6 +119,7 @@ pub const Statement = union(StatementType) {
         else_: ?Block,
     },
     assign: struct {
+        type_: Type,
         lhs: Expression,
         rhs: Expression,
     },
@@ -147,6 +148,46 @@ pub const Decl = union(DeclType) {
 
 pub const Module = struct {
     decls: []Decl,
+};
+
+pub const TypeType = enum {
+    unknown,
+    bool_,
+    byte,
+    int,
+    array,
+    slice,
+    fun,
+
+    pub fn size(self: TypeType) usize {
+        return switch (self) {
+            TypeType.unknown => unreachable,
+            TypeType.bool_ => 1,
+            TypeType.byte => 1,
+            TypeType.int => 8,
+            TypeType.array => 8,
+            TypeType.slice => 8,
+            TypeType.fun => unreachable,
+        };
+    }
+};
+
+pub const Type = union(TypeType) {
+    unknown: bool,
+    bool_: bool,
+    byte: bool,
+    int: bool,
+    array: struct {
+        elem_type: *Type,
+        size: usize,
+    },
+    slice: struct {
+        elem_type: *Type,
+    },
+    fun: struct {
+        params: []Type,
+        return_type: *Type,
+    },
 };
 
 pub const ValueError = error{

@@ -279,6 +279,7 @@ pub const Parser = struct {
 
                         return ast.Statement{
                             .assign = .{
+                                .type_ = ast.Type{ .unknown = true },
                                 .lhs = e,
                                 .rhs = rhs,
                             },

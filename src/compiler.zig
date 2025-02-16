@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("ast.zig");
 const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
+const typecheck = @import("typecheck.zig");
 const vm = @import("vm.zig");
 const jit = @import("jit.zig");
 
@@ -54,9 +55,18 @@ pub const Compiler = struct {
         std.debug.print("Parser.run in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
         start = end;
 
-        const tree = try p.module();
+        var module = try p.module();
 
-        const ir = try self.vmc.compile("main", tree);
+        var tc = typecheck.Typechecker.init(std.testing.allocator);
+        defer tc.deinit();
+
+        try tc.typecheck(&module);
+
+        end = try std.time.Instant.now();
+        std.debug.print("Typechecker.typecheck in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
+        start = end;
+
+        const ir = try self.vmc.compile("main", module);
 
         end = try std.time.Instant.now();
         std.debug.print("Compiler.compile in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
