@@ -234,99 +234,111 @@ pub const Vm = struct {
         }
     }
 
-    fn compileBlockFromAst(self: *Vm, buffer: *std.ArrayList(ast.Instruction), block: ast.Block) anyerror!void {
-        for (block.statements) |stmt| {
-            switch (stmt) {
-                .let => |let| {
-                    const i = self.env_offset;
-                    try self.env.put(let.name, i);
-                    self.env_offset += 1;
+    fn compileStatementFromAst(self: *Vm, buffer: *std.ArrayList(ast.Instruction), stmt: ast.Statement) anyerror!void {
+        switch (stmt) {
+            .let => |let| {
+                const i = self.env_offset;
+                try self.env.put(let.name, i);
+                self.env_offset += 1;
 
-                    try self.compileExprFromAst(buffer, let.value);
-                },
-                .return_ => |val| {
-                    try self.compileExprFromAst(buffer, val);
+                try self.compileExprFromAst(buffer, let.value);
+            },
+            .return_ => |val| {
+                try self.compileExprFromAst(buffer, val);
 
-                    // epilogue
-                    if (self.env.get("return")) |k| {
-                        try buffer.append(ast.Instruction{ .set_local_d = k });
-                    } else {
-                        var keys = std.ArrayList([]const u8).init(self.allocator);
-                        defer keys.deinit();
+                // epilogue
+                if (self.env.get("return")) |k| {
+                    try buffer.append(ast.Instruction{ .set_local_d = k });
+                } else {
+                    var keys = std.ArrayList([]const u8).init(self.allocator);
+                    defer keys.deinit();
 
-                        var iter = self.env.keyIterator();
-                        while (iter.next()) |k| {
-                            try keys.append(k.*);
+                    var iter = self.env.keyIterator();
+                    while (iter.next()) |k| {
+                        try keys.append(k.*);
+                    }
+
+                    std.log.err("Cannot find return value position in {any}", .{keys.items});
+                    return error.VariableNotFound;
+                }
+
+                try buffer.append(ast.Instruction{ .get_bp = true });
+                try buffer.append(ast.Instruction{ .set_sp = true });
+                try buffer.append(ast.Instruction{ .set_bp = true });
+                try buffer.append(ast.Instruction{ .ret = true });
+            },
+            .expr => |expr| {
+                try self.compileExprFromAst(buffer, expr);
+                try buffer.append(ast.Instruction{ .pop = true });
+            },
+            .if_ => |if_| {
+                try self.compileExprFromAst(buffer, if_.cond.*);
+
+                const id = self.prng.random().int(u32);
+
+                const label_ifthen = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_then_{d}", .{id});
+                const label_ifelse = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_else_{d}", .{id});
+                const label_ifend = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_end_{d}", .{id});
+
+                try buffer.append(ast.Instruction{ .jump_ifzero = label_ifelse });
+                try buffer.append(ast.Instruction{ .label = label_ifthen });
+                try self.compileBlockFromAst(buffer, if_.then_);
+                try buffer.append(ast.Instruction{ .jump = label_ifend });
+                try buffer.append(ast.Instruction{ .label = label_ifelse });
+                if (if_.else_) |else_| {
+                    try self.compileBlockFromAst(buffer, else_);
+                }
+                try buffer.append(ast.Instruction{ .label = label_ifend });
+            },
+            .while_ => |while_| {
+                const id = self.prng.random().int(u32);
+
+                const label_whilecond = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "while_cond_{d}", .{id});
+                const label_whilebody = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "while_body_{d}", .{id});
+                const label_whileend = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "while_end_{d}", .{id});
+
+                try buffer.append(ast.Instruction{ .label = label_whilecond });
+                try self.compileExprFromAst(buffer, while_.cond.*);
+                try buffer.append(ast.Instruction{ .jump_ifzero = label_whileend });
+                try buffer.append(ast.Instruction{ .label = label_whilebody });
+                try self.compileBlockFromAst(buffer, while_.body);
+                try buffer.append(ast.Instruction{ .jump = label_whilecond });
+                try buffer.append(ast.Instruction{ .label = label_whileend });
+            },
+            .assign => |assign| {
+                try self.compileExprFromAst(buffer, assign.rhs);
+
+                switch (assign.lhs) {
+                    .var_ => |name| {
+                        if (self.env.get(name)) |k| {
+                            try buffer.append(ast.Instruction{ .set_local_d = k });
+                        } else {
+                            std.log.err("Variable not found: {s}\n", .{name});
+                            return error.VariableNotFound;
                         }
-
-                        std.log.err("Cannot find return value position in {any}", .{keys.items});
-                        return error.VariableNotFound;
-                    }
-
-                    try buffer.append(ast.Instruction{ .get_bp = true });
-                    try buffer.append(ast.Instruction{ .set_sp = true });
-                    try buffer.append(ast.Instruction{ .set_bp = true });
-                    try buffer.append(ast.Instruction{ .ret = true });
-                },
-                .expr => |expr| {
-                    try self.compileExprFromAst(buffer, expr);
-                    try buffer.append(ast.Instruction{ .pop = true });
-                },
-                .if_ => |if_| {
-                    try self.compileExprFromAst(buffer, if_.cond.*);
-
-                    const id = self.prng.random().int(u32);
-
-                    const label_ifthen = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_then_{d}", .{id});
-                    const label_ifelse = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_else_{d}", .{id});
-                    const label_ifend = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "if_end_{d}", .{id});
-
-                    try buffer.append(ast.Instruction{ .jump_ifzero = label_ifelse });
-                    try buffer.append(ast.Instruction{ .label = label_ifthen });
-                    try self.compileBlockFromAst(buffer, if_.then_);
-                    try buffer.append(ast.Instruction{ .jump = label_ifend });
-                    try buffer.append(ast.Instruction{ .label = label_ifelse });
-                    if (if_.else_) |else_| {
-                        try self.compileBlockFromAst(buffer, else_);
-                    }
-                    try buffer.append(ast.Instruction{ .label = label_ifend });
-                },
-                .while_ => |while_| {
-                    const id = self.prng.random().int(u32);
-
-                    const label_whilecond = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "while_cond_{d}", .{id});
-                    const label_whilebody = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "while_body_{d}", .{id});
-                    const label_whileend = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "while_end_{d}", .{id});
-
-                    try buffer.append(ast.Instruction{ .label = label_whilecond });
-                    try self.compileExprFromAst(buffer, while_.cond.*);
-                    try buffer.append(ast.Instruction{ .jump_ifzero = label_whileend });
-                    try buffer.append(ast.Instruction{ .label = label_whilebody });
-                    try self.compileBlockFromAst(buffer, while_.body);
-                    try buffer.append(ast.Instruction{ .jump = label_whilecond });
-                    try buffer.append(ast.Instruction{ .label = label_whileend });
-                },
-                .assign => |assign| {
-                    try self.compileExprFromAst(buffer, assign.rhs);
-
-                    switch (assign.lhs) {
-                        .var_ => |name| {
-                            if (self.env.get(name)) |k| {
-                                try buffer.append(ast.Instruction{ .set_local_d = k });
-                            } else {
-                                std.log.err("Variable not found: {s}\n", .{name});
-                                return error.VariableNotFound;
-                            }
-                        },
-                        else => {
-                            try self.compileLhsExprFromAst(buffer, assign.lhs);
-                            try self.compileExprFromAst(buffer, assign.rhs);
-                            try buffer.append(ast.Instruction{ .store = assign.type_.size() });
-                        },
-                    }
-                },
-            }
+                    },
+                    else => {
+                        try self.compileLhsExprFromAst(buffer, assign.lhs);
+                        try self.compileExprFromAst(buffer, assign.rhs);
+                        try buffer.append(ast.Instruction{ .store = assign.type_.size() });
+                    },
+                }
+            },
         }
+    }
+
+    fn compileBlockFromAst(self: *Vm, buffer: *std.ArrayList(ast.Instruction), block: ast.Block) anyerror!void {
+        const offset = self.env_offset;
+
+        for (block.statements) |stmt| {
+            try self.compileStatementFromAst(buffer, stmt);
+        }
+
+        std.debug.assert(self.env_offset >= offset);
+        for (0..@intCast(self.env_offset - offset)) |_| {
+            try buffer.append(ast.Instruction{ .pop = true });
+        }
+        self.env_offset = offset;
     }
 
     pub fn compileBlock(

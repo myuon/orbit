@@ -363,6 +363,24 @@ test "compiler.evalModule" {
             ,
             .expected = 50,
         },
+        .{
+            .program =
+            \\fun main() do
+            \\  let n = 0;
+            \\  let a = 1;
+            \\  let b = 1;
+            \\  while (n < 10) do
+            \\    let c = a + b;
+            \\    a = b;
+            \\    b = c;
+            \\    n = n + 1;
+            \\  end
+            \\
+            \\  return a;
+            \\end
+            ,
+            .expected = 1346269,
+        },
     };
 
     for (cases) |case| {
