@@ -79,62 +79,6 @@ pub const Vm = struct {
         }
     }
 
-    /// This function MUST NOT move the label positions.
-    fn resolveLocalAddresses(self: *Vm, env: std.StringHashMap(i32), prog: []ast.Instruction) anyerror!void {
-        var index: i32 = 0;
-        var variables = std.StringHashMap(i32).init(self.allocator);
-        defer variables.deinit();
-
-        for (prog) |inst| {
-            switch (inst) {
-                .set_local => |name| {
-                    if (variables.getKey(name)) |_| {} else {
-                        try variables.put(name, index);
-                        index += 1;
-                    }
-                },
-                else => {},
-            }
-        }
-
-        for (prog, 0..) |inst, i| {
-            switch (inst) {
-                .set_local => |name| {
-                    if (env.get(name)) |k| {
-                        prog[i] = ast.Instruction{ .set_local_d = k };
-                    } else if (variables.get(name)) |k| {
-                        prog[i] = ast.Instruction{ .set_local_d = k };
-                    } else {
-                        std.debug.print("Variable not found: {s}\n", .{name});
-                        return error.CannotCompileToIr;
-                    }
-                },
-                .get_local => |name| {
-                    if (env.get(name)) |k| {
-                        prog[i] = ast.Instruction{ .get_local_d = k };
-                    } else if (variables.get(name)) |k| {
-                        prog[i] = ast.Instruction{ .get_local_d = k };
-                    } else {
-                        std.debug.print("Variable not found: {s}\n", .{name});
-                        return error.CannotCompileToIr;
-                    }
-                },
-                .clone_env => {
-                    prog[i] = ast.Instruction{ .nop = true };
-                },
-                .restore_env => {
-                    prog[i] = ast.Instruction{ .nop = true };
-                },
-                .register_local => |data| {
-                    try variables.put(data.name, @intCast(data.offset));
-
-                    prog[i] = ast.Instruction{ .nop = true };
-                },
-                else => {},
-            }
-        }
-    }
-
     fn compileExprFromAst(self: *Vm, buffer: *std.ArrayList(ast.Instruction), expr: ast.Expression) anyerror!void {
         switch (expr) {
             .var_ => |v| {
@@ -277,7 +221,6 @@ pub const Vm = struct {
                     try buffer.append(ast.Instruction{ .get_bp = true });
                     try buffer.append(ast.Instruction{ .set_sp = true });
                     try buffer.append(ast.Instruction{ .set_bp = true });
-                    try buffer.append(ast.Instruction{ .restore_env = true });
                     try buffer.append(ast.Instruction{ .ret = true });
                 },
                 .expr => |expr| {
@@ -359,7 +302,6 @@ pub const Vm = struct {
 
         try self.env.put("return", -3);
 
-        try buffer.append(ast.Instruction{ .clone_env = true });
         try self.compileBlockFromAst(&buffer, ast.Block{
             .statements = @constCast(&[_]ast.Statement{
                 .{
@@ -382,8 +324,6 @@ pub const Vm = struct {
 
                     try buffer.append(ast.Instruction{ .label = f.name });
 
-                    try buffer.append(ast.Instruction{ .clone_env = true });
-
                     try self.env.put("return", -@as(i32, @intCast(f.params.len)) - 3);
 
                     // register names in the reverse order
@@ -404,21 +344,6 @@ pub const Vm = struct {
         }
 
         return buffer.items;
-    }
-
-    pub fn resolveLocals(self: *Vm, params: []const []const u8, prog: []ast.Instruction) anyerror!void {
-        var env = std.StringHashMap(i32).init(self.allocator);
-        defer env.deinit();
-
-        const l: i32 = @intCast(params.len);
-        try env.put("return", -2 - l - 1);
-
-        for (0..params.len) |i| {
-            const k: i32 = @intCast(params.len - i);
-            try env.put(params[i], -2 - k);
-        }
-
-        try self.resolveLocalAddresses(env, prog);
     }
 };
 
@@ -476,6 +401,8 @@ pub const VmRuntime = struct {
         bp: *i64,
         address_map: *std.StringHashMap(i64),
     ) anyerror!ControlFlow {
+        _ = address_map;
+
         if (self.pc >= program.len) {
             return ControlFlow.Terminated;
         }
@@ -590,13 +517,6 @@ pub const VmRuntime = struct {
 
                             var params = std.ArrayList([]const u8).init(self.allocator);
                             defer params.deinit();
-                            // var iter = address_map.keyIterator();
-                            // while (iter.next()) |i| {
-                            //     try params.append(i.*);
-                            // }
-                            try params.append("n");
-
-                            try vmc.resolveLocals(params.items, ir_block);
 
                             var runtime = jit.JitRuntime.init(self.allocator);
                             const f = runtime.compile(ir_block) catch |err| {
@@ -630,45 +550,6 @@ pub const VmRuntime = struct {
                 }
 
                 self.pc = (try VmRuntime.find_label(program, label)).?;
-            },
-            .get_local => |name| {
-                const index = address_map.get(name) orelse {
-                    std.log.err("Variable not found: {s}\n", .{name});
-                    unreachable;
-                };
-                const b: i32 = @intCast(bp.*);
-                const value = stack.items[@intCast(b + index)];
-                try stack.append(value);
-                self.pc += 1;
-            },
-            .set_local => |name| {
-                const value = stack.pop();
-
-                const result = try address_map.getOrPut(name);
-                if (!result.found_existing) {
-                    const i = stack.items.len;
-                    const v = @as(i32, @intCast(i)) - @as(i32, @intCast(bp.*));
-                    result.value_ptr.* = v;
-
-                    try stack.append(0);
-                    try address_map.put(name, @intCast(v));
-                }
-
-                const b: i32 = @intCast(bp.*);
-                if (b + result.value_ptr.* < 0) {
-                    std.log.err("Invalid address: {s} {d}+{d}\n", .{ name, b, result.value_ptr.* });
-                }
-                stack.items[@intCast(b + result.value_ptr.*)] = value;
-                self.pc += 1;
-            },
-            .register_local => |data| {
-                const name = data.name;
-                const offset = data.offset;
-
-                // NeedToFix: care for duplicated names?
-                try address_map.put(name, offset);
-
-                self.pc += 1;
             },
             .get_local_d => |k| {
                 const b: i32 = @intCast(bp.*);
@@ -771,15 +652,6 @@ pub const VmRuntime = struct {
                 } else {
                     try stack.append(0);
                 }
-                self.pc += 1;
-            },
-            .clone_env => {
-                try self.envs.append(try address_map.clone());
-                self.pc += 1;
-            },
-            .restore_env => {
-                address_map.deinit();
-                address_map.* = self.envs.pop();
                 self.pc += 1;
             },
         }
