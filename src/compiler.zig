@@ -57,7 +57,7 @@ pub const Compiler = struct {
 
         var module = try p.module();
 
-        var tc = typecheck.Typechecker.init(std.testing.allocator);
+        var tc = typecheck.Typechecker.init(self.allocator);
         defer tc.deinit();
 
         try tc.typecheck(&module);
@@ -338,16 +338,16 @@ test "compiler.evalModule" {
             ,
             .expected = 76127,
         },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  let s = "Hello, World!";
-        //     \\
-        //     \\  return s[5];
-        //     \\end
-        //     ,
-        //     .expected = 44,
-        // },
+        .{
+            .program =
+            \\fun main() do
+            \\  let s = "Hello, World!";
+            \\
+            \\  return s[5];
+            \\end
+            ,
+            .expected = 44,
+        },
         .{
             .program =
             \\fun main() do
@@ -369,9 +369,11 @@ test "compiler.evalModule" {
         var c = Compiler.init(std.testing.allocator);
         defer c.deinit();
 
-        try std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, c.evalModule(case.program, .{ .enable_jit = false }) catch |err| {
+        std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, c.evalModule(case.program, .{ .enable_jit = false }) catch |err| {
             std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
-        });
+        }) catch |err| {
+            std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
+        };
         std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalModule(case.program, .{ .enable_jit = true })) catch |err| {
             std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
         };

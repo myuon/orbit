@@ -111,9 +111,14 @@ pub const Typechecker = struct {
         return expect;
     }
 
-    fn assertArrayType(actual: ast.Type) anyerror!ast.Type {
+    fn unwrapElementType(actual: ast.Type) anyerror!ast.Type {
         switch (actual) {
-            .array => return actual,
+            .array => |array| {
+                return array.elem_type.*;
+            },
+            .slice => |slice| {
+                return slice.elem_type.*;
+            },
             else => {
                 std.log.err("Expected array, got {any}\n", .{actual});
                 return TypecheckerError.UnexpectedType;
@@ -201,14 +206,16 @@ pub const Typechecker = struct {
                 const lhs = index.lhs;
                 const lhs_type = try self.typecheckExpr(lhs);
 
-                const array_type = try assertArrayType(lhs_type);
+                const elem_type = try unwrapElementType(lhs_type);
 
                 const rhs = index.rhs;
                 const rhs_type = try self.typecheckExpr(rhs);
 
                 _ = try assertType(ast.Type{ .int = true }, rhs_type);
 
-                return array_type.array.elem_type.*;
+                expr.*.index.elem_type = elem_type;
+
+                return elem_type;
             },
             .new => |new| {
                 for (new.initializers) |initializer| {
@@ -285,9 +292,11 @@ pub const Typechecker = struct {
     }
 
     fn typecheckBlock(self: *Typechecker, block: *ast.Block) anyerror!void {
-        for (block.statements) |stmt| {
+        for (block.statements, 0..) |stmt, i| {
             var s = stmt;
             try self.typecheckStatement(&s);
+
+            block.statements[i] = s;
         }
 
         if (block.expr) |expr| {
@@ -296,7 +305,7 @@ pub const Typechecker = struct {
     }
 
     pub fn typecheck(self: *Typechecker, module: *ast.Module) anyerror!void {
-        for (module.decls) |decl| {
+        for (module.decls, 0..) |decl, i| {
             switch (decl) {
                 .fun => |fun| {
                     var params = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
@@ -324,6 +333,18 @@ pub const Typechecker = struct {
                     var body = fun.body;
 
                     try self.typecheckBlock(&body);
+
+                    return_type.* = self.return_type.?;
+
+                    const t = ast.Type{ .fun = .{
+                        .params = params.items,
+                        .return_type = return_type,
+                    } };
+                    try self.env.put(fun.name, t);
+
+                    self.return_type = null;
+
+                    module.decls[i].fun.body = body;
                 },
             }
         }

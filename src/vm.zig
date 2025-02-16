@@ -197,14 +197,16 @@ pub const Vm = struct {
                 unreachable;
             },
             .index => |index| {
+                const size = index.elem_type.size();
+
                 try self.compileExprFromAst(buffer, index.lhs.*);
                 try self.compileExprFromAst(buffer, index.rhs.*);
-                // assume lhs is a 32-bit value
-                try buffer.append(ast.Instruction{ .push = 4 });
+
+                try buffer.append(ast.Instruction{ .push = size });
                 try buffer.append(ast.Instruction{ .mul = true });
                 try buffer.append(ast.Instruction{ .add = true });
 
-                try buffer.append(ast.Instruction{ .load = true });
+                try buffer.append(ast.Instruction{ .load = size });
             },
             .new => |new| {
                 const array_size = new.array_size;
@@ -218,10 +220,11 @@ pub const Vm = struct {
     fn compileLhsExprFromAst(self: *Vm, buffer: *std.ArrayList(ast.Instruction), expr: ast.Expression) anyerror!void {
         switch (expr) {
             .index => |index| {
+                const size = index.elem_type.size();
+
                 try self.compileExprFromAst(buffer, index.lhs.*);
                 try self.compileExprFromAst(buffer, index.rhs.*);
-                // assume array_type is int
-                try buffer.append(ast.Instruction{ .push = 4 });
+                try buffer.append(ast.Instruction{ .push = size });
                 try buffer.append(ast.Instruction{ .mul = true });
                 try buffer.append(ast.Instruction{ .add = true });
             },
@@ -318,7 +321,7 @@ pub const Vm = struct {
                         else => {
                             try self.compileLhsExprFromAst(buffer, assign.lhs);
                             try self.compileExprFromAst(buffer, assign.rhs);
-                            try buffer.append(ast.Instruction{ .store = true });
+                            try buffer.append(ast.Instruction{ .store = assign.type_.size() });
                         },
                     }
                 },
@@ -717,28 +720,42 @@ pub const VmRuntime = struct {
                 }
                 self.pc += 1;
             },
-            // load means load_u32
-            .load => {
+            .load => |size| {
+                std.debug.assert(size <= 4);
+
                 const addr = stack.pop();
 
                 var n: i64 = 0;
-                n |= @as(i64, @intCast(self.memory[@intCast(addr + 3)])) << 24;
-                n |= @as(i64, @intCast(self.memory[@intCast(addr + 2)])) << 16;
-                n |= @as(i64, @intCast(self.memory[@intCast(addr + 1)])) << 8;
                 n |= @as(i64, @intCast(self.memory[@intCast(addr)]));
+                if (size >= 2) {
+                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 1)])) << 8;
+                }
+                if (size >= 3) {
+                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 2)])) << 16;
+                }
+                if (size >= 4) {
+                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 3)])) << 24;
+                }
 
                 try stack.append(n);
 
                 self.pc += 1;
             },
-            // store means store_u32
-            .store => {
+            .store => |size| {
+                std.debug.assert(size <= 4);
+
                 const value = stack.pop();
                 const addr = stack.pop();
                 self.memory[@intCast(addr)] = @intCast(value & 0xff);
-                self.memory[@intCast(addr + 1)] = @intCast((value >> 8) & 0xff);
-                self.memory[@intCast(addr + 2)] = @intCast((value >> 16) & 0xff);
-                self.memory[@intCast(addr + 3)] = @intCast((value >> 24) & 0xff);
+                if (size >= 2) {
+                    self.memory[@intCast(addr + 1)] = @intCast((value >> 8) & 0xff);
+                }
+                if (size >= 3) {
+                    self.memory[@intCast(addr + 2)] = @intCast((value >> 16) & 0xff);
+                }
+                if (size >= 4) {
+                    self.memory[@intCast(addr + 3)] = @intCast((value >> 24) & 0xff);
+                }
                 self.pc += 1;
             },
             .set_memory => |m| {

@@ -76,6 +76,7 @@ pub const Expression = union(ExpressionType) {
         else_: Block,
     },
     index: struct {
+        elem_type: Type,
         lhs: *Expression,
         rhs: *Expression,
     },
@@ -158,18 +159,6 @@ pub const TypeType = enum {
     array,
     slice,
     fun,
-
-    pub fn size(self: TypeType) usize {
-        return switch (self) {
-            TypeType.unknown => unreachable,
-            TypeType.bool_ => 1,
-            TypeType.byte => 1,
-            TypeType.int => 8,
-            TypeType.array => 8,
-            TypeType.slice => 8,
-            TypeType.fun => unreachable,
-        };
-    }
 };
 
 pub const Type = union(TypeType) {
@@ -188,6 +177,18 @@ pub const Type = union(TypeType) {
         params: []Type,
         return_type: *Type,
     },
+
+    pub fn size(self: Type) u4 {
+        return switch (self) {
+            Type.unknown => unreachable,
+            Type.bool_ => 1,
+            Type.byte => 1,
+            Type.int => 8,
+            Type.array => 8,
+            Type.slice => 8,
+            Type.fun => unreachable,
+        };
+    }
 };
 
 pub const ValueError = error{
@@ -284,8 +285,8 @@ pub const Instruction = union(InstructionType) {
     lte: bool,
     gt: bool,
     gte: bool,
-    load: bool,
-    store: bool,
+    load: u4,
+    store: u4,
     set_memory: struct {
         data: []const u8,
         offset: usize,
