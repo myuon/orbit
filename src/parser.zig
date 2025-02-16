@@ -275,19 +275,14 @@ pub const Parser = struct {
                     if (self.is_next(ast.Operator.eq)) {
                         try self.expect(ast.Operator.eq);
 
-                        switch (e) {
-                            .var_ => |v| {
-                                const value = try self.expr();
-                                return ast.Statement{ .assign = .{
-                                    .name = v,
-                                    .value = value,
-                                } };
+                        const rhs = try self.expr();
+
+                        return ast.Statement{
+                            .assign = .{
+                                .lhs = e,
+                                .rhs = rhs,
                             },
-                            else => {
-                                std.debug.print("unexpected token: {any}\n", .{self.tokens[self.position..]});
-                                return error.UnexpectedToken;
-                            },
-                        }
+                        };
                     }
 
                     return ast.Statement{ .expr = e };
@@ -540,8 +535,8 @@ pub const Parser = struct {
     }
 
     fn expr3(self: *Parser) anyerror!ast.Expression {
-        if (self.literal()) |lit| {
-            return ast.Expression{ .literal = lit };
+        if (try self.expr4()) |e| {
+            return e;
         }
 
         if (self.peek()) |token| {
@@ -627,30 +622,72 @@ pub const Parser = struct {
         unreachable;
     }
 
-    fn literal(self: *Parser) ?ast.Literal {
+    fn expr4(self: *Parser) anyerror!?ast.Expression {
         if (self.peek()) |token| {
             switch (token) {
                 .number => |n| {
                     _ = self.consume();
 
-                    return ast.Literal{ .number = n };
+                    return ast.Expression{ .literal = ast.Literal{ .number = n } };
                 },
                 .string => |s| {
                     _ = self.consume();
 
-                    return ast.Literal{ .string = s };
+                    return ast.Expression{ .literal = ast.Literal{ .string = s } };
                 },
                 .keyword => |op| {
                     switch (op) {
                         .true_ => {
                             _ = self.consume();
 
-                            return ast.Literal{ .boolean = true };
+                            return ast.Expression{ .literal = ast.Literal{ .boolean = true } };
                         },
                         .false_ => {
                             _ = self.consume();
 
-                            return ast.Literal{ .boolean = false };
+                            return ast.Expression{ .literal = ast.Literal{ .boolean = false } };
+                        },
+                        .new => {
+                            try self.expect(ast.Operator.new);
+
+                            // Assumes: new array(int, $size) {};
+
+                            const t = try self.expect_ident();
+                            std.debug.assert(std.mem.eql(u8, t, "array"));
+
+                            try self.expect(ast.Operator.lparen);
+                            const i = try self.expect_ident();
+                            std.debug.assert(std.mem.eql(u8, i, "int"));
+
+                            try self.expect(ast.Operator.comma);
+                            const size = try self.expr();
+
+                            try self.expect(ast.Operator.rparen);
+
+                            var size_int: usize = undefined;
+                            switch (size) {
+                                .literal => |l| {
+                                    switch (l) {
+                                        .number => |n| {
+                                            size_int = n;
+                                        },
+                                        else => {
+                                            unreachable;
+                                        },
+                                    }
+                                },
+                                else => {
+                                    unreachable;
+                                },
+                            }
+
+                            try self.expect(ast.Operator.lbrace);
+                            try self.expect(ast.Operator.rbrace);
+
+                            return ast.Expression{ .new = .{
+                                .array_size = size_int,
+                                .initializers = &[_]ast.Expression{},
+                            } };
                         },
                         else => {
                             return null;

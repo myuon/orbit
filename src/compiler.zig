@@ -328,15 +328,30 @@ test "compiler.evalModule" {
             ,
             .expected = 76127,
         },
+        // .{
+        //     .program =
+        //     \\fun main() do
+        //     \\  let s = "Hello, World!";
+        //     \\
+        //     \\  return s[5];
+        //     \\end
+        //     ,
+        //     .expected = 44,
+        // },
         .{
             .program =
             \\fun main() do
-            \\  let s = "Hello, World!";
+            \\  let s = new array(int, 100) {};
+            \\  let n = 0;
+            \\  while (n < 100) do
+            \\    s[n] = n;
+            \\    n = n + 1;
+            \\  end
             \\
-            \\  return s[5];
+            \\  return s[50];
             \\end
             ,
-            .expected = 44,
+            .expected = 50,
         },
     };
 

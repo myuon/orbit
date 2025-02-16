@@ -212,11 +212,29 @@ pub fn main() !void {
             defer adm.deinit();
 
             const s = try writeStack(draw_allocator, stack.items, bp);
+
+            var memory = std.ArrayList(u8).init(draw_allocator);
+            defer memory.deinit();
+
+            for (vmc.memory, 0..) |v, i| {
+                const p = try std.fmt.allocPrint(draw_allocator, "{x:0>2} ", .{v});
+                try memory.appendSlice(p);
+
+                if (i % 16 == 16 - 1) {
+                    try memory.appendSlice("\n");
+                }
+                if (i > 1024) {
+                    break;
+                }
+            }
+
             const k = try std.fmt.allocPrint(draw_allocator,
                 \\pc: {d}, bp: {d}, next: {s}
                 \\address_map: {s}
                 \\stack: {s}
-            , .{ vmc.pc, bp, next.items, adm.items, s });
+                \\memory:
+                \\{s}
+            , .{ vmc.pc, bp, next.items, adm.items, s, memory.items });
 
             try dbg.set_text("stack", k);
 

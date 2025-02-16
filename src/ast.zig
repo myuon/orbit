@@ -13,6 +13,8 @@ pub const Operator = enum {
     rangle,
     lbracket,
     rbracket,
+    lbrace,
+    rbrace,
     plus,
     minus,
     star,
@@ -27,6 +29,7 @@ pub const Operator = enum {
     while_,
     true_,
     false_,
+    new,
 };
 
 pub const TokenType = enum {
@@ -51,6 +54,7 @@ pub const ExpressionType = enum {
     call,
     if_,
     index,
+    new,
 };
 
 pub const Expression = union(ExpressionType) {
@@ -74,6 +78,10 @@ pub const Expression = union(ExpressionType) {
     index: struct {
         lhs: *Expression,
         rhs: *Expression,
+    },
+    new: struct {
+        array_size: usize,
+        initializers: []Expression,
     },
 };
 
@@ -111,8 +119,8 @@ pub const Statement = union(StatementType) {
         else_: ?Block,
     },
     assign: struct {
-        name: []const u8,
-        value: Expression,
+        lhs: Expression,
+        rhs: Expression,
     },
     while_: struct {
         cond: *Expression,
@@ -201,7 +209,9 @@ pub const InstructionType = enum {
     gt,
     gte,
     load,
+    store,
     set_memory,
+    allocate_memory,
 };
 
 pub const Instruction = union(InstructionType) {
@@ -234,8 +244,10 @@ pub const Instruction = union(InstructionType) {
     gt: bool,
     gte: bool,
     load: bool,
+    store: bool,
     set_memory: struct {
         data: []const u8,
         offset: usize,
     },
+    allocate_memory: usize,
 };

@@ -199,12 +199,34 @@ pub const Vm = struct {
             .index => |index| {
                 try self.compileExprFromAst(buffer, index.lhs.*);
                 try self.compileExprFromAst(buffer, index.rhs.*);
-                // assume lhs is a string
-                try buffer.append(ast.Instruction{ .push = 1 });
+                // assume lhs is a 32-bit value
+                try buffer.append(ast.Instruction{ .push = 4 });
                 try buffer.append(ast.Instruction{ .mul = true });
                 try buffer.append(ast.Instruction{ .add = true });
 
                 try buffer.append(ast.Instruction{ .load = true });
+            },
+            .new => |new| {
+                const array_size = new.array_size;
+                try buffer.append(ast.Instruction{ .allocate_memory = array_size * 4 });
+
+                std.debug.assert(new.initializers.len == 0);
+            },
+        }
+    }
+
+    fn compileLhsExprFromAst(self: *Vm, buffer: *std.ArrayList(ast.Instruction), expr: ast.Expression) anyerror!void {
+        switch (expr) {
+            .index => |index| {
+                try self.compileExprFromAst(buffer, index.lhs.*);
+                try self.compileExprFromAst(buffer, index.rhs.*);
+                // assume array_type is int
+                try buffer.append(ast.Instruction{ .push = 4 });
+                try buffer.append(ast.Instruction{ .mul = true });
+                try buffer.append(ast.Instruction{ .add = true });
+            },
+            else => {
+                unreachable;
             },
         }
     }
@@ -282,13 +304,22 @@ pub const Vm = struct {
                     try buffer.append(ast.Instruction{ .label = label_whileend });
                 },
                 .assign => |assign| {
-                    try self.compileExprFromAst(buffer, assign.value);
+                    try self.compileExprFromAst(buffer, assign.rhs);
 
-                    if (self.env.get(assign.name)) |k| {
-                        try buffer.append(ast.Instruction{ .set_local_d = k });
-                    } else {
-                        std.log.err("Variable not found: {s}\n", .{assign.name});
-                        return error.VariableNotFound;
+                    switch (assign.lhs) {
+                        .var_ => |name| {
+                            if (self.env.get(name)) |k| {
+                                try buffer.append(ast.Instruction{ .set_local_d = k });
+                            } else {
+                                std.log.err("Variable not found: {s}\n", .{name});
+                                return error.VariableNotFound;
+                            }
+                        },
+                        else => {
+                            try self.compileLhsExprFromAst(buffer, assign.lhs);
+                            try self.compileExprFromAst(buffer, assign.rhs);
+                            try buffer.append(ast.Instruction{ .store = true });
+                        },
                     }
                 },
             }
@@ -391,6 +422,7 @@ pub const VmRuntime = struct {
     jit_cache: std.StringHashMap(jit.CompiledFn),
     allocator: std.mem.Allocator,
     memory: []u8,
+    hp: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator) VmRuntime {
         return VmRuntime{
@@ -401,6 +433,7 @@ pub const VmRuntime = struct {
             .enable_jit = true,
             .allocator = allocator,
             .memory = std.heap.page_allocator.alloc(u8, 1024 * 1024) catch unreachable,
+            .hp = 0,
         };
     }
 
@@ -684,10 +717,28 @@ pub const VmRuntime = struct {
                 }
                 self.pc += 1;
             },
-            // load means load_u8
+            // load means load_u32
             .load => {
                 const addr = stack.pop();
-                try stack.append(@intCast(self.memory[@intCast(addr)]));
+
+                var n: i64 = 0;
+                n |= @as(i64, @intCast(self.memory[@intCast(addr + 3)])) << 24;
+                n |= @as(i64, @intCast(self.memory[@intCast(addr + 2)])) << 16;
+                n |= @as(i64, @intCast(self.memory[@intCast(addr + 1)])) << 8;
+                n |= @as(i64, @intCast(self.memory[@intCast(addr)]));
+
+                try stack.append(n);
+
+                self.pc += 1;
+            },
+            // store means store_u32
+            .store => {
+                const value = stack.pop();
+                const addr = stack.pop();
+                self.memory[@intCast(addr)] = @intCast(value & 0xff);
+                self.memory[@intCast(addr + 1)] = @intCast((value >> 8) & 0xff);
+                self.memory[@intCast(addr + 2)] = @intCast((value >> 16) & 0xff);
+                self.memory[@intCast(addr + 3)] = @intCast((value >> 24) & 0xff);
                 self.pc += 1;
             },
             .set_memory => |m| {
@@ -696,6 +747,14 @@ pub const VmRuntime = struct {
                 for (data, 0..) |d, i| {
                     self.memory[addr + i] = d;
                 }
+                self.hp = addr + data.len + 1;
+                self.pc += 1;
+            },
+            .allocate_memory => |size| {
+                const hp = self.hp;
+                self.hp += size;
+
+                try stack.append(@intCast(hp));
                 self.pc += 1;
             },
         }

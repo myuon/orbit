@@ -111,6 +111,8 @@ pub const Lexer = struct {
             .{ .str = ">", .operator = ast.Operator.rangle },
             .{ .str = "[", .operator = ast.Operator.lbracket },
             .{ .str = "]", .operator = ast.Operator.rbracket },
+            .{ .str = "{", .operator = ast.Operator.lbrace },
+            .{ .str = "}", .operator = ast.Operator.rbrace },
             .{ .str = "%", .operator = ast.Operator.percent },
             .{ .str = "let", .operator = ast.Operator.let },
             .{ .str = "do", .operator = ast.Operator.do },
@@ -122,6 +124,7 @@ pub const Lexer = struct {
             .{ .str = "while", .operator = ast.Operator.while_ },
             .{ .str = "true", .operator = ast.Operator.true_ },
             .{ .str = "false", .operator = ast.Operator.false_ },
+            .{ .str = "new", .operator = ast.Operator.new },
         };
 
         for (tokenTable) |token| {
