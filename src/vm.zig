@@ -23,7 +23,7 @@ pub const Vm = struct {
     compiling_context: []const u8 = "",
     prng: std.Random.Xoshiro256,
     env: std.StringHashMap(i32),
-    sp: i32 = 0,
+    env_offset: i32 = 0,
 
     pub fn init(allocator: std.mem.Allocator) Vm {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -37,7 +37,7 @@ pub const Vm = struct {
             .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .prng = prng,
             .env = std.StringHashMap(i32).init(allocator),
-            .sp = 0,
+            .env_offset = 0,
         };
     }
 
@@ -249,11 +249,11 @@ pub const Vm = struct {
         for (block.statements) |stmt| {
             switch (stmt) {
                 .let => |let| {
-                    try self.env.put(let.name, self.sp);
-                    self.sp += 1;
+                    const i = self.env_offset;
+                    try self.env.put(let.name, i);
+                    self.env_offset += 1;
 
                     try self.compileExprFromAst(buffer, let.value);
-                    try buffer.append(ast.Instruction{ .set_local = let.name });
                 },
                 .return_ => |val| {
                     try self.compileExprFromAst(buffer, val);
@@ -320,7 +320,13 @@ pub const Vm = struct {
                 },
                 .assign => |assign| {
                     try self.compileExprFromAst(buffer, assign.value);
-                    try buffer.append(ast.Instruction{ .set_local = assign.name });
+
+                    if (self.env.get(assign.name)) |k| {
+                        try buffer.append(ast.Instruction{ .set_local_d = k });
+                    } else {
+                        std.log.err("Variable not found: {s}\n", .{assign.name});
+                        return error.VariableNotFound;
+                    }
                 },
             }
         }
@@ -346,7 +352,7 @@ pub const Vm = struct {
         entrypoint: []const u8,
         module: ast.Module,
     ) anyerror![]ast.Instruction {
-        self.sp = 0;
+        self.env_offset = 0;
         self.env.clearAndFree();
 
         var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
@@ -371,7 +377,7 @@ pub const Vm = struct {
         for (module.decls) |decl| {
             switch (decl) {
                 .fun => |f| {
-                    self.sp = 0;
+                    self.env_offset = 0;
                     self.env.clearAndFree();
 
                     try buffer.append(ast.Instruction{ .label = f.name });
@@ -678,6 +684,11 @@ pub const VmRuntime = struct {
             .set_local_d => |k| {
                 const value = stack.pop();
                 const b: i32 = @intCast(bp.*);
+                if (b + k >= stack.items.len) {
+                    std.log.err("Invalid address: {d} at {any}\n", .{ b + k, stack.items });
+                    return error.AssertionFailed;
+                }
+
                 stack.items[@intCast(b + k)] = value;
                 self.pc += 1;
             },
