@@ -721,8 +721,6 @@ pub const VmRuntime = struct {
                 self.pc += 1;
             },
             .load => |size| {
-                std.debug.assert(size <= 4);
-
                 const addr = stack.pop();
 
                 var n: i64 = 0;
@@ -736,14 +734,24 @@ pub const VmRuntime = struct {
                 if (size >= 4) {
                     n |= @as(i64, @intCast(self.memory[@intCast(addr + 3)])) << 24;
                 }
+                if (size >= 5) {
+                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 4)])) << 32;
+                }
+                if (size >= 6) {
+                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 5)])) << 40;
+                }
+                if (size >= 7) {
+                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 6)])) << 48;
+                }
+                if (size >= 8) {
+                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 7)])) << 56;
+                }
 
                 try stack.append(n);
 
                 self.pc += 1;
             },
             .store => |size| {
-                std.debug.assert(size <= 4);
-
                 const value = stack.pop();
                 const addr = stack.pop();
                 self.memory[@intCast(addr)] = @intCast(value & 0xff);
@@ -755,6 +763,18 @@ pub const VmRuntime = struct {
                 }
                 if (size >= 4) {
                     self.memory[@intCast(addr + 3)] = @intCast((value >> 24) & 0xff);
+                }
+                if (size >= 5) {
+                    self.memory[@intCast(addr + 4)] = @intCast((value >> 32) & 0xff);
+                }
+                if (size >= 6) {
+                    self.memory[@intCast(addr + 5)] = @intCast((value >> 40) & 0xff);
+                }
+                if (size >= 7) {
+                    self.memory[@intCast(addr + 6)] = @intCast((value >> 48) & 0xff);
+                }
+                if (size >= 8) {
+                    self.memory[@intCast(addr + 7)] = @intCast((value >> 56) & 0xff);
                 }
                 self.pc += 1;
             },
