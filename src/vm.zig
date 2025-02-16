@@ -541,18 +541,25 @@ pub const VmRuntime = struct {
                 const target = (try VmRuntime.find_label(program, label)).?;
                 self.pc = target;
 
-                if (entry.value_ptr.* >= 100) {
+                if (self.jit_cache.contains(label)) {
+                    // TODO
+                } else if (entry.value_ptr.* >= 100) {
                     // When tracing is finished
                     if (self.traces) |traces| {
-                        std.log.warn("Tracing finished\n{any}", .{traces.items});
+                        if (std.meta.eql(traces.items[0], inst)) {
+                            std.log.warn("Tracing finished\n{any}", .{traces.items});
 
-                        self.traces.?.deinit();
-                        self.traces = null;
+                            self.traces.?.deinit();
+                            self.traces = null;
+
+                            try self.jit_cache.put(label, undefined);
+                        }
                     } else {
                         // When jumping backwords
                         if (target < pc and pc - target >= 10) {
                             // start tracing
                             self.traces = std.ArrayList(ast.Instruction).init(self.allocator);
+                            try self.traces.?.append(inst);
                         }
                     }
                 }
