@@ -1,0 +1,20 @@
+name: Zig Build Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Zig Compiler
+        uses: mlugg/setup-zig@v1
+        with:
+          version: "0.13.0"
+      - name: Run zig build test
+        run: zig build test
