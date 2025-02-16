@@ -344,7 +344,7 @@ pub const JitRuntime = struct {
 
         const buf = mman.mmap(
             null,
-            4096,
+            1024 * 1024,
             mman.PROT_WRITE | mman.PROT_EXEC,
             mman.MAP_PRIVATE | mman.MAP_ANONYMOUS | mman.MAP_JIT,
             -1,

@@ -14,6 +14,7 @@ const ControlFlow = enum {
 
 pub const VmError = error{
     VariableNotFound,
+    LabelNotFound,
 };
 
 // This is a compiler for AOT compilation
@@ -52,7 +53,11 @@ pub const Vm = struct {
     }
 
     /// This function MUST NOT move the label positions.
-    pub fn resolveIrLabels(self: *Vm, prog: []ast.Instruction) anyerror!void {
+    pub fn resolveIrLabels(
+        self: *Vm,
+        prog: []ast.Instruction,
+        label_fallback_position: ?usize,
+    ) anyerror!void {
         var labels = std.StringHashMap(usize).init(self.allocator);
         defer labels.deinit();
 
@@ -68,16 +73,43 @@ pub const Vm = struct {
         for (prog, 0..) |inst, i| {
             switch (inst) {
                 .jump => |label| {
-                    prog[i] = ast.Instruction{ .jump_d = labels.get(label).? };
+                    var target: usize = undefined;
+                    if (labels.get(label)) |t| {
+                        target = t;
+                    } else if (label_fallback_position) |fallback| {
+                        target = fallback;
+                    } else {
+                        std.log.err("Label not found: {s}", .{label});
+                        return error.LabelNotFound;
+                    }
+                    prog[i] = ast.Instruction{ .jump_d = target };
                 },
                 .jump_ifzero => |label| {
-                    prog[i] = ast.Instruction{ .jump_ifzero_d = labels.get(label).? };
+                    var target: usize = undefined;
+                    if (labels.get(label)) |t| {
+                        target = t;
+                    } else if (label_fallback_position) |fallback| {
+                        target = fallback;
+                    } else {
+                        std.log.err("Label not found: {s}", .{label});
+                        return error.LabelNotFound;
+                    }
+                    prog[i] = ast.Instruction{ .jump_ifzero_d = target };
                 },
                 .label => {
                     prog[i] = ast.Instruction{ .nop = true };
                 },
                 .call => |label| {
-                    prog[i] = ast.Instruction{ .call_d = labels.get(label).? };
+                    var target: usize = undefined;
+                    if (labels.get(label)) |t| {
+                        target = t;
+                    } else if (label_fallback_position) |fallback| {
+                        target = fallback;
+                    } else {
+                        std.log.err("Label not found: {s}", .{label});
+                        return error.LabelNotFound;
+                    }
+                    prog[i] = ast.Instruction{ .call_d = target };
                 },
                 else => {},
             }
@@ -546,20 +578,41 @@ pub const VmRuntime = struct {
                 } else if (entry.value_ptr.* >= 100) {
                     // When tracing is finished
                     if (self.traces) |traces| {
-                        if (std.meta.eql(traces.items[0], inst)) {
-                            std.log.warn("Tracing finished\n{any}", .{traces.items});
+                        if (std.mem.eql(u8, traces.items[0].label, label)) {
+                            // Only supports: [label, ..., jump label] fragment
+                            std.debug.assert(std.mem.eql(u8, traces.items[0].label, label));
+                            std.debug.assert(std.mem.eql(u8, traces.items[traces.items.len - 1].jump, label));
+
+                            var vmc = Vm.init(self.allocator);
+                            defer vmc.deinit();
+
+                            var ir_block = std.ArrayList(ast.Instruction).init(self.allocator);
+                            defer ir_block.deinit();
+
+                            try ir_block.appendSlice(traces.items);
+
+                            const fallback_position = ir_block.items.len;
+
+                            // add fallback block (when label not found)
+                            try ir_block.append(ast.Instruction{ .ret = true });
+
+                            try vmc.resolveIrLabels(ir_block.items, fallback_position);
+
+                            std.log.info("Tracing & compile finished, {d}", .{ir_block.items.len});
+
+                            var runtime = jit.JitRuntime.init(self.allocator);
+                            const f = try runtime.compile(ir_block.items);
+
+                            try self.jit_cache.put(label, f);
 
                             self.traces.?.deinit();
                             self.traces = null;
-
-                            try self.jit_cache.put(label, undefined);
                         }
                     } else {
                         // When jumping backwords
                         if (target < pc and pc - target >= 10) {
                             // start tracing
                             self.traces = std.ArrayList(ast.Instruction).init(self.allocator);
-                            try self.traces.?.append(inst);
                         }
                     }
                 }
@@ -635,7 +688,7 @@ pub const VmRuntime = struct {
                             var vmc = Vm.init(self.allocator);
                             defer vmc.deinit();
 
-                            try vmc.resolveIrLabels(ir_block);
+                            try vmc.resolveIrLabels(ir_block, null);
 
                             var params = std.ArrayList([]const u8).init(self.allocator);
                             defer params.deinit();
