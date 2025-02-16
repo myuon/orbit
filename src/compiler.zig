@@ -328,6 +328,16 @@ test "compiler.evalModule" {
             ,
             .expected = 76127,
         },
+        .{
+            .program =
+            \\fun main() do
+            \\  let s = "Hello, World!";
+            \\
+            \\  return s[5];
+            \\end
+            ,
+            .expected = 44,
+        },
     };
 
     for (cases) |case| {

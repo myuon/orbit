@@ -61,6 +61,24 @@ pub const Lexer = struct {
         return number;
     }
 
+    fn consume_string(self: *Lexer) ?[]const u8 {
+        const start = self.position;
+        if (self.consume() != '"') {
+            return null;
+        }
+
+        while (self.peek()) |ch| {
+            if (ch == '"') {
+                self.position += 1;
+                return self.source[start + 1 .. self.position - 1];
+            }
+
+            _ = self.consume();
+        }
+
+        return null;
+    }
+
     fn consume_spaces(self: *Lexer) usize {
         var n: usize = 0;
 
@@ -91,6 +109,8 @@ pub const Lexer = struct {
             .{ .str = ")", .operator = ast.Operator.rparen },
             .{ .str = "<", .operator = ast.Operator.langle },
             .{ .str = ">", .operator = ast.Operator.rangle },
+            .{ .str = "[", .operator = ast.Operator.lbracket },
+            .{ .str = "]", .operator = ast.Operator.rbracket },
             .{ .str = "%", .operator = ast.Operator.percent },
             .{ .str = "let", .operator = ast.Operator.let },
             .{ .str = "do", .operator = ast.Operator.do },
@@ -153,6 +173,11 @@ pub const Lexer = struct {
                 continue;
             }
 
+            if (self.consume_string()) |string| {
+                try tokens.append(ast.Token{ .string = string });
+                continue;
+            }
+
             std.debug.print("unexpected token: {s}\n", .{self.source[self.position..]});
             return error.UnexpectedToken;
         }
@@ -161,7 +186,7 @@ pub const Lexer = struct {
     }
 };
 
-test "lexer" {
+test {
     var lexer = Lexer.init(std.testing.allocator, "1 + 20 * 300");
     defer lexer.deinit();
 
@@ -176,4 +201,22 @@ test "lexer" {
     try expected.append(ast.Token{ .number = 300 });
 
     try std.testing.expectEqualSlices(ast.Token, expected.items, result.items);
+}
+
+test {
+    var lexer = Lexer.init(std.testing.allocator, "let k = \"hello\";");
+    defer lexer.deinit();
+
+    const result = try lexer.run();
+
+    var expected = std.ArrayList(ast.Token).init(std.testing.allocator);
+    defer expected.deinit();
+    try expected.append(ast.Token{ .keyword = ast.Operator.let });
+    try expected.append(ast.Token{ .ident = "k" });
+    try expected.append(ast.Token{ .keyword = ast.Operator.eq });
+    try expected.append(ast.Token{ .string = "hello" });
+    try expected.append(ast.Token{ .keyword = ast.Operator.semicolon });
+
+    try std.testing.expectEqual(result.items.len, expected.items.len);
+    try std.testing.expectEqualDeep(expected.items, result.items);
 }

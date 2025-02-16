@@ -576,6 +576,21 @@ pub const Parser = struct {
                             .name = ident,
                             .args = args.items,
                         } };
+                    } else if (self.is_next(ast.Operator.lbracket)) {
+                        try self.expect(ast.Operator.lbracket);
+                        const index = try self.expr();
+                        try self.expect(ast.Operator.rbracket);
+
+                        const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                        lhs.* = identExpr;
+
+                        const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                        rhs.* = index;
+
+                        current.* = ast.Expression{ .index = .{
+                            .lhs = lhs,
+                            .rhs = rhs,
+                        } };
                     } else {
                         current.* = identExpr;
                     }
@@ -619,6 +634,11 @@ pub const Parser = struct {
                     _ = self.consume();
 
                     return ast.Literal{ .number = n };
+                },
+                .string => |s| {
+                    _ = self.consume();
+
+                    return ast.Literal{ .string = s };
                 },
                 .keyword => |op| {
                     switch (op) {

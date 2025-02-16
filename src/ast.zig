@@ -11,6 +11,8 @@ pub const Operator = enum {
     rparen,
     langle,
     rangle,
+    lbracket,
+    rbracket,
     plus,
     minus,
     star,
@@ -31,12 +33,14 @@ pub const TokenType = enum {
     keyword,
     number,
     ident,
+    string,
 };
 
 pub const Token = union(TokenType) {
     keyword: Operator,
     number: u32,
     ident: []const u8,
+    string: []const u8,
 };
 
 pub const ExpressionType = enum {
@@ -46,6 +50,7 @@ pub const ExpressionType = enum {
     block,
     call,
     if_,
+    index,
 };
 
 pub const Expression = union(ExpressionType) {
@@ -65,6 +70,10 @@ pub const Expression = union(ExpressionType) {
         cond: *Expression,
         then_: Block,
         else_: Block,
+    },
+    index: struct {
+        lhs: *Expression,
+        rhs: *Expression,
     },
 };
 
@@ -191,6 +200,8 @@ pub const InstructionType = enum {
     lte,
     gt,
     gte,
+    load,
+    set_memory,
 };
 
 pub const Instruction = union(InstructionType) {
@@ -222,4 +233,9 @@ pub const Instruction = union(InstructionType) {
     lte: bool,
     gt: bool,
     gte: bool,
+    load: bool,
+    set_memory: struct {
+        data: []const u8,
+        offset: usize,
+    },
 };

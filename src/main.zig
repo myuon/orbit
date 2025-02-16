@@ -111,10 +111,6 @@ pub fn main() !void {
             std.debug.print("stack: {any}\n", .{stack.items});
         }
 
-        var address_map = std.StringHashMap(i64).init(allocator);
-        defer address_map.deinit();
-
-        try address_map.put("return", -2 - 1);
         try stack.append(-2); // return value
         try stack.append(-1); // pc
         try stack.append(0); // bp
@@ -155,7 +151,7 @@ pub fn main() !void {
                 switch (event) {
                     .key_press => |key| {
                         if (key.matches('n', .{})) {
-                            const result = try vmc.step(prog, &stack, &bp, &address_map);
+                            const result = try vmc.step(prog, &stack, &bp);
                             if (result.isTerminated()) {
                                 break;
                             }
@@ -199,7 +195,7 @@ pub fn main() !void {
             }
 
             if (mode_resume) {
-                const result = try vmc.step(prog, &stack, &bp, &address_map);
+                const result = try vmc.step(prog, &stack, &bp);
                 if (result.isTerminated()) {
                     break;
                 }
@@ -214,22 +210,6 @@ pub fn main() !void {
 
             var adm = std.ArrayList(u8).init(draw_allocator);
             defer adm.deinit();
-
-            var iter = address_map.iterator();
-            while (iter.next()) |entry| {
-                try adm.appendSlice(entry.key_ptr.*);
-                try adm.appendSlice(" -> ");
-                try adm.appendSlice(try std.fmt.allocPrint(draw_allocator, "{d}", .{entry.value_ptr.*}));
-                try adm.appendSlice(" (");
-
-                const v = bp + entry.value_ptr.*;
-                if (v >= 0 and v < stack.items.len) {
-                    const t = try std.fmt.allocPrint(draw_allocator, "{d}", .{stack.items[@intCast(v)]});
-                    try adm.appendSlice(t);
-                }
-                try adm.appendSlice(")");
-                try adm.appendSlice("\n");
-            }
 
             const s = try writeStack(draw_allocator, stack.items, bp);
             const k = try std.fmt.allocPrint(draw_allocator,

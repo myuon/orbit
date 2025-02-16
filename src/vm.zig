@@ -24,6 +24,8 @@ pub const Vm = struct {
     prng: std.Random.Xoshiro256,
     env: std.StringHashMap(i32),
     env_offset: i32 = 0,
+    string_data: std.StringHashMap(i32),
+    string_data_offset: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator) Vm {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -38,12 +40,15 @@ pub const Vm = struct {
             .prng = prng,
             .env = std.StringHashMap(i32).init(allocator),
             .env_offset = 0,
+            .string_data = std.StringHashMap(i32).init(allocator),
+            .string_data_offset = 0,
         };
     }
 
     pub fn deinit(self: *Vm) void {
         self.ast_arena_allocator.deinit();
         self.env.deinit();
+        self.string_data.deinit();
     }
 
     /// This function MUST NOT move the label positions.
@@ -101,8 +106,13 @@ pub const Vm = struct {
                             try buffer.append(ast.Instruction{ .push = 0 });
                         }
                     },
-                    else => {
-                        unreachable;
+                    .string => |s| {
+                        const i = self.string_data_offset;
+                        try self.string_data.put(s, @intCast(i));
+                        self.string_data_offset += s.len + 1; // +1 for null terminator
+
+                        // address of the string
+                        try buffer.append(ast.Instruction{ .push = @intCast(i) });
                     },
                 }
             },
@@ -183,8 +193,18 @@ pub const Vm = struct {
                 try self.compileBlockFromAst(buffer, if_.else_);
                 try buffer.append(ast.Instruction{ .label = label_ifend });
             },
-            else => {
+            .block => {
                 unreachable;
+            },
+            .index => |index| {
+                try self.compileExprFromAst(buffer, index.lhs.*);
+                try self.compileExprFromAst(buffer, index.rhs.*);
+                // assume lhs is a string
+                try buffer.append(ast.Instruction{ .push = 1 });
+                try buffer.append(ast.Instruction{ .mul = true });
+                try buffer.append(ast.Instruction{ .add = true });
+
+                try buffer.append(ast.Instruction{ .load = true });
             },
         }
     }
@@ -298,11 +318,12 @@ pub const Vm = struct {
         self.env_offset = 0;
         self.env.clearAndFree();
 
-        var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
+        var progBuffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
+        defer progBuffer.deinit();
 
         try self.env.put("return", -3);
 
-        try self.compileBlockFromAst(&buffer, ast.Block{
+        try self.compileBlockFromAst(&progBuffer, ast.Block{
             .statements = @constCast(&[_]ast.Statement{
                 .{
                     .return_ = .{
@@ -322,7 +343,7 @@ pub const Vm = struct {
                     self.env_offset = 0;
                     self.env.clearAndFree();
 
-                    try buffer.append(ast.Instruction{ .label = f.name });
+                    try progBuffer.append(ast.Instruction{ .label = f.name });
 
                     try self.env.put("return", -@as(i32, @intCast(f.params.len)) - 3);
 
@@ -333,17 +354,27 @@ pub const Vm = struct {
 
                     self.compiling_context = f.name;
 
-                    try buffer.appendSlice(try self.compileBlock(f.name, f.body));
+                    try progBuffer.appendSlice(try self.compileBlock(f.name, f.body));
 
                     self.compiling_context = "";
 
                     const end_of_f = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "end_of_{s}", .{f.name});
-                    try buffer.append(ast.Instruction{ .label = end_of_f });
+                    try progBuffer.append(ast.Instruction{ .label = end_of_f });
                 },
             }
         }
 
-        return buffer.items;
+        var dataBuffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
+
+        var iter = self.string_data.keyIterator();
+        while (iter.next()) |k| {
+            const offset = self.string_data.get(k.*).?;
+            try dataBuffer.append(ast.Instruction{ .set_memory = .{ .data = k.*, .offset = @intCast(offset) } });
+        }
+
+        try dataBuffer.appendSlice(progBuffer.items);
+
+        return dataBuffer.items;
     }
 };
 
@@ -359,6 +390,7 @@ pub const VmRuntime = struct {
     hot_spot_labels: std.StringHashMap(usize),
     jit_cache: std.StringHashMap(jit.CompiledFn),
     allocator: std.mem.Allocator,
+    memory: []u8,
 
     pub fn init(allocator: std.mem.Allocator) VmRuntime {
         return VmRuntime{
@@ -368,6 +400,7 @@ pub const VmRuntime = struct {
             .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
             .enable_jit = true,
             .allocator = allocator,
+            .memory = std.heap.page_allocator.alloc(u8, 1024 * 1024) catch unreachable,
         };
     }
 
@@ -648,6 +681,20 @@ pub const VmRuntime = struct {
                     try stack.append(1);
                 } else {
                     try stack.append(0);
+                }
+                self.pc += 1;
+            },
+            // load means load_u8
+            .load => {
+                const addr = stack.pop();
+                try stack.append(@intCast(self.memory[@intCast(addr)]));
+                self.pc += 1;
+            },
+            .set_memory => |m| {
+                const addr = m.offset;
+                const data = m.data;
+                for (data, 0..) |d, i| {
+                    self.memory[addr + i] = d;
                 }
                 self.pc += 1;
             },
