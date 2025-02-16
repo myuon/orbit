@@ -434,6 +434,7 @@ pub const VmRuntime = struct {
     envs: std.ArrayList(std.StringHashMap(i64)),
     enable_jit: bool,
     hot_spot_labels: std.StringHashMap(usize),
+    traces: ?std.ArrayList(ast.Instruction),
     jit_cache: std.StringHashMap(jit.CompiledFn),
     allocator: std.mem.Allocator,
     memory: []u8,
@@ -444,6 +445,7 @@ pub const VmRuntime = struct {
             .pc = 0,
             .envs = std.ArrayList(std.StringHashMap(i64)).init(allocator),
             .hot_spot_labels = std.StringHashMap(usize).init(allocator),
+            .traces = null,
             .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
             .enable_jit = true,
             .allocator = allocator,
@@ -453,6 +455,9 @@ pub const VmRuntime = struct {
     }
 
     pub fn deinit(self: *VmRuntime) void {
+        if (self.traces) |traces| {
+            traces.deinit();
+        }
         self.envs.deinit();
         self.hot_spot_labels.deinit();
         self.jit_cache.deinit();
@@ -486,6 +491,16 @@ pub const VmRuntime = struct {
         }
 
         const inst = program[self.pc];
+        if (self.traces) |traces| {
+            try self.traces.?.append(inst);
+
+            if (traces.items.len > 1_000_000) {
+                std.log.warn("Tracing limit exceeded\n", .{});
+
+                self.traces.?.deinit();
+                self.traces = null;
+            }
+        }
 
         switch (inst) {
             .nop => {
@@ -518,7 +533,29 @@ pub const VmRuntime = struct {
                 }
             },
             .jump => |label| {
-                self.pc = (try VmRuntime.find_label(program, label)).?;
+                const entry = try self.hot_spot_labels.getOrPutValue(label, 0);
+                entry.value_ptr.* += 1;
+
+                const pc = self.pc;
+
+                const target = (try VmRuntime.find_label(program, label)).?;
+                self.pc = target;
+
+                if (entry.value_ptr.* >= 100) {
+                    // When tracing is finished
+                    if (self.traces) |traces| {
+                        std.log.warn("Tracing finished\n{any}", .{traces.items});
+
+                        self.traces.?.deinit();
+                        self.traces = null;
+                    } else {
+                        // When jumping backwords
+                        if (target < pc and pc - target >= 10) {
+                            // start tracing
+                            self.traces = std.ArrayList(ast.Instruction).init(self.allocator);
+                        }
+                    }
+                }
             },
             .jump_ifzero => |label| {
                 const cond = stack.pop();
@@ -528,8 +565,8 @@ pub const VmRuntime = struct {
 
                 self.pc += 1;
             },
-            .jump_d => |c| {
-                self.pc = c;
+            .jump_d => {
+                unreachable;
             },
             .jump_ifzero_d => |c| {
                 const cond = stack.pop();

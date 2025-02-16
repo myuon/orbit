@@ -76,6 +76,8 @@ pub const Compiler = struct {
     }
 
     pub fn startVm(self: *Compiler, ir: []ast.Instruction, options: struct { enable_jit: bool }) anyerror!ast.Value {
+        const start = try std.time.Instant.now();
+
         var stack = std.ArrayList(i64).init(self.allocator);
         defer stack.deinit();
 
@@ -95,6 +97,9 @@ pub const Compiler = struct {
         vmr.enable_jit = options.enable_jit;
 
         try vmr.run(ir, &stack, &bp);
+
+        const end = try std.time.Instant.now();
+        std.debug.print("VmRuntime.run in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
 
         return ast.Value{ .i64_ = stack.items[0] };
     }
@@ -369,7 +374,7 @@ test "compiler.evalModule" {
             \\  let n = 0;
             \\  let a = 1;
             \\  let b = 1;
-            \\  while (n < 10) do
+            \\  while (n < 30) do
             \\    let c = a + b;
             \\    a = b;
             \\    b = c;
