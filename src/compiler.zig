@@ -84,7 +84,7 @@ pub const Compiler = struct {
 
         vmr.enable_jit = options.enable_jit;
 
-        try vmr.run(ir, &stack, &bp, &address_map);
+        try vmr.run(ir, &stack, &bp);
 
         return ast.Value{ .i64_ = stack.items[0] };
     }

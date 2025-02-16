@@ -399,10 +399,7 @@ pub const VmRuntime = struct {
         program: []ast.Instruction,
         stack: *std.ArrayList(i64),
         bp: *i64,
-        address_map: *std.StringHashMap(i64),
     ) anyerror!ControlFlow {
-        _ = address_map;
-
         if (self.pc >= program.len) {
             return ControlFlow.Terminated;
         }
@@ -664,10 +661,9 @@ pub const VmRuntime = struct {
         program: []ast.Instruction,
         stack: *std.ArrayList(i64),
         bp: *i64,
-        address_map: *std.StringHashMap(i64),
     ) anyerror!void {
         while (self.pc < program.len) {
-            switch (try self.step(program, stack, bp, address_map)) {
+            switch (try self.step(program, stack, bp)) {
                 .Terminated => {
                     break;
                 },
@@ -782,8 +778,6 @@ test "vm.run" {
         defer stack.deinit();
 
         var bp: i64 = 0;
-        var address_map = std.StringHashMap(i64).init(std.testing.allocator);
-        defer address_map.deinit();
 
         if (case.initial_stack.len > 0) {
             for (case.initial_stack) |item| {
@@ -795,7 +789,7 @@ test "vm.run" {
         }
 
         var vmr = VmRuntime.init(std.testing.allocator);
-        try vmr.run(case.prog, &stack, &bp, &address_map);
+        try vmr.run(case.prog, &stack, &bp);
 
         try std.testing.expectEqualSlices(i64, case.expected, stack.items);
     }
