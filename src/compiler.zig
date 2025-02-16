@@ -334,7 +334,9 @@ test "compiler.evalModule" {
         var c = Compiler.init(std.testing.allocator);
         defer c.deinit();
 
-        try std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalModule(case.program, .{ .enable_jit = false }));
+        try std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, c.evalModule(case.program, .{ .enable_jit = false }) catch |err| {
+            std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
+        });
         std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalModule(case.program, .{ .enable_jit = true })) catch |err| {
             std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
         };

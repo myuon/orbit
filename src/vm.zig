@@ -371,6 +371,9 @@ pub const Vm = struct {
         for (module.decls) |decl| {
             switch (decl) {
                 .fun => |f| {
+                    self.sp = 0;
+                    self.env.clearAndFree();
+
                     try buffer.append(ast.Instruction{ .label = f.name });
 
                     try buffer.append(ast.Instruction{ .clone_env = true });
@@ -415,6 +418,7 @@ pub const Vm = struct {
 
 pub const VmRuntimeError = error{
     LabelNotFound,
+    AssertionFailed,
 };
 
 pub const VmRuntime = struct {
@@ -662,6 +666,11 @@ pub const VmRuntime = struct {
             },
             .get_local_d => |k| {
                 const b: i32 = @intCast(bp.*);
+                if (b + k >= stack.items.len) {
+                    std.log.err("Invalid address: {d} at {any}\n", .{ b + k, stack.items });
+                    return error.AssertionFailed;
+                }
+
                 const value = stack.items[@intCast(b + k)];
                 try stack.append(value);
                 self.pc += 1;
