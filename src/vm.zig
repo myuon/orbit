@@ -12,12 +12,18 @@ const ControlFlow = enum {
     }
 };
 
+pub const VmError = error{
+    VariableNotFound,
+};
+
 // This is a compiler for AOT compilation
 pub const Vm = struct {
     allocator: std.mem.Allocator,
     ast_arena_allocator: std.heap.ArenaAllocator,
     compiling_context: []const u8 = "",
     prng: std.Random.Xoshiro256,
+    env: std.StringHashMap(i32),
+    sp: i32 = 0,
 
     pub fn init(allocator: std.mem.Allocator) Vm {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -30,11 +36,14 @@ pub const Vm = struct {
             .allocator = allocator,
             .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .prng = prng,
+            .env = std.StringHashMap(i32).init(allocator),
+            .sp = 0,
         };
     }
 
     pub fn deinit(self: *Vm) void {
         self.ast_arena_allocator.deinit();
+        self.env.deinit();
     }
 
     /// This function MUST NOT move the label positions.
@@ -129,7 +138,12 @@ pub const Vm = struct {
     fn compileExprFromAst(self: *Vm, buffer: *std.ArrayList(ast.Instruction), expr: ast.Expression) anyerror!void {
         switch (expr) {
             .var_ => |v| {
-                try buffer.append(ast.Instruction{ .get_local = v });
+                if (self.env.get(v)) |k| {
+                    try buffer.append(ast.Instruction{ .get_local_d = k });
+                } else {
+                    std.log.err("Variable not found: {s}\n", .{v});
+                    return error.VariableNotFound;
+                }
             },
             .literal => |lit| {
                 switch (lit) {
@@ -235,6 +249,9 @@ pub const Vm = struct {
         for (block.statements) |stmt| {
             switch (stmt) {
                 .let => |let| {
+                    try self.env.put(let.name, self.sp);
+                    self.sp += 1;
+
                     try self.compileExprFromAst(buffer, let.value);
                     try buffer.append(ast.Instruction{ .set_local = let.name });
                 },
@@ -242,7 +259,20 @@ pub const Vm = struct {
                     try self.compileExprFromAst(buffer, val);
 
                     // epilogue
-                    try buffer.append(ast.Instruction{ .set_local = "return" });
+                    if (self.env.get("return")) |k| {
+                        try buffer.append(ast.Instruction{ .set_local_d = k });
+                    } else {
+                        var keys = std.ArrayList([]const u8).init(self.allocator);
+                        defer keys.deinit();
+
+                        var iter = self.env.keyIterator();
+                        while (iter.next()) |k| {
+                            try keys.append(k.*);
+                        }
+
+                        std.log.err("Cannot find return value position in {any}", .{keys.items});
+                        return error.VariableNotFound;
+                    }
 
                     try buffer.append(ast.Instruction{ .get_bp = true });
                     try buffer.append(ast.Instruction{ .set_sp = true });
@@ -296,7 +326,7 @@ pub const Vm = struct {
         }
     }
 
-    pub fn compile(
+    pub fn compileBlock(
         self: *Vm,
         entrypoint: []const u8,
         body: ast.Block,
@@ -311,12 +341,17 @@ pub const Vm = struct {
         return buffer.items;
     }
 
-    pub fn compileModule(
+    pub fn compile(
         self: *Vm,
         entrypoint: []const u8,
         module: ast.Module,
     ) anyerror![]ast.Instruction {
+        self.sp = 0;
+        self.env.clearAndFree();
+
         var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
+
+        try self.env.put("return", -3);
 
         try buffer.append(ast.Instruction{ .clone_env = true });
         try self.compileBlockFromAst(&buffer, ast.Block{
@@ -340,22 +375,16 @@ pub const Vm = struct {
 
                     try buffer.append(ast.Instruction{ .clone_env = true });
 
-                    try buffer.append(ast.Instruction{ .register_local = .{
-                        .name = "return",
-                        .offset = -3 - @as(i64, @intCast(f.params.len)),
-                    } });
+                    try self.env.put("return", -@as(i32, @intCast(f.params.len)) - 3);
 
                     // register names in the reverse order
                     for (f.params, 0..) |param, i| {
-                        try buffer.append(ast.Instruction{ .register_local = .{
-                            .name = param,
-                            .offset = @intCast(-@as(i64, @intCast(f.params.len - i)) - 2),
-                        } });
+                        try self.env.put(param, -@as(i32, @intCast(f.params.len - i)) - 2);
                     }
 
                     self.compiling_context = f.name;
 
-                    try buffer.appendSlice(try self.compile(f.name, f.body));
+                    try buffer.appendSlice(try self.compileBlock(f.name, f.body));
 
                     self.compiling_context = "";
 

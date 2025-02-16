@@ -56,7 +56,7 @@ pub const Compiler = struct {
 
         const tree = try p.module();
 
-        const ir = try self.vmc.compileModule("main", tree);
+        const ir = try self.vmc.compile("main", tree);
 
         end = try std.time.Instant.now();
         std.debug.print("Compiler.compile in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
@@ -335,6 +335,8 @@ test "compiler.evalModule" {
         defer c.deinit();
 
         try std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalModule(case.program, .{ .enable_jit = false }));
-        try std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalModule(case.program, .{ .enable_jit = true }));
+        std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalModule(case.program, .{ .enable_jit = true })) catch |err| {
+            std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
+        };
     }
 }
