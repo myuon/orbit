@@ -357,12 +357,12 @@ pub const JitRuntime = struct {
         defer code.deinit();
 
         for (prog, 0..) |inst, p| {
-            if (jumpTargets.contains(p)) {
-                try jumpTargets.put(p, @intCast(code.code_buf.items.len));
-            }
             if (p == 0) {
                 // prologue for a subroutine
                 try code.emitStpPreIndex(.x29, .x30, reg_sp, -16);
+            }
+            if (jumpTargets.contains(p)) {
+                try jumpTargets.put(p, @intCast(code.code_buf.items.len));
             }
 
             switch (inst) {
