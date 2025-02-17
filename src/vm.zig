@@ -571,10 +571,10 @@ pub const VmRuntime = struct {
                 const pc = self.pc;
 
                 const target = (try VmRuntime.find_label(program, label)).?;
-                self.pc = target;
 
-                if (self.jit_cache.contains(label)) {
-                    // TODO
+                var result_fn_ptr: ?jit.CompiledFn = null;
+                if (self.jit_cache.get(label)) |f| {
+                    result_fn_ptr = f;
                 } else if (entry.value_ptr.* >= 100) {
                     // When tracing is finished
                     if (self.traces) |traces| {
@@ -589,12 +589,15 @@ pub const VmRuntime = struct {
                             var ir_block = std.ArrayList(ast.Instruction).init(self.allocator);
                             defer ir_block.deinit();
 
+                            std.log.err("{any}", .{traces.items[16]});
                             try ir_block.appendSlice(traces.items);
 
                             const fallback_position = ir_block.items.len;
 
-                            // add fallback block (when label not found)
-                            try ir_block.append(ast.Instruction{ .ret = true });
+                            // Add fallback block (when label not found)
+                            // If compiled function is executed and bp=-1, this means the control escapes from the block
+                            try ir_block.append(ast.Instruction{ .push = -1 });
+                            try ir_block.append(ast.Instruction{ .set_bp = true });
 
                             try vmc.resolveIrLabels(ir_block.items, fallback_position);
 
@@ -605,8 +608,12 @@ pub const VmRuntime = struct {
 
                             try self.jit_cache.put(label, f);
 
+                            std.debug.print("Compiled(jit) {any}\n", .{ir_block.items});
+
                             self.traces.?.deinit();
                             self.traces = null;
+
+                            result_fn_ptr = f;
                         }
                     } else {
                         // When jumping backwords
@@ -615,6 +622,33 @@ pub const VmRuntime = struct {
                             self.traces = std.ArrayList(ast.Instruction).init(self.allocator);
                         }
                     }
+                }
+
+                if (result_fn_ptr) |fn_ptr| {
+                    const stack_copy = try stack.clone();
+                    const bp_copy = bp.*;
+
+                    var sp = @as(i64, @intCast(stack.items.len));
+
+                    std.log.info("BEF: {s}, {d} {any}", .{ label, bp.*, stack.items });
+                    fn_ptr((&stack.items).ptr, &sp, bp);
+                    std.log.info("AFT: {s}, {d} {any}", .{ label, bp.*, stack.items });
+
+                    if (bp.* == -1) {
+                        stack.*.clearAndFree();
+                        stack.* = stack_copy;
+
+                        bp.* = bp_copy;
+                    } else {
+                        // epilogue here
+                        self.pc += 1;
+
+                        stack.shrinkAndFree(@intCast(sp));
+
+                        return ControlFlow.Continue;
+                    }
+                } else {
+                    self.pc = target;
                 }
             },
             .jump_ifzero => |label| {
