@@ -462,12 +462,17 @@ pub const VmRuntimeError = error{
 };
 
 pub const VmRuntime = struct {
+    const JitCache = std.StringHashMap(struct {
+        fn_ptr: jit.CompiledFn,
+        exit: usize,
+    });
+
     pc: usize,
     envs: std.ArrayList(std.StringHashMap(i64)),
     enable_jit: bool,
     hot_spot_labels: std.StringHashMap(usize),
     traces: ?std.ArrayList(ast.Instruction),
-    jit_cache: std.StringHashMap(jit.CompiledFn),
+    jit_cache: JitCache,
     allocator: std.mem.Allocator,
     memory: []u8,
     hp: usize = 0,
@@ -478,7 +483,7 @@ pub const VmRuntime = struct {
             .envs = std.ArrayList(std.StringHashMap(i64)).init(allocator),
             .hot_spot_labels = std.StringHashMap(usize).init(allocator),
             .traces = null,
-            .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
+            .jit_cache = JitCache.init(allocator),
             .enable_jit = true,
             .allocator = allocator,
             .memory = std.heap.page_allocator.alloc(u8, 1024 * 1024) catch unreachable,
@@ -573,8 +578,10 @@ pub const VmRuntime = struct {
                 const target = (try VmRuntime.find_label(program, label)).?;
 
                 var result_fn_ptr: ?jit.CompiledFn = null;
-                if (self.jit_cache.get(label)) |f| {
-                    result_fn_ptr = f;
+                var exit: usize = 0;
+                if (self.jit_cache.get(label)) |data| {
+                    result_fn_ptr = data.fn_ptr;
+                    exit = data.exit;
                 } else if (entry.value_ptr.* >= 100) {
                     // When tracing is finished
                     if (self.traces) |traces| {
@@ -595,9 +602,8 @@ pub const VmRuntime = struct {
                             const fallback_position = ir_block.items.len;
 
                             // Add fallback block (when label not found)
-                            // If compiled function is executed and bp=-1, this means the control escapes from the block
-                            try ir_block.append(ast.Instruction{ .push = -1 });
-                            try ir_block.append(ast.Instruction{ .set_bp = true });
+                            // Multiple exit point is not supported yet
+                            try ir_block.append(ast.Instruction{ .ret = true });
 
                             try vmc.resolveIrLabels(ir_block.items, fallback_position);
 
@@ -606,7 +612,26 @@ pub const VmRuntime = struct {
                             var runtime = jit.JitRuntime.init(self.allocator);
                             const f = try runtime.compile(ir_block.items);
 
-                            try self.jit_cache.put(label, f);
+                            // find the exit path
+                            for (ir_block.items) |t| {
+                                switch (t) {
+                                    .jump => |l| {
+                                        std.debug.assert(std.mem.eql(u8, l, label));
+                                    },
+                                    .jump_ifzero => |l| {
+                                        exit = (try VmRuntime.find_label(ir_block.items, l)).?;
+                                    },
+                                    .call => {
+                                        unreachable;
+                                    },
+                                    else => {},
+                                }
+                            }
+
+                            try self.jit_cache.put(label, .{
+                                .fn_ptr = f,
+                                .exit = exit,
+                            });
 
                             std.debug.print("Compiled(jit) {any}\n", .{ir_block.items});
 
@@ -625,28 +650,18 @@ pub const VmRuntime = struct {
                 }
 
                 if (result_fn_ptr) |fn_ptr| {
-                    const stack_copy = try stack.clone();
-                    const bp_copy = bp.*;
-
                     var sp = @as(i64, @intCast(stack.items.len));
 
-                    std.log.info("BEF: {s}, {d} {any}", .{ label, bp.*, stack.items });
+                    // std.log.info("BEF: {s}, {d} {any}", .{ label, bp.*, stack.items });
                     fn_ptr((&stack.items).ptr, &sp, bp);
-                    std.log.info("AFT: {s}, {d} {any}", .{ label, bp.*, stack.items });
+                    // std.log.info("AFT: {s}, {d} {any}", .{ label, bp.*, stack.items });
 
-                    if (bp.* == -1) {
-                        stack.*.clearAndFree();
-                        stack.* = stack_copy;
+                    // epilogue here
+                    self.pc = exit;
 
-                        bp.* = bp_copy;
-                    } else {
-                        // epilogue here
-                        self.pc += 1;
+                    stack.shrinkAndFree(@intCast(sp));
 
-                        stack.shrinkAndFree(@intCast(sp));
-
-                        return ControlFlow.Continue;
-                    }
+                    return ControlFlow.Continue;
                 } else {
                     self.pc = target;
                 }
@@ -702,8 +717,8 @@ pub const VmRuntime = struct {
                     if (entry.value_ptr.* > 10) {
                         var fn_ptr: jit.CompiledFn = undefined;
 
-                        if (self.jit_cache.get(label)) |f| {
-                            fn_ptr = f;
+                        if (self.jit_cache.get(label)) |data| {
+                            fn_ptr = data.fn_ptr;
                         } else {
                             const start = try std.time.Instant.now();
 
@@ -738,7 +753,10 @@ pub const VmRuntime = struct {
                             const elapsed: f64 = @floatFromInt(end.since(start));
                             std.debug.print("Compiled(jit) in {d:.3}ms {s}\n", .{ elapsed / std.time.ns_per_ms, label });
 
-                            try self.jit_cache.put(label, f);
+                            try self.jit_cache.put(label, .{
+                                .fn_ptr = f,
+                                .exit = 0,
+                            });
 
                             fn_ptr = f;
                         }
