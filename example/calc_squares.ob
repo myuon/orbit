@@ -1,0 +1,21 @@
+fun calc() do
+  let n = 5000;
+  let sum = 0;
+
+  let i = 1;
+  while (i < n) do
+    let j = 1;
+    while (j < n) do
+      sum = sum + i * j;
+
+      j = j + 1;
+    end
+    i = i + 1;
+  end
+
+  return sum;
+end
+
+fun main() do
+  return calc();
+end

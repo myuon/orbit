@@ -254,6 +254,7 @@ pub const InstructionType = enum {
     store,
     set_memory,
     allocate_memory,
+    set_cip,
 };
 
 pub const Instruction = union(InstructionType) {
@@ -292,4 +293,114 @@ pub const Instruction = union(InstructionType) {
         offset: usize,
     },
     allocate_memory: usize,
+    set_cip: usize, // For tracing JIT
+
+    pub fn format(
+        self: Instruction,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            Instruction.push => {
+                try std.fmt.format(writer, "push #{d}", .{self.push});
+            },
+            Instruction.pop => {
+                try std.fmt.format(writer, "pop", .{});
+            },
+            Instruction.ret => {
+                try std.fmt.format(writer, "ret", .{});
+            },
+            Instruction.eq => {
+                try std.fmt.format(writer, "eq", .{});
+            },
+            Instruction.jump => {
+                try std.fmt.format(writer, "jump #{s}", .{self.jump});
+            },
+            Instruction.jump_ifzero => {
+                try std.fmt.format(writer, "jump_ifzero #{s}", .{self.jump_ifzero});
+            },
+            Instruction.add => {
+                try std.fmt.format(writer, "add", .{});
+            },
+            Instruction.sub => {
+                try std.fmt.format(writer, "sub", .{});
+            },
+            Instruction.mul => {
+                try std.fmt.format(writer, "mul", .{});
+            },
+            Instruction.div => {
+                try std.fmt.format(writer, "div", .{});
+            },
+            Instruction.call => {
+                try std.fmt.format(writer, "call #{s}", .{self.call});
+            },
+            Instruction.call_d => {
+                try std.fmt.format(writer, "call_d #{d}", .{self.call_d});
+            },
+            Instruction.label => {
+                try std.fmt.format(writer, "label #{s}", .{self.label});
+            },
+            Instruction.get_pc => {
+                try std.fmt.format(writer, "get_pc", .{});
+            },
+            Instruction.get_bp => {
+                try std.fmt.format(writer, "get_bp", .{});
+            },
+            Instruction.set_bp => {
+                try std.fmt.format(writer, "set_bp", .{});
+            },
+            Instruction.get_sp => {
+                try std.fmt.format(writer, "get_sp", .{});
+            },
+            Instruction.set_sp => {
+                try std.fmt.format(writer, "set_sp", .{});
+            },
+            Instruction.jump_d => {
+                try std.fmt.format(writer, "jump_d #{d}", .{self.jump_d});
+            },
+            Instruction.jump_ifzero_d => {
+                try std.fmt.format(writer, "jump_ifzero_d #{d}", .{self.jump_ifzero_d});
+            },
+            Instruction.get_local_d => {
+                try std.fmt.format(writer, "get_local_d #{d}", .{self.get_local_d});
+            },
+            Instruction.set_local_d => {
+                try std.fmt.format(writer, "set_local_d #{d}", .{self.set_local_d});
+            },
+            Instruction.nop => {
+                try std.fmt.format(writer, "nop", .{});
+            },
+            Instruction.mod => {
+                try std.fmt.format(writer, "mod", .{});
+            },
+            Instruction.lt => {
+                try std.fmt.format(writer, "lt", .{});
+            },
+            Instruction.lte => {
+                try std.fmt.format(writer, "lte", .{});
+            },
+            Instruction.gt => {
+                try std.fmt.format(writer, "gt", .{});
+            },
+            Instruction.gte => {
+                try std.fmt.format(writer, "gte", .{});
+            },
+            Instruction.load => {
+                try std.fmt.format(writer, "load #{d}", .{self.load});
+            },
+            Instruction.store => {
+                try std.fmt.format(writer, "store #{d}", .{self.store});
+            },
+            Instruction.set_memory => {
+                try std.fmt.format(writer, "set_memory #{s} #{d}", .{ self.set_memory.data, self.set_memory.offset });
+            },
+            Instruction.allocate_memory => {
+                try std.fmt.format(writer, "allocate_memory #{d}", .{self.allocate_memory});
+            },
+            Instruction.set_cip => {
+                try std.fmt.format(writer, "set_cip #{d}", .{self.set_cip});
+            },
+        }
+    }
 };

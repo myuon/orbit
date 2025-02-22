@@ -242,6 +242,8 @@ pub const CompiledFn = *fn (
     c_stack: [*]i64, // .x0
     c_sp: *i64, // .x1
     c_bp: *i64, // .x2
+    c_ip: *i64, // .x3
+    c_memory: [*]u8, // .x4
 ) callconv(.C) void;
 
 pub const JitRuntime = struct {
@@ -250,6 +252,8 @@ pub const JitRuntime = struct {
     const reg_c_stack = Register.x0;
     const reg_c_sp = Register.x1;
     const reg_c_bp = Register.x2;
+    const reg_c_ip = Register.x3;
+    const reg_c_memory = Register.x4;
 
     pub fn init(allocator: std.mem.Allocator) JitRuntime {
         return JitRuntime{
@@ -291,6 +295,11 @@ pub const JitRuntime = struct {
         try code.emitStr(reg_c_bp, value);
     }
 
+    /// *c_ip = value
+    fn setCIp(code: *Arm64, value: Register) anyerror!void {
+        try code.emitStr(reg_c_ip, value);
+    }
+
     /// getCStackAddress(i, t) === t := &c_stack[i]
     fn getCStackAddress(code: *Arm64, index: Register, target: Register, tmp1: Register) anyerror!void {
         try code.emitMovImm(tmp1, 0x8);
@@ -317,7 +326,12 @@ pub const JitRuntime = struct {
         try JitRuntime.incrementCSp(code, tmp1);
     }
 
-    pub fn compile(self: *JitRuntime, prog: []ast.Instruction) anyerror!CompiledFn {
+    fn storeCMemory(code: *Arm64, address: Register, value: Register, tmp1: Register) anyerror!void {
+        try code.emitAdd(address, reg_c_memory, tmp1);
+        try code.emitStr(tmp1, value);
+    }
+
+    pub fn compile(self: *JitRuntime, prog: []ast.Instruction, trace_mode: bool) anyerror!CompiledFn {
         var jumpSources = std.AutoHashMap(usize, usize).init(self.allocator);
         defer jumpSources.deinit();
 
@@ -344,7 +358,7 @@ pub const JitRuntime = struct {
 
         const buf = mman.mmap(
             null,
-            4096,
+            1024 * 1024,
             mman.PROT_WRITE | mman.PROT_EXEC,
             mman.MAP_PRIVATE | mman.MAP_ANONYMOUS | mman.MAP_JIT,
             -1,
@@ -357,10 +371,14 @@ pub const JitRuntime = struct {
         defer code.deinit();
 
         for (prog, 0..) |inst, p| {
+            if (p == 0 and trace_mode) {
+                // prologue for a subroutine
+                try code.emitStpPreIndex(.x29, .x30, reg_sp, -16);
+            }
             if (jumpTargets.contains(p)) {
                 try jumpTargets.put(p, @intCast(code.code_buf.items.len));
             }
-            if (p == 0) {
+            if (p == 0 and !trace_mode) {
                 // prologue for a subroutine
                 try code.emitStpPreIndex(.x29, .x30, reg_sp, -16);
             }
@@ -526,6 +544,21 @@ pub const JitRuntime = struct {
                     try JitRuntime.setCStack(&code, .x9, .x10, .x15, .x14);
                 },
                 .nop => {},
+                .set_cip => |n| {
+                    try code.emitMovImm(.x9, @intCast(n));
+                    try JitRuntime.setCIp(&code, .x9);
+                },
+                .load => |_| {
+                    unreachable;
+                },
+                .store => |size| {
+                    std.debug.assert(size == 8);
+
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13); // value
+                    try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13); // address
+
+                    try JitRuntime.storeCMemory(&code, .x10, .x9, .x15);
+                },
                 else => {
                     std.debug.print("unhandled instruction: {any}\n", .{inst});
                     return error.InstructionNotSupported;
@@ -846,6 +879,7 @@ test {
         var c_bp: i64 = 0;
         var c_sp: i64 = 0;
         var c_stack = [_]i64{0} ** 1024;
+        var c_memory = [_]u8{0} ** 1024;
 
         if (c.initial_stack.len > 0) {
             for (c.initial_stack, 0..) |v, i| {
@@ -859,8 +893,9 @@ test {
         }
 
         var runtime = JitRuntime.init(std.testing.allocator);
-        const fn_ptr = try runtime.compile(c.prog);
-        fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp));
+        const fn_ptr = try runtime.compile(c.prog, false);
+        var ip: i64 = 0;
+        fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp), @constCast(&ip), @constCast((&c_memory).ptr));
 
         std.testing.expectEqualSlices(i64, c.expected, c_stack[0..@min(@as(usize, @intCast(c_sp)), c_stack.len)]) catch |err| {
             std.debug.panic("prog: {any}, error: {any}\n", .{ c.prog, err });

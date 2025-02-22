@@ -1,5 +1,6 @@
 const std = @import("std");
 const compiler = @import("compiler.zig");
+const ast = @import("ast.zig");
 const tui = @import("tui.zig");
 const vm = @import("vm.zig");
 const vaxis = @import("vaxis");
@@ -52,6 +53,14 @@ fn writeStack(allocator: std.mem.Allocator, stack: []i64, bp: i64) ![]u8 {
     return result.items;
 }
 
+fn writeIr(prog: []ast.Instruction, offset: usize, buffer: *std.ArrayList(u8)) anyerror!void {
+    for (prog, 0..) |inst, k| {
+        try std.fmt.format(buffer.writer(), "{d}: ", .{k + offset});
+        try std.json.stringify(inst, .{}, buffer.writer());
+        try buffer.appendSlice("\n");
+    }
+}
+
 pub fn main() !void {
     var gpallocator = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
@@ -98,6 +107,13 @@ pub fn main() !void {
         try stdout.print("Result: {any}\n", .{result});
         try bw.flush();
     } else if (std.mem.eql(u8, command, "dbg")) {
+        var breakpoint: i32 = -1;
+        for (argv[2..], 0..) |arg, k| {
+            if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--breakpoint")) {
+                breakpoint = try std.fmt.parseInt(i32, argv[k + 3][0..std.mem.len(argv[k + 3])], 10);
+            }
+        }
+
         var content = std.ArrayList(u8).init(allocator);
         defer content.deinit();
 
@@ -105,10 +121,13 @@ pub fn main() !void {
 
         const prog = try c.compileInIr(content.items);
 
+        var vmr = vm.VmRuntime.init(arena_allocator.allocator());
+        defer vmr.deinit();
+
         var stack = std.ArrayList(i64).init(allocator);
         defer stack.deinit();
         defer {
-            std.debug.print("stack: {any}\n", .{stack.items});
+            std.debug.print("stack: {any} (ip: {d})\n", .{ stack.items, vmr.pc });
         }
 
         try stack.append(-2); // return value
@@ -117,9 +136,6 @@ pub fn main() !void {
 
         var bp: i64 = @intCast(stack.items.len);
 
-        var vmc = vm.VmRuntime.init(arena_allocator.allocator());
-        defer vmc.deinit();
-
         var dbg = try tui.Tui.init(allocator);
         defer dbg.deinit();
 
@@ -127,14 +143,7 @@ pub fn main() !void {
 
         var progStack = std.ArrayList(u8).init(allocator);
         defer progStack.deinit();
-        for (prog) |inst| {
-            var next = std.ArrayList(u8).init(allocator);
-            defer next.deinit();
-            try std.json.stringify(inst, .{}, next.writer());
-
-            try progStack.appendSlice(next.items);
-            try progStack.appendSlice("\n");
-        }
+        try writeIr(prog, 0, &progStack);
 
         try dbg.set_text("ir", progStack.items);
         try dbg.set_text("stack", "");
@@ -151,7 +160,7 @@ pub fn main() !void {
                 switch (event) {
                     .key_press => |key| {
                         if (key.matches('n', .{})) {
-                            const result = try vmc.step(prog, &stack, &bp);
+                            const result = try vmr.step(prog, &stack, &bp);
                             if (result.isTerminated()) {
                                 break;
                             }
@@ -164,28 +173,20 @@ pub fn main() !void {
                             }
 
                             progStack.clearAndFree();
-                            for (prog[@intCast(scroll)..]) |inst| {
-                                var next = std.ArrayList(u8).init(allocator);
-                                defer next.deinit();
-                                try std.json.stringify(inst, .{}, next.writer());
-
-                                try progStack.appendSlice(next.items);
-                                try progStack.appendSlice("\n");
-                            }
+                            try writeIr(prog[@intCast(scroll)..], @intCast(scroll), &progStack);
 
                             try dbg.set_text("ir", progStack.items);
                         } else if (key.matches(vaxis.Key.down, .{})) {
                             scroll += 1;
+                            if (scroll >= prog.len) {
+                                scroll = @intCast(prog.len - 1);
+                            }
+                            if (scroll < 0) {
+                                scroll = 0;
+                            }
 
                             progStack.clearAndFree();
-                            for (prog[@intCast(scroll)..]) |inst| {
-                                var next = std.ArrayList(u8).init(allocator);
-                                defer next.deinit();
-                                try std.json.stringify(inst, .{}, next.writer());
-
-                                try progStack.appendSlice(next.items);
-                                try progStack.appendSlice("\n");
-                            }
+                            try writeIr(prog[@intCast(scroll)..], @intCast(scroll), &progStack);
 
                             try dbg.set_text("ir", progStack.items);
                         }
@@ -195,9 +196,12 @@ pub fn main() !void {
             }
 
             if (mode_resume) {
-                const result = try vmc.step(prog, &stack, &bp);
+                const result = try vmr.step(prog, &stack, &bp);
                 if (result.isTerminated()) {
                     break;
+                }
+                if (@as(i32, @intCast(vmr.pc)) == breakpoint) {
+                    mode_resume = false;
                 }
             }
 
@@ -206,7 +210,7 @@ pub fn main() !void {
             defer draw_allocator_arena.deinit();
 
             var next = std.ArrayList(u8).init(draw_allocator);
-            try std.json.stringify(prog[vmc.pc], .{}, next.writer());
+            try std.json.stringify(prog[vmr.pc], .{}, next.writer());
 
             var adm = std.ArrayList(u8).init(draw_allocator);
             defer adm.deinit();
@@ -216,7 +220,7 @@ pub fn main() !void {
             var memory = std.ArrayList(u8).init(draw_allocator);
             defer memory.deinit();
 
-            for (vmc.memory, 0..) |v, i| {
+            for (vmr.memory, 0..) |v, i| {
                 const p = try std.fmt.allocPrint(draw_allocator, "{x:0>2} ", .{v});
                 try memory.appendSlice(p);
 
@@ -234,7 +238,7 @@ pub fn main() !void {
                 \\stack: {s}
                 \\memory:
                 \\{s}
-            , .{ vmc.pc, bp, next.items, adm.items, s, memory.items });
+            , .{ vmr.pc, bp, next.items, adm.items, s, memory.items });
 
             try dbg.set_text("stack", k);
 

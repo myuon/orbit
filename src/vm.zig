@@ -14,6 +14,7 @@ const ControlFlow = enum {
 
 pub const VmError = error{
     VariableNotFound,
+    LabelNotFound,
 };
 
 // This is a compiler for AOT compilation
@@ -52,7 +53,11 @@ pub const Vm = struct {
     }
 
     /// This function MUST NOT move the label positions.
-    pub fn resolveIrLabels(self: *Vm, prog: []ast.Instruction) anyerror!void {
+    pub fn resolveIrLabels(
+        self: *Vm,
+        prog: []ast.Instruction,
+        exit_stub: ?std.StringHashMap(usize),
+    ) anyerror!void {
         var labels = std.StringHashMap(usize).init(self.allocator);
         defer labels.deinit();
 
@@ -68,16 +73,43 @@ pub const Vm = struct {
         for (prog, 0..) |inst, i| {
             switch (inst) {
                 .jump => |label| {
-                    prog[i] = ast.Instruction{ .jump_d = labels.get(label).? };
+                    var target: usize = undefined;
+                    if (labels.get(label)) |t| {
+                        target = t;
+                    } else if (exit_stub.?.get(label)) |fallback| {
+                        target = fallback;
+                    } else {
+                        std.log.err("Label not found: {s}", .{label});
+                        return error.LabelNotFound;
+                    }
+                    prog[i] = ast.Instruction{ .jump_d = target };
                 },
                 .jump_ifzero => |label| {
-                    prog[i] = ast.Instruction{ .jump_ifzero_d = labels.get(label).? };
+                    var target: usize = undefined;
+                    if (labels.get(label)) |t| {
+                        target = t;
+                    } else if (exit_stub.?.get(label)) |fallback| {
+                        target = fallback;
+                    } else {
+                        std.log.err("Label not found: {s}", .{label});
+                        return error.LabelNotFound;
+                    }
+                    prog[i] = ast.Instruction{ .jump_ifzero_d = target };
                 },
                 .label => {
                     prog[i] = ast.Instruction{ .nop = true };
                 },
                 .call => |label| {
-                    prog[i] = ast.Instruction{ .call_d = labels.get(label).? };
+                    var target: usize = undefined;
+                    if (labels.get(label)) |t| {
+                        target = t;
+                    } else if (exit_stub.?.get(label)) |fallback| {
+                        target = fallback;
+                    } else {
+                        std.log.err("Label not found: {s}", .{label});
+                        return error.LabelNotFound;
+                    }
+                    prog[i] = ast.Instruction{ .call_d = target };
                 },
                 else => {},
             }
@@ -197,16 +229,8 @@ pub const Vm = struct {
                 unreachable;
             },
             .index => |index| {
-                const size = index.elem_type.size();
-
-                try self.compileExprFromAst(buffer, index.lhs.*);
-                try self.compileExprFromAst(buffer, index.rhs.*);
-
-                try buffer.append(ast.Instruction{ .push = size });
-                try buffer.append(ast.Instruction{ .mul = true });
-                try buffer.append(ast.Instruction{ .add = true });
-
-                try buffer.append(ast.Instruction{ .load = size });
+                try self.compileLhsExprFromAst(buffer, expr);
+                try buffer.append(ast.Instruction{ .load = index.elem_type.size() });
             },
             .new => |new| {
                 const array_size = new.array_size;
@@ -306,11 +330,10 @@ pub const Vm = struct {
                 try buffer.append(ast.Instruction{ .label = label_whileend });
             },
             .assign => |assign| {
-                try self.compileExprFromAst(buffer, assign.rhs);
-
                 switch (assign.lhs) {
                     .var_ => |name| {
                         if (self.env.get(name)) |k| {
+                            try self.compileExprFromAst(buffer, assign.rhs);
                             try buffer.append(ast.Instruction{ .set_local_d = k });
                         } else {
                             std.log.err("Variable not found: {s}\n", .{name});
@@ -427,15 +450,18 @@ pub const Vm = struct {
 pub const VmRuntimeError = error{
     LabelNotFound,
     AssertionFailed,
+    JitCompileFailed,
 };
 
 pub const VmRuntime = struct {
+    const JitCache = std.StringHashMap(jit.CompiledFn);
+
     pc: usize,
     envs: std.ArrayList(std.StringHashMap(i64)),
     enable_jit: bool,
     hot_spot_labels: std.StringHashMap(usize),
     traces: ?std.ArrayList(ast.Instruction),
-    jit_cache: std.StringHashMap(jit.CompiledFn),
+    jit_cache: JitCache,
     allocator: std.mem.Allocator,
     memory: []u8,
     hp: usize = 0,
@@ -446,7 +472,7 @@ pub const VmRuntime = struct {
             .envs = std.ArrayList(std.StringHashMap(i64)).init(allocator),
             .hot_spot_labels = std.StringHashMap(usize).init(allocator),
             .traces = null,
-            .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
+            .jit_cache = JitCache.init(allocator),
             .enable_jit = true,
             .allocator = allocator,
             .memory = std.heap.page_allocator.alloc(u8, 1024 * 1024) catch unreachable,
@@ -491,6 +517,7 @@ pub const VmRuntime = struct {
         }
 
         const inst = program[self.pc];
+
         if (self.traces) |traces| {
             try self.traces.?.append(inst);
 
@@ -539,29 +566,104 @@ pub const VmRuntime = struct {
                 const pc = self.pc;
 
                 const target = (try VmRuntime.find_label(program, label)).?;
-                self.pc = target;
 
-                if (self.jit_cache.contains(label)) {
-                    // TODO
-                } else if (entry.value_ptr.* >= 100) {
+                var result_fn_ptr: ?jit.CompiledFn = null;
+                if (self.jit_cache.get(label)) |fn_ptr| {
+                    result_fn_ptr = fn_ptr;
+                } else if (self.enable_jit and entry.value_ptr.* >= 10) {
                     // When tracing is finished
                     if (self.traces) |traces| {
-                        if (std.meta.eql(traces.items[0], inst)) {
-                            std.log.warn("Tracing finished\n{any}", .{traces.items});
+                        if (std.mem.eql(u8, traces.items[0].label, label)) {
+                            // Only supports: [label, ..., jump label] fragment
+                            std.debug.assert(std.mem.eql(u8, traces.items[0].label, label));
+                            std.debug.assert(std.mem.eql(u8, traces.items[traces.items.len - 1].jump, label));
 
-                            self.traces.?.deinit();
-                            self.traces = null;
+                            var vmc = Vm.init(self.allocator);
+                            defer vmc.deinit();
 
-                            try self.jit_cache.put(label, undefined);
+                            var ir_block = std.ArrayList(ast.Instruction).init(self.allocator);
+                            defer ir_block.deinit();
+
+                            try ir_block.appendSlice(traces.items);
+
+                            var exit_positions = std.ArrayList(usize).init(self.allocator);
+                            defer exit_positions.deinit();
+
+                            // label -> exit position in ir_block
+                            var exit_stub = std.StringHashMap(usize).init(self.allocator);
+                            defer exit_stub.deinit();
+
+                            var quit_compiling = false;
+
+                            var fallback_block = std.ArrayList(ast.Instruction).init(self.allocator);
+                            defer fallback_block.deinit();
+
+                            // find the exit path
+                            // TODO: support `jump` to outside of the block
+                            for (ir_block.items) |t| {
+                                switch (t) {
+                                    .jump_ifzero => |l| {
+                                        try exit_stub.put(l, ir_block.items.len);
+
+                                        // Add fallback block (when label not found)
+                                        const ip = (try VmRuntime.find_label(program, l)).?;
+                                        try fallback_block.append(ast.Instruction{ .set_cip = ip });
+                                        try fallback_block.append(ast.Instruction{ .push = -1 });
+                                        try fallback_block.append(ast.Instruction{ .ret = true });
+                                    },
+                                    .call => {
+                                        quit_compiling = true;
+                                        break;
+                                    },
+                                    else => {},
+                                }
+                            }
+
+                            if (!quit_compiling) {
+                                try ir_block.appendSlice(fallback_block.items);
+
+                                try vmc.resolveIrLabels(ir_block.items, exit_stub);
+
+                                std.log.info("Tracing & compile finished, {d}", .{ir_block.items.len});
+
+                                var runtime = jit.JitRuntime.init(self.allocator);
+                                const f = try runtime.compile(ir_block.items, true);
+
+                                try self.jit_cache.put(label, f);
+
+                                self.traces.?.deinit();
+                                self.traces = null;
+
+                                result_fn_ptr = f;
+                            }
                         }
                     } else {
-                        // When jumping backwords
+                        // When jumping backwards
                         if (target < pc and pc - target >= 10) {
                             // start tracing
                             self.traces = std.ArrayList(ast.Instruction).init(self.allocator);
-                            try self.traces.?.append(inst);
                         }
                     }
+                }
+
+                if (result_fn_ptr) |fn_ptr| {
+                    var ip: i64 = -1;
+                    var sp = @as(i64, @intCast(stack.items.len));
+
+                    // std.log.info("BEF: {s}, {d} {any} ({d}) {any}", .{ label, bp.*, stack.items, self.pc, self.memory[0..100] });
+                    fn_ptr((&stack.items).ptr, &sp, bp, &ip, self.memory.ptr);
+                    // std.log.info("AFT: {s}, {d} {any} ({d}) {any}", .{ label, bp.*, stack.items, ip, self.memory[0..100] });
+
+                    // epilogue here
+                    if (ip != -1) {
+                        self.pc = @intCast(ip);
+                    }
+
+                    stack.shrinkAndFree(@intCast(sp));
+
+                    return ControlFlow.Continue;
+                } else {
+                    self.pc = target;
                 }
             },
             .jump_ifzero => |label| {
@@ -612,7 +714,7 @@ pub const VmRuntime = struct {
                 if (self.enable_jit and entry.found_existing) {
                     entry.value_ptr.* += 1;
 
-                    if (entry.value_ptr.* > 10) {
+                    if (entry.value_ptr.* > 3) {
                         var fn_ptr: jit.CompiledFn = undefined;
 
                         if (self.jit_cache.get(label)) |f| {
@@ -635,13 +737,13 @@ pub const VmRuntime = struct {
                             var vmc = Vm.init(self.allocator);
                             defer vmc.deinit();
 
-                            try vmc.resolveIrLabels(ir_block);
+                            try vmc.resolveIrLabels(ir_block, null);
 
                             var params = std.ArrayList([]const u8).init(self.allocator);
                             defer params.deinit();
 
                             var runtime = jit.JitRuntime.init(self.allocator);
-                            const f = runtime.compile(ir_block) catch |err| {
+                            const f = runtime.compile(ir_block, false) catch |err| {
                                 std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
 
                                 unreachable;
@@ -656,12 +758,14 @@ pub const VmRuntime = struct {
                             fn_ptr = f;
                         }
 
+                        var ip: i64 = -1;
                         var sp = @as(i64, @intCast(stack.items.len));
 
-                        fn_ptr((&stack.items).ptr, &sp, bp);
+                        fn_ptr((&stack.items).ptr, &sp, bp, &ip, self.memory.ptr);
 
                         // epilogue here
                         self.pc += 1;
+                        std.debug.assert(ip == -1);
 
                         stack.shrinkAndFree(@intCast(sp));
 
@@ -849,6 +953,9 @@ pub const VmRuntime = struct {
 
                 try stack.append(@intCast(hp));
                 self.pc += 1;
+            },
+            .set_cip => {
+                unreachable;
             },
         }
 
