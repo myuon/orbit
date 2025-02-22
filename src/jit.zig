@@ -331,23 +331,22 @@ pub const JitRuntime = struct {
         try code.emitStr(tmp1, value);
     }
 
-    fn getCStackOffset(code: *Arm64, k: i32, value: Register, tmp1: Register, tmp2: Register) anyerror!void {
-        if (k >= 0) {
-            try code.emitMovImm(tmp1, @intCast(k));
-            try JitRuntime.getCBp(code, tmp2);
-            try code.emitAdd(tmp1, tmp2, tmp1);
-        } else {
-            try code.emitMovImm(tmp1, @intCast(@abs(k)));
-            try JitRuntime.getCBp(code, tmp2);
-            try code.emitSub(tmp1, tmp1, tmp2);
-        }
+    fn getIndexFromOffset(code: *Arm64, k: i32, target: Register, tmp1: Register) anyerror!void {
+        try JitRuntime.getCBp(code, tmp1);
 
-        try JitRuntime.getCStackAddress(code, tmp1, value, tmp2);
+        if (k >= 0) {
+            try code.emitMovImm(target, @intCast(k));
+            try code.emitAdd(target, tmp1, target);
+        } else {
+            try code.emitMovImm(target, @intCast(@abs(k)));
+            try code.emitSub(target, target, tmp1);
+        }
     }
 
-    fn loadCStackOffset(code: *Arm64, k: i32, value: Register, tmp1: Register, tmp2: Register) anyerror!void {
-        try JitRuntime.getCStackOffset(code, k, tmp1, tmp1, tmp2);
-        try code.emitLdr(0, tmp1, value);
+    fn loadCStackOffset(code: *Arm64, k: i32, target: Register, tmp1: Register, tmp2: Register) anyerror!void {
+        try JitRuntime.getIndexFromOffset(code, k, tmp1, tmp2);
+        try JitRuntime.getCStackAddress(code, tmp1, tmp1, tmp2);
+        try code.emitLdr(0, tmp1, target);
     }
 
     pub fn compile(self: *JitRuntime, prog: []ast.Instruction, trace_mode: bool) anyerror!CompiledFn {
@@ -557,16 +556,17 @@ pub const JitRuntime = struct {
                     try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
                 .set_local_d => |k| {
-                    if (k >= 0) {
-                        try code.emitMovImm(.x9, @intCast(k));
-                        try JitRuntime.getCBp(&code, .x10);
-                        try code.emitAdd(.x9, .x10, .x9);
-                    } else {
-                        try code.emitMovImm(.x9, @intCast(@abs(k)));
-                        try JitRuntime.getCBp(&code, .x10);
-                        try code.emitSub(.x9, .x9, .x10);
-                    }
+                    // if (k >= 0) {
+                    //     try code.emitMovImm(.x9, @intCast(k));
+                    //     try JitRuntime.getCBp(&code, .x10);
+                    //     try code.emitAdd(.x9, .x10, .x9);
+                    // } else {
+                    //     try code.emitMovImm(.x9, @intCast(@abs(k)));
+                    //     try JitRuntime.getCBp(&code, .x10);
+                    //     try code.emitSub(.x9, .x9, .x10);
+                    // }
 
+                    try JitRuntime.getIndexFromOffset(&code, k, .x9, .x15);
                     try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
                     try JitRuntime.setCStack(&code, .x9, .x10, .x15, .x14);
                 },
