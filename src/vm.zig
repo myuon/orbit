@@ -483,14 +483,18 @@ pub const Vm = struct {
                     }
                 },
                 .set_local_d => {
-                    if (program[i - 1].is_add() and result.items[result.items.len - 1].is_add_di()) {
-                        const offset = program[i].set_local_d;
-                        const add_di = result.pop().add_di;
-                        try result.append(ast.Instruction{ .add_di = .{ .lhs = add_di.lhs, .imm = add_di.imm, .target = @intCast(offset) } });
-                    } else if (program[i - 1].is_madd_d()) {
-                        const offset = program[i].set_local_d;
-                        const madd_d = result.pop().madd_d;
-                        try result.append(ast.Instruction{ .madd_d = .{ .lhs = madd_d.lhs, .rhs = madd_d.rhs, .base = madd_d.base, .target = @intCast(offset) } });
+                    if (program[i - 1].is_add()) {
+                        if (result.items[result.items.len - 1].is_add_di()) {
+                            const offset = program[i].set_local_d;
+                            const add_di = result.pop().add_di;
+                            try result.append(ast.Instruction{ .add_di = .{ .lhs = add_di.lhs, .imm = add_di.imm, .target = @intCast(offset) } });
+                        } else if (result.items[result.items.len - 1].is_madd_d()) {
+                            const offset = program[i].set_local_d;
+                            const madd_d = result.pop().madd_d;
+                            try result.append(ast.Instruction{ .madd_d = .{ .lhs = madd_d.lhs, .rhs = madd_d.rhs, .base = madd_d.base, .target = @intCast(offset) } });
+                        } else {
+                            try result.append(program[i]);
+                        }
                     } else {
                         try result.append(program[i]);
                     }

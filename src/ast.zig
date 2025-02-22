@@ -430,7 +430,11 @@ pub const Instruction = union(InstructionType) {
                 }
             },
             Instruction.madd_d => {
-                try std.fmt.format(writer, "madd_d [{d}] [{d}] [{d}]", .{ self.madd_d.lhs, self.madd_d.rhs, self.madd_d.base });
+                if (self.madd_d.target) |t| {
+                    try std.fmt.format(writer, "madd_d [{d}] [{d}] [{d}] -> [{d}]", .{ self.madd_d.lhs, self.madd_d.rhs, self.madd_d.base, t });
+                } else {
+                    try std.fmt.format(writer, "madd_d [{d}] [{d}] [{d}]", .{ self.madd_d.lhs, self.madd_d.rhs, self.madd_d.base });
+                }
             },
         }
     }
