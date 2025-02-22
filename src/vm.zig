@@ -56,7 +56,7 @@ pub const Vm = struct {
     pub fn resolveIrLabels(
         self: *Vm,
         prog: []ast.Instruction,
-        label_fallback_position: ?usize,
+        exit_stub: ?std.StringHashMap(usize),
     ) anyerror!void {
         var labels = std.StringHashMap(usize).init(self.allocator);
         defer labels.deinit();
@@ -76,7 +76,7 @@ pub const Vm = struct {
                     var target: usize = undefined;
                     if (labels.get(label)) |t| {
                         target = t;
-                    } else if (label_fallback_position) |fallback| {
+                    } else if (exit_stub.?.get(label)) |fallback| {
                         target = fallback;
                     } else {
                         std.log.err("Label not found: {s}", .{label});
@@ -88,7 +88,7 @@ pub const Vm = struct {
                     var target: usize = undefined;
                     if (labels.get(label)) |t| {
                         target = t;
-                    } else if (label_fallback_position) |fallback| {
+                    } else if (exit_stub.?.get(label)) |fallback| {
                         target = fallback;
                     } else {
                         std.log.err("Label not found: {s}", .{label});
@@ -103,7 +103,7 @@ pub const Vm = struct {
                     var target: usize = undefined;
                     if (labels.get(label)) |t| {
                         target = t;
-                    } else if (label_fallback_position) |fallback| {
+                    } else if (exit_stub.?.get(label)) |fallback| {
                         target = fallback;
                     } else {
                         std.log.err("Label not found: {s}", .{label});
@@ -578,11 +578,11 @@ pub const VmRuntime = struct {
                 const target = (try VmRuntime.find_label(program, label)).?;
 
                 var result_fn_ptr: ?jit.CompiledFn = null;
-                var exit: i64 = -1;
+                var exit: i64 = 0; // Deprecated
                 if (self.jit_cache.get(label)) |data| {
                     result_fn_ptr = data.fn_ptr;
                     exit = @intCast(data.exit);
-                } else if (entry.value_ptr.* >= 100) {
+                } else if (entry.value_ptr.* >= 5) {
                     // When tracing is finished
                     if (self.traces) |traces| {
                         if (std.mem.eql(u8, traces.items[0].label, label)) {
@@ -598,21 +598,25 @@ pub const VmRuntime = struct {
 
                             try ir_block.appendSlice(traces.items);
 
-                            const fallback_position = ir_block.items.len;
+                            var exit_positions = std.ArrayList(usize).init(self.allocator);
+                            defer exit_positions.deinit();
 
-                            // Add fallback block (when label not found)
-                            // Multiple exit point is not supported yet
-                            try ir_block.append(ast.Instruction{ .ret = true });
+                            // label -> exit position in ir_block
+                            var exit_stub = std.StringHashMap(usize).init(self.allocator);
+                            defer exit_stub.deinit();
 
                             // find the exit path
-                            // NOTE: this must be done before calling resolveIrLabels
+                            // TODO: support `jump` to outside of the block
                             for (ir_block.items) |t| {
                                 switch (t) {
-                                    .jump => |l| {
-                                        std.debug.assert(std.mem.eql(u8, l, label));
-                                    },
                                     .jump_ifzero => |l| {
-                                        exit = @intCast((try VmRuntime.find_label(program, l)).?);
+                                        try exit_stub.put(l, ir_block.items.len);
+
+                                        // Add fallback block (when label not found)
+                                        const ip = (try VmRuntime.find_label(program, l)).?;
+                                        try ir_block.append(ast.Instruction{ .set_cip = ip });
+                                        try ir_block.append(ast.Instruction{ .push = -1 });
+                                        try ir_block.append(ast.Instruction{ .ret = true });
                                     },
                                     .call => {
                                         unreachable;
@@ -621,7 +625,7 @@ pub const VmRuntime = struct {
                                 }
                             }
 
-                            try vmc.resolveIrLabels(ir_block.items, fallback_position);
+                            try vmc.resolveIrLabels(ir_block.items, exit_stub);
 
                             std.log.info("Tracing & compile finished, {d}", .{ir_block.items.len});
 
@@ -648,15 +652,18 @@ pub const VmRuntime = struct {
                 }
 
                 if (result_fn_ptr) |fn_ptr| {
+                    var ip: i64 = -1;
                     var sp = @as(i64, @intCast(stack.items.len));
 
-                    // std.log.info("BEF: {s}, {d} {any}", .{ label, bp.*, stack.items });
-                    fn_ptr((&stack.items).ptr, &sp, bp);
-                    // std.log.info("AFT: {s}, {d} {any}", .{ label, bp.*, stack.items });
+                    // std.log.info("BEF: {s}, {d} {any} ({d})", .{ label, bp.*, stack.items, self.pc });
+                    fn_ptr((&stack.items).ptr, &sp, bp, &ip);
+                    // std.log.info("AFT: {s}, {d} {any} ({d})", .{ label, bp.*, stack.items, ip });
 
                     // epilogue here
                     std.debug.assert(exit >= 0);
-                    self.pc = @intCast(exit);
+                    if (ip != -1) {
+                        self.pc = @intCast(ip);
+                    }
 
                     stack.shrinkAndFree(@intCast(sp));
 
@@ -760,12 +767,14 @@ pub const VmRuntime = struct {
                             fn_ptr = f;
                         }
 
+                        var ip: i64 = -1;
                         var sp = @as(i64, @intCast(stack.items.len));
 
-                        fn_ptr((&stack.items).ptr, &sp, bp);
+                        fn_ptr((&stack.items).ptr, &sp, bp, &ip);
 
                         // epilogue here
                         self.pc += 1;
+                        std.debug.assert(ip == -1);
 
                         stack.shrinkAndFree(@intCast(sp));
 
@@ -953,6 +962,9 @@ pub const VmRuntime = struct {
 
                 try stack.append(@intCast(hp));
                 self.pc += 1;
+            },
+            .set_cip => {
+                unreachable;
             },
         }
 

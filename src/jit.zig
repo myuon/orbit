@@ -242,6 +242,7 @@ pub const CompiledFn = *fn (
     c_stack: [*]i64, // .x0
     c_sp: *i64, // .x1
     c_bp: *i64, // .x2
+    c_ip: *i64, // .x3
 ) callconv(.C) void;
 
 pub const JitRuntime = struct {
@@ -250,6 +251,7 @@ pub const JitRuntime = struct {
     const reg_c_stack = Register.x0;
     const reg_c_sp = Register.x1;
     const reg_c_bp = Register.x2;
+    const reg_c_ip = Register.x3;
 
     pub fn init(allocator: std.mem.Allocator) JitRuntime {
         return JitRuntime{
@@ -289,6 +291,11 @@ pub const JitRuntime = struct {
     /// *c_bp = value
     fn setCBp(code: *Arm64, value: Register) anyerror!void {
         try code.emitStr(reg_c_bp, value);
+    }
+
+    /// *c_ip = value
+    fn setCIp(code: *Arm64, value: Register) anyerror!void {
+        try code.emitStr(reg_c_ip, value);
     }
 
     /// getCStackAddress(i, t) === t := &c_stack[i]
@@ -526,6 +533,10 @@ pub const JitRuntime = struct {
                     try JitRuntime.setCStack(&code, .x9, .x10, .x15, .x14);
                 },
                 .nop => {},
+                .set_cip => |n| {
+                    try code.emitMovImm(.x9, @intCast(n));
+                    try JitRuntime.setCIp(&code, .x9);
+                },
                 else => {
                     std.debug.print("unhandled instruction: {any}\n", .{inst});
                     return error.InstructionNotSupported;
