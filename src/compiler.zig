@@ -72,7 +72,7 @@ pub const Compiler = struct {
         const zone = P.begin(@src(), "Compiler.startVm");
         defer zone.end();
 
-        var stack = std.ArrayList(i64).init(self.allocator);
+        var stack = try std.ArrayList(i64).initCapacity(self.allocator, 1024);
         defer stack.deinit();
 
         var address_map = std.StringHashMap(i64).init(self.allocator);

@@ -271,11 +271,13 @@ pub const Instruction = union(InstructionType) {
     add_di: struct {
         lhs: i32,
         imm: i32,
+        target: ?i32,
     },
     madd_d: struct {
         lhs: i32,
         rhs: i32,
         base: i32,
+        target: ?i32,
     },
     sub: bool,
     mul: bool,
@@ -421,7 +423,11 @@ pub const Instruction = union(InstructionType) {
                 try std.fmt.format(writer, "lt_d [{d}] [{d}]", .{ self.lt_d.lhs, self.lt_d.rhs });
             },
             Instruction.add_di => {
-                try std.fmt.format(writer, "add_di [{d}] #{d}", .{ self.add_di.lhs, self.add_di.imm });
+                if (self.add_di.target) |t| {
+                    try std.fmt.format(writer, "add_di [{d}] #{d} -> [{d}]", .{ self.add_di.lhs, self.add_di.imm, t });
+                } else {
+                    try std.fmt.format(writer, "add_di [{d}] #{d}", .{ self.add_di.lhs, self.add_di.imm });
+                }
             },
             Instruction.madd_d => {
                 try std.fmt.format(writer, "madd_d [{d}] [{d}] [{d}]", .{ self.madd_d.lhs, self.madd_d.rhs, self.madd_d.base });
@@ -436,6 +442,13 @@ pub const Instruction = union(InstructionType) {
         };
     }
 
+    pub fn is_set_local_d(self: Instruction) bool {
+        return switch (self) {
+            Instruction.set_local_d => true,
+            else => false,
+        };
+    }
+
     pub fn is_push(self: Instruction) bool {
         return switch (self) {
             Instruction.push => true,
@@ -446,6 +459,27 @@ pub const Instruction = union(InstructionType) {
     pub fn is_mul(self: Instruction) bool {
         return switch (self) {
             Instruction.mul => true,
+            else => false,
+        };
+    }
+
+    pub fn is_add(self: Instruction) bool {
+        return switch (self) {
+            Instruction.add => true,
+            else => false,
+        };
+    }
+
+    pub fn is_add_di(self: Instruction) bool {
+        return switch (self) {
+            Instruction.add_di => true,
+            else => false,
+        };
+    }
+
+    pub fn is_madd_d(self: Instruction) bool {
+        return switch (self) {
+            Instruction.madd_d => true,
             else => false,
         };
     }

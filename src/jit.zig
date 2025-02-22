@@ -331,6 +331,7 @@ pub const JitRuntime = struct {
         try code.emitStr(tmp1, value);
     }
 
+    // target := bp+k
     fn getIndexFromOffset(code: *Arm64, k: i32, target: Register, tmp1: Register) anyerror!void {
         try JitRuntime.getCBp(code, tmp1);
 
@@ -343,6 +344,7 @@ pub const JitRuntime = struct {
         }
     }
 
+    // target := c_stack[bp+k]
     fn loadCStackOffset(code: *Arm64, k: i32, target: Register, tmp1: Register, tmp2: Register) anyerror!void {
         try JitRuntime.getIndexFromOffset(code, k, tmp1, tmp2);
         try JitRuntime.getCStackAddress(code, tmp1, tmp1, tmp2);
@@ -440,14 +442,26 @@ pub const JitRuntime = struct {
                 .add_di => |add_di| {
                     try JitRuntime.loadCStackOffset(&code, add_di.lhs, .x9, .x15, .x14);
                     try code.emitAddImm(.x9, @intCast(add_di.imm), .x9);
-                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+
+                    if (add_di.target) |t| {
+                        try JitRuntime.getIndexFromOffset(&code, t, .x10, .x15);
+                        try JitRuntime.setCStack(&code, .x10, .x9, .x15, .x14);
+                    } else {
+                        try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+                    }
                 },
                 .madd_d => |madd_d| {
                     try JitRuntime.loadCStackOffset(&code, madd_d.rhs, .x9, .x15, .x14);
                     try JitRuntime.loadCStackOffset(&code, madd_d.lhs, .x10, .x15, .x14);
                     try JitRuntime.loadCStackOffset(&code, madd_d.base, .x11, .x15, .x14);
                     try code.emitMadd(.x9, .x9, .x10, .x11);
-                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+
+                    if (madd_d.target) |t| {
+                        try JitRuntime.getIndexFromOffset(&code, t, .x10, .x15);
+                        try JitRuntime.setCStack(&code, .x10, .x9, .x15, .x14);
+                    } else {
+                        try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+                    }
                 },
                 .sub => {
                     try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
@@ -556,16 +570,6 @@ pub const JitRuntime = struct {
                     try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
                 .set_local_d => |k| {
-                    // if (k >= 0) {
-                    //     try code.emitMovImm(.x9, @intCast(k));
-                    //     try JitRuntime.getCBp(&code, .x10);
-                    //     try code.emitAdd(.x9, .x10, .x9);
-                    // } else {
-                    //     try code.emitMovImm(.x9, @intCast(@abs(k)));
-                    //     try JitRuntime.getCBp(&code, .x10);
-                    //     try code.emitSub(.x9, .x9, .x10);
-                    // }
-
                     try JitRuntime.getIndexFromOffset(&code, k, .x9, .x15);
                     try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);
                     try JitRuntime.setCStack(&code, .x9, .x10, .x15, .x14);

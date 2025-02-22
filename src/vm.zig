@@ -470,13 +470,29 @@ pub const Vm = struct {
                     if (program[i - 1].is_push() and program[i - 2].is_get_local_d()) {
                         const rhs = result.pop().push;
                         const lhs = result.pop().get_local_d;
-                        try result.append(ast.Instruction{ .add_di = .{ .lhs = lhs, .imm = rhs } });
+                        try result.append(ast.Instruction{ .add_di = .{ .lhs = lhs, .imm = rhs, .target = null } });
                     } else if (program[i - 1].is_mul() and program[i - 2].is_get_local_d() and program[i - 3].is_get_local_d() and program[i - 4].is_get_local_d()) {
                         _ = result.pop().mul;
                         const rhs = result.pop().get_local_d;
                         const lhs = result.pop().get_local_d;
                         const base = result.pop().get_local_d;
-                        try result.append(ast.Instruction{ .madd_d = .{ .lhs = lhs, .rhs = rhs, .base = base } });
+
+                        try result.append(ast.Instruction{ .madd_d = .{ .lhs = lhs, .rhs = rhs, .base = base, .target = null } });
+                    } else {
+                        try result.append(program[i]);
+                    }
+                },
+                .set_local_d => {
+                    if (program[i - 1].is_add() and result.items[result.items.len - 1].is_add_di()) {
+                        // const offset = program[i].set_local_d;
+                        // const add_di = result.pop().add_di;
+                        // try result.append(ast.Instruction{ .add_di = .{ .lhs = add_di.lhs, .imm = add_di.imm, .target = @intCast(offset) } });
+                        try result.append(program[i]);
+                    } else if (program[i - 1].is_madd_d()) {
+                        //     const offset = program[i].set_local_d;
+                        //     const madd_d = result.pop().madd_d;
+                        //     try result.append(ast.Instruction{ .madd_d = .{ .lhs = madd_d.lhs, .rhs = madd_d.rhs, .base = madd_d.base, .target = @intCast(offset) } });
+                        try result.append(program[i]);
                     } else {
                         try result.append(program[i]);
                     }
@@ -717,9 +733,9 @@ pub const VmRuntime = struct {
                     var ip: i64 = -1;
                     var sp = @as(i64, @intCast(stack.items.len));
 
-                    // std.log.info("BEF: {s}, {d} {any} ({d}) {any}", .{ label, bp.*, stack.items, self.pc, self.memory[0..100] });
+                    // std.log.info("BEF: {s}, {d} {any} ({d}) {any}", .{ label, bp.*, stack.items[0..@intCast(sp)], self.pc, self.memory[0..100] });
                     fn_ptr((&stack.items).ptr, &sp, bp, &ip, self.memory.ptr);
-                    // std.log.info("AFT: {s}, {d} {any} ({d}) {any}", .{ label, bp.*, stack.items, ip, self.memory[0..100] });
+                    // std.log.info("AFT: {s}, {d} {any} ({d}) {any}", .{ label, bp.*, stack.items[0..@intCast(sp)], ip, self.memory[0..100] });
 
                     // epilogue here
                     if (ip != -1) {
