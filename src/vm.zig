@@ -484,15 +484,13 @@ pub const Vm = struct {
                 },
                 .set_local_d => {
                     if (program[i - 1].is_add() and result.items[result.items.len - 1].is_add_di()) {
-                        // const offset = program[i].set_local_d;
-                        // const add_di = result.pop().add_di;
-                        // try result.append(ast.Instruction{ .add_di = .{ .lhs = add_di.lhs, .imm = add_di.imm, .target = @intCast(offset) } });
-                        try result.append(program[i]);
+                        const offset = program[i].set_local_d;
+                        const add_di = result.pop().add_di;
+                        try result.append(ast.Instruction{ .add_di = .{ .lhs = add_di.lhs, .imm = add_di.imm, .target = @intCast(offset) } });
                     } else if (program[i - 1].is_madd_d()) {
-                        //     const offset = program[i].set_local_d;
-                        //     const madd_d = result.pop().madd_d;
-                        //     try result.append(ast.Instruction{ .madd_d = .{ .lhs = madd_d.lhs, .rhs = madd_d.rhs, .base = madd_d.base, .target = @intCast(offset) } });
-                        try result.append(program[i]);
+                        const offset = program[i].set_local_d;
+                        const madd_d = result.pop().madd_d;
+                        try result.append(ast.Instruction{ .madd_d = .{ .lhs = madd_d.lhs, .rhs = madd_d.rhs, .base = madd_d.base, .target = @intCast(offset) } });
                     } else {
                         try result.append(program[i]);
                     }
@@ -778,7 +776,12 @@ pub const VmRuntime = struct {
             .add_di => |add_di| {
                 const rhs = add_di.imm;
                 const lhs = stack.items[try get_address_on_stack(stack, bp, add_di.lhs)];
-                try stack.append(lhs + rhs);
+
+                if (add_di.target) |t| {
+                    stack.items[try get_address_on_stack(stack, bp, t)] = lhs + rhs;
+                } else {
+                    try stack.append(lhs + rhs);
+                }
 
                 self.pc += 1;
             },
@@ -786,7 +789,11 @@ pub const VmRuntime = struct {
                 const rhs = stack.items[try get_address_on_stack(stack, bp, madd_d.rhs)];
                 const lhs = stack.items[try get_address_on_stack(stack, bp, madd_d.lhs)];
                 const base = stack.items[try get_address_on_stack(stack, bp, madd_d.base)];
-                try stack.append(lhs * rhs + base);
+                if (madd_d.target) |t| {
+                    stack.items[try get_address_on_stack(stack, bp, t)] = lhs * rhs + base;
+                } else {
+                    try stack.append(lhs * rhs + base);
+                }
 
                 self.pc += 1;
             },
@@ -879,13 +886,7 @@ pub const VmRuntime = struct {
             },
             .set_local_d => |k| {
                 const value = stack.pop();
-                const b: i32 = @intCast(bp.*);
-                if (b + k >= stack.items.len) {
-                    std.log.err("Invalid address: {d} at {any}\n", .{ b + k, stack.items });
-                    return error.AssertionFailed;
-                }
-
-                stack.items[@intCast(b + k)] = value;
+                stack.items[try get_address_on_stack(stack, bp, k)] = value;
                 self.pc += 1;
             },
             .label => {
