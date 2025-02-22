@@ -22,6 +22,7 @@ pub const Compiler = struct {
     allocator: std.mem.Allocator,
     vmc: vm.Vm,
     enable_jit: bool,
+    dump_ir_path: ?[]const u8 = null,
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
         return Compiler{
@@ -93,6 +94,15 @@ pub const Compiler = struct {
         defer zone.end();
 
         const ir = try self.compileInIr(str);
+        if (self.dump_ir_path) |path| {
+            const file = try std.fs.cwd().createFile(path, .{});
+            defer file.close();
+
+            for (ir) |inst| {
+                try std.fmt.format(file.writer(), "{s}\n", .{inst});
+            }
+        }
+
         return try self.startVm(ir, .{ .enable_jit = options.enable_jit });
     }
 };

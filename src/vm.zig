@@ -581,6 +581,9 @@ pub const VmRuntime = struct {
                     // When tracing is finished
                     if (self.traces) |traces| {
                         if (std.mem.eql(u8, traces.items[0].label, label)) {
+                            const jitCompile = P.begin(@src(), "VmRuntime.step.jump.jitCompile");
+                            defer jitCompile.end();
+
                             // Only supports: [label, ..., jump label] fragment
                             std.debug.assert(std.mem.eql(u8, traces.items[0].label, label));
                             std.debug.assert(std.mem.eql(u8, traces.items[traces.items.len - 1].jump, label));

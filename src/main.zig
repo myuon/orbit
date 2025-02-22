@@ -92,10 +92,17 @@ pub fn main() !void {
     const command = argv[1][0..std.mem.len(argv[1])];
     if (std.mem.eql(u8, command, "run")) {
         var enableJit = true;
+        var dumpIr = false;
         for (argv[2..]) |arg| {
             if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--nojit")) {
                 enableJit = false;
+            } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--dump-ir")) {
+                dumpIr = true;
             }
+        }
+
+        if (dumpIr) {
+            c.dump_ir_path = "dumped.ir";
         }
 
         try P.init(.{});
