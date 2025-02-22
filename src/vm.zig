@@ -469,6 +469,15 @@ pub const Vm = struct {
                         try result.append(program[i]);
                     }
                 },
+                .add => {
+                    if (program[i - 1].is_push() and program[i - 2].is_get_local_d()) {
+                        const rhs = result.pop().push;
+                        const lhs = result.pop().get_local_d;
+                        try result.append(ast.Instruction{ .add_di = .{ .lhs = lhs, .imm = rhs } });
+                    } else {
+                        try result.append(program[i]);
+                    }
+                },
                 else => {
                     try result.append(program[i]);
                 },
@@ -741,6 +750,13 @@ pub const VmRuntime = struct {
             .add => {
                 const rhs = stack.pop();
                 const lhs = stack.pop();
+                try stack.append(lhs + rhs);
+
+                self.pc += 1;
+            },
+            .add_di => |add_di| {
+                const rhs = add_di.imm;
+                const lhs = stack.items[try get_address_on_stack(stack, bp, add_di.lhs)];
                 try stack.append(lhs + rhs);
 
                 self.pc += 1;

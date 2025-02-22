@@ -229,6 +229,7 @@ pub const InstructionType = enum {
     jump,
     jump_ifzero,
     add,
+    add_di,
     sub,
     mul,
     div,
@@ -266,6 +267,10 @@ pub const Instruction = union(InstructionType) {
     jump: []const u8, // (resolve_label phase) replaced with jump_d
     jump_ifzero: []const u8, // (resolve_label phase) replaced with jump_ifzero_d
     add: bool,
+    add_di: struct {
+        lhs: i32,
+        imm: i32,
+    },
     sub: bool,
     mul: bool,
     div: bool,
@@ -409,12 +414,22 @@ pub const Instruction = union(InstructionType) {
             Instruction.lt_d => {
                 try std.fmt.format(writer, "lt_d #{d} #{d}", .{ self.lt_d.lhs, self.lt_d.rhs });
             },
+            Instruction.add_di => {
+                try std.fmt.format(writer, "add_di #{d} #{d}", .{ self.add_di.lhs, self.add_di.imm });
+            },
         }
     }
 
     pub fn is_get_local_d(self: Instruction) bool {
         return switch (self) {
             Instruction.get_local_d => true,
+            else => false,
+        };
+    }
+
+    pub fn is_push(self: Instruction) bool {
+        return switch (self) {
+            Instruction.push => true,
             else => false,
         };
     }
