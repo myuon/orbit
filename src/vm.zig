@@ -526,6 +526,7 @@ pub const VmRuntime = struct {
         }
 
         const inst = program[self.pc];
+
         if (self.traces) |traces| {
             try self.traces.?.append(inst);
 
@@ -603,6 +604,9 @@ pub const VmRuntime = struct {
 
                             var quit_compiling = false;
 
+                            var fallback_block = std.ArrayList(ast.Instruction).init(self.allocator);
+                            defer fallback_block.deinit();
+
                             // find the exit path
                             // TODO: support `jump` to outside of the block
                             for (ir_block.items) |t| {
@@ -612,9 +616,9 @@ pub const VmRuntime = struct {
 
                                         // Add fallback block (when label not found)
                                         const ip = (try VmRuntime.find_label(program, l)).?;
-                                        try ir_block.append(ast.Instruction{ .set_cip = ip });
-                                        try ir_block.append(ast.Instruction{ .push = -1 });
-                                        try ir_block.append(ast.Instruction{ .ret = true });
+                                        try fallback_block.append(ast.Instruction{ .set_cip = ip });
+                                        try fallback_block.append(ast.Instruction{ .push = -1 });
+                                        try fallback_block.append(ast.Instruction{ .ret = true });
                                     },
                                     .call => {
                                         quit_compiling = true;
@@ -625,6 +629,8 @@ pub const VmRuntime = struct {
                             }
 
                             if (!quit_compiling) {
+                                try ir_block.appendSlice(fallback_block.items);
+
                                 try vmc.resolveIrLabels(ir_block.items, exit_stub);
 
                                 std.log.info("Tracing & compile finished, {d}", .{ir_block.items.len});
@@ -641,7 +647,7 @@ pub const VmRuntime = struct {
                             }
                         }
                     } else {
-                        // When jumping backwords
+                        // When jumping backwards
                         if (target < pc and pc - target >= 10) {
                             // start tracing
                             self.traces = std.ArrayList(ast.Instruction).init(self.allocator);
