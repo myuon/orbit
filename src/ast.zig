@@ -331,10 +331,10 @@ pub const Instruction = union(InstructionType) {
                 try std.fmt.format(writer, "eq", .{});
             },
             Instruction.jump => {
-                try std.fmt.format(writer, "jump #{s}", .{self.jump});
+                try std.fmt.format(writer, "jump {s}", .{self.jump});
             },
             Instruction.jump_ifzero => {
-                try std.fmt.format(writer, "jump_ifzero #{s}", .{self.jump_ifzero});
+                try std.fmt.format(writer, "jump_ifzero {s}", .{self.jump_ifzero});
             },
             Instruction.add => {
                 try std.fmt.format(writer, "add", .{});
@@ -349,13 +349,13 @@ pub const Instruction = union(InstructionType) {
                 try std.fmt.format(writer, "div", .{});
             },
             Instruction.call => {
-                try std.fmt.format(writer, "call #{s}", .{self.call});
+                try std.fmt.format(writer, "call {s}", .{self.call});
             },
             Instruction.call_d => {
                 try std.fmt.format(writer, "call_d #{d}", .{self.call_d});
             },
             Instruction.label => {
-                try std.fmt.format(writer, "label #{s}", .{self.label});
+                try std.fmt.format(writer, "label {s}", .{self.label});
             },
             Instruction.get_pc => {
                 try std.fmt.format(writer, "get_pc", .{});
@@ -379,10 +379,10 @@ pub const Instruction = union(InstructionType) {
                 try std.fmt.format(writer, "jump_ifzero_d #{d}", .{self.jump_ifzero_d});
             },
             Instruction.get_local_d => {
-                try std.fmt.format(writer, "get_local_d #{d}", .{self.get_local_d});
+                try std.fmt.format(writer, "get_local_d [{d}]", .{self.get_local_d});
             },
             Instruction.set_local_d => {
-                try std.fmt.format(writer, "set_local_d #{d}", .{self.set_local_d});
+                try std.fmt.format(writer, "set_local_d [{d}]", .{self.set_local_d});
             },
             Instruction.nop => {
                 try std.fmt.format(writer, "nop", .{});
@@ -403,10 +403,10 @@ pub const Instruction = union(InstructionType) {
                 try std.fmt.format(writer, "gte", .{});
             },
             Instruction.load => {
-                try std.fmt.format(writer, "load #{d}", .{self.load});
+                try std.fmt.format(writer, "load_{d}", .{self.load});
             },
             Instruction.store => {
-                try std.fmt.format(writer, "store #{d}", .{self.store});
+                try std.fmt.format(writer, "store_{d}", .{self.store});
             },
             Instruction.set_memory => {
                 try std.fmt.format(writer, "set_memory #{s} #{d}", .{ self.set_memory.data, self.set_memory.offset });
@@ -418,13 +418,13 @@ pub const Instruction = union(InstructionType) {
                 try std.fmt.format(writer, "set_cip #{d}", .{self.set_cip});
             },
             Instruction.lt_d => {
-                try std.fmt.format(writer, "lt_d #{d} #{d}", .{ self.lt_d.lhs, self.lt_d.rhs });
+                try std.fmt.format(writer, "lt_d [{d}] [{d}]", .{ self.lt_d.lhs, self.lt_d.rhs });
             },
             Instruction.add_di => {
-                try std.fmt.format(writer, "add_di #{d} #{d}", .{ self.add_di.lhs, self.add_di.imm });
+                try std.fmt.format(writer, "add_di [{d}] #{d}", .{ self.add_di.lhs, self.add_di.imm });
             },
             Instruction.madd_d => {
-                try std.fmt.format(writer, "madd_d #{d} #{d} #{d}", .{ self.madd_d.lhs, self.madd_d.rhs, self.madd_d.base });
+                try std.fmt.format(writer, "madd_d [{d}] [{d}] [{d}]", .{ self.madd_d.lhs, self.madd_d.rhs, self.madd_d.base });
             },
         }
     }
