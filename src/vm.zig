@@ -229,16 +229,8 @@ pub const Vm = struct {
                 unreachable;
             },
             .index => |index| {
-                const size = index.elem_type.size();
-
-                try self.compileExprFromAst(buffer, index.lhs.*);
-                try self.compileExprFromAst(buffer, index.rhs.*);
-
-                try buffer.append(ast.Instruction{ .push = size });
-                try buffer.append(ast.Instruction{ .mul = true });
-                try buffer.append(ast.Instruction{ .add = true });
-
-                try buffer.append(ast.Instruction{ .load = size });
+                try self.compileLhsExprFromAst(buffer, expr);
+                try buffer.append(ast.Instruction{ .load = index.elem_type.size() });
             },
             .new => |new| {
                 const array_size = new.array_size;
@@ -338,11 +330,10 @@ pub const Vm = struct {
                 try buffer.append(ast.Instruction{ .label = label_whileend });
             },
             .assign => |assign| {
-                try self.compileExprFromAst(buffer, assign.rhs);
-
                 switch (assign.lhs) {
                     .var_ => |name| {
                         if (self.env.get(name)) |k| {
+                            try self.compileExprFromAst(buffer, assign.rhs);
                             try buffer.append(ast.Instruction{ .set_local_d = k });
                         } else {
                             std.log.err("Variable not found: {s}\n", .{name});
@@ -659,9 +650,9 @@ pub const VmRuntime = struct {
                     var ip: i64 = -1;
                     var sp = @as(i64, @intCast(stack.items.len));
 
-                    // std.log.info("BEF: {s}, {d} {any} ({d})", .{ label, bp.*, stack.items, self.pc });
-                    fn_ptr((&stack.items).ptr, &sp, bp, &ip);
-                    // std.log.info("AFT: {s}, {d} {any} ({d})", .{ label, bp.*, stack.items, ip });
+                    // std.log.info("BEF: {s}, {d} {any} ({d}) {any}", .{ label, bp.*, stack.items, self.pc, self.memory[0..100] });
+                    fn_ptr((&stack.items).ptr, &sp, bp, &ip, self.memory.ptr);
+                    // std.log.info("AFT: {s}, {d} {any} ({d}) {any}", .{ label, bp.*, stack.items, ip, self.memory[0..100] });
 
                     // epilogue here
                     if (ip != -1) {
@@ -770,7 +761,7 @@ pub const VmRuntime = struct {
                         var ip: i64 = -1;
                         var sp = @as(i64, @intCast(stack.items.len));
 
-                        fn_ptr((&stack.items).ptr, &sp, bp, &ip);
+                        fn_ptr((&stack.items).ptr, &sp, bp, &ip, self.memory.ptr);
 
                         // epilogue here
                         self.pc += 1;

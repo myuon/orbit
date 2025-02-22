@@ -243,6 +243,7 @@ pub const CompiledFn = *fn (
     c_sp: *i64, // .x1
     c_bp: *i64, // .x2
     c_ip: *i64, // .x3
+    c_memory: [*]u8, // .x4
 ) callconv(.C) void;
 
 pub const JitRuntime = struct {
@@ -252,6 +253,7 @@ pub const JitRuntime = struct {
     const reg_c_sp = Register.x1;
     const reg_c_bp = Register.x2;
     const reg_c_ip = Register.x3;
+    const reg_c_memory = Register.x4;
 
     pub fn init(allocator: std.mem.Allocator) JitRuntime {
         return JitRuntime{
@@ -322,6 +324,11 @@ pub const JitRuntime = struct {
         try JitRuntime.setCStack(code, tmp1, value, tmp2, tmp3);
 
         try JitRuntime.incrementCSp(code, tmp1);
+    }
+
+    fn storeCMemory(code: *Arm64, address: Register, value: Register, tmp1: Register) anyerror!void {
+        try code.emitAdd(address, reg_c_memory, tmp1);
+        try code.emitStr(tmp1, value);
     }
 
     pub fn compile(self: *JitRuntime, prog: []ast.Instruction, trace_mode: bool) anyerror!CompiledFn {
@@ -540,6 +547,17 @@ pub const JitRuntime = struct {
                 .set_cip => |n| {
                     try code.emitMovImm(.x9, @intCast(n));
                     try JitRuntime.setCIp(&code, .x9);
+                },
+                .load => |_| {
+                    unreachable;
+                },
+                .store => |size| {
+                    std.debug.assert(size == 8);
+
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13); // value
+                    try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13); // address
+
+                    try JitRuntime.storeCMemory(&code, .x10, .x9, .x15);
                 },
                 else => {
                     std.debug.print("unhandled instruction: {any}\n", .{inst});
@@ -861,6 +879,7 @@ test {
         var c_bp: i64 = 0;
         var c_sp: i64 = 0;
         var c_stack = [_]i64{0} ** 1024;
+        var c_memory = [_]u8{0} ** 1024;
 
         if (c.initial_stack.len > 0) {
             for (c.initial_stack, 0..) |v, i| {
@@ -876,7 +895,7 @@ test {
         var runtime = JitRuntime.init(std.testing.allocator);
         const fn_ptr = try runtime.compile(c.prog, false);
         var ip: i64 = 0;
-        fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp), @constCast(&ip));
+        fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp), @constCast(&ip), @constCast((&c_memory).ptr));
 
         std.testing.expectEqualSlices(i64, c.expected, c_stack[0..@min(@as(usize, @intCast(c_sp)), c_stack.len)]) catch |err| {
             std.debug.panic("prog: {any}, error: {any}\n", .{ c.prog, err });
