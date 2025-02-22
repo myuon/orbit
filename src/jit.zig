@@ -324,7 +324,7 @@ pub const JitRuntime = struct {
         try JitRuntime.incrementCSp(code, tmp1);
     }
 
-    pub fn compile(self: *JitRuntime, prog: []ast.Instruction) anyerror!CompiledFn {
+    pub fn compile(self: *JitRuntime, prog: []ast.Instruction, trace_mode: bool) anyerror!CompiledFn {
         var jumpSources = std.AutoHashMap(usize, usize).init(self.allocator);
         defer jumpSources.deinit();
 
@@ -364,12 +364,16 @@ pub const JitRuntime = struct {
         defer code.deinit();
 
         for (prog, 0..) |inst, p| {
-            if (p == 0) {
+            if (p == 0 and trace_mode) {
                 // prologue for a subroutine
                 try code.emitStpPreIndex(.x29, .x30, reg_sp, -16);
             }
             if (jumpTargets.contains(p)) {
                 try jumpTargets.put(p, @intCast(code.code_buf.items.len));
+            }
+            if (p == 0 and !trace_mode) {
+                // prologue for a subroutine
+                try code.emitStpPreIndex(.x29, .x30, reg_sp, -16);
             }
 
             switch (inst) {
@@ -870,8 +874,9 @@ test {
         }
 
         var runtime = JitRuntime.init(std.testing.allocator);
-        const fn_ptr = try runtime.compile(c.prog);
-        fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp));
+        const fn_ptr = try runtime.compile(c.prog, false);
+        var ip: i64 = 0;
+        fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp), @constCast(&ip));
 
         std.testing.expectEqualSlices(i64, c.expected, c_stack[0..@min(@as(usize, @intCast(c_sp)), c_stack.len)]) catch |err| {
             std.debug.panic("prog: {any}, error: {any}\n", .{ c.prog, err });

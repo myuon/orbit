@@ -625,7 +625,7 @@ pub const VmRuntime = struct {
                             std.log.info("Tracing & compile finished, {d}", .{ir_block.items.len});
 
                             var runtime = jit.JitRuntime.init(self.allocator);
-                            const f = try runtime.compile(ir_block.items);
+                            const f = try runtime.compile(ir_block.items, true);
 
                             try self.jit_cache.put(label, f);
 
@@ -740,7 +740,7 @@ pub const VmRuntime = struct {
                             defer params.deinit();
 
                             var runtime = jit.JitRuntime.init(self.allocator);
-                            const f = runtime.compile(ir_block) catch |err| {
+                            const f = runtime.compile(ir_block, false) catch |err| {
                                 std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
 
                                 unreachable;
