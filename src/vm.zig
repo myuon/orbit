@@ -449,6 +449,36 @@ pub const Vm = struct {
 
         return dataBuffer.items;
     }
+
+    pub fn optimize(self: *Vm, program: []ast.Instruction) anyerror![]ast.Instruction {
+        var result = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
+
+        var i: usize = 0;
+        while (i < program.len) {
+            switch (program[i]) {
+                .nop => {
+                    i += 1;
+                    continue;
+                },
+                .lt => {
+                    if (program[i - 1].is_get_local_d() and program[i - 2].is_get_local_d()) {
+                        const rhs = result.pop().get_local_d;
+                        const lhs = result.pop().get_local_d;
+                        try result.append(ast.Instruction{ .lt_d = .{ .lhs = lhs, .rhs = rhs } });
+                    } else {
+                        try result.append(program[i]);
+                    }
+                },
+                else => {
+                    try result.append(program[i]);
+                },
+            }
+
+            i += 1;
+        }
+
+        return result.items;
+    }
 };
 
 pub const VmRuntimeError = error{
@@ -508,6 +538,16 @@ pub const VmRuntime = struct {
 
         std.log.err("Label not found: {s}\n", .{target_label});
         return error.LabelNotFound;
+    }
+
+    fn get_address_on_stack(stack: *std.ArrayList(i64), bp: *i64, k: i32) anyerror!usize {
+        const b: i32 = @intCast(bp.*);
+        if (b + k >= stack.items.len) {
+            std.log.err("Invalid address: {d} at {any}\n", .{ b + k, stack.items });
+            return error.AssertionFailed;
+        }
+
+        return @intCast(b + k);
     }
 
     pub fn step(
@@ -788,13 +828,7 @@ pub const VmRuntime = struct {
                 self.pc = (try VmRuntime.find_label(program, label)).?;
             },
             .get_local_d => |k| {
-                const b: i32 = @intCast(bp.*);
-                if (b + k >= stack.items.len) {
-                    std.log.err("Invalid address: {d} at {any}\n", .{ b + k, stack.items });
-                    return error.AssertionFailed;
-                }
-
-                const value = stack.items[@intCast(b + k)];
+                const value = stack.items[try get_address_on_stack(stack, bp, k)];
                 try stack.append(value);
                 self.pc += 1;
             },
@@ -853,6 +887,16 @@ pub const VmRuntime = struct {
             .lt => {
                 const rhs = stack.pop();
                 const lhs = stack.pop();
+                if (lhs < rhs) {
+                    try stack.append(1);
+                } else {
+                    try stack.append(0);
+                }
+                self.pc += 1;
+            },
+            .lt_d => |lt_d| {
+                const rhs = stack.items[try get_address_on_stack(stack, bp, lt_d.rhs)];
+                const lhs = stack.items[try get_address_on_stack(stack, bp, lt_d.lhs)];
                 if (lhs < rhs) {
                     try stack.append(1);
                 } else {

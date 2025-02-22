@@ -92,12 +92,15 @@ pub fn main() !void {
     const command = argv[1][0..std.mem.len(argv[1])];
     if (std.mem.eql(u8, command, "run")) {
         var enableJit = true;
+        var enableOptimizeIr = true;
         var dumpIr = false;
         for (argv[2..]) |arg| {
             if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--nojit")) {
                 enableJit = false;
             } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--dump-ir")) {
                 dumpIr = true;
+            } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--noopt")) {
+                enableOptimizeIr = false;
             }
         }
 
@@ -121,7 +124,10 @@ pub fn main() !void {
 
         try readFile(allocator, argv[2][0..std.mem.len(argv[2])], &content);
 
-        const result = try c.evalModule(content.items, .{ .enable_jit = enableJit });
+        c.enable_jit = enableJit;
+        c.enable_optimize_ir = enableOptimizeIr;
+
+        const result = try c.evalModule(content.items);
 
         try stdout.print("Result: {any}\n", .{result});
         try bw.flush();

@@ -23,13 +23,15 @@ pub const Compiler = struct {
     vmc: vm.Vm,
     enable_jit: bool,
     dump_ir_path: ?[]const u8 = null,
+    enable_optimize_ir: bool = true,
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
         return Compiler{
             .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
             .allocator = allocator,
             .vmc = vm.Vm.init(allocator),
-            .enable_jit = false,
+            .enable_jit = true,
+            .enable_optimize_ir = true,
         };
     }
 
@@ -57,12 +59,16 @@ pub const Compiler = struct {
 
         try tc.typecheck(&module);
 
-        const ir = try self.vmc.compile("main", module);
+        var ir = try self.vmc.compile("main", module);
+
+        if (self.enable_optimize_ir) {
+            ir = try self.vmc.optimize(ir);
+        }
 
         return ir;
     }
 
-    pub fn startVm(self: *Compiler, ir: []ast.Instruction, options: struct { enable_jit: bool }) anyerror!ast.Value {
+    pub fn startVm(self: *Compiler, ir: []ast.Instruction) anyerror!ast.Value {
         const zone = P.begin(@src(), "Compiler.startVm");
         defer zone.end();
 
@@ -82,14 +88,14 @@ pub const Compiler = struct {
         var vmr = vm.VmRuntime.init(self.allocator);
         defer vmr.deinit();
 
-        vmr.enable_jit = options.enable_jit;
+        vmr.enable_jit = self.enable_jit;
 
         try vmr.run(ir, &stack, &bp);
 
         return ast.Value{ .i64_ = stack.items[0] };
     }
 
-    pub fn evalModule(self: *Compiler, str: []const u8, options: struct { enable_jit: bool }) anyerror!ast.Value {
+    pub fn evalModule(self: *Compiler, str: []const u8) anyerror!ast.Value {
         const zone = P.begin(@src(), "Compiler.evalModule");
         defer zone.end();
 
@@ -110,7 +116,7 @@ pub const Compiler = struct {
             }
         }
 
-        return try self.startVm(ir, .{ .enable_jit = options.enable_jit });
+        return try self.startVm(ir);
     }
 };
 

@@ -247,6 +247,7 @@ pub const InstructionType = enum {
     nop,
     mod,
     lt,
+    lt_d,
     lte,
     gt,
     gte,
@@ -283,6 +284,10 @@ pub const Instruction = union(InstructionType) {
     nop: bool,
     mod: bool,
     lt: bool,
+    lt_d: struct {
+        lhs: i32,
+        rhs: i32,
+    },
     lte: bool,
     gt: bool,
     gte: bool,
@@ -401,6 +406,16 @@ pub const Instruction = union(InstructionType) {
             Instruction.set_cip => {
                 try std.fmt.format(writer, "set_cip #{d}", .{self.set_cip});
             },
+            Instruction.lt_d => {
+                try std.fmt.format(writer, "lt_d #{d} #{d}", .{ self.lt_d.lhs, self.lt_d.rhs });
+            },
         }
+    }
+
+    pub fn is_get_local_d(self: Instruction) bool {
+        return switch (self) {
+            Instruction.get_local_d => true,
+            else => false,
+        };
     }
 };
