@@ -99,7 +99,14 @@ pub const Compiler = struct {
             defer file.close();
 
             for (ir) |inst| {
-                try std.fmt.format(file.writer(), "{s}\n", .{inst});
+                switch (inst) {
+                    .label => |label| {
+                        try std.fmt.format(file.writer(), "{s}:\n", .{label});
+                    },
+                    else => {
+                        try std.fmt.format(file.writer(), "    {s}\n", .{inst});
+                    },
+                }
             }
         }
 
