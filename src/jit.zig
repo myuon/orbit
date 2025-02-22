@@ -439,6 +439,13 @@ pub const JitRuntime = struct {
                     try code.emitAddImm(.x9, @intCast(add_di.imm), .x9);
                     try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
                 },
+                .madd_d => |madd_d| {
+                    try JitRuntime.loadCStack(&code, madd_d.rhs, .x9, .x15, .x14);
+                    try JitRuntime.loadCStack(&code, madd_d.lhs, .x10, .x15, .x14);
+                    try JitRuntime.loadCStack(&code, madd_d.base, .x11, .x15, .x14);
+                    try code.emitMadd(.x9, .x9, .x10, .x11);
+                    try JitRuntime.pushCStack(&code, .x9, .x15, .x14, .x13);
+                },
                 .sub => {
                     try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13);
                     try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13);

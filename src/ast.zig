@@ -230,6 +230,7 @@ pub const InstructionType = enum {
     jump_ifzero,
     add,
     add_di,
+    madd_d,
     sub,
     mul,
     div,
@@ -270,6 +271,11 @@ pub const Instruction = union(InstructionType) {
     add_di: struct {
         lhs: i32,
         imm: i32,
+    },
+    madd_d: struct {
+        lhs: i32,
+        rhs: i32,
+        base: i32,
     },
     sub: bool,
     mul: bool,
@@ -417,6 +423,9 @@ pub const Instruction = union(InstructionType) {
             Instruction.add_di => {
                 try std.fmt.format(writer, "add_di #{d} #{d}", .{ self.add_di.lhs, self.add_di.imm });
             },
+            Instruction.madd_d => {
+                try std.fmt.format(writer, "madd_d #{d} #{d} #{d}", .{ self.madd_d.lhs, self.madd_d.rhs, self.madd_d.base });
+            },
         }
     }
 
@@ -430,6 +439,13 @@ pub const Instruction = union(InstructionType) {
     pub fn is_push(self: Instruction) bool {
         return switch (self) {
             Instruction.push => true,
+            else => false,
+        };
+    }
+
+    pub fn is_mul(self: Instruction) bool {
+        return switch (self) {
+            Instruction.mul => true,
             else => false,
         };
     }

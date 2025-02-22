@@ -456,10 +456,7 @@ pub const Vm = struct {
         var i: usize = 0;
         while (i < program.len) {
             switch (program[i]) {
-                .nop => {
-                    i += 1;
-                    continue;
-                },
+                .nop => {},
                 .lt => {
                     if (program[i - 1].is_get_local_d() and program[i - 2].is_get_local_d()) {
                         const rhs = result.pop().get_local_d;
@@ -474,6 +471,12 @@ pub const Vm = struct {
                         const rhs = result.pop().push;
                         const lhs = result.pop().get_local_d;
                         try result.append(ast.Instruction{ .add_di = .{ .lhs = lhs, .imm = rhs } });
+                    } else if (program[i - 1].is_mul() and program[i - 2].is_get_local_d() and program[i - 3].is_get_local_d() and program[i - 4].is_get_local_d()) {
+                        _ = result.pop().mul;
+                        const rhs = result.pop().get_local_d;
+                        const lhs = result.pop().get_local_d;
+                        const base = result.pop().get_local_d;
+                        try result.append(ast.Instruction{ .madd_d = .{ .lhs = lhs, .rhs = rhs, .base = base } });
                     } else {
                         try result.append(program[i]);
                     }
@@ -575,7 +578,7 @@ pub const VmRuntime = struct {
             try self.traces.?.append(inst);
 
             if (traces.items.len > 1_000_000) {
-                std.log.warn("Tracing limit exceeded\n", .{});
+                std.log.warn("Tracing limit exceeded", .{});
 
                 self.traces.?.deinit();
                 self.traces = null;
@@ -662,13 +665,15 @@ pub const VmRuntime = struct {
                             for (ir_block.items) |t| {
                                 switch (t) {
                                     .jump_ifzero => |l| {
-                                        try exit_stub.put(l, ir_block.items.len);
+                                        if (!exit_stub.contains(l)) {
+                                            try exit_stub.put(l, ir_block.items.len);
 
-                                        // Add fallback block (when label not found)
-                                        const ip = (try VmRuntime.find_label(program, l)).?;
-                                        try fallback_block.append(ast.Instruction{ .set_cip = ip });
-                                        try fallback_block.append(ast.Instruction{ .push = -1 });
-                                        try fallback_block.append(ast.Instruction{ .ret = true });
+                                            // Add fallback block (when label not found)
+                                            const ip = (try VmRuntime.find_label(program, l)).?;
+                                            try fallback_block.append(ast.Instruction{ .set_cip = ip });
+                                            try fallback_block.append(ast.Instruction{ .push = -1 });
+                                            try fallback_block.append(ast.Instruction{ .ret = true });
+                                        }
                                     },
                                     .call => {
                                         quit_compiling = true;
@@ -698,7 +703,7 @@ pub const VmRuntime = struct {
                         }
                     } else {
                         // When jumping backwards
-                        if (target < pc and pc - target >= 10) {
+                        if (target < pc) {
                             // start tracing
                             self.traces = std.ArrayList(ast.Instruction).init(self.allocator);
                         }
@@ -758,6 +763,14 @@ pub const VmRuntime = struct {
                 const rhs = add_di.imm;
                 const lhs = stack.items[try get_address_on_stack(stack, bp, add_di.lhs)];
                 try stack.append(lhs + rhs);
+
+                self.pc += 1;
+            },
+            .madd_d => |madd_d| {
+                const rhs = stack.items[try get_address_on_stack(stack, bp, madd_d.rhs)];
+                const lhs = stack.items[try get_address_on_stack(stack, bp, madd_d.lhs)];
+                const base = stack.items[try get_address_on_stack(stack, bp, madd_d.base)];
+                try stack.append(lhs * rhs + base);
 
                 self.pc += 1;
             },
