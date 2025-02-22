@@ -462,10 +462,7 @@ pub const VmRuntimeError = error{
 };
 
 pub const VmRuntime = struct {
-    const JitCache = std.StringHashMap(struct {
-        fn_ptr: jit.CompiledFn,
-        exit: usize,
-    });
+    const JitCache = std.StringHashMap(jit.CompiledFn);
 
     pc: usize,
     envs: std.ArrayList(std.StringHashMap(i64)),
@@ -578,11 +575,9 @@ pub const VmRuntime = struct {
                 const target = (try VmRuntime.find_label(program, label)).?;
 
                 var result_fn_ptr: ?jit.CompiledFn = null;
-                var exit: i64 = 0; // Deprecated
-                if (self.jit_cache.get(label)) |data| {
-                    result_fn_ptr = data.fn_ptr;
-                    exit = @intCast(data.exit);
-                } else if (entry.value_ptr.* >= 5) {
+                if (self.jit_cache.get(label)) |fn_ptr| {
+                    result_fn_ptr = fn_ptr;
+                } else if (self.enable_jit and entry.value_ptr.* >= 10) {
                     // When tracing is finished
                     if (self.traces) |traces| {
                         if (std.mem.eql(u8, traces.items[0].label, label)) {
@@ -632,10 +627,7 @@ pub const VmRuntime = struct {
                             var runtime = jit.JitRuntime.init(self.allocator);
                             const f = try runtime.compile(ir_block.items);
 
-                            try self.jit_cache.put(label, .{
-                                .fn_ptr = f,
-                                .exit = @intCast(exit),
-                            });
+                            try self.jit_cache.put(label, f);
 
                             self.traces.?.deinit();
                             self.traces = null;
@@ -660,7 +652,6 @@ pub const VmRuntime = struct {
                     // std.log.info("AFT: {s}, {d} {any} ({d})", .{ label, bp.*, stack.items, ip });
 
                     // epilogue here
-                    std.debug.assert(exit >= 0);
                     if (ip != -1) {
                         self.pc = @intCast(ip);
                     }
@@ -723,8 +714,8 @@ pub const VmRuntime = struct {
                     if (entry.value_ptr.* > 3) {
                         var fn_ptr: jit.CompiledFn = undefined;
 
-                        if (self.jit_cache.get(label)) |data| {
-                            fn_ptr = data.fn_ptr;
+                        if (self.jit_cache.get(label)) |f| {
+                            fn_ptr = f;
                         } else {
                             const start = try std.time.Instant.now();
 
@@ -759,10 +750,7 @@ pub const VmRuntime = struct {
                             const elapsed: f64 = @floatFromInt(end.since(start));
                             std.debug.print("Compiled(jit) in {d:.3}ms {s}\n", .{ elapsed / std.time.ns_per_ms, label });
 
-                            try self.jit_cache.put(label, .{
-                                .fn_ptr = f,
-                                .exit = 0,
-                            });
+                            try self.jit_cache.put(label, f);
 
                             fn_ptr = f;
                         }
