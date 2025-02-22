@@ -459,6 +459,7 @@ pub const Vm = struct {
 pub const VmRuntimeError = error{
     LabelNotFound,
     AssertionFailed,
+    JitCompileFailed,
 };
 
 pub const VmRuntime = struct {
@@ -600,6 +601,8 @@ pub const VmRuntime = struct {
                             var exit_stub = std.StringHashMap(usize).init(self.allocator);
                             defer exit_stub.deinit();
 
+                            var quit_compiling = false;
+
                             // find the exit path
                             // TODO: support `jump` to outside of the block
                             for (ir_block.items) |t| {
@@ -614,25 +617,28 @@ pub const VmRuntime = struct {
                                         try ir_block.append(ast.Instruction{ .ret = true });
                                     },
                                     .call => {
-                                        unreachable;
+                                        quit_compiling = true;
+                                        break;
                                     },
                                     else => {},
                                 }
                             }
 
-                            try vmc.resolveIrLabels(ir_block.items, exit_stub);
+                            if (!quit_compiling) {
+                                try vmc.resolveIrLabels(ir_block.items, exit_stub);
 
-                            std.log.info("Tracing & compile finished, {d}", .{ir_block.items.len});
+                                std.log.info("Tracing & compile finished, {d}", .{ir_block.items.len});
 
-                            var runtime = jit.JitRuntime.init(self.allocator);
-                            const f = try runtime.compile(ir_block.items, true);
+                                var runtime = jit.JitRuntime.init(self.allocator);
+                                const f = try runtime.compile(ir_block.items, true);
 
-                            try self.jit_cache.put(label, f);
+                                try self.jit_cache.put(label, f);
 
-                            self.traces.?.deinit();
-                            self.traces = null;
+                                self.traces.?.deinit();
+                                self.traces = null;
 
-                            result_fn_ptr = f;
+                                result_fn_ptr = f;
+                            }
                         }
                     } else {
                         // When jumping backwords
