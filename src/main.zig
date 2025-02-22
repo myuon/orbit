@@ -1,5 +1,6 @@
 const std = @import("std");
 const compiler = @import("compiler.zig");
+const ast = @import("ast.zig");
 const tui = @import("tui.zig");
 const vm = @import("vm.zig");
 const vaxis = @import("vaxis");
@@ -50,6 +51,14 @@ fn writeStack(allocator: std.mem.Allocator, stack: []i64, bp: i64) ![]u8 {
     }
 
     return result.items;
+}
+
+fn writeIr(prog: []ast.Instruction, offset: usize, buffer: *std.ArrayList(u8)) anyerror!void {
+    for (prog, 0..) |inst, k| {
+        try std.fmt.format(buffer.writer(), "{d}: ", .{k + offset});
+        try std.json.stringify(inst, .{}, buffer.writer());
+        try buffer.appendSlice("\n");
+    }
 }
 
 pub fn main() !void {
@@ -127,14 +136,7 @@ pub fn main() !void {
 
         var progStack = std.ArrayList(u8).init(allocator);
         defer progStack.deinit();
-        for (prog) |inst| {
-            var next = std.ArrayList(u8).init(allocator);
-            defer next.deinit();
-            try std.json.stringify(inst, .{}, next.writer());
-
-            try progStack.appendSlice(next.items);
-            try progStack.appendSlice("\n");
-        }
+        try writeIr(prog, 0, &progStack);
 
         try dbg.set_text("ir", progStack.items);
         try dbg.set_text("stack", "");
@@ -164,28 +166,20 @@ pub fn main() !void {
                             }
 
                             progStack.clearAndFree();
-                            for (prog[@intCast(scroll)..]) |inst| {
-                                var next = std.ArrayList(u8).init(allocator);
-                                defer next.deinit();
-                                try std.json.stringify(inst, .{}, next.writer());
-
-                                try progStack.appendSlice(next.items);
-                                try progStack.appendSlice("\n");
-                            }
+                            try writeIr(prog[@intCast(scroll)..], @intCast(scroll), &progStack);
 
                             try dbg.set_text("ir", progStack.items);
                         } else if (key.matches(vaxis.Key.down, .{})) {
                             scroll += 1;
+                            if (scroll >= prog.len) {
+                                scroll = @intCast(prog.len - 1);
+                            }
+                            if (scroll < 0) {
+                                scroll = 0;
+                            }
 
                             progStack.clearAndFree();
-                            for (prog[@intCast(scroll)..]) |inst| {
-                                var next = std.ArrayList(u8).init(allocator);
-                                defer next.deinit();
-                                try std.json.stringify(inst, .{}, next.writer());
-
-                                try progStack.appendSlice(next.items);
-                                try progStack.appendSlice("\n");
-                            }
+                            try writeIr(prog[@intCast(scroll)..], @intCast(scroll), &progStack);
 
                             try dbg.set_text("ir", progStack.items);
                         }

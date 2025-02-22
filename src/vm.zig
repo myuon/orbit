@@ -578,10 +578,10 @@ pub const VmRuntime = struct {
                 const target = (try VmRuntime.find_label(program, label)).?;
 
                 var result_fn_ptr: ?jit.CompiledFn = null;
-                var exit: usize = 0;
+                var exit: i64 = -1;
                 if (self.jit_cache.get(label)) |data| {
                     result_fn_ptr = data.fn_ptr;
-                    exit = data.exit;
+                    exit = @intCast(data.exit);
                 } else if (entry.value_ptr.* >= 100) {
                     // When tracing is finished
                     if (self.traces) |traces| {
@@ -596,7 +596,6 @@ pub const VmRuntime = struct {
                             var ir_block = std.ArrayList(ast.Instruction).init(self.allocator);
                             defer ir_block.deinit();
 
-                            std.log.err("{any}", .{traces.items[16]});
                             try ir_block.appendSlice(traces.items);
 
                             const fallback_position = ir_block.items.len;
@@ -605,21 +604,15 @@ pub const VmRuntime = struct {
                             // Multiple exit point is not supported yet
                             try ir_block.append(ast.Instruction{ .ret = true });
 
-                            try vmc.resolveIrLabels(ir_block.items, fallback_position);
-
-                            std.log.info("Tracing & compile finished, {d}", .{ir_block.items.len});
-
-                            var runtime = jit.JitRuntime.init(self.allocator);
-                            const f = try runtime.compile(ir_block.items);
-
                             // find the exit path
+                            // NOTE: this must be done before calling resolveIrLabels
                             for (ir_block.items) |t| {
                                 switch (t) {
                                     .jump => |l| {
                                         std.debug.assert(std.mem.eql(u8, l, label));
                                     },
                                     .jump_ifzero => |l| {
-                                        exit = (try VmRuntime.find_label(ir_block.items, l)).?;
+                                        exit = @intCast((try VmRuntime.find_label(program, l)).?);
                                     },
                                     .call => {
                                         unreachable;
@@ -628,12 +621,17 @@ pub const VmRuntime = struct {
                                 }
                             }
 
+                            try vmc.resolveIrLabels(ir_block.items, fallback_position);
+
+                            std.log.info("Tracing & compile finished, {d}", .{ir_block.items.len});
+
+                            var runtime = jit.JitRuntime.init(self.allocator);
+                            const f = try runtime.compile(ir_block.items);
+
                             try self.jit_cache.put(label, .{
                                 .fn_ptr = f,
-                                .exit = exit,
+                                .exit = @intCast(exit),
                             });
-
-                            std.debug.print("Compiled(jit) {any}\n", .{ir_block.items});
 
                             self.traces.?.deinit();
                             self.traces = null;
@@ -657,7 +655,8 @@ pub const VmRuntime = struct {
                     // std.log.info("AFT: {s}, {d} {any}", .{ label, bp.*, stack.items });
 
                     // epilogue here
-                    self.pc = exit;
+                    std.debug.assert(exit >= 0);
+                    self.pc = @intCast(exit);
 
                     stack.shrinkAndFree(@intCast(sp));
 
@@ -714,7 +713,7 @@ pub const VmRuntime = struct {
                 if (self.enable_jit and entry.found_existing) {
                     entry.value_ptr.* += 1;
 
-                    if (entry.value_ptr.* > 10) {
+                    if (entry.value_ptr.* > 3) {
                         var fn_ptr: jit.CompiledFn = undefined;
 
                         if (self.jit_cache.get(label)) |data| {
