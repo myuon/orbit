@@ -6,6 +6,7 @@ const parser = @import("parser.zig");
 const typecheck = @import("typecheck.zig");
 const vm = @import("vm.zig");
 const jit = @import("jit.zig");
+const P = @import("profiler");
 
 pub const EvalError = error{
     VariableNotFound,
@@ -37,23 +38,16 @@ pub const Compiler = struct {
     }
 
     pub fn compileInIr(self: *Compiler, str: []const u8) anyerror![]ast.Instruction {
-        var start = try std.time.Instant.now();
+        const zone = P.begin(@src(), "Compiler.compileInIr");
+        defer zone.end();
 
         var l = lexer.Lexer.init(self.allocator, str);
         defer l.deinit();
 
         const tokens = try l.run();
 
-        var end = try std.time.Instant.now();
-        std.debug.print("Lexer.run in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
-        start = end;
-
         var p = parser.Parser.init(self.allocator, tokens.items);
         defer p.deinit();
-
-        end = try std.time.Instant.now();
-        std.debug.print("Parser.run in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
-        start = end;
 
         var module = try p.module();
 
@@ -62,21 +56,14 @@ pub const Compiler = struct {
 
         try tc.typecheck(&module);
 
-        end = try std.time.Instant.now();
-        std.debug.print("Typechecker.typecheck in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
-        start = end;
-
         const ir = try self.vmc.compile("main", module);
-
-        end = try std.time.Instant.now();
-        std.debug.print("Compiler.compile in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
-        start = end;
 
         return ir;
     }
 
     pub fn startVm(self: *Compiler, ir: []ast.Instruction, options: struct { enable_jit: bool }) anyerror!ast.Value {
-        const start = try std.time.Instant.now();
+        const zone = P.begin(@src(), "Compiler.startVm");
+        defer zone.end();
 
         var stack = std.ArrayList(i64).init(self.allocator);
         defer stack.deinit();
@@ -98,13 +85,13 @@ pub const Compiler = struct {
 
         try vmr.run(ir, &stack, &bp);
 
-        const end = try std.time.Instant.now();
-        std.debug.print("VmRuntime.run in {d:.3}ms\n", .{@as(f64, @floatFromInt(end.since(start))) / std.time.ns_per_ms});
-
         return ast.Value{ .i64_ = stack.items[0] };
     }
 
     pub fn evalModule(self: *Compiler, str: []const u8, options: struct { enable_jit: bool }) anyerror!ast.Value {
+        const zone = P.begin(@src(), "Compiler.evalModule");
+        defer zone.end();
+
         const ir = try self.compileInIr(str);
         return try self.startVm(ir, .{ .enable_jit = options.enable_jit });
     }

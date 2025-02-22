@@ -42,8 +42,14 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
 
     const vaxis = b.dependency("vaxis", .{});
-
     exe.root_module.addImport("vaxis", vaxis.module("vaxis"));
+
+    const use_profiler = b.option(bool, "enable_profiling", "Enable Profiler") orelse false;
+
+    const profiler = b.dependency("profiler.zig", .{
+        .enable_profiling = use_profiler,
+    });
+    exe.root_module.addImport("profiler", profiler.module("profiler"));
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish

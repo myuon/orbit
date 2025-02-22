@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const ast = @import("ast.zig");
+const P = @import("profiler");
 
 pub const TypecheckerError = error{
     VariableNotFound,
@@ -305,6 +306,9 @@ pub const Typechecker = struct {
     }
 
     pub fn typecheck(self: *Typechecker, module: *ast.Module) anyerror!void {
+        const zone = P.begin(@src(), "Typechecker.typecheck");
+        defer zone.end();
+
         for (module.decls, 0..) |decl, i| {
             switch (decl) {
                 .fun => |fun| {

@@ -1,6 +1,7 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 const ast = @import("ast.zig");
+const P = @import("profiler");
 
 pub const LexerError = error{
     UnexpectedToken,
@@ -154,6 +155,9 @@ pub const Lexer = struct {
     }
 
     pub fn run(self: *Lexer) anyerror!std.ArrayList(ast.Token) {
+        const zone = P.begin(@src(), "Lexer.run");
+        defer zone.end();
+
         var tokens = std.ArrayList(ast.Token).init(self.ast_arena_allocator.allocator());
 
         while (self.position < self.source.len) {

@@ -3,3 +3,4 @@ zig-out/
 debug/
 
 scratch.ob
+profile.json

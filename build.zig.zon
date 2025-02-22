@@ -27,6 +27,10 @@
             .url = "git+https://github.com/rockorager/libvaxis#0eaf6226b2dd58720c5954d3646d6782e0c063f5",
             .hash = "12208b6363d1bff963081ee4cba5c8be9f782e89ed7604e5ceab61999b1a7980f791",
         },
+        .@"profiler.zig" = .{
+            .url = "git+https://github.com/lassade/profiler.zig#d066d066c36c4eebd494babf15c1cdbd2d512b12",
+            .hash = "122097461acc2064f5f89b85d76d2a02232579864b17604617a333789c892f2d262f",
+        },
     },
     .paths = .{
         "build.zig",

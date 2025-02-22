@@ -4,6 +4,7 @@ const ast = @import("ast.zig");
 const tui = @import("tui.zig");
 const vm = @import("vm.zig");
 const vaxis = @import("vaxis");
+const P = @import("profiler");
 
 pub const panic = vaxis.panic_handler;
 
@@ -96,6 +97,17 @@ pub fn main() !void {
                 enableJit = false;
             }
         }
+
+        try P.init(.{});
+        defer {
+            P.dump("profile.json") catch |err| {
+                std.log.err("Failed to dump profile: {any}\n", .{err});
+            };
+            P.deinit();
+        }
+
+        const zone = P.begin(@src(), "main.run");
+        defer zone.end();
 
         var content = std.ArrayList(u8).init(allocator);
         defer content.deinit();

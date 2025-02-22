@@ -2,6 +2,7 @@ const std = @import("std");
 
 const ast = @import("ast.zig");
 const jit = @import("jit.zig");
+const P = @import("profiler");
 
 const ControlFlow = enum {
     Continue,
@@ -384,6 +385,9 @@ pub const Vm = struct {
         entrypoint: []const u8,
         module: ast.Module,
     ) anyerror![]ast.Instruction {
+        const zone = P.begin(@src(), "Vm.compile");
+        defer zone.end();
+
         self.env_offset = 0;
         self.env.clearAndFree();
 
@@ -560,6 +564,9 @@ pub const VmRuntime = struct {
                 }
             },
             .jump => |label| {
+                const zone = P.begin(@src(), "VmRuntime.step.jump");
+                defer zone.end();
+
                 const entry = try self.hot_spot_labels.getOrPutValue(label, 0);
                 entry.value_ptr.* += 1;
 
@@ -647,6 +654,9 @@ pub const VmRuntime = struct {
                 }
 
                 if (result_fn_ptr) |fn_ptr| {
+                    const zone_call_jit_fn = P.begin(@src(), "VmRuntime.step.jump.call_jit_fn");
+                    defer zone_call_jit_fn.end();
+
                     var ip: i64 = -1;
                     var sp = @as(i64, @intCast(stack.items.len));
 
