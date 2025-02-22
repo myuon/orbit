@@ -733,7 +733,8 @@ pub const VmRuntime = struct {
                         if (self.jit_cache.get(label)) |f| {
                             fn_ptr = f;
                         } else {
-                            const start = try std.time.Instant.now();
+                            const zone = P.begin(@src(), "VmRuntime.step.call.jitCompile");
+                            defer zone.end();
 
                             const call_block_start = try VmRuntime.find_label(program, label);
 
@@ -761,10 +762,6 @@ pub const VmRuntime = struct {
 
                                 unreachable;
                             };
-
-                            const end = try std.time.Instant.now();
-                            const elapsed: f64 = @floatFromInt(end.since(start));
-                            std.debug.print("Compiled(jit) in {d:.3}ms {s}\n", .{ elapsed / std.time.ns_per_ms, label });
 
                             try self.jit_cache.put(label, f);
 
