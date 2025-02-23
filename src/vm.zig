@@ -173,21 +173,7 @@ pub const Vm = struct {
                             address = @intCast(i);
                         }
 
-                        try buffer.append(ast.Instruction{ .allocate_memory = 2 * 8 });
-
-                        // ptr
-                        try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
-                        try buffer.append(ast.Instruction{ .push = 0 });
-                        try buffer.append(ast.Instruction{ .add = true });
                         try buffer.append(ast.Instruction{ .push = address });
-                        try buffer.append(ast.Instruction{ .store = 8 });
-
-                        // len
-                        try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
-                        try buffer.append(ast.Instruction{ .push = 8 });
-                        try buffer.append(ast.Instruction{ .add = true });
-                        try buffer.append(ast.Instruction{ .push = @intCast(s.len) });
-                        try buffer.append(ast.Instruction{ .store = 8 });
                     },
                 }
             },
@@ -619,11 +605,17 @@ pub const Vm = struct {
 
         var dataBuffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
 
+        var data_offset: usize = 0;
         var iter = self.string_data.keyIterator();
         while (iter.next()) |k| {
             const offset = self.string_data.get(k.*).?;
             try dataBuffer.append(ast.Instruction{ .set_memory = .{ .data = k.*, .offset = @intCast(offset) } });
+
+            data_offset = @as(usize, @intCast(offset)) + k.*.len + 1;
         }
+
+        try dataBuffer.append(ast.Instruction{ .push = @intCast(data_offset + 1) });
+        try dataBuffer.append(ast.Instruction{ .set_hp = true });
 
         try dataBuffer.appendSlice(progBuffer.items);
 
@@ -1311,6 +1303,11 @@ pub const VmRuntime = struct {
                     std.debug.assert(newVecData.capacity == vecData.capacity * 2);
                 }
 
+                self.pc += 1;
+            },
+            .set_hp => {
+                const value = stack.pop();
+                self.hp = @intCast(value);
                 self.pc += 1;
             },
         }

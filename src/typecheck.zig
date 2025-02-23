@@ -166,11 +166,11 @@ pub const Typechecker = struct {
                     .boolean => {
                         return ast.Type{ .bool_ = true };
                     },
-                    .string => {
+                    .string => |str| {
                         const elem = try self.arena_allocator.allocator().create(ast.Type);
                         elem.* = ast.Type{ .byte = true };
 
-                        return ast.Type{ .slice = .{ .elem_type = elem } };
+                        return ast.Type{ .array = .{ .elem_type = elem, .size = str.len } };
                     },
                 }
             },
