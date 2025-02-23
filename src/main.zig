@@ -77,6 +77,14 @@ pub fn main() !void {
     var arena_allocator = std.heap.ArenaAllocator.init(allocator);
     defer arena_allocator.deinit();
 
+    try P.init(.{});
+    defer {
+        P.dump("profile.json") catch |err| {
+            std.log.err("Failed to dump profile: {any}\n", .{err});
+        };
+        P.deinit();
+    }
+
     var c = compiler.Compiler.init(allocator);
     defer c.deinit();
 
@@ -106,14 +114,6 @@ pub fn main() !void {
 
         if (dumpIr) {
             c.dump_ir_path = "dumped.ir";
-        }
-
-        try P.init(.{});
-        defer {
-            P.dump("profile.json") catch |err| {
-                std.log.err("Failed to dump profile: {any}\n", .{err});
-            };
-            P.deinit();
         }
 
         const zone = P.begin(@src(), "main.run");

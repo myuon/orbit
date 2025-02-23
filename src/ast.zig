@@ -304,6 +304,8 @@ pub const InstructionType = enum {
     set_memory,
     allocate_memory,
     set_cip,
+    table_set,
+    table_find_entry,
 };
 
 pub const Instruction = union(InstructionType) {
@@ -358,6 +360,8 @@ pub const Instruction = union(InstructionType) {
     },
     allocate_memory: usize,
     set_cip: usize, // For tracing JIT
+    table_set: bool, // For hashmap
+    table_find_entry: bool, // For hashmap
 
     pub fn format(
         self: Instruction,
@@ -481,6 +485,12 @@ pub const Instruction = union(InstructionType) {
                 } else {
                     try std.fmt.format(writer, "madd_d [{d}] [{d}] [{d}]", .{ self.madd_d.lhs, self.madd_d.rhs, self.madd_d.base });
                 }
+            },
+            Instruction.table_set => {
+                try std.fmt.format(writer, "table_set", .{});
+            },
+            Instruction.table_find_entry => {
+                try std.fmt.format(writer, "table_find_entry", .{});
             },
         }
     }

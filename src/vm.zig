@@ -240,7 +240,8 @@ pub const Vm = struct {
                         try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
                     },
                     .map => {
-                        unreachable;
+                        try self.compileLhsExprFromAst(buffer, expr);
+                        try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
                     },
                     else => {
                         std.log.err("Invalid index type: {any}\n", .{index.type_});
@@ -283,6 +284,11 @@ pub const Vm = struct {
                         try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
                         try buffer.append(ast.Instruction{ .mul = true });
                         try buffer.append(ast.Instruction{ .add = true });
+                    },
+                    .map => {
+                        try self.compileExprFromAst(buffer, index.lhs.*);
+                        try self.compileExprFromAst(buffer, index.rhs.*);
+                        try buffer.append(ast.Instruction{ .table_find_entry = true });
                     },
                     else => {
                         std.log.err("Invalid index type: {any}\n", .{index.type_});
@@ -376,6 +382,20 @@ pub const Vm = struct {
                         } else {
                             std.log.err("Variable not found: {s}\n", .{name});
                             return error.VariableNotFound;
+                        }
+                    },
+                    .index => |index| {
+                        switch (index.type_) {
+                            .map => {
+                                try self.compileLhsExprFromAst(buffer, assign.lhs);
+                                try self.compileExprFromAst(buffer, assign.rhs);
+                                try buffer.append(ast.Instruction{ .table_set = true });
+                            },
+                            else => {
+                                try self.compileLhsExprFromAst(buffer, assign.lhs);
+                                try self.compileExprFromAst(buffer, assign.rhs);
+                                try buffer.append(ast.Instruction{ .store = assign.type_.size() });
+                            },
                         }
                     },
                     else => {
@@ -548,6 +568,11 @@ pub const Vm = struct {
     }
 };
 
+const MapEntry = struct {
+    key: []u8,
+    value: ast.Value,
+};
+
 pub const VmRuntimeError = error{
     LabelNotFound,
     AssertionFailed,
@@ -564,10 +589,19 @@ pub const VmRuntime = struct {
     traces: ?std.ArrayList(ast.Instruction),
     jit_cache: JitCache,
     allocator: std.mem.Allocator,
+    arena_allocator: std.heap.ArenaAllocator,
     memory: []u8,
     hp: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator) VmRuntime {
+        const size = 1024 * 1024;
+
+        // allocate memory with zero-initialized
+        var memory = std.heap.page_allocator.alloc(u8, size) catch unreachable;
+        for (0..size) |i| {
+            memory[i] = 0x0;
+        }
+
         return VmRuntime{
             .pc = 0,
             .envs = std.ArrayList(std.StringHashMap(i64)).init(allocator),
@@ -576,7 +610,8 @@ pub const VmRuntime = struct {
             .jit_cache = JitCache.init(allocator),
             .enable_jit = true,
             .allocator = allocator,
-            .memory = std.heap.page_allocator.alloc(u8, 1024 * 1024) catch unreachable,
+            .arena_allocator = std.heap.ArenaAllocator.init(allocator),
+            .memory = memory,
             .hp = 0,
         };
     }
@@ -588,6 +623,7 @@ pub const VmRuntime = struct {
         self.envs.deinit();
         self.hot_spot_labels.deinit();
         self.jit_cache.deinit();
+        self.arena_allocator.deinit();
     }
 
     fn find_label(program: []ast.Instruction, target_label: []const u8) anyerror!?usize {
@@ -1024,30 +1060,7 @@ pub const VmRuntime = struct {
             .load => |size| {
                 const addr = stack.pop();
 
-                var n: i64 = 0;
-                n |= @as(i64, @intCast(self.memory[@intCast(addr)]));
-                if (size >= 2) {
-                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 1)])) << 8;
-                }
-                if (size >= 3) {
-                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 2)])) << 16;
-                }
-                if (size >= 4) {
-                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 3)])) << 24;
-                }
-                if (size >= 5) {
-                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 4)])) << 32;
-                }
-                if (size >= 6) {
-                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 5)])) << 40;
-                }
-                if (size >= 7) {
-                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 6)])) << 48;
-                }
-                if (size >= 8) {
-                    n |= @as(i64, @intCast(self.memory[@intCast(addr + 7)])) << 56;
-                }
-
+                const n = self.loadMemory(size, addr);
                 try stack.append(n);
 
                 self.pc += 1;
@@ -1098,9 +1111,97 @@ pub const VmRuntime = struct {
             .set_cip => {
                 unreachable;
             },
+            .table_set => {
+                const value = stack.pop();
+                const entry = stack.pop();
+                std.log.info("table_set: {d} {d}", .{ entry, value });
+                std.debug.assert(entry >= 0);
+
+                self.pc += 1;
+            },
+            .table_find_entry => {
+                const key = stack.pop();
+                const map = stack.pop();
+                std.log.info("table_find_entry: {d} {d}", .{ map, key });
+
+                const index = try self.findMapEntry(map, try self.loadMemoryString(key), 128);
+                try stack.append(map + @as(i64, @intCast(index)) * 16);
+                self.pc += 1;
+            },
         }
 
         return ControlFlow.Continue;
+    }
+
+    fn loadMemory(self: *VmRuntime, size: u4, addr: i64) i64 {
+        var n: i64 = 0;
+        n |= @as(i64, @intCast(self.memory[@intCast(addr)]));
+        if (size >= 2) {
+            n |= @as(i64, @intCast(self.memory[@intCast(addr + 1)])) << 8;
+        }
+        if (size >= 3) {
+            n |= @as(i64, @intCast(self.memory[@intCast(addr + 2)])) << 16;
+        }
+        if (size >= 4) {
+            n |= @as(i64, @intCast(self.memory[@intCast(addr + 3)])) << 24;
+        }
+        if (size >= 5) {
+            n |= @as(i64, @intCast(self.memory[@intCast(addr + 4)])) << 32;
+        }
+        if (size >= 6) {
+            n |= @as(i64, @intCast(self.memory[@intCast(addr + 5)])) << 40;
+        }
+        if (size >= 7) {
+            n |= @as(i64, @intCast(self.memory[@intCast(addr + 6)])) << 48;
+        }
+        if (size >= 8) {
+            n |= @as(i64, @intCast(self.memory[@intCast(addr + 7)])) << 56;
+        }
+
+        return n;
+    }
+
+    fn findMapEntry(self: *VmRuntime, map: i64, key: []u8, capacity: usize) anyerror!usize {
+        var index = (try hashMapKey(key)) % capacity;
+        while (true) {
+            const entry = try self.loadMapEntry(map + @as(i64, @intCast(index)) * 8);
+            if (std.mem.eql(u8, entry.key, key) or entry.key.len == 0) {
+                return index;
+            }
+
+            index = (index + 1) % capacity;
+        }
+    }
+
+    fn loadMapEntry(self: *VmRuntime, address: i64) anyerror!MapEntry {
+        const key_ptr = self.loadMemory(8, address);
+        const value_ptr = self.loadMemory(8, address + 8);
+
+        return MapEntry{
+            .key = try self.loadMemoryString(key_ptr),
+            .value = ast.Value{ .i64_ = value_ptr },
+        };
+    }
+
+    fn hashMapKey(str: []u8) !usize {
+        var hash: usize = 2166136261;
+        for (str) |c| {
+            hash ^= @intCast(c);
+            hash *= 16777619;
+        }
+
+        return hash;
+    }
+
+    fn loadMemoryString(self: *VmRuntime, address: i64) anyerror![]u8 {
+        var buffer = std.ArrayList(u8).init(self.arena_allocator.allocator());
+        var index: usize = @intCast(address);
+        while (self.memory[index] != 0) {
+            try buffer.append(self.memory[index]);
+            index += 1;
+        }
+
+        return buffer.items;
     }
 
     pub fn run(
