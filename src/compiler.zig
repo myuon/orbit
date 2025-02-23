@@ -5,6 +5,7 @@ const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
 const typecheck = @import("typecheck.zig");
 const vm = @import("vm.zig");
+const runtime = @import("runtime.zig");
 const jit = @import("jit.zig");
 const P = @import("profiler");
 
@@ -20,7 +21,7 @@ pub const CompilerError = error{
 pub const Compiler = struct {
     jit_cache: std.StringHashMap(jit.CompiledFn),
     allocator: std.mem.Allocator,
-    vmc: vm.Vm,
+    vmc: vm.VmCompiler,
     enable_jit: bool,
     dump_ir_path: ?[]const u8 = null,
     enable_optimize_ir: bool = true,
@@ -29,7 +30,7 @@ pub const Compiler = struct {
         return Compiler{
             .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
             .allocator = allocator,
-            .vmc = vm.Vm.init(allocator),
+            .vmc = vm.VmCompiler.init(allocator),
             .enable_jit = true,
             .enable_optimize_ir = true,
         };
@@ -85,7 +86,7 @@ pub const Compiler = struct {
 
         var bp: i64 = @intCast(stack.items.len);
 
-        var vmr = vm.VmRuntime.init(self.allocator);
+        var vmr = runtime.VmRuntime.init(self.allocator);
         defer vmr.deinit();
 
         vmr.enable_jit = self.enable_jit;
@@ -131,6 +132,7 @@ test {
     _ = @import("parser.zig");
     _ = @import("vm.zig");
     _ = @import("jit.zig");
+    _ = @import("runtime.zig");
 }
 
 test "compiler.parse_err" {
