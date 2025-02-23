@@ -280,12 +280,15 @@ pub const Vm = struct {
                     .array => |array| {
                         std.debug.assert(new.initializers.len == 0);
 
-                        try buffer.append(ast.Instruction{ .allocate_memory = array.size * @as(usize, array.elem_type.size()) });
+                        try buffer.append(ast.Instruction{ .push = @intCast(array.size * @as(usize, array.elem_type.size())) });
+                        try buffer.append(ast.Instruction{ .allocate_memory = true });
                     },
                     .map => |map| {
                         std.debug.assert(new.initializers.len == 0);
 
-                        try buffer.append(ast.Instruction{ .allocate_memory = 128 * @as(usize, map.value_type.size()) });
+                        // TODO: growable capacity
+                        try buffer.append(ast.Instruction{ .push = @intCast(128 * @as(usize, map.value_type.size())) });
+                        try buffer.append(ast.Instruction{ .allocate_memory = true });
                     },
                     .vec => |vec| {
                         std.debug.assert(new.initializers.len == 0);
@@ -296,7 +299,8 @@ pub const Vm = struct {
                         std.debug.assert(new.initializers.len == struct_.fields.len);
 
                         // aligned to 64 bits
-                        try buffer.append(ast.Instruction{ .allocate_memory = struct_.fields.len * 8 });
+                        try buffer.append(ast.Instruction{ .push = @intCast(struct_.fields.len * 8) });
+                        try buffer.append(ast.Instruction{ .allocate_memory = true });
 
                         var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, struct_.fields.len);
                         for (new.initializers) |sinit| {
@@ -316,13 +320,15 @@ pub const Vm = struct {
                         std.debug.assert(new.initializers.len == 1);
                         std.debug.assert(std.mem.eql(u8, new.initializers[0].field, "len"));
 
-                        try buffer.append(ast.Instruction{ .allocate_memory = 2 * 8 });
+                        try buffer.append(ast.Instruction{ .push = 2 * 8 });
+                        try buffer.append(ast.Instruction{ .allocate_memory = true });
 
                         // ptr
                         try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
                         try buffer.append(ast.Instruction{ .push = 0 });
                         try buffer.append(ast.Instruction{ .add = true });
-                        try buffer.append(ast.Instruction{ .allocate_memory = 128 * 8 }); // FIXME: size * len
+                        try buffer.append(ast.Instruction{ .push = 128 * 8 });
+                        try buffer.append(ast.Instruction{ .allocate_memory = true }); // FIXME: size * len
                         try buffer.append(ast.Instruction{ .store = 8 });
 
                         // len
@@ -1221,8 +1227,9 @@ pub const VmRuntime = struct {
                 self.hp = addr + data.len + 1;
                 self.pc += 1;
             },
-            .allocate_memory => |size| {
-                try self.allocateMemory(stack, size);
+            .allocate_memory => {
+                const size = stack.pop();
+                try self.allocateMemory(stack, @intCast(size));
                 self.pc += 1;
             },
             .set_cip => {

@@ -444,7 +444,7 @@ pub const Instruction = union(InstructionType) {
         data: []const u8,
         offset: usize,
     },
-    allocate_memory: usize,
+    allocate_memory: bool,
     set_cip: usize, // For tracing JIT
     table_set: bool, // For hashmap
     table_get: bool, // For hashmap
@@ -555,7 +555,7 @@ pub const Instruction = union(InstructionType) {
                 try std.fmt.format(writer, "set_memory #{s} #{d}", .{ self.set_memory.data, self.set_memory.offset });
             },
             Instruction.allocate_memory => {
-                try std.fmt.format(writer, "allocate_memory #{d}", .{self.allocate_memory});
+                try std.fmt.format(writer, "allocate_memory", .{});
             },
             Instruction.set_cip => {
                 try std.fmt.format(writer, "set_cip #{d}", .{self.set_cip});
