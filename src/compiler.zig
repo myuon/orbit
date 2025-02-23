@@ -99,7 +99,13 @@ pub const Compiler = struct {
         const zone = P.begin(@src(), "Compiler.evalModule");
         defer zone.end();
 
-        const ir = try self.compileInIr(str);
+        const stdlib =
+            \\
+        ;
+        const input = try std.fmt.allocPrint(self.allocator, "{s}\n{s}", .{ stdlib, str });
+        defer self.allocator.free(input);
+
+        const ir = try self.compileInIr(input);
         if (self.dump_ir_path) |path| {
             const file = try std.fs.cwd().createFile(path, .{});
             defer file.close();
@@ -449,22 +455,42 @@ test "compiler.evalModule" {
             ,
             .expected = 10,
         },
+        .{
+            .program =
+            \\fun main() do
+            \\  let s = new slice(int) { .len = 10 };
+            \\  let n = 0;
+            \\  while (n < 10) do
+            \\    if (n == 0) do
+            \\      s[n] = 1;
+            \\    else
+            \\      if (n == 1) do
+            \\        s[n] = 1;
+            \\      else
+            \\        s[n] = s[n-1] + s[n-2];
+            \\      end
+            \\    end
+            \\    n = n + 1;
+            \\  end
+            \\
+            \\  return s[9];
+            \\end
+            ,
+            .expected = 55,
+        },
     };
 
     for (cases) |case| {
-        var c = Compiler.init(std.testing.allocator);
-        defer c.deinit();
+        for ([_]bool{ true, false }) |flag| {
+            var c = Compiler.init(std.testing.allocator);
+            defer c.deinit();
 
-        c.enable_jit = false;
-        std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, c.evalModule(case.program) catch |err| {
-            std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
-        }) catch |err| {
-            std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
-        };
-
-        c.enable_jit = true;
-        std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, try c.evalModule(case.program)) catch |err| {
-            std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
-        };
+            c.enable_jit = flag;
+            std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, c.evalModule(case.program) catch |err| {
+                std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
+            }) catch |err| {
+                std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
+            };
+        }
     }
 }

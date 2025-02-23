@@ -243,8 +243,26 @@ pub const Typechecker = struct {
                 return value_type;
             },
             .new => |new| {
+                var structData: ast.StructData = undefined;
+                switch (new.type_) {
+                    .struct_ => |d| {
+                        structData = d;
+                    },
+                    .slice => {
+                        var fields = std.ArrayList(ast.StructField).init(self.arena_allocator.allocator());
+                        try fields.append(ast.StructField{
+                            .name = "len",
+                            .type_ = ast.Type{ .int = true },
+                        });
+
+                        structData = ast.StructData{
+                            .fields = fields.items,
+                        };
+                    },
+                    else => {},
+                }
+
                 for (new.initializers, 0..) |initializer, k| {
-                    const structData = try new.type_.getStructData();
                     const field_type = try structData.getFieldType(initializer.field);
 
                     var value = initializer.value;

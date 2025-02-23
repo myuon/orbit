@@ -117,6 +117,29 @@ pub const Vm = struct {
         }
     }
 
+    fn callFunction(self: *Vm, buffer: *std.ArrayList(ast.Instruction), name: []const u8, args: []ast.Expression) anyerror!void {
+        // return value
+        try buffer.append(ast.Instruction{ .push = -2 });
+
+        // order from left to right
+        for (args) |arg| {
+            try self.compileExprFromAst(buffer, arg);
+        }
+
+        // prologue
+        try buffer.append(ast.Instruction{ .get_pc = true });
+        try buffer.append(ast.Instruction{ .get_bp = true });
+        try buffer.append(ast.Instruction{ .get_sp = true });
+        try buffer.append(ast.Instruction{ .set_bp = true });
+
+        // call
+        try buffer.append(ast.Instruction{ .call = name });
+
+        for (args) |_| {
+            try buffer.append(ast.Instruction{ .pop = true });
+        }
+    }
+
     fn compileExprFromAst(self: *Vm, buffer: *std.ArrayList(ast.Instruction), expr: ast.Expression) anyerror!void {
         switch (expr) {
             .var_ => |v| {
@@ -193,26 +216,7 @@ pub const Vm = struct {
                 }
             },
             .call => |call| {
-                // return value
-                try buffer.append(ast.Instruction{ .push = -2 });
-
-                // order from left to right
-                for (call.args) |arg| {
-                    try self.compileExprFromAst(buffer, arg);
-                }
-
-                // prologue
-                try buffer.append(ast.Instruction{ .get_pc = true });
-                try buffer.append(ast.Instruction{ .get_bp = true });
-                try buffer.append(ast.Instruction{ .get_sp = true });
-                try buffer.append(ast.Instruction{ .set_bp = true });
-
-                // call
-                try buffer.append(ast.Instruction{ .call = call.name });
-
-                for (call.args) |_| {
-                    try buffer.append(ast.Instruction{ .pop = true });
-                }
+                try self.callFunction(buffer, call.name, call.args);
             },
             .if_ => |if_| {
                 try self.compileExprFromAst(buffer, if_.cond.*);
@@ -291,13 +295,31 @@ pub const Vm = struct {
 
                         for (fields, 0..) |e, i| {
                             try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
-                            try buffer.append(ast.Instruction{ .push = @intCast(i) });
-                            try buffer.append(ast.Instruction{ .push = 8 });
-                            try buffer.append(ast.Instruction{ .mul = true });
+                            try buffer.append(ast.Instruction{ .push = @intCast(i * 8) });
                             try buffer.append(ast.Instruction{ .add = true });
                             try self.compileExprFromAst(buffer, e);
                             try buffer.append(ast.Instruction{ .store = 8 });
                         }
+                    },
+                    .slice => |_| {
+                        std.debug.assert(new.initializers.len == 1);
+                        std.debug.assert(std.mem.eql(u8, new.initializers[0].field, "len"));
+
+                        try buffer.append(ast.Instruction{ .allocate_memory = 2 * 8 });
+
+                        // ptr
+                        try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
+                        try buffer.append(ast.Instruction{ .push = 0 });
+                        try buffer.append(ast.Instruction{ .add = true });
+                        try buffer.append(ast.Instruction{ .allocate_memory = 128 * 8 }); // FIXME: size * len
+                        try buffer.append(ast.Instruction{ .store = 8 });
+
+                        // len
+                        try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
+                        try buffer.append(ast.Instruction{ .push = 8 });
+                        try buffer.append(ast.Instruction{ .add = true });
+                        try self.compileExprFromAst(buffer, new.initializers[0].value);
+                        try buffer.append(ast.Instruction{ .store = 8 });
                     },
                     else => {
                         unreachable;
