@@ -406,10 +406,10 @@ test "compiler.evalModule" {
             .program =
             \\fun main() do
             \\  let k = new map(ptr(byte), int) {};
-            \\  k["a"] = 1;
-            \\  k["b"] = 2;
+            \\  k["hello"] = 1;
+            \\  k["world"] = 2;
             \\
-            \\  return k["a"] + k["b"];
+            \\  return k["hello"] + k["world"];
             \\end
             ,
             .expected = 3,
