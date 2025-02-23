@@ -1,0 +1,18 @@
+fun main() do
+  let s = new slice(int) { .len = 10 };
+  let n = 0;
+  while (n < 10) do
+    if (n == 0) do
+      s[n] = 1;
+    else
+      if (n == 1) do
+        s[n] = 1;
+      else
+        s[n] = s[n-1] + s[n-2];
+      end
+    end
+    n = n + 1;
+  end
+
+  return s[9];
+end

@@ -42,7 +42,6 @@ pub const VmRuntime = struct {
     allocator: std.mem.Allocator,
     arena_allocator: std.heap.ArenaAllocator,
     memory: []u8,
-    hp: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator) VmRuntime {
         const size = 1024 * 1024;
@@ -63,7 +62,6 @@ pub const VmRuntime = struct {
             .allocator = allocator,
             .arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .memory = memory,
-            .hp = 0,
         };
     }
 
@@ -537,7 +535,6 @@ pub const VmRuntime = struct {
                 for (data, 0..) |d, i| {
                     self.memory[addr + i] = d;
                 }
-                self.hp = addr + data.len + 1;
                 self.pc += 1;
             },
             .allocate_memory => {
@@ -629,16 +626,12 @@ pub const VmRuntime = struct {
                     self.storeMemory(8, vecData.array_ptr + vecData.len * 8, value);
 
                     const newVecData = try self.loadVecData(vec);
+                    std.log.info("{any} -> {any}", .{ vecData, newVecData });
                     std.debug.assert(newVecData.array_ptr == array_ptr);
                     std.debug.assert(newVecData.len == vecData.len + 1);
                     std.debug.assert(newVecData.capacity == vecData.capacity * 2);
                 }
 
-                self.pc += 1;
-            },
-            .set_hp => {
-                const value = stack.pop();
-                self.hp = @intCast(value);
                 self.pc += 1;
             },
         }
@@ -675,8 +668,10 @@ pub const VmRuntime = struct {
     }
 
     fn allocateMemory(self: *VmRuntime, stack: *std.ArrayList(i64), size: usize) anyerror!void {
-        const hp = self.hp;
-        self.hp += size;
+        const heap_section_ptr: i64 = 24;
+
+        const hp = self.loadMemory(8, heap_section_ptr);
+        self.storeMemory(8, heap_section_ptr, hp + @as(i64, @intCast(size)));
 
         try stack.append(@intCast(hp));
     }

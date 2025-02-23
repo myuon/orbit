@@ -396,7 +396,6 @@ pub const InstructionType = enum {
     vec_get,
     vec_set,
     vec_push,
-    set_hp,
 };
 
 pub const Instruction = union(InstructionType) {
@@ -456,7 +455,6 @@ pub const Instruction = union(InstructionType) {
     vec_get: bool, // For vector
     vec_set: bool, // For vector
     vec_push: bool, // For vector
-    set_hp: bool,
 
     pub fn format(
         self: Instruction,
@@ -598,9 +596,6 @@ pub const Instruction = union(InstructionType) {
             },
             Instruction.vec_push => {
                 try std.fmt.format(writer, "vec_push", .{});
-            },
-            Instruction.set_hp => {
-                try std.fmt.format(writer, "set_hp", .{});
             },
         }
     }

@@ -24,6 +24,7 @@ pub const VmCompiler = struct {
     initialized_statements: std.ArrayList(ast.Statement),
     data_section_ptr: i64,
     global_section_ptr: i64,
+    heap_section_ptr: i64,
 
     pub fn init(allocator: std.mem.Allocator) VmCompiler {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -45,6 +46,7 @@ pub const VmCompiler = struct {
             .initialized_statements = std.ArrayList(ast.Statement).init(allocator),
             .data_section_ptr = -1,
             .global_section_ptr = -1,
+            .heap_section_ptr = -1,
         };
     }
 
@@ -667,9 +669,6 @@ pub const VmCompiler = struct {
             data_offset = @as(usize, @intCast(offset)) + k.*.len + 1;
         }
 
-        try buffer.append(ast.Instruction{ .push = @intCast(data_offset + 1) });
-        try buffer.append(ast.Instruction{ .set_hp = true });
-
         for (self.initialized_statements.items) |stmt| {
             try self.compileStatementFromAst(buffer, stmt);
         }
@@ -702,6 +701,7 @@ pub const VmCompiler = struct {
         // ...
         self.data_section_ptr = 8;
         self.global_section_ptr = 16;
+        self.heap_section_ptr = 24;
 
         var progBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
         defer progBuffer.deinit();
@@ -719,6 +719,11 @@ pub const VmCompiler = struct {
         // set global_section_ptr
         try initBuffer.append(ast.Instruction{ .push = @intCast(self.global_section_ptr) });
         try initBuffer.append(ast.Instruction{ .push = @intCast(32 + sizeDataSection) });
+        try initBuffer.append(ast.Instruction{ .store = 8 });
+
+        // set heap_section_ptr
+        try initBuffer.append(ast.Instruction{ .push = @intCast(self.heap_section_ptr) });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(32 + sizeDataSection + 128) }); // FIXME: sizeGlobalSection
         try initBuffer.append(ast.Instruction{ .store = 8 });
 
         var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
