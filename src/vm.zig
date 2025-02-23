@@ -577,43 +577,14 @@ pub const VmCompiler = struct {
         return buffer.items;
     }
 
-    pub fn compile(
-        self: *VmCompiler,
-        entrypoint: []const u8,
-        module: ast.Module,
-    ) anyerror![]ast.Instruction {
-        const zone = P.begin(@src(), "Vm.compile");
-        defer zone.end();
-
-        self.env_offset = 0;
-        self.env.clearAndFree();
-
-        var progBuffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
-        defer progBuffer.deinit();
-
-        try self.env.put("return", -3);
-
-        try self.compileBlockFromAst(&progBuffer, ast.Block{
-            .statements = @constCast(&[_]ast.Statement{
-                .{
-                    .return_ = .{
-                        .call = .{
-                            .name = entrypoint,
-                            .args = &[_]ast.Expression{},
-                        },
-                    },
-                },
-            }),
-            .expr = null,
-        });
-
+    fn compileModule(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), module: ast.Module) anyerror!void {
         for (module.decls) |decl| {
             switch (decl) {
                 .fun => |f| {
                     self.env_offset = 0;
                     self.env.clearAndFree();
 
-                    try progBuffer.append(ast.Instruction{ .label = f.name });
+                    try buffer.append(ast.Instruction{ .label = f.name });
 
                     try self.env.put("return", -@as(i32, @intCast(f.params.len)) - 3);
 
@@ -624,12 +595,12 @@ pub const VmCompiler = struct {
 
                     self.compiling_context = f.name;
 
-                    try progBuffer.appendSlice(try self.compileBlock(f.name, f.body));
+                    try buffer.appendSlice(try self.compileBlock(f.name, f.body));
 
                     self.compiling_context = "";
 
                     const end_of_f = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "end_of_{s}", .{f.name});
-                    try progBuffer.append(ast.Instruction{ .label = end_of_f });
+                    try buffer.append(ast.Instruction{ .label = end_of_f });
                 },
                 .let => |let| {
                     const i = self.global_data_offset;
@@ -647,8 +618,49 @@ pub const VmCompiler = struct {
                 },
             }
         }
+    }
+
+    fn compileProgram(
+        self: *VmCompiler,
+        buffer: *std.ArrayList(ast.Instruction),
+        entrypoint: []const u8,
+        module: ast.Module,
+    ) anyerror!void {
+        try self.env.put("return", -3);
+        try self.compileBlockFromAst(buffer, ast.Block{
+            .statements = @constCast(&[_]ast.Statement{
+                .{
+                    .return_ = .{
+                        .call = .{
+                            .name = entrypoint,
+                            .args = &[_]ast.Expression{},
+                        },
+                    },
+                },
+            }),
+            .expr = null,
+        });
+
+        try self.compileModule(buffer, module);
+    }
+
+    pub fn compile(
+        self: *VmCompiler,
+        entrypoint: []const u8,
+        module: ast.Module,
+    ) anyerror![]ast.Instruction {
+        const zone = P.begin(@src(), "Vm.compile");
+        defer zone.end();
+
+        self.env_offset = 0;
+        self.env.clearAndFree();
+
+        var progBuffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
+        defer progBuffer.deinit();
+        try self.compileProgram(&progBuffer, entrypoint, module);
 
         var dataBuffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
+        defer dataBuffer.deinit();
 
         var data_offset: usize = 0;
         var iter = self.string_data.keyIterator();
@@ -665,10 +677,13 @@ pub const VmCompiler = struct {
         for (self.initialized_statements.items) |stmt| {
             try self.compileStatementFromAst(&dataBuffer, stmt);
         }
-
         try dataBuffer.appendSlice(progBuffer.items);
 
-        return dataBuffer.items;
+        var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
+        try buffer.appendSlice(dataBuffer.items);
+        try buffer.appendSlice(progBuffer.items);
+
+        return buffer.items;
     }
 
     pub fn optimize(self: *VmCompiler, program: []ast.Instruction) anyerror![]ast.Instruction {
