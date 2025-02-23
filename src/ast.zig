@@ -183,6 +183,7 @@ pub const TypeType = enum {
     map,
     fun,
     struct_,
+    ptr,
 };
 
 pub const AstTypeError = error{
@@ -243,6 +244,7 @@ pub const Type = union(TypeType) {
         return_type: *Type,
     },
     struct_: StructData,
+    ptr: struct { elem_type: *Type },
 
     pub fn size(self: Type) u4 {
         return switch (self) {
@@ -256,6 +258,7 @@ pub const Type = union(TypeType) {
             Type.map => 8,
             Type.fun => unreachable,
             Type.struct_ => 8,
+            Type.ptr => 8,
         };
     }
 
@@ -271,6 +274,9 @@ pub const Type = union(TypeType) {
                 return map.key_type.*;
             },
             .vec => {
+                return Type{ .int = true };
+            },
+            .ptr => {
                 return Type{ .int = true };
             },
             else => {
@@ -293,6 +299,9 @@ pub const Type = union(TypeType) {
             },
             .vec => |vec| {
                 return vec.elem_type.*;
+            },
+            .ptr => |ptr| {
+                return ptr.elem_type.*;
             },
             else => {
                 std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });

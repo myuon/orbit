@@ -240,6 +240,10 @@ pub const Vm = struct {
             },
             .index => |index| {
                 switch (index.type_) {
+                    .ptr => {
+                        try self.compileLhsExprFromAst(buffer, expr);
+                        try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
+                    },
                     .array => {
                         try self.compileLhsExprFromAst(buffer, expr);
                         try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
@@ -354,6 +358,13 @@ pub const Vm = struct {
             },
             .index => |index| {
                 switch (index.type_) {
+                    .ptr => {
+                        try self.compileExprFromAst(buffer, index.lhs.*);
+                        try self.compileExprFromAst(buffer, index.rhs.*);
+                        try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
+                        try buffer.append(ast.Instruction{ .mul = true });
+                        try buffer.append(ast.Instruction{ .add = true });
+                    },
                     .array => {
                         try self.compileExprFromAst(buffer, index.lhs.*);
                         try self.compileExprFromAst(buffer, index.rhs.*);

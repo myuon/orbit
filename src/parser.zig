@@ -751,6 +751,17 @@ pub const Parser = struct {
                     return ast.Type{ .bool_ = true };
                 } else if (std.mem.eql(u8, current, "byte")) {
                     return ast.Type{ .byte = true };
+                } else if (std.mem.eql(u8, current, "ptr")) {
+                    try self.expect(ast.Operator.lparen);
+                    const t = try self.type_();
+                    try self.expect(ast.Operator.rparen);
+
+                    const elem_type = try self.ast_arena_allocator.allocator().create(ast.Type);
+                    elem_type.* = t;
+
+                    return ast.Type{ .ptr = .{
+                        .elem_type = elem_type,
+                    } };
                 } else if (std.mem.eql(u8, current, "array")) {
                     try self.expect(ast.Operator.lparen);
                     const t = try self.type_();

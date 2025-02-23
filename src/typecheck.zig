@@ -142,6 +142,15 @@ pub const Typechecker = struct {
                     },
                 }
             },
+            .ptr => |ptr| {
+                switch (actual) {
+                    .ptr => _ = try assertType(ptr.elem_type.*, actual.ptr.elem_type.*),
+                    else => {
+                        std.log.err("Expected ptr, got {any}\n", .{actual});
+                        return TypecheckerError.UnexpectedType;
+                    },
+                }
+            },
             .unknown => {
                 return actual;
             },
@@ -166,11 +175,11 @@ pub const Typechecker = struct {
                     .boolean => {
                         return ast.Type{ .bool_ = true };
                     },
-                    .string => |str| {
+                    .string => {
                         const elem = try self.arena_allocator.allocator().create(ast.Type);
                         elem.* = ast.Type{ .byte = true };
 
-                        return ast.Type{ .array = .{ .elem_type = elem, .size = str.len } };
+                        return ast.Type{ .ptr = .{ .elem_type = elem } };
                     },
                 }
             },
