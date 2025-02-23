@@ -620,7 +620,7 @@ pub const VmCompiler = struct {
         }
     }
 
-    fn compileProgram(
+    fn compileProgramSection(
         self: *VmCompiler,
         buffer: *std.ArrayList(ast.Instruction),
         entrypoint: []const u8,
@@ -644,6 +644,27 @@ pub const VmCompiler = struct {
         try self.compileModule(buffer, module);
     }
 
+    fn compileDataSection(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction)) anyerror!usize {
+        var data_offset: usize = 0;
+
+        var iter = self.string_data.keyIterator();
+        while (iter.next()) |k| {
+            const offset = self.string_data.get(k.*).?;
+            try buffer.append(ast.Instruction{ .set_memory = .{ .data = k.*, .offset = @intCast(offset) } });
+
+            data_offset = @as(usize, @intCast(offset)) + k.*.len + 1;
+        }
+
+        try buffer.append(ast.Instruction{ .push = @intCast(data_offset + 1) });
+        try buffer.append(ast.Instruction{ .set_hp = true });
+
+        for (self.initialized_statements.items) |stmt| {
+            try self.compileStatementFromAst(buffer, stmt);
+        }
+
+        return data_offset;
+    }
+
     pub fn compile(
         self: *VmCompiler,
         entrypoint: []const u8,
@@ -655,31 +676,39 @@ pub const VmCompiler = struct {
         self.env_offset = 0;
         self.env.clearAndFree();
 
-        var progBuffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
+        var initBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
+        defer initBuffer.deinit();
+
+        // ==== meta section [0-31]
+        // use 0 for null_ptr
+        // use 8 for data_section_ptr
+        // use 16 for global_section_ptr
+        // use 24 for heap_ptr
+        // ==== data section [32-32+sizeDataSection]
+        // ...
+        // ==== global section [32+sizeDataSection-32+sizeDataSection+sizeGlobalSection]
+        // ...
+
+        var progBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
         defer progBuffer.deinit();
-        try self.compileProgram(&progBuffer, entrypoint, module);
+        try self.compileProgramSection(&progBuffer, entrypoint, module);
 
-        var dataBuffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
+        var dataBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
         defer dataBuffer.deinit();
+        const sizeDataSection = try self.compileDataSection(&dataBuffer);
 
-        var data_offset: usize = 0;
-        var iter = self.string_data.keyIterator();
-        while (iter.next()) |k| {
-            const offset = self.string_data.get(k.*).?;
-            try dataBuffer.append(ast.Instruction{ .set_memory = .{ .data = k.*, .offset = @intCast(offset) } });
+        // set data_section_ptr
+        try initBuffer.append(ast.Instruction{ .push = 8 });
+        try initBuffer.append(ast.Instruction{ .push = 32 });
+        try initBuffer.append(ast.Instruction{ .store = 8 });
 
-            data_offset = @as(usize, @intCast(offset)) + k.*.len + 1;
-        }
-
-        try dataBuffer.append(ast.Instruction{ .push = @intCast(data_offset + 1) });
-        try dataBuffer.append(ast.Instruction{ .set_hp = true });
-
-        for (self.initialized_statements.items) |stmt| {
-            try self.compileStatementFromAst(&dataBuffer, stmt);
-        }
-        try dataBuffer.appendSlice(progBuffer.items);
+        // set global_section_ptr
+        try initBuffer.append(ast.Instruction{ .push = 16 });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(32 + sizeDataSection) });
+        try initBuffer.append(ast.Instruction{ .store = 8 });
 
         var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
+        try buffer.appendSlice(initBuffer.items);
         try buffer.appendSlice(dataBuffer.items);
         try buffer.appendSlice(progBuffer.items);
 
