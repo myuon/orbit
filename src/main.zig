@@ -248,7 +248,11 @@ pub fn main() !void {
 
             for (vmr.memory, 0..) |v, i| {
                 const p = try std.fmt.allocPrint(draw_allocator, "{x:0>2} ", .{v});
-                try memory.appendSlice(p);
+                if (v == 0) {
+                    try memory.appendSlice(".. ");
+                } else {
+                    try memory.appendSlice(p);
+                }
 
                 if (i % 16 == 16 - 1) {
                     try memory.appendSlice("\n");
