@@ -441,12 +441,12 @@ test "compiler.evalModule" {
         .{
             .program =
             \\fun main() do
-            \\  let s = new struct{ a: int, b: int } { .a = 10, .b = 20 };
+            \\  let s = new struct{ a: int, b: int } { .a = 30, .b = 20 };
             \\
-            \\  return s.a + s.b;
+            \\  return s.a - s.b;
             \\end
             ,
-            .expected = 30,
+            .expected = 10,
         },
     };
 
