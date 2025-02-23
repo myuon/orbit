@@ -316,19 +316,23 @@ pub const Vm = struct {
                             try buffer.append(ast.Instruction{ .store = 8 });
                         }
                     },
-                    .slice => |_| {
+                    .slice => |slice| {
                         std.debug.assert(new.initializers.len == 1);
                         std.debug.assert(std.mem.eql(u8, new.initializers[0].field, "len"));
 
                         try buffer.append(ast.Instruction{ .push = 2 * 8 });
                         try buffer.append(ast.Instruction{ .allocate_memory = true });
 
+                        // FIXME: call a function
+
                         // ptr
                         try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
                         try buffer.append(ast.Instruction{ .push = 0 });
                         try buffer.append(ast.Instruction{ .add = true });
-                        try buffer.append(ast.Instruction{ .push = 128 * 8 });
-                        try buffer.append(ast.Instruction{ .allocate_memory = true }); // FIXME: size * len
+                        try buffer.append(ast.Instruction{ .push = @intCast(slice.elem_type.size()) });
+                        try self.compileExprFromAst(buffer, new.initializers[0].value);
+                        try buffer.append(ast.Instruction{ .mul = true });
+                        try buffer.append(ast.Instruction{ .allocate_memory = true });
                         try buffer.append(ast.Instruction{ .store = 8 });
 
                         // len
