@@ -366,11 +366,11 @@ pub const Vm = struct {
     fn compileStatementFromAst(self: *Vm, buffer: *std.ArrayList(ast.Instruction), stmt: ast.Statement) anyerror!void {
         switch (stmt) {
             .let => |let| {
+                try self.compileExprFromAst(buffer, let.value);
+
                 const i = self.env_offset;
                 try self.env.put(let.name, i);
                 self.env_offset += 1;
-
-                try self.compileExprFromAst(buffer, let.value);
             },
             .return_ => |val| {
                 try self.compileExprFromAst(buffer, val);
