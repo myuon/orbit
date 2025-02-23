@@ -86,6 +86,15 @@ pub const Typechecker = struct {
                     },
                 }
             },
+            .vec => {
+                switch (actual) {
+                    .vec => _ = try assertType(expect.vec.elem_type.*, actual.vec.elem_type.*),
+                    else => {
+                        std.log.err("Expected vec, got {any}\n", .{actual});
+                        return TypecheckerError.UnexpectedType;
+                    },
+                }
+            },
             .map => {
                 switch (actual) {
                     .map => {
@@ -122,42 +131,6 @@ pub const Typechecker = struct {
         }
 
         return expect;
-    }
-
-    fn unwrapIndexType(actual: ast.Type) anyerror!ast.Type {
-        switch (actual) {
-            .array => {
-                return ast.Type{ .int = true };
-            },
-            .slice => {
-                return ast.Type{ .int = true };
-            },
-            .map => |map| {
-                return map.key_type.*;
-            },
-            else => {
-                std.log.err("Expected array-like data structure, got {any}\n", .{actual});
-                return TypecheckerError.UnexpectedType;
-            },
-        }
-    }
-
-    fn unwrapValueType(actual: ast.Type) anyerror!ast.Type {
-        switch (actual) {
-            .array => |array| {
-                return array.elem_type.*;
-            },
-            .slice => |slice| {
-                return slice.elem_type.*;
-            },
-            .map => |map| {
-                return map.value_type.*;
-            },
-            else => {
-                std.log.err("Expected array-like data structure, got {any}\n", .{actual});
-                return TypecheckerError.UnexpectedType;
-            },
-        }
     }
 
     fn typecheckExpr(self: *Typechecker, expr: *ast.Expression) anyerror!ast.Type {
@@ -240,8 +213,8 @@ pub const Typechecker = struct {
                 const lhs = index.lhs;
                 const lhs_type = try self.typecheckExpr(lhs);
 
-                const key_type = try unwrapIndexType(lhs_type);
-                const value_type = try unwrapValueType(lhs_type);
+                const key_type = try lhs_type.getIndexType();
+                const value_type = try lhs_type.getValueType();
 
                 const rhs = index.rhs;
                 const rhs_type = try self.typecheckExpr(rhs);
@@ -309,6 +282,21 @@ pub const Typechecker = struct {
                 stmt.*.assign.lhs = lhs;
                 stmt.*.assign.rhs = rhs;
                 stmt.*.assign.type_ = lhs_type;
+            },
+            .push => |push| {
+                var lhs = push.lhs;
+                const lhs_type = try self.typecheckExpr(&lhs);
+
+                const value_type = try lhs_type.getValueType();
+
+                var rhs = push.rhs;
+                const rhs_type = try self.typecheckExpr(&rhs);
+
+                _ = try assertType(value_type, rhs_type);
+
+                stmt.*.push.lhs = lhs;
+                stmt.*.push.rhs = rhs;
+                stmt.*.push.type_ = lhs_type;
             },
             .while_ => |while_| {
                 const cond_type = try self.typecheckExpr(while_.cond);

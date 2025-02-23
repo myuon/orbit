@@ -19,6 +19,7 @@ pub const Operator = enum {
     minus,
     star,
     percent,
+    push,
     let,
     do,
     end,
@@ -104,6 +105,7 @@ pub const StatementType = enum {
     expr,
     if_,
     assign,
+    push,
     while_,
 };
 
@@ -120,6 +122,11 @@ pub const Statement = union(StatementType) {
         else_: ?Block,
     },
     assign: struct {
+        type_: Type,
+        lhs: Expression,
+        rhs: Expression,
+    },
+    push: struct {
         type_: Type,
         lhs: Expression,
         rhs: Expression,
@@ -158,6 +165,7 @@ pub const TypeType = enum {
     int,
     array,
     slice,
+    vec,
     map,
     fun,
 };
@@ -178,6 +186,9 @@ pub const Type = union(TypeType) {
     slice: struct {
         elem_type: *Type,
     },
+    vec: struct {
+        elem_type: *Type,
+    },
     map: struct {
         key_type: *Type,
         value_type: *Type,
@@ -195,6 +206,7 @@ pub const Type = union(TypeType) {
             Type.int => 8,
             Type.array => 8,
             Type.slice => 8,
+            Type.vec => 8,
             Type.map => 8,
             Type.fun => unreachable,
         };
@@ -211,8 +223,11 @@ pub const Type = union(TypeType) {
             .map => |map| {
                 return map.key_type.*;
             },
+            .vec => {
+                return Type{ .int = true };
+            },
             else => {
-                std.log.err("Expected array-like data structure, got {any}\n", .{actual});
+                std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
                 return error.UnexpectedType;
             },
         }
@@ -229,8 +244,11 @@ pub const Type = union(TypeType) {
             .map => |map| {
                 return map.value_type.*;
             },
+            .vec => |vec| {
+                return vec.elem_type.*;
+            },
             else => {
-                std.log.err("Expected array-like data structure, got {any}\n", .{actual});
+                std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
                 return error.UnexpectedType;
             },
         }
@@ -306,6 +324,10 @@ pub const InstructionType = enum {
     set_cip,
     table_set,
     table_get,
+    allocate_vec,
+    vec_get,
+    vec_set,
+    vec_push,
 };
 
 pub const Instruction = union(InstructionType) {
@@ -362,6 +384,10 @@ pub const Instruction = union(InstructionType) {
     set_cip: usize, // For tracing JIT
     table_set: bool, // For hashmap
     table_get: bool, // For hashmap
+    allocate_vec: u4, // For vector
+    vec_get: bool, // For vector
+    vec_set: bool, // For vector
+    vec_push: bool, // For vector
 
     pub fn format(
         self: Instruction,
@@ -491,6 +517,18 @@ pub const Instruction = union(InstructionType) {
             },
             Instruction.table_get => {
                 try std.fmt.format(writer, "table_get", .{});
+            },
+            Instruction.allocate_vec => {
+                try std.fmt.format(writer, "allocate_vec #{d}", .{self.allocate_vec});
+            },
+            Instruction.vec_get => {
+                try std.fmt.format(writer, "vec_get", .{});
+            },
+            Instruction.vec_set => {
+                try std.fmt.format(writer, "vec_set", .{});
+            },
+            Instruction.vec_push => {
+                try std.fmt.format(writer, "vec_push", .{});
             },
         }
     }

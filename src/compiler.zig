@@ -421,6 +421,21 @@ test "compiler.evalModule" {
             ,
             .expected = 5,
         },
+        .{
+            .program =
+            \\fun main() do
+            \\  let vec = new vec(int) {};
+            \\  let n = 0;
+            \\  while (n < 1000) do
+            \\    vec <- n * n;
+            \\    n = n + 1;
+            \\  end
+            \\
+            \\  return vec[777];
+            \\end
+            ,
+            .expected = 603729,
+        },
     };
 
     for (cases) |case| {

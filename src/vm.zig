@@ -244,6 +244,11 @@ pub const Vm = struct {
                         try self.compileLhsExprFromAst(buffer, expr);
                         try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
                     },
+                    .vec => {
+                        try self.compileExprFromAst(buffer, index.lhs.*);
+                        try self.compileExprFromAst(buffer, index.rhs.*);
+                        try buffer.append(ast.Instruction{ .vec_get = true });
+                    },
                     .map => {
                         try self.compileExprFromAst(buffer, index.lhs.*);
                         try self.compileExprFromAst(buffer, index.rhs.*);
@@ -265,6 +270,9 @@ pub const Vm = struct {
                     .map => |map| {
                         try buffer.append(ast.Instruction{ .allocate_memory = 128 * @as(usize, map.value_type.size()) });
                     },
+                    .vec => |vec| {
+                        try buffer.append(ast.Instruction{ .allocate_vec = vec.elem_type.size() });
+                    },
                     else => {
                         unreachable;
                     },
@@ -275,6 +283,14 @@ pub const Vm = struct {
 
     fn compileLhsExprFromAst(self: *Vm, buffer: *std.ArrayList(ast.Instruction), expr: ast.Expression) anyerror!void {
         switch (expr) {
+            .var_ => |name| {
+                if (self.env.get(name)) |k| {
+                    try buffer.append(ast.Instruction{ .set_local_d = k });
+                } else {
+                    std.log.err("Variable not found: {s}\n", .{name});
+                    return error.VariableNotFound;
+                }
+            },
             .index => |index| {
                 switch (index.type_) {
                     .array => {
@@ -291,6 +307,10 @@ pub const Vm = struct {
                         try buffer.append(ast.Instruction{ .mul = true });
                         try buffer.append(ast.Instruction{ .add = true });
                     },
+                    .vec => {
+                        try self.compileExprFromAst(buffer, index.lhs.*);
+                        try buffer.append(ast.Instruction{ .vec_get = true });
+                    },
                     else => {
                         std.log.err("Invalid index type: {any}\n", .{index.type_});
                         unreachable;
@@ -298,6 +318,7 @@ pub const Vm = struct {
                 }
             },
             else => {
+                std.log.err("Invalid LHS expression: {any}\n", .{expr});
                 unreachable;
             },
         }
@@ -404,6 +425,18 @@ pub const Vm = struct {
                         try self.compileLhsExprFromAst(buffer, assign.lhs);
                         try self.compileExprFromAst(buffer, assign.rhs);
                         try buffer.append(ast.Instruction{ .store = assign.type_.size() });
+                    },
+                }
+            },
+            .push => |push| {
+                switch (push.type_) {
+                    .vec => {
+                        try self.compileExprFromAst(buffer, push.lhs);
+                        try self.compileExprFromAst(buffer, push.rhs);
+                        try buffer.append(ast.Instruction{ .vec_push = true });
+                    },
+                    else => {
+                        unreachable;
                     },
                 }
             },
@@ -573,6 +606,12 @@ pub const Vm = struct {
 const MapEntry = struct {
     key: []u8,
     value: ast.Value,
+};
+
+const VecData = struct {
+    array_ptr: usize,
+    len: usize,
+    capacity: usize,
 };
 
 pub const VmRuntimeError = error{
@@ -781,17 +820,26 @@ pub const VmRuntime = struct {
 
                                 try vmc.resolveIrLabels(ir_block.items, exit_stub);
 
-                                std.log.info("Tracing & compile finished, {d}", .{ir_block.items.len});
-
                                 var runtime = jit.JitRuntime.init(self.allocator);
-                                const f = try runtime.compile(ir_block.items, true);
 
-                                try self.jit_cache.put(label, f);
+                                const result = runtime.compile(ir_block.items, true);
+                                _ = result catch |err| {
+                                    std.log.debug("JIT compile error, fallback to VM execution: {any}", .{err});
 
-                                self.traces.?.deinit();
-                                self.traces = null;
+                                    quit_compiling = true;
+                                };
 
-                                result_fn_ptr = f;
+                                if (!quit_compiling) {
+                                    std.log.info("Tracing & compile finished, {d}", .{ir_block.items.len});
+
+                                    const f = try result;
+                                    try self.jit_cache.put(label, f);
+
+                                    self.traces.?.deinit();
+                                    self.traces = null;
+
+                                    result_fn_ptr = f;
+                                }
                             }
                         }
                     } else {
@@ -1121,6 +1169,54 @@ pub const VmRuntime = struct {
                 try stack.append(data.entry.?.value.i64_);
                 self.pc += 1;
             },
+            .allocate_vec => |size| {
+                std.debug.assert(size == 8);
+                try self.allocateVec(stack, size, 128);
+
+                self.pc += 1;
+            },
+            .vec_get => {
+                const index = stack.pop();
+                const vec = stack.pop();
+
+                const vecData = try self.loadVecData(vec);
+                const value = self.loadMemory(8, @as(i64, @intCast(vecData.array_ptr)) + index * 8);
+                try stack.append(value);
+
+                self.pc += 1;
+            },
+            .vec_set => {
+                unreachable;
+            },
+            .vec_push => {
+                const value = stack.pop();
+                const vec = stack.pop();
+
+                const vecData = try self.loadVecData(vec);
+                if (vecData.len + 1 < vecData.capacity) {
+                    self.storeMemory(8, vecData.array_ptr + vecData.len * 8, value);
+                    self.storeMemory(8, @intCast(vec + 8), @intCast(vecData.len + 1));
+                } else {
+                    try self.allocateVec(stack, 8, vecData.capacity * 2);
+
+                    const array_ptr = stack.pop();
+                    self.storeMemory(8, @intCast(vec), @intCast(array_ptr));
+                    self.storeMemory(8, @intCast(vec + 8), @intCast(vecData.len + 1));
+                    self.storeMemory(8, @intCast(vec + 16), @intCast(vecData.capacity * 2));
+
+                    for (0..vecData.len) |i| {
+                        self.storeMemory(8, vecData.array_ptr + i * 8, self.loadMemory(8, vec + @as(i64, @intCast(i)) * 8));
+                    }
+                    self.storeMemory(8, vecData.array_ptr + vecData.len * 8, value);
+
+                    const newVecData = try self.loadVecData(vec);
+                    std.debug.assert(newVecData.array_ptr == array_ptr);
+                    std.debug.assert(newVecData.len == vecData.len + 1);
+                    std.debug.assert(newVecData.capacity == vecData.capacity * 2);
+                }
+
+                self.pc += 1;
+            },
         }
 
         return ControlFlow.Continue;
@@ -1239,6 +1335,37 @@ pub const VmRuntime = struct {
         }
 
         return buffer.items;
+    }
+
+    fn allocateVec(self: *VmRuntime, stack: *std.ArrayList(i64), size: u4, capacity: usize) anyerror!void {
+        try self.allocateMemory(stack, 8 * 3);
+        const entry_ptr = stack.pop();
+
+        try self.allocateMemory(stack, @as(usize, size) * capacity);
+        const array_ptr = stack.pop();
+
+        self.storeMemory(8, @intCast(entry_ptr), array_ptr);
+        self.storeMemory(8, @intCast(entry_ptr + 8), 0);
+        self.storeMemory(8, @intCast(entry_ptr + 16), @intCast(capacity));
+
+        try stack.append(entry_ptr);
+
+        const vecData = try self.loadVecData(entry_ptr);
+        std.debug.assert(vecData.array_ptr == array_ptr);
+        std.debug.assert(vecData.len == 0);
+        std.debug.assert(vecData.capacity == capacity);
+    }
+
+    fn loadVecData(self: *VmRuntime, address: i64) anyerror!VecData {
+        const array_ptr = self.loadMemory(8, @intCast(address));
+        const len = self.loadMemory(8, @intCast(address + 8));
+        const capacity = self.loadMemory(8, @intCast(address + 16));
+
+        return VecData{
+            .array_ptr = @intCast(array_ptr),
+            .len = @intCast(len),
+            .capacity = @intCast(capacity),
+        };
     }
 
     pub fn run(
