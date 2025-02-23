@@ -414,6 +414,12 @@ pub const Vm = struct {
                                 try self.compileExprFromAst(buffer, assign.rhs);
                                 try buffer.append(ast.Instruction{ .table_set = true });
                             },
+                            .vec => {
+                                try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
+                                try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);
+                                try self.compileExprFromAst(buffer, assign.rhs);
+                                try buffer.append(ast.Instruction{ .vec_set = true });
+                            },
                             else => {
                                 try self.compileLhsExprFromAst(buffer, assign.lhs);
                                 try self.compileExprFromAst(buffer, assign.rhs);
@@ -1186,7 +1192,15 @@ pub const VmRuntime = struct {
                 self.pc += 1;
             },
             .vec_set => {
-                unreachable;
+                const value = stack.pop();
+                const index = stack.pop();
+                const vec = stack.pop();
+
+                const vecData = try self.loadVecData(vec);
+                std.debug.assert(index < vecData.len);
+                self.storeMemory(8, vecData.array_ptr + @as(usize, @intCast(index)) * 8, value);
+
+                self.pc += 1;
             },
             .vec_push => {
                 const value = stack.pop();

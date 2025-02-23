@@ -431,10 +431,12 @@ test "compiler.evalModule" {
             \\    n = n + 1;
             \\  end
             \\
+            \\  vec[777] = vec[777] + 10;
+            \\
             \\  return vec[777];
             \\end
             ,
-            .expected = 603729,
+            .expected = 603739,
         },
     };
 
