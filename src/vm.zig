@@ -22,6 +22,8 @@ pub const VmCompiler = struct {
     global_data: std.StringHashMap(i32),
     global_data_offset: usize,
     initialized_statements: std.ArrayList(ast.Statement),
+    data_section_ptr: i64,
+    global_section_ptr: i64,
 
     pub fn init(allocator: std.mem.Allocator) VmCompiler {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -41,6 +43,8 @@ pub const VmCompiler = struct {
             .global_data = std.StringHashMap(i32).init(allocator),
             .global_data_offset = 8, // avoid nullptr
             .initialized_statements = std.ArrayList(ast.Statement).init(allocator),
+            .data_section_ptr = -1,
+            .global_section_ptr = -1,
         };
     }
 
@@ -176,7 +180,10 @@ pub const VmCompiler = struct {
                             address = @intCast(i);
                         }
 
+                        try buffer.append(ast.Instruction{ .push = @intCast(self.data_section_ptr) });
+                        try buffer.append(ast.Instruction{ .load = 8 });
                         try buffer.append(ast.Instruction{ .push = address });
+                        try buffer.append(ast.Instruction{ .add = true });
                     },
                 }
             },
@@ -650,7 +657,12 @@ pub const VmCompiler = struct {
         var iter = self.string_data.keyIterator();
         while (iter.next()) |k| {
             const offset = self.string_data.get(k.*).?;
-            try buffer.append(ast.Instruction{ .set_memory = .{ .data = k.*, .offset = @intCast(offset) } });
+
+            try buffer.append(ast.Instruction{ .push = @intCast(self.data_section_ptr) });
+            try buffer.append(ast.Instruction{ .load = 8 });
+            try buffer.append(ast.Instruction{ .push = offset });
+            try buffer.append(ast.Instruction{ .add = true });
+            try buffer.append(ast.Instruction{ .set_memory = .{ .data = k.* } });
 
             data_offset = @as(usize, @intCast(offset)) + k.*.len + 1;
         }
@@ -688,6 +700,8 @@ pub const VmCompiler = struct {
         // ...
         // ==== global section [32+sizeDataSection-32+sizeDataSection+sizeGlobalSection]
         // ...
+        self.data_section_ptr = 8;
+        self.global_section_ptr = 16;
 
         var progBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
         defer progBuffer.deinit();
@@ -698,12 +712,12 @@ pub const VmCompiler = struct {
         const sizeDataSection = try self.compileDataSection(&dataBuffer);
 
         // set data_section_ptr
-        try initBuffer.append(ast.Instruction{ .push = 8 });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(self.data_section_ptr) });
         try initBuffer.append(ast.Instruction{ .push = 32 });
         try initBuffer.append(ast.Instruction{ .store = 8 });
 
         // set global_section_ptr
-        try initBuffer.append(ast.Instruction{ .push = 16 });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(self.global_section_ptr) });
         try initBuffer.append(ast.Instruction{ .push = @intCast(32 + sizeDataSection) });
         try initBuffer.append(ast.Instruction{ .store = 8 });
 

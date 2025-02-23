@@ -447,7 +447,6 @@ pub const Instruction = union(InstructionType) {
     store: u4,
     set_memory: struct {
         data: []const u8,
-        offset: usize,
     },
     allocate_memory: bool,
     set_cip: usize, // For tracing JIT
@@ -557,7 +556,7 @@ pub const Instruction = union(InstructionType) {
                 try std.fmt.format(writer, "store_{d}", .{self.store});
             },
             Instruction.set_memory => {
-                try std.fmt.format(writer, "set_memory #{s} #{d}", .{ self.set_memory.data, self.set_memory.offset });
+                try std.fmt.format(writer, "set_memory #{s}", .{self.set_memory.data});
             },
             Instruction.allocate_memory => {
                 try std.fmt.format(writer, "allocate_memory", .{});

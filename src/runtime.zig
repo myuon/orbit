@@ -532,7 +532,7 @@ pub const VmRuntime = struct {
                 self.pc += 1;
             },
             .set_memory => |m| {
-                const addr = m.offset;
+                const addr: usize = @intCast(stack.pop());
                 const data = m.data;
                 for (data, 0..) |d, i| {
                     self.memory[addr + i] = d;

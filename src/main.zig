@@ -3,6 +3,7 @@ const compiler = @import("compiler.zig");
 const ast = @import("ast.zig");
 const tui = @import("tui.zig");
 const vm = @import("vm.zig");
+const runtime = @import("runtime.zig");
 const vaxis = @import("vaxis");
 const P = @import("profiler");
 
@@ -146,7 +147,7 @@ pub fn main() !void {
 
         const prog = try c.compileInIr(content.items);
 
-        var vmr = vm.VmRuntime.init(arena_allocator.allocator());
+        var vmr = runtime.VmRuntime.init(arena_allocator.allocator());
         defer vmr.deinit();
 
         var stack = std.ArrayList(i64).init(allocator);
