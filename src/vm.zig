@@ -28,6 +28,9 @@ pub const Vm = struct {
     env_offset: i32 = 0,
     string_data: std.StringHashMap(i32),
     string_data_offset: usize,
+    global_data: std.StringHashMap(i32),
+    global_data_offset: usize,
+    initialized_statements: std.ArrayList(ast.Statement),
 
     pub fn init(allocator: std.mem.Allocator) Vm {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -44,6 +47,9 @@ pub const Vm = struct {
             .env_offset = 0,
             .string_data = std.StringHashMap(i32).init(allocator),
             .string_data_offset = 8, // avoid nullptr
+            .global_data = std.StringHashMap(i32).init(allocator),
+            .global_data_offset = 8, // avoid nullptr
+            .initialized_statements = std.ArrayList(ast.Statement).init(allocator),
         };
     }
 
@@ -51,6 +57,8 @@ pub const Vm = struct {
         self.ast_arena_allocator.deinit();
         self.env.deinit();
         self.string_data.deinit();
+        self.global_data.deinit();
+        self.initialized_statements.deinit();
     }
 
     /// This function MUST NOT move the label positions.
@@ -145,6 +153,10 @@ pub const Vm = struct {
             .var_ => |v| {
                 if (self.env.get(v)) |k| {
                     try buffer.append(ast.Instruction{ .get_local_d = k });
+                } else if (self.global_data.get(v)) |k| {
+                    // FIXME: global positioning
+                    try buffer.append(ast.Instruction{ .push = @intCast(k * 8) });
+                    try buffer.append(ast.Instruction{ .load = 8 });
                 } else {
                     std.log.err("Variable not found: {s}\n", .{v});
                     return error.VariableNotFound;
@@ -361,6 +373,9 @@ pub const Vm = struct {
             .var_ => |name| {
                 if (self.env.get(name)) |k| {
                     try buffer.append(ast.Instruction{ .set_local_d = k });
+                } else if (self.global_data.get(name)) |k| {
+                    // FIXME: global positioning
+                    try buffer.append(ast.Instruction{ .push = @intCast(k * 8) });
                 } else {
                     std.log.err("Variable not found: {s}\n", .{name});
                     return error.VariableNotFound;
@@ -490,6 +505,10 @@ pub const Vm = struct {
                         if (self.env.get(name)) |k| {
                             try self.compileExprFromAst(buffer, assign.rhs);
                             try buffer.append(ast.Instruction{ .set_local_d = k });
+                        } else if (self.global_data.get(name)) |k| {
+                            try buffer.append(ast.Instruction{ .push = @intCast(k * 8) });
+                            try self.compileExprFromAst(buffer, assign.rhs);
+                            try buffer.append(ast.Instruction{ .store = 8 });
                         } else {
                             std.log.err("Variable not found: {s}\n", .{name});
                             return error.VariableNotFound;
@@ -621,6 +640,20 @@ pub const Vm = struct {
                     const end_of_f = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "end_of_{s}", .{f.name});
                     try progBuffer.append(ast.Instruction{ .label = end_of_f });
                 },
+                .let => |let| {
+                    const i = self.global_data_offset;
+                    try self.global_data.put(let.name, @intCast(i));
+                    self.global_data_offset += 1;
+
+                    try self.initialized_statements.append(ast.Statement{
+                        .assign = .{
+                            // FIXME: other types
+                            .type_ = .{ .int = true },
+                            .lhs = .{ .var_ = let.name },
+                            .rhs = let.value,
+                        },
+                    });
+                },
             }
         }
 
@@ -637,6 +670,10 @@ pub const Vm = struct {
 
         try dataBuffer.append(ast.Instruction{ .push = @intCast(data_offset + 1) });
         try dataBuffer.append(ast.Instruction{ .set_hp = true });
+
+        for (self.initialized_statements.items) |stmt| {
+            try self.compileStatementFromAst(&dataBuffer, stmt);
+        }
 
         try dataBuffer.appendSlice(progBuffer.items);
 

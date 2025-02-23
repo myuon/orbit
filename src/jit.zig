@@ -579,9 +579,6 @@ pub const JitRuntime = struct {
                     try code.emitMovImm(.x9, @intCast(n));
                     try JitRuntime.setCIp(&code, .x9);
                 },
-                .load => |_| {
-                    unreachable;
-                },
                 .store => |size| {
                     std.debug.assert(size == 8);
 

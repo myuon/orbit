@@ -427,6 +427,12 @@ pub const Typechecker = struct {
 
                     module.decls[i].fun.body = body;
                 },
+                .let => |let| {
+                    var value = let.value;
+
+                    const t = try self.typecheckExpr(&value);
+                    try self.env.put(let.name, t);
+                },
             }
         }
     }

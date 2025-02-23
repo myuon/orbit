@@ -158,6 +158,7 @@ pub const Block = struct {
 
 pub const DeclType = enum {
     fun,
+    let,
 };
 
 pub const Decl = union(DeclType) {
@@ -165,6 +166,10 @@ pub const Decl = union(DeclType) {
         name: []const u8,
         params: []const []const u8,
         body: Block,
+    },
+    let: struct {
+        name: []const u8,
+        value: Expression,
     },
 };
 

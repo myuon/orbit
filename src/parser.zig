@@ -153,6 +153,19 @@ pub const Parser = struct {
                                 .body = body,
                             } };
                         },
+                        .let => {
+                            try self.expect(ast.Operator.let);
+
+                            const name = try self.expect_ident();
+                            try self.expect(ast.Operator.eq);
+                            const value = try self.expr();
+                            try self.expect(ast.Operator.semicolon);
+
+                            return ast.Decl{ .let = .{
+                                .name = name,
+                                .value = value,
+                            } };
+                        },
                         else => {
                             std.debug.print("unexpected token: {any}\n", .{self.tokens[self.position..]});
                             return error.UnexpectedToken;

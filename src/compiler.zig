@@ -478,6 +478,24 @@ test "compiler.evalModule" {
             ,
             .expected = 55,
         },
+        .{
+            .program =
+            \\let global = 100;
+            \\
+            \\fun increment() do
+            \\  global = global + 50;
+            \\  return 0;
+            \\end
+            \\
+            \\fun main() do
+            \\  let local = 200;
+            \\  increment();
+            \\
+            \\  return global + local;
+            \\end
+            ,
+            .expected = 350,
+        },
     };
 
     for (cases) |case| {
