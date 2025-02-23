@@ -88,6 +88,22 @@ pub const Parser = struct {
         }
     }
 
+    fn expect_number(self: *Parser) ParserError!u64 {
+        if (self.peek()) |token| {
+            switch (token) {
+                .number => |n| {
+                    _ = self.consume();
+                    return n;
+                },
+                else => {
+                    return error.UnexpectedToken;
+                },
+            }
+        } else {
+            return error.UnexpectedEos;
+        }
+    }
+
     pub fn module(self: *Parser) anyerror!ast.Module {
         var decls = std.ArrayList(ast.Decl).init(self.ast_arena_allocator.allocator());
         while (self.peek() != null) {
@@ -584,7 +600,7 @@ pub const Parser = struct {
                         rhs.* = index;
 
                         current.* = ast.Expression{ .index = .{
-                            .elem_type = ast.Type{ .unknown = true },
+                            .type_ = ast.Type{ .unknown = true },
                             .lhs = lhs,
                             .rhs = rhs,
                         } };
@@ -652,42 +668,13 @@ pub const Parser = struct {
                         .new => {
                             try self.expect(ast.Operator.new);
 
-                            // Assumes: new array(int, $size) {};
-
-                            const t = try self.expect_ident();
-                            std.debug.assert(std.mem.eql(u8, t, "array"));
-
-                            try self.expect(ast.Operator.lparen);
-                            const i = try self.expect_ident();
-                            std.debug.assert(std.mem.eql(u8, i, "int"));
-
-                            try self.expect(ast.Operator.comma);
-                            const size = try self.expr();
-
-                            try self.expect(ast.Operator.rparen);
-
-                            var size_int: usize = undefined;
-                            switch (size) {
-                                .literal => |l| {
-                                    switch (l) {
-                                        .number => |n| {
-                                            size_int = n;
-                                        },
-                                        else => {
-                                            unreachable;
-                                        },
-                                    }
-                                },
-                                else => {
-                                    unreachable;
-                                },
-                            }
+                            const t = try self.type_();
 
                             try self.expect(ast.Operator.lbrace);
                             try self.expect(ast.Operator.rbrace);
 
                             return ast.Expression{ .new = .{
-                                .array_size = size_int,
+                                .type_ = t,
                                 .initializers = &[_]ast.Expression{},
                             } };
                         },
@@ -703,6 +690,61 @@ pub const Parser = struct {
         }
 
         return null;
+    }
+
+    fn type_(self: *Parser) anyerror!ast.Type {
+        const current = try self.expect_ident();
+        if (std.mem.eql(u8, current, "int")) {
+            return ast.Type{ .int = true };
+        } else if (std.mem.eql(u8, current, "bool")) {
+            return ast.Type{ .bool_ = true };
+        } else if (std.mem.eql(u8, current, "byte")) {
+            return ast.Type{ .byte = true };
+        } else if (std.mem.eql(u8, current, "array")) {
+            try self.expect(ast.Operator.lparen);
+            const t = try self.type_();
+            try self.expect(ast.Operator.comma);
+            const size = try self.expect_number();
+            try self.expect(ast.Operator.rparen);
+
+            const elem_type = try self.ast_arena_allocator.allocator().create(ast.Type);
+            elem_type.* = t;
+
+            return ast.Type{ .array = .{
+                .elem_type = elem_type,
+                .size = size,
+            } };
+        } else if (std.mem.eql(u8, current, "slice")) {
+            try self.expect(ast.Operator.lparen);
+            const t = try self.type_();
+            try self.expect(ast.Operator.rparen);
+
+            const elem_type = try self.ast_arena_allocator.allocator().create(ast.Type);
+            elem_type.* = t;
+
+            return ast.Type{ .slice = .{ .elem_type = elem_type } };
+        } else if (std.mem.eql(u8, current, "map")) {
+            try self.expect(ast.Operator.lparen);
+            const k = try self.type_();
+            try self.expect(ast.Operator.comma);
+            const v = try self.type_();
+            try self.expect(ast.Operator.rparen);
+
+            const key_type = try self.ast_arena_allocator.allocator().create(ast.Type);
+            key_type.* = k;
+
+            const value_type = try self.ast_arena_allocator.allocator().create(ast.Type);
+            value_type.* = v;
+
+            return ast.Type{ .map = .{
+                .key_type = key_type,
+                .value_type = value_type,
+            } };
+        } else {
+            return ast.Type{ .unknown = true };
+        }
+
+        return error.UnexpectedEos;
     }
 };
 

@@ -72,7 +72,7 @@ pub const Tui = struct {
         const child = win.child(.{
             .x_off = 0,
             .y_off = 0,
-            .width = 80,
+            .width = 50,
             .height = 60,
             .border = .{
                 .where = .all,
@@ -81,7 +81,7 @@ pub const Tui = struct {
         _ = child.printSegment(.{ .text = self.texts.get("ir").? }, .{});
 
         const child2 = win.child(.{
-            .x_off = 90,
+            .x_off = 50,
             .y_off = 0,
             .width = 80,
             .height = 60,
@@ -90,6 +90,17 @@ pub const Tui = struct {
             },
         });
         _ = child2.printSegment(.{ .text = self.texts.get("stack").? }, .{});
+
+        const child3 = win.child(.{
+            .x_off = 130,
+            .y_off = 0,
+            .width = 60,
+            .height = 60,
+            .border = .{
+                .where = .all,
+            },
+        });
+        _ = child3.printSegment(.{ .text = self.texts.get("memory").? }, .{});
 
         try self.vx.render(self.tty.anyWriter());
     }

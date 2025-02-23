@@ -1,0 +1,5 @@
+fun main() do
+  let s = "Hello, World!";
+
+  return s[5];
+end

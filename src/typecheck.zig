@@ -86,6 +86,18 @@ pub const Typechecker = struct {
                     },
                 }
             },
+            .map => {
+                switch (actual) {
+                    .map => {
+                        _ = try assertType(expect.map.key_type.*, actual.map.key_type.*);
+                        _ = try assertType(expect.map.value_type.*, actual.map.value_type.*);
+                    },
+                    else => {
+                        std.log.err("Expected map, got {any}\n", .{actual});
+                        return TypecheckerError.UnexpectedType;
+                    },
+                }
+            },
             .fun => {
                 switch (actual) {
                     .fun => {
@@ -112,7 +124,25 @@ pub const Typechecker = struct {
         return expect;
     }
 
-    fn unwrapElementType(actual: ast.Type) anyerror!ast.Type {
+    fn unwrapIndexType(actual: ast.Type) anyerror!ast.Type {
+        switch (actual) {
+            .array => {
+                return ast.Type{ .int = true };
+            },
+            .slice => {
+                return ast.Type{ .int = true };
+            },
+            .map => |map| {
+                return map.key_type.*;
+            },
+            else => {
+                std.log.err("Expected array-like data structure, got {any}\n", .{actual});
+                return TypecheckerError.UnexpectedType;
+            },
+        }
+    }
+
+    fn unwrapValueType(actual: ast.Type) anyerror!ast.Type {
         switch (actual) {
             .array => |array| {
                 return array.elem_type.*;
@@ -120,8 +150,11 @@ pub const Typechecker = struct {
             .slice => |slice| {
                 return slice.elem_type.*;
             },
+            .map => |map| {
+                return map.value_type.*;
+            },
             else => {
-                std.log.err("Expected array, got {any}\n", .{actual});
+                std.log.err("Expected array-like data structure, got {any}\n", .{actual});
                 return TypecheckerError.UnexpectedType;
             },
         }
@@ -207,32 +240,27 @@ pub const Typechecker = struct {
                 const lhs = index.lhs;
                 const lhs_type = try self.typecheckExpr(lhs);
 
-                const elem_type = try unwrapElementType(lhs_type);
+                const key_type = try unwrapIndexType(lhs_type);
+                const value_type = try unwrapValueType(lhs_type);
 
                 const rhs = index.rhs;
                 const rhs_type = try self.typecheckExpr(rhs);
 
-                _ = try assertType(ast.Type{ .int = true }, rhs_type);
+                _ = try assertType(key_type, rhs_type);
 
-                expr.*.index.elem_type = elem_type;
+                expr.*.index.type_ = lhs_type;
 
-                return elem_type;
+                return value_type;
             },
             .new => |new| {
                 for (new.initializers) |initializer| {
                     var inite = initializer;
                     const t = try self.typecheckExpr(&inite);
 
-                    _ = try assertType(ast.Type{ .int = true }, t);
+                    _ = try assertType(try new.type_.getValueType(), t);
                 }
 
-                const elem = try self.arena_allocator.allocator().create(ast.Type);
-                elem.* = ast.Type{ .int = true };
-
-                return ast.Type{ .array = .{
-                    .size = new.array_size,
-                    .elem_type = elem,
-                } };
+                return new.type_;
             },
         }
     }

@@ -76,12 +76,12 @@ pub const Expression = union(ExpressionType) {
         else_: Block,
     },
     index: struct {
-        elem_type: Type,
+        type_: Type,
         lhs: *Expression,
         rhs: *Expression,
     },
     new: struct {
-        array_size: usize,
+        type_: Type,
         initializers: []Expression,
     },
 };
@@ -158,7 +158,12 @@ pub const TypeType = enum {
     int,
     array,
     slice,
+    map,
     fun,
+};
+
+pub const AstTypeError = error{
+    UnexpectedType,
 };
 
 pub const Type = union(TypeType) {
@@ -173,6 +178,10 @@ pub const Type = union(TypeType) {
     slice: struct {
         elem_type: *Type,
     },
+    map: struct {
+        key_type: *Type,
+        value_type: *Type,
+    },
     fun: struct {
         params: []Type,
         return_type: *Type,
@@ -186,8 +195,45 @@ pub const Type = union(TypeType) {
             Type.int => 8,
             Type.array => 8,
             Type.slice => 8,
+            Type.map => 8,
             Type.fun => unreachable,
         };
+    }
+
+    pub fn getIndexType(actual: Type) anyerror!Type {
+        switch (actual) {
+            .array => {
+                return Type{ .int = true };
+            },
+            .slice => {
+                return Type{ .int = true };
+            },
+            .map => |map| {
+                return map.key_type.*;
+            },
+            else => {
+                std.log.err("Expected array-like data structure, got {any}\n", .{actual});
+                return error.UnexpectedType;
+            },
+        }
+    }
+
+    pub fn getValueType(actual: Type) anyerror!Type {
+        switch (actual) {
+            .array => |array| {
+                return array.elem_type.*;
+            },
+            .slice => |slice| {
+                return slice.elem_type.*;
+            },
+            .map => |map| {
+                return map.value_type.*;
+            },
+            else => {
+                std.log.err("Expected array-like data structure, got {any}\n", .{actual});
+                return error.UnexpectedType;
+            },
+        }
     }
 };
 
@@ -258,6 +304,8 @@ pub const InstructionType = enum {
     set_memory,
     allocate_memory,
     set_cip,
+    table_set,
+    table_get,
 };
 
 pub const Instruction = union(InstructionType) {
@@ -312,6 +360,8 @@ pub const Instruction = union(InstructionType) {
     },
     allocate_memory: usize,
     set_cip: usize, // For tracing JIT
+    table_set: bool, // For hashmap
+    table_get: bool, // For hashmap
 
     pub fn format(
         self: Instruction,
@@ -435,6 +485,12 @@ pub const Instruction = union(InstructionType) {
                 } else {
                     try std.fmt.format(writer, "madd_d [{d}] [{d}] [{d}]", .{ self.madd_d.lhs, self.madd_d.rhs, self.madd_d.base });
                 }
+            },
+            Instruction.table_set => {
+                try std.fmt.format(writer, "table_set", .{});
+            },
+            Instruction.table_get => {
+                try std.fmt.format(writer, "table_get", .{});
             },
         }
     }
