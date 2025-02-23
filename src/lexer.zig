@@ -100,7 +100,9 @@ pub const Lexer = struct {
             .{ .str = "+", .operator = ast.Operator.plus },
             .{ .str = "-", .operator = ast.Operator.minus },
             .{ .str = "*", .operator = ast.Operator.star },
+            .{ .str = ":", .operator = ast.Operator.colon },
             .{ .str = ";", .operator = ast.Operator.semicolon },
+            .{ .str = ".", .operator = ast.Operator.dot },
             .{ .str = ",", .operator = ast.Operator.comma },
             .{ .str = "==", .operator = ast.Operator.eqeq },
             .{ .str = "<=", .operator = ast.Operator.lte },
@@ -127,6 +129,7 @@ pub const Lexer = struct {
             .{ .str = "true", .operator = ast.Operator.true_ },
             .{ .str = "false", .operator = ast.Operator.false_ },
             .{ .str = "new", .operator = ast.Operator.new },
+            .{ .str = "struct", .operator = ast.Operator.struct_ },
         };
 
         for (tokenTable) |token| {

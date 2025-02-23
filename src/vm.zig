@@ -261,22 +261,54 @@ pub const Vm = struct {
                 }
             },
             .new => |new| {
-                std.debug.assert(new.initializers.len == 0);
-
                 switch (new.type_) {
                     .array => |array| {
+                        std.debug.assert(new.initializers.len == 0);
+
                         try buffer.append(ast.Instruction{ .allocate_memory = array.size * @as(usize, array.elem_type.size()) });
                     },
                     .map => |map| {
+                        std.debug.assert(new.initializers.len == 0);
+
                         try buffer.append(ast.Instruction{ .allocate_memory = 128 * @as(usize, map.value_type.size()) });
                     },
                     .vec => |vec| {
+                        std.debug.assert(new.initializers.len == 0);
+
                         try buffer.append(ast.Instruction{ .allocate_vec = vec.elem_type.size() });
+                    },
+                    .struct_ => |struct_| {
+                        std.debug.assert(new.initializers.len == struct_.fields.len);
+
+                        // aligned to 64 bits
+                        try buffer.append(ast.Instruction{ .allocate_memory = struct_.fields.len * 8 });
+
+                        var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, struct_.fields.len);
+                        for (new.initializers) |sinit| {
+                            const offset = try struct_.getFieldOffset(sinit.field);
+                            fields[offset] = sinit.value;
+                        }
+
+                        for (fields, 0..) |e, i| {
+                            try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
+                            try buffer.append(ast.Instruction{ .push = @intCast(i) });
+                            try buffer.append(ast.Instruction{ .push = 8 });
+                            try buffer.append(ast.Instruction{ .mul = true });
+                            try buffer.append(ast.Instruction{ .add = true });
+                            try self.compileExprFromAst(buffer, e);
+                            try buffer.append(ast.Instruction{ .store = 8 });
+                        }
                     },
                     else => {
                         unreachable;
                     },
                 }
+            },
+            .project => |project| {
+                try self.compileLhsExprFromAst(buffer, expr);
+
+                const valueType = try project.struct_.getFieldType(project.rhs);
+                try buffer.append(ast.Instruction{ .load = valueType.size() });
             },
         }
     }
@@ -316,6 +348,13 @@ pub const Vm = struct {
                         unreachable;
                     },
                 }
+            },
+            .project => |project| {
+                try self.compileExprFromAst(buffer, project.lhs.*);
+                try buffer.append(ast.Instruction{ .push = @intCast(try project.struct_.getFieldOffset(project.rhs)) });
+                try buffer.append(ast.Instruction{ .push = 8 });
+                try buffer.append(ast.Instruction{ .mul = true });
+                try buffer.append(ast.Instruction{ .add = true });
             },
             else => {
                 std.log.err("Invalid LHS expression: {any}\n", .{expr});

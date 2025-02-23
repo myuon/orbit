@@ -5,7 +5,9 @@ pub const Operator = enum {
     lte,
     gte,
     eq,
+    colon,
     semicolon,
+    dot,
     comma,
     lparen,
     rparen,
@@ -31,6 +33,7 @@ pub const Operator = enum {
     true_,
     false_,
     new,
+    struct_,
 };
 
 pub const TokenType = enum {
@@ -47,6 +50,11 @@ pub const Token = union(TokenType) {
     string: []const u8,
 };
 
+pub const StructInitializer = struct {
+    field: []const u8,
+    value: Expression,
+};
+
 pub const ExpressionType = enum {
     var_,
     literal,
@@ -56,6 +64,7 @@ pub const ExpressionType = enum {
     if_,
     index,
     new,
+    project,
 };
 
 pub const Expression = union(ExpressionType) {
@@ -83,7 +92,12 @@ pub const Expression = union(ExpressionType) {
     },
     new: struct {
         type_: Type,
-        initializers: []Expression,
+        initializers: []StructInitializer,
+    },
+    project: struct {
+        struct_: StructData,
+        lhs: *Expression,
+        rhs: []const u8,
     },
 };
 
@@ -168,10 +182,41 @@ pub const TypeType = enum {
     vec,
     map,
     fun,
+    struct_,
 };
 
 pub const AstTypeError = error{
     UnexpectedType,
+};
+
+pub const StructField = struct {
+    name: []const u8,
+    type_: Type,
+};
+
+pub const StructData = struct {
+    fields: []StructField,
+
+    pub fn getFieldType(self: StructData, name: []const u8) !Type {
+        for (self.fields) |field| {
+            if (std.mem.eql(u8, field.name, name)) {
+                return field.type_;
+            }
+        }
+
+        unreachable;
+    }
+
+    pub fn getFieldOffset(self: StructData, name: []const u8) !usize {
+        for (self.fields, 0..) |field, i| {
+            if (std.mem.eql(u8, field.name, name)) {
+                return i;
+            }
+        }
+
+        std.log.err("Field not found: {s} in {any}\n", .{ name, self });
+        unreachable;
+    }
 };
 
 pub const Type = union(TypeType) {
@@ -197,6 +242,7 @@ pub const Type = union(TypeType) {
         params: []Type,
         return_type: *Type,
     },
+    struct_: StructData,
 
     pub fn size(self: Type) u4 {
         return switch (self) {
@@ -209,6 +255,7 @@ pub const Type = union(TypeType) {
             Type.vec => 8,
             Type.map => 8,
             Type.fun => unreachable,
+            Type.struct_ => 8,
         };
     }
 
@@ -252,6 +299,13 @@ pub const Type = union(TypeType) {
                 return error.UnexpectedType;
             },
         }
+    }
+
+    pub fn getStructData(t: Type) anyerror!StructData {
+        return switch (t) {
+            Type.struct_ => t.struct_,
+            else => error.UnexpectedType,
+        };
     }
 };
 

@@ -80,6 +80,7 @@ pub const Parser = struct {
                     return ident;
                 },
                 else => {
+                    std.log.err("unexpected token: want ident but got {any}\n", .{self.tokens[self.position..]});
                     return error.UnexpectedToken;
                 },
             }
@@ -616,6 +617,19 @@ pub const Parser = struct {
                             .lhs = lhs,
                             .rhs = rhs,
                         } };
+                    } else if (self.is_next(ast.Operator.dot)) {
+                        try self.expect(ast.Operator.dot);
+
+                        const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                        lhs.* = identExpr;
+
+                        const rhs = try self.expect_ident();
+
+                        current.* = ast.Expression{ .project = .{
+                            .struct_ = ast.StructData{ .fields = &[_]ast.StructField{} },
+                            .lhs = lhs,
+                            .rhs = rhs,
+                        } };
                     } else {
                         current.* = identExpr;
                     }
@@ -683,11 +697,34 @@ pub const Parser = struct {
                             const t = try self.type_();
 
                             try self.expect(ast.Operator.lbrace);
+
+                            var initializers = std.ArrayList(ast.StructInitializer).init(self.ast_arena_allocator.allocator());
+
+                            while (true) {
+                                if (self.is_next(ast.Operator.rbrace)) {
+                                    break;
+                                }
+
+                                try self.expect(ast.Operator.dot);
+                                const field = try self.expect_ident();
+                                try self.expect(ast.Operator.eq);
+                                const e = try self.expr();
+
+                                try initializers.append(.{ .field = field, .value = e });
+
+                                if (self.is_next(ast.Operator.comma)) {
+                                    try self.expect(ast.Operator.comma);
+                                    continue;
+                                } else {
+                                    break;
+                                }
+                            }
+
                             try self.expect(ast.Operator.rbrace);
 
                             return ast.Expression{ .new = .{
                                 .type_ = t,
-                                .initializers = &[_]ast.Expression{},
+                                .initializers = initializers.items,
                             } };
                         },
                         else => {
@@ -705,64 +742,105 @@ pub const Parser = struct {
     }
 
     fn type_(self: *Parser) anyerror!ast.Type {
-        const current = try self.expect_ident();
-        if (std.mem.eql(u8, current, "int")) {
-            return ast.Type{ .int = true };
-        } else if (std.mem.eql(u8, current, "bool")) {
-            return ast.Type{ .bool_ = true };
-        } else if (std.mem.eql(u8, current, "byte")) {
-            return ast.Type{ .byte = true };
-        } else if (std.mem.eql(u8, current, "array")) {
-            try self.expect(ast.Operator.lparen);
-            const t = try self.type_();
-            try self.expect(ast.Operator.comma);
-            const size = try self.expect_number();
-            try self.expect(ast.Operator.rparen);
+        const token = self.consume().?;
+        switch (token) {
+            .ident => |current| {
+                if (std.mem.eql(u8, current, "int")) {
+                    return ast.Type{ .int = true };
+                } else if (std.mem.eql(u8, current, "bool")) {
+                    return ast.Type{ .bool_ = true };
+                } else if (std.mem.eql(u8, current, "byte")) {
+                    return ast.Type{ .byte = true };
+                } else if (std.mem.eql(u8, current, "array")) {
+                    try self.expect(ast.Operator.lparen);
+                    const t = try self.type_();
+                    try self.expect(ast.Operator.comma);
+                    const size = try self.expect_number();
+                    try self.expect(ast.Operator.rparen);
 
-            const elem_type = try self.ast_arena_allocator.allocator().create(ast.Type);
-            elem_type.* = t;
+                    const elem_type = try self.ast_arena_allocator.allocator().create(ast.Type);
+                    elem_type.* = t;
 
-            return ast.Type{ .array = .{
-                .elem_type = elem_type,
-                .size = size,
-            } };
-        } else if (std.mem.eql(u8, current, "slice")) {
-            try self.expect(ast.Operator.lparen);
-            const t = try self.type_();
-            try self.expect(ast.Operator.rparen);
+                    return ast.Type{ .array = .{
+                        .elem_type = elem_type,
+                        .size = size,
+                    } };
+                } else if (std.mem.eql(u8, current, "slice")) {
+                    try self.expect(ast.Operator.lparen);
+                    const t = try self.type_();
+                    try self.expect(ast.Operator.rparen);
 
-            const elem_type = try self.ast_arena_allocator.allocator().create(ast.Type);
-            elem_type.* = t;
+                    const elem_type = try self.ast_arena_allocator.allocator().create(ast.Type);
+                    elem_type.* = t;
 
-            return ast.Type{ .slice = .{ .elem_type = elem_type } };
-        } else if (std.mem.eql(u8, current, "vec")) {
-            try self.expect(ast.Operator.lparen);
-            const t = try self.type_();
-            try self.expect(ast.Operator.rparen);
+                    return ast.Type{ .slice = .{ .elem_type = elem_type } };
+                } else if (std.mem.eql(u8, current, "vec")) {
+                    try self.expect(ast.Operator.lparen);
+                    const t = try self.type_();
+                    try self.expect(ast.Operator.rparen);
 
-            const elem_type = try self.ast_arena_allocator.allocator().create(ast.Type);
-            elem_type.* = t;
+                    const elem_type = try self.ast_arena_allocator.allocator().create(ast.Type);
+                    elem_type.* = t;
 
-            return ast.Type{ .vec = .{ .elem_type = elem_type } };
-        } else if (std.mem.eql(u8, current, "map")) {
-            try self.expect(ast.Operator.lparen);
-            const k = try self.type_();
-            try self.expect(ast.Operator.comma);
-            const v = try self.type_();
-            try self.expect(ast.Operator.rparen);
+                    return ast.Type{ .vec = .{ .elem_type = elem_type } };
+                } else if (std.mem.eql(u8, current, "map")) {
+                    try self.expect(ast.Operator.lparen);
+                    const k = try self.type_();
+                    try self.expect(ast.Operator.comma);
+                    const v = try self.type_();
+                    try self.expect(ast.Operator.rparen);
 
-            const key_type = try self.ast_arena_allocator.allocator().create(ast.Type);
-            key_type.* = k;
+                    const key_type = try self.ast_arena_allocator.allocator().create(ast.Type);
+                    key_type.* = k;
 
-            const value_type = try self.ast_arena_allocator.allocator().create(ast.Type);
-            value_type.* = v;
+                    const value_type = try self.ast_arena_allocator.allocator().create(ast.Type);
+                    value_type.* = v;
 
-            return ast.Type{ .map = .{
-                .key_type = key_type,
-                .value_type = value_type,
-            } };
-        } else {
-            return ast.Type{ .unknown = true };
+                    return ast.Type{ .map = .{
+                        .key_type = key_type,
+                        .value_type = value_type,
+                    } };
+                } else {
+                    return ast.Type{ .unknown = true };
+                }
+            },
+            .keyword => |keyword| {
+                switch (keyword) {
+                    .struct_ => {
+                        var fields = std.ArrayList(ast.StructField).init(self.ast_arena_allocator.allocator());
+
+                        try self.expect(ast.Operator.lbrace);
+
+                        while (true) {
+                            if (self.is_next(ast.Operator.rbrace)) {
+                                break;
+                            }
+                            const field_name = try self.expect_ident();
+                            try self.expect(ast.Operator.colon);
+                            const field_type = try self.type_();
+
+                            try fields.append(.{ .name = field_name, .type_ = field_type });
+
+                            if (self.is_next(ast.Operator.comma)) {
+                                try self.expect(ast.Operator.comma);
+                                continue;
+                            } else {
+                                break;
+                            }
+                        }
+                        try self.expect(ast.Operator.rbrace);
+
+                        return ast.Type{ .struct_ = ast.StructData{ .fields = fields.items } };
+                    },
+                    else => {
+                        std.log.err("unexpected token: want type but got {any}\n", .{self.tokens[self.position..]});
+                        unreachable;
+                    },
+                }
+            },
+            else => {
+                unreachable;
+            },
         }
 
         return error.UnexpectedEos;

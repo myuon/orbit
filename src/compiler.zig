@@ -438,6 +438,16 @@ test "compiler.evalModule" {
             ,
             .expected = 603739,
         },
+        .{
+            .program =
+            \\fun main() do
+            \\  let s = new struct{ a: int, b: int } { .a = 10, .b = 20 };
+            \\
+            \\  return s.a + s.b;
+            \\end
+            ,
+            .expected = 30,
+        },
     };
 
     for (cases) |case| {

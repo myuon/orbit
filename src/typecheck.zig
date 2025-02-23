@@ -125,6 +125,23 @@ pub const Typechecker = struct {
                     },
                 }
             },
+            .struct_ => {
+                switch (actual) {
+                    .struct_ => {
+                        if (expect.struct_.fields.len != actual.struct_.fields.len) {
+                            std.log.err("Expected struct with {any} fields, got {any}\n", .{ expect.struct_.fields.len, actual.struct_.fields.len });
+                            return TypecheckerError.UnexpectedType;
+                        }
+                        for (expect.struct_.fields, 0..) |field, i| {
+                            _ = try assertType(field.type_, actual.struct_.fields[i].type_);
+                        }
+                    },
+                    else => {
+                        std.log.err("Expected struct, got {any}\n", .{actual});
+                        return TypecheckerError.UnexpectedType;
+                    },
+                }
+            },
             .unknown => {
                 return actual;
             },
@@ -226,14 +243,31 @@ pub const Typechecker = struct {
                 return value_type;
             },
             .new => |new| {
-                for (new.initializers) |initializer| {
-                    var inite = initializer;
-                    const t = try self.typecheckExpr(&inite);
+                for (new.initializers, 0..) |initializer, k| {
+                    const structData = try new.type_.getStructData();
+                    const field_type = try structData.getFieldType(initializer.field);
 
-                    _ = try assertType(try new.type_.getValueType(), t);
+                    var value = initializer.value;
+                    const t = try self.typecheckExpr(&value);
+
+                    _ = try assertType(field_type, t);
+                    expr.new.initializers[k].value = value;
                 }
 
                 return new.type_;
+            },
+            .project => |project| {
+                const lhs = project.lhs;
+                const lhs_type = try self.typecheckExpr(lhs);
+
+                const structData = try lhs_type.getStructData();
+
+                const field = project.rhs;
+                const field_type = try structData.getFieldType(field);
+
+                expr.project.struct_ = structData;
+
+                return field_type;
             },
         }
     }
