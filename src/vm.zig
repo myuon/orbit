@@ -234,10 +234,19 @@ pub const Vm = struct {
                 try buffer.append(ast.Instruction{ .load = index.elem_type.size() });
             },
             .new => |new| {
-                const array_size = new.array_size;
-                try buffer.append(ast.Instruction{ .allocate_memory = array_size * 4 });
-
                 std.debug.assert(new.initializers.len == 0);
+
+                switch (new.type_) {
+                    .array => |array| {
+                        try buffer.append(ast.Instruction{ .allocate_memory = array.size * @as(usize, array.elem_type.size()) });
+                    },
+                    .map => |map| {
+                        try buffer.append(ast.Instruction{ .allocate_memory = 128 * @as(usize, map.value_type.size()) });
+                    },
+                    else => {
+                        unreachable;
+                    },
+                }
             },
         }
     }

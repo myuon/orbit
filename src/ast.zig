@@ -81,7 +81,7 @@ pub const Expression = union(ExpressionType) {
         rhs: *Expression,
     },
     new: struct {
-        array_size: usize,
+        type_: Type,
         initializers: []Expression,
     },
 };
@@ -158,6 +158,7 @@ pub const TypeType = enum {
     int,
     array,
     slice,
+    map,
     fun,
 };
 
@@ -173,6 +174,10 @@ pub const Type = union(TypeType) {
     slice: struct {
         elem_type: *Type,
     },
+    map: struct {
+        key_type: *Type,
+        value_type: *Type,
+    },
     fun: struct {
         params: []Type,
         return_type: *Type,
@@ -186,7 +191,16 @@ pub const Type = union(TypeType) {
             Type.int => 8,
             Type.array => 8,
             Type.slice => 8,
+            Type.map => 8,
             Type.fun => unreachable,
+        };
+    }
+
+    pub fn elem_type(self: Type) Type {
+        return switch (self) {
+            Type.array => self.array.elem_type.*,
+            Type.slice => self.slice.elem_type.*,
+            else => unreachable,
         };
     }
 };
