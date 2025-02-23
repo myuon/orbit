@@ -248,7 +248,7 @@ pub const Typechecker = struct {
 
                 _ = try assertType(key_type, rhs_type);
 
-                expr.*.index.elem_type = value_type;
+                expr.*.index.type_ = lhs_type;
 
                 return value_type;
             },
@@ -257,7 +257,7 @@ pub const Typechecker = struct {
                     var inite = initializer;
                     const t = try self.typecheckExpr(&inite);
 
-                    _ = try assertType(new.type_.elem_type(), t);
+                    _ = try assertType(try new.type_.getValueType(), t);
                 }
 
                 return new.type_;

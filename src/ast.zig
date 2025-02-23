@@ -76,7 +76,7 @@ pub const Expression = union(ExpressionType) {
         else_: Block,
     },
     index: struct {
-        elem_type: Type,
+        type_: Type,
         lhs: *Expression,
         rhs: *Expression,
     },
@@ -162,6 +162,10 @@ pub const TypeType = enum {
     fun,
 };
 
+pub const AstTypeError = error{
+    UnexpectedType,
+};
+
 pub const Type = union(TypeType) {
     unknown: bool,
     bool_: bool,
@@ -196,12 +200,40 @@ pub const Type = union(TypeType) {
         };
     }
 
-    pub fn elem_type(self: Type) Type {
-        return switch (self) {
-            Type.array => self.array.elem_type.*,
-            Type.slice => self.slice.elem_type.*,
-            else => unreachable,
-        };
+    pub fn getIndexType(actual: Type) anyerror!Type {
+        switch (actual) {
+            .array => {
+                return Type{ .int = true };
+            },
+            .slice => {
+                return Type{ .int = true };
+            },
+            .map => |map| {
+                return map.key_type.*;
+            },
+            else => {
+                std.log.err("Expected array-like data structure, got {any}\n", .{actual});
+                return error.UnexpectedType;
+            },
+        }
+    }
+
+    pub fn getValueType(actual: Type) anyerror!Type {
+        switch (actual) {
+            .array => |array| {
+                return array.elem_type.*;
+            },
+            .slice => |slice| {
+                return slice.elem_type.*;
+            },
+            .map => |map| {
+                return map.value_type.*;
+            },
+            else => {
+                std.log.err("Expected array-like data structure, got {any}\n", .{actual});
+                return error.UnexpectedType;
+            },
+        }
     }
 };
 

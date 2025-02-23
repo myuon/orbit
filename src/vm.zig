@@ -230,8 +230,23 @@ pub const Vm = struct {
                 unreachable;
             },
             .index => |index| {
-                try self.compileLhsExprFromAst(buffer, expr);
-                try buffer.append(ast.Instruction{ .load = index.elem_type.size() });
+                switch (index.type_) {
+                    .array => {
+                        try self.compileLhsExprFromAst(buffer, expr);
+                        try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
+                    },
+                    .slice => {
+                        try self.compileLhsExprFromAst(buffer, expr);
+                        try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
+                    },
+                    .map => {
+                        unreachable;
+                    },
+                    else => {
+                        std.log.err("Invalid index type: {any}\n", .{index.type_});
+                        unreachable;
+                    },
+                }
             },
             .new => |new| {
                 std.debug.assert(new.initializers.len == 0);
@@ -254,13 +269,26 @@ pub const Vm = struct {
     fn compileLhsExprFromAst(self: *Vm, buffer: *std.ArrayList(ast.Instruction), expr: ast.Expression) anyerror!void {
         switch (expr) {
             .index => |index| {
-                const size = index.elem_type.size();
-
-                try self.compileExprFromAst(buffer, index.lhs.*);
-                try self.compileExprFromAst(buffer, index.rhs.*);
-                try buffer.append(ast.Instruction{ .push = size });
-                try buffer.append(ast.Instruction{ .mul = true });
-                try buffer.append(ast.Instruction{ .add = true });
+                switch (index.type_) {
+                    .array => {
+                        try self.compileExprFromAst(buffer, index.lhs.*);
+                        try self.compileExprFromAst(buffer, index.rhs.*);
+                        try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
+                        try buffer.append(ast.Instruction{ .mul = true });
+                        try buffer.append(ast.Instruction{ .add = true });
+                    },
+                    .slice => {
+                        try self.compileExprFromAst(buffer, index.lhs.*);
+                        try self.compileExprFromAst(buffer, index.rhs.*);
+                        try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
+                        try buffer.append(ast.Instruction{ .mul = true });
+                        try buffer.append(ast.Instruction{ .add = true });
+                    },
+                    else => {
+                        std.log.err("Invalid index type: {any}\n", .{index.type_});
+                        unreachable;
+                    },
+                }
             },
             else => {
                 unreachable;
