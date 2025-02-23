@@ -441,7 +441,8 @@ test "compiler.evalModule" {
         .{
             .program =
             \\fun main() do
-            \\  let s = new struct{ a: int, b: int } { .a = 30, .b = 20 };
+            \\  let s = new struct{ a: int, b: int } { .a = 10, .b = 20 };
+            \\  s.a = 30;
             \\
             \\  return s.a - s.b;
             \\end
