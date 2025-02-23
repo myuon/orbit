@@ -408,6 +408,19 @@ test "compiler.evalModule" {
             ,
             .expected = 3,
         },
+        .{
+            .program =
+            \\fun main() do
+            \\  let k = new map(slice(byte), int) {};
+            \\  k["a"] = 1;
+            \\  k["b"] = 2;
+            \\  k["a"] = 3;
+            \\
+            \\  return k["a"] + k["b"];
+            \\end
+            ,
+            .expected = 5,
+        },
     };
 
     for (cases) |case| {

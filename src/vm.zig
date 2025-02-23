@@ -1105,7 +1105,8 @@ pub const VmRuntime = struct {
                     self.storeMemory(8, @intCast(entry_ptr), key);
                     self.storeMemory(8, @intCast(entry_ptr + 8), value);
                 } else {
-                    unreachable;
+                    const entry_ptr = self.loadMemory(8, @as(i64, @intCast(map + @as(i64, @intCast(data.index)) * 8)));
+                    self.storeMemory(8, @intCast(entry_ptr + 8), value);
                 }
 
                 self.pc += 1;
