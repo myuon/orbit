@@ -173,7 +173,21 @@ pub const Vm = struct {
                             address = @intCast(i);
                         }
 
+                        try buffer.append(ast.Instruction{ .allocate_memory = 2 * 8 });
+
+                        // ptr
+                        try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
+                        try buffer.append(ast.Instruction{ .push = 0 });
+                        try buffer.append(ast.Instruction{ .add = true });
                         try buffer.append(ast.Instruction{ .push = address });
+                        try buffer.append(ast.Instruction{ .store = 8 });
+
+                        // len
+                        try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
+                        try buffer.append(ast.Instruction{ .push = 8 });
+                        try buffer.append(ast.Instruction{ .add = true });
+                        try buffer.append(ast.Instruction{ .push = @intCast(s.len) });
+                        try buffer.append(ast.Instruction{ .store = 8 });
                     },
                 }
             },
@@ -244,9 +258,16 @@ pub const Vm = struct {
                         try self.compileLhsExprFromAst(buffer, expr);
                         try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
                     },
-                    .slice => {
-                        try self.compileLhsExprFromAst(buffer, expr);
-                        try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
+                    .slice => |slice| {
+                        const valueType = slice.elem_type.*;
+
+                        try self.compileExprFromAst(buffer, index.lhs.*);
+                        try buffer.append(ast.Instruction{ .load = 8 });
+                        try self.compileExprFromAst(buffer, index.rhs.*);
+                        try buffer.append(ast.Instruction{ .push = valueType.size() });
+                        try buffer.append(ast.Instruction{ .mul = true });
+                        try buffer.append(ast.Instruction{ .add = true });
+                        try buffer.append(ast.Instruction{ .load = valueType.size() });
                     },
                     .vec => {
                         try self.compileExprFromAst(buffer, index.lhs.*);
