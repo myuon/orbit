@@ -1424,7 +1424,7 @@ pub const VmRuntime = struct {
         var hash: usize = 2166136261;
         for (str) |c| {
             hash ^= @intCast(c);
-            hash *= 16777619;
+            hash = @mulWithOverflow(hash, 16777619)[0];
         }
 
         return hash;
