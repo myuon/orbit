@@ -355,7 +355,7 @@ pub const VmRuntime = struct {
                     entry.value_ptr.* += 1;
 
                     if (entry.value_ptr.* > 3) {
-                        var fn_ptr: jit.CompiledFn = undefined;
+                        var fn_ptr: ?jit.CompiledFn = null;
 
                         if (self.jit_cache.get(label)) |f| {
                             fn_ptr = f;
@@ -384,29 +384,36 @@ pub const VmRuntime = struct {
                             defer params.deinit();
 
                             var runtime = jit.JitRuntime.init(self.allocator);
-                            const f = runtime.compile(ir_block, false) catch |err| {
-                                std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
+                            const result = runtime.compile(ir_block, false);
 
-                                unreachable;
+                            var quit_compiling = false;
+                            _ = result catch |err| {
+                                std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
+                                quit_compiling = true;
                             };
 
-                            try self.jit_cache.put(label, f);
+                            if (!quit_compiling) {
+                                const f = try result;
+                                try self.jit_cache.put(label, f);
 
-                            fn_ptr = f;
+                                fn_ptr = f;
+                            }
                         }
 
-                        var ip: i64 = -1;
-                        var sp = @as(i64, @intCast(stack.items.len));
+                        if (fn_ptr) |f| {
+                            var ip: i64 = -1;
+                            var sp = @as(i64, @intCast(stack.items.len));
 
-                        fn_ptr((&stack.items).ptr, &sp, bp, &ip, self.memory.ptr);
+                            f((&stack.items).ptr, &sp, bp, &ip, self.memory.ptr);
 
-                        // epilogue here
-                        self.pc += 1;
-                        std.debug.assert(ip == -1);
+                            // epilogue here
+                            self.pc += 1;
+                            std.debug.assert(ip == -1);
 
-                        stack.shrinkAndFree(@intCast(sp));
+                            stack.shrinkAndFree(@intCast(sp));
 
-                        return ControlFlow.Continue;
+                            return ControlFlow.Continue;
+                        }
                     }
                 } else {
                     entry.value_ptr.* = 1;
