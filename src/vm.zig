@@ -526,11 +526,19 @@ pub const VmCompiler = struct {
                                 try self.compileExprFromAst(buffer, assign.rhs);
                                 try buffer.append(ast.Instruction{ .table_set = true });
                             },
-                            .vec => {
-                                try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
-                                try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);
-                                try self.compileExprFromAst(buffer, assign.rhs);
-                                try buffer.append(ast.Instruction{ .vec_set = true });
+                            .vec => |vec| {
+                                switch (vec.elem_type.*) {
+                                    .int => {
+                                        try self.callFunction(buffer, "set_vec_int", @constCast(&[_]ast.Expression{
+                                            assign.lhs.index.lhs.*,
+                                            assign.lhs.index.rhs.*,
+                                            assign.rhs,
+                                        }));
+                                    },
+                                    else => {
+                                        unreachable;
+                                    },
+                                }
                             },
                             .slice => {
                                 try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);

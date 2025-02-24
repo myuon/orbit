@@ -80,6 +80,11 @@ pub const Compiler = struct {
             \\  let ptr = data.ptr;
             \\  return ptr[index];
             \\end
+            \\fun set_vec_int(data: struct{ptr: ptr(int), len: int, capacity: int}, index: int, value: int) do
+            \\  let ptr = data.ptr;
+            \\  ptr[index] = value;
+            \\  return 0;
+            \\end
         ;
         const input = try std.fmt.allocPrint(self.arena_allocator.allocator(), "{s}\n{s}", .{ stdlib, str });
 
