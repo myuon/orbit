@@ -713,14 +713,13 @@ pub const VmCompiler = struct {
         var initBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
         defer initBuffer.deinit();
 
-        // ==== meta section [0-31]
-        // use 0 for null_ptr
-        // use 8 for data_section_ptr
-        // use 16 for global_section_ptr
-        // use 24 for heap_ptr
-        // ==== global section [32-32+sizeGlobalSection]
-        // ...
-        // ==== data section [32+sizeGlobalSection-32+sizeGlobalSection+sizeDataSection]
+        // ==== global section
+        //  0: null_ptr
+        //  8: data_section_ptr
+        // 16: global_section_ptr
+        // 24: heap_ptr
+        // ... user-defined globals
+        // ==== static data [32+sizeGlobalSection-32+sizeGlobalSection+sizeDataSection]
         // ...
 
         var progBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
@@ -735,21 +734,21 @@ pub const VmCompiler = struct {
         defer dataBuffer.deinit();
         const sizeDataSection = try self.compileDataSection(&dataBuffer);
 
-        const sizeMetaSection = 24;
+        const sizeBuiltinGlobalSection = 24;
 
         // set global_section_ptr
         try initBuffer.append(ast.Instruction{ .push = @intCast(global_section_ptr) });
-        try initBuffer.append(ast.Instruction{ .push = @intCast(sizeMetaSection) });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(sizeBuiltinGlobalSection) });
         try initBuffer.append(ast.Instruction{ .store = 8 });
 
         // set data_section_ptr
         try initBuffer.append(ast.Instruction{ .push = @intCast(data_section_ptr) });
-        try initBuffer.append(ast.Instruction{ .push = @intCast(sizeMetaSection + sizeGlobalSection) });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(sizeBuiltinGlobalSection + sizeGlobalSection) });
         try initBuffer.append(ast.Instruction{ .store = 8 });
 
         // set heap_section_ptr
         try initBuffer.append(ast.Instruction{ .push = @intCast(heap_section_ptr) });
-        try initBuffer.append(ast.Instruction{ .push = @intCast(sizeMetaSection + sizeGlobalSection + sizeDataSection) });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(sizeBuiltinGlobalSection + sizeGlobalSection + sizeDataSection) });
         try initBuffer.append(ast.Instruction{ .store = 8 });
 
         var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
