@@ -677,11 +677,24 @@ pub const VmCompiler = struct {
             data_offset = @as(usize, @intCast(offset)) + k.*.len + 1;
         }
 
+        return data_offset;
+    }
+
+    fn compileGlobalSection(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction)) anyerror!usize {
+        var global_offset: usize = 0;
+
+        var iter = self.global_data.keyIterator();
+        while (iter.next()) |k| {
+            const offset = self.global_data.get(k.*).?;
+
+            global_offset = @as(usize, @intCast(offset)) + 8;
+        }
+
         for (self.initialized_statements.items) |stmt| {
             try self.compileStatementFromAst(buffer, stmt);
         }
 
-        return data_offset;
+        return global_offset;
     }
 
     pub fn compile(
@@ -703,36 +716,41 @@ pub const VmCompiler = struct {
         // use 8 for data_section_ptr
         // use 16 for global_section_ptr
         // use 24 for heap_ptr
-        // ==== data section [32-32+sizeDataSection]
+        // ==== global section [32-32+sizeGlobalSection]
         // ...
-        // ==== global section [32+sizeDataSection-32+sizeDataSection+sizeGlobalSection]
+        // ==== data section [32+sizeGlobalSection-32+sizeGlobalSection+sizeDataSection]
         // ...
 
         var progBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
         defer progBuffer.deinit();
         try self.compileProgramSection(&progBuffer, entrypoint, module);
 
+        var globalBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
+        defer globalBuffer.deinit();
+        const sizeGlobalSection = try self.compileGlobalSection(&globalBuffer);
+
         var dataBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
         defer dataBuffer.deinit();
         const sizeDataSection = try self.compileDataSection(&dataBuffer);
 
-        // set data_section_ptr
-        try initBuffer.append(ast.Instruction{ .push = @intCast(data_section_ptr) });
-        try initBuffer.append(ast.Instruction{ .push = 32 });
-        try initBuffer.append(ast.Instruction{ .store = 8 });
-
         // set global_section_ptr
         try initBuffer.append(ast.Instruction{ .push = @intCast(global_section_ptr) });
-        try initBuffer.append(ast.Instruction{ .push = @intCast(32 + sizeDataSection) });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(32) });
+        try initBuffer.append(ast.Instruction{ .store = 8 });
+
+        // set data_section_ptr
+        try initBuffer.append(ast.Instruction{ .push = @intCast(data_section_ptr) });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(32 + sizeGlobalSection) });
         try initBuffer.append(ast.Instruction{ .store = 8 });
 
         // set heap_section_ptr
         try initBuffer.append(ast.Instruction{ .push = @intCast(heap_section_ptr) });
-        try initBuffer.append(ast.Instruction{ .push = @intCast(32 + sizeDataSection + 128) }); // FIXME: sizeGlobalSection
+        try initBuffer.append(ast.Instruction{ .push = @intCast(32 + sizeDataSection + sizeGlobalSection) });
         try initBuffer.append(ast.Instruction{ .store = 8 });
 
         var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
         try buffer.appendSlice(initBuffer.items);
+        try buffer.appendSlice(globalBuffer.items);
         try buffer.appendSlice(dataBuffer.items);
         try buffer.appendSlice(progBuffer.items);
 
