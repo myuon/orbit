@@ -15,7 +15,7 @@ fun is_prime(n) do
 end
 
 fun main() do
-  let n = 100;
+  let n = 1000;
   let sum = 0;
 
   while (n > 0) do

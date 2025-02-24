@@ -89,7 +89,6 @@ pub const VmRuntime = struct {
             }
         }
 
-        std.log.warn("Label not found: {s}\n", .{target_label});
         return error.LabelNotFound;
     }
 
@@ -201,7 +200,39 @@ pub const VmRuntime = struct {
                             var ir_block = std.ArrayList(ast.Instruction).init(self.allocator);
                             defer ir_block.deinit();
 
-                            try ir_block.appendSlice(traces.items);
+                            // Hacky way to care for the case when the conditional jump does not jump as expected in the trace
+                            for (traces.items, 0..) |item, i| {
+                                try ir_block.append(item);
+
+                                switch (item) {
+                                    .jump_ifzero => |jump_target| {
+                                        switch (traces.items[i + 1]) {
+                                            .label => |next_label| {
+                                                if (std.mem.eql(u8, jump_target, next_label)) {
+                                                    // If we have ... jump_ifzero L, L:, ..., then add a new exit path just after jump_ifzero L
+
+                                                    // search the original label
+                                                    var original_next_label: []const u8 = undefined;
+                                                    for (program, 0..) |t, j| {
+                                                        switch (t) {
+                                                            .jump_ifzero => |l| {
+                                                                if (std.mem.eql(u8, l, jump_target)) {
+                                                                    original_next_label = program[j + 1].label;
+                                                                }
+                                                            },
+                                                            else => {},
+                                                        }
+                                                    }
+
+                                                    try ir_block.append(ast.Instruction{ .jump = original_next_label });
+                                                }
+                                            },
+                                            else => {},
+                                        }
+                                    },
+                                    else => {},
+                                }
+                            }
 
                             var exit_positions = std.ArrayList(usize).init(self.allocator);
                             defer exit_positions.deinit();
@@ -216,12 +247,25 @@ pub const VmRuntime = struct {
                             defer fallback_block.deinit();
 
                             // find the exit path
-                            // TODO: support `jump` to outside of the block
                             for (ir_block.items) |t| {
                                 switch (t) {
+                                    .jump => |l| {
+                                        const label_found = VmRuntime.find_label(ir_block.items, l) catch null;
+
+                                        if (!exit_stub.contains(l) and label_found == null) {
+                                            // Isn't there any nicer way?
+                                            try exit_stub.put(l, ir_block.items.len + fallback_block.items.len);
+
+                                            // Add fallback block (when label not found)
+                                            const ip = (try VmRuntime.find_label(program, l)).?;
+                                            try fallback_block.append(ast.Instruction{ .set_cip = ip });
+                                            try fallback_block.append(ast.Instruction{ .push = -1 });
+                                            try fallback_block.append(ast.Instruction{ .ret = true });
+                                        }
+                                    },
                                     .jump_ifzero => |l| {
                                         if (!exit_stub.contains(l)) {
-                                            try exit_stub.put(l, ir_block.items.len);
+                                            try exit_stub.put(l, ir_block.items.len + fallback_block.items.len);
 
                                             // Add fallback block (when label not found)
                                             const ip = (try VmRuntime.find_label(program, l)).?;
@@ -231,6 +275,7 @@ pub const VmRuntime = struct {
                                         }
                                     },
                                     .call => |name| {
+                                        // TODO: call $name with vtable
                                         std.log.warn("JIT compile error, fallback to VM execution: call the non-cached function: {s}", .{name});
 
                                         try self.hot_spot_labels.put(label, -300);
@@ -291,7 +336,7 @@ pub const VmRuntime = struct {
                     var ip: i64 = -1;
                     var sp = @as(i64, @intCast(stack.items.len));
 
-                    // std.log.info("BEF: {s}, {d} {any} ({d}) {any}", .{ label, bp.*, stack.items[0..@intCast(sp)], self.pc, self.memory[0..100] });
+                    // std.log.info("BEF: {s}, {d} {any} ({d})", .{ label, bp.*, stack.items[0..@intCast(sp)], self.pc });
                     fn_ptr(
                         (&stack.items).ptr,
                         &sp,
@@ -300,7 +345,7 @@ pub const VmRuntime = struct {
                         self.memory.ptr,
                         @ptrCast(self.jit_vtable.items.ptr),
                     );
-                    // std.log.info("AFT: {s}, {d} {any} ({d}) {any}", .{ label, bp.*, stack.items[0..@intCast(sp)], ip, self.memory[0..100] });
+                    // std.log.info("AFT: {s}, {d} {any} ({d})", .{ label, bp.*, stack.items[0..@intCast(sp)], ip });
 
                     // epilogue here
                     if (ip != -1) {
@@ -318,9 +363,9 @@ pub const VmRuntime = struct {
                 const cond = stack.pop();
                 if (cond == 0) {
                     self.pc = (try VmRuntime.find_label(program, label)).?;
+                } else {
+                    self.pc += 1;
                 }
-
-                self.pc += 1;
             },
             .jump_d => {
                 unreachable;
