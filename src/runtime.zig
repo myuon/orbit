@@ -275,15 +275,16 @@ pub const VmRuntime = struct {
                                         }
                                     },
                                     .call => |name| {
-                                        // TODO: call $name with vtable
-                                        std.log.warn("JIT compile error, fallback to VM execution: call the non-cached function: {s}", .{name});
+                                        if (!self.jit_cache_ptr.contains(name)) {
+                                            std.log.warn("JIT compile error, fallback to VM execution: call the non-cached function: {s}", .{name});
 
-                                        try self.hot_spot_labels.put(label, -300);
+                                            try self.hot_spot_labels.put(label, -300);
 
-                                        quit_compiling = true;
-                                        self.traces.?.deinit();
-                                        self.traces = null;
-                                        break;
+                                            quit_compiling = true;
+                                            self.traces.?.deinit();
+                                            self.traces = null;
+                                            break;
+                                        }
                                     },
                                     else => {},
                                 }
@@ -457,7 +458,10 @@ pub const VmRuntime = struct {
 
                             var quit_compiling = false;
 
-                            const resolveLabelsResult = vmc.resolveIrLabels(ir_block, null, self.jit_cache_ptr);
+                            var exit_stub = std.StringHashMap(usize).init(self.allocator);
+                            defer exit_stub.deinit();
+
+                            const resolveLabelsResult = vmc.resolveIrLabels(ir_block, exit_stub, self.jit_cache_ptr);
                             resolveLabelsResult catch |err| {
                                 std.log.warn("Resolve IR labels failed: {any}", .{err});
 
