@@ -157,8 +157,12 @@ pub const Parser = struct {
                             try self.expect(ast.Operator.let);
 
                             const name = try self.expect_ident();
-                            try self.expect(ast.Operator.eq);
-                            const value = try self.expr();
+
+                            var value: ?ast.Expression = null;
+                            if (self.is_next(ast.Operator.eq)) {
+                                try self.expect(ast.Operator.eq);
+                                value = try self.expr();
+                            }
                             try self.expect(ast.Operator.semicolon);
 
                             return ast.Decl{ .let = .{

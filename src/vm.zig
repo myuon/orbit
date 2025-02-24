@@ -41,9 +41,9 @@ pub const VmCompiler = struct {
             .env = std.StringHashMap(i32).init(allocator),
             .env_offset = 0,
             .string_data = std.StringHashMap(i32).init(allocator),
-            .string_data_offset = 8, // avoid nullptr
+            .string_data_offset = 0,
             .global_data = std.StringHashMap(i32).init(allocator),
-            .global_data_offset = 8, // avoid nullptr
+            .global_data_offset = 0,
             .initialized_statements = std.ArrayList(ast.Statement).init(allocator),
         };
     }
@@ -625,14 +625,16 @@ pub const VmCompiler = struct {
                     try self.global_data.put(let.name, @intCast(i));
                     self.global_data_offset += 1;
 
-                    try self.initialized_statements.append(ast.Statement{
-                        .assign = .{
-                            // FIXME: other types
-                            .type_ = .{ .int = true },
-                            .lhs = .{ .var_ = let.name },
-                            .rhs = let.value,
-                        },
-                    });
+                    if (let.value) |value| {
+                        try self.initialized_statements.append(ast.Statement{
+                            .assign = .{
+                                // FIXME: other types
+                                .type_ = .{ .int = true },
+                                .lhs = .{ .var_ = let.name },
+                                .rhs = value,
+                            },
+                        });
+                    }
                 },
             }
         }
@@ -685,7 +687,8 @@ pub const VmCompiler = struct {
         var global_offset: usize = 0;
 
         var iter = self.global_data.keyIterator();
-        while (iter.next()) |_| {
+        while (iter.next()) |k| {
+            std.log.info("global: {s}\n", .{k.*});
             global_offset += 8;
         }
 
@@ -732,19 +735,21 @@ pub const VmCompiler = struct {
         defer dataBuffer.deinit();
         const sizeDataSection = try self.compileDataSection(&dataBuffer);
 
+        const sizeMetaSection = 24;
+
         // set global_section_ptr
         try initBuffer.append(ast.Instruction{ .push = @intCast(global_section_ptr) });
-        try initBuffer.append(ast.Instruction{ .push = @intCast(32) });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(sizeMetaSection) });
         try initBuffer.append(ast.Instruction{ .store = 8 });
 
         // set data_section_ptr
         try initBuffer.append(ast.Instruction{ .push = @intCast(data_section_ptr) });
-        try initBuffer.append(ast.Instruction{ .push = @intCast(32 + sizeGlobalSection) });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(sizeMetaSection + sizeGlobalSection) });
         try initBuffer.append(ast.Instruction{ .store = 8 });
 
         // set heap_section_ptr
         try initBuffer.append(ast.Instruction{ .push = @intCast(heap_section_ptr) });
-        try initBuffer.append(ast.Instruction{ .push = @intCast(32 + sizeDataSection + sizeGlobalSection) });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(sizeMetaSection + sizeGlobalSection + sizeDataSection) });
         try initBuffer.append(ast.Instruction{ .store = 8 });
 
         var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());

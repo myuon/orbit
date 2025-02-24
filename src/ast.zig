@@ -169,7 +169,7 @@ pub const Decl = union(DeclType) {
     },
     let: struct {
         name: []const u8,
-        value: Expression,
+        value: ?Expression,
     },
 };
 

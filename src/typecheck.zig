@@ -428,9 +428,14 @@ pub const Typechecker = struct {
                     module.decls[i].fun.body = body;
                 },
                 .let => |let| {
-                    var value = let.value;
+                    const value = let.value;
 
-                    const t = try self.typecheckExpr(&value);
+                    // FIXME: support other types
+                    var t: ast.Type = ast.Type{ .int = true };
+                    if (value) |v| {
+                        var v_ = v;
+                        t = try self.typecheckExpr(&v_);
+                    }
                     try self.env.put(let.name, t);
                 },
             }

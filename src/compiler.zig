@@ -46,7 +46,7 @@ pub const Compiler = struct {
 
     pub fn compileInIr(self: *Compiler, str: []const u8) anyerror![]ast.Instruction {
         const stdlib =
-            \\let hp = 1234;
+            \\let hp;
         ;
         const input = try std.fmt.allocPrint(self.arena_allocator.allocator(), "{s}\n{s}", .{ stdlib, str });
 
