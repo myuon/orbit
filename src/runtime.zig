@@ -171,7 +171,7 @@ pub const VmRuntime = struct {
                 var result_fn_ptr: ?jit.CompiledFn = null;
                 if (self.jit_cache.get(label)) |fn_ptr| {
                     result_fn_ptr = fn_ptr;
-                } else if (self.enable_jit and entry.value_ptr.* >= 10) {
+                } else if (self.enable_jit and entry.value_ptr.* > 10) {
                     // When tracing is finished
                     if (self.traces) |traces| {
                         if (std.mem.eql(u8, traces.items[0].label, label)) {
@@ -360,7 +360,7 @@ pub const VmRuntime = struct {
                         entry.value_ptr.* += 1;
                     }
 
-                    if (entry.value_ptr.* > 3) {
+                    if (entry.value_ptr.* > 10) {
                         var fn_ptr: ?jit.CompiledFn = null;
 
                         if (self.jit_cache.get(label)) |f| {
@@ -406,6 +406,9 @@ pub const VmRuntime = struct {
 
                                 _ = result catch |err| {
                                     std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
+
+                                    try self.hot_spot_labels.put(label, -1);
+
                                     quit_compiling = true;
                                 };
 
