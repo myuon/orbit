@@ -544,11 +544,6 @@ pub const VmRuntime = struct {
                 }
                 self.pc += 1;
             },
-            .allocate_memory => {
-                const size = stack.pop();
-                try self.allocateMemory(stack, @intCast(size));
-                self.pc += 1;
-            },
             .set_cip => {
                 unreachable;
             },

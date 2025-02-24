@@ -400,7 +400,6 @@ pub const InstructionType = enum {
     load,
     store,
     set_memory,
-    allocate_memory,
     set_cip,
     table_set,
     table_get,
@@ -459,7 +458,6 @@ pub const Instruction = union(InstructionType) {
     set_memory: struct {
         data: []const u8,
     },
-    allocate_memory: bool,
     set_cip: usize, // For tracing JIT
     table_set: bool, // For hashmap
     table_get: bool, // For hashmap
@@ -567,9 +565,6 @@ pub const Instruction = union(InstructionType) {
             },
             Instruction.set_memory => {
                 try std.fmt.format(writer, "set_memory #{s}", .{self.set_memory.data});
-            },
-            Instruction.allocate_memory => {
-                try std.fmt.format(writer, "allocate_memory", .{});
             },
             Instruction.set_cip => {
                 try std.fmt.format(writer, "set_cip #{d}", .{self.set_cip});
