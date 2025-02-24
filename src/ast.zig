@@ -380,6 +380,7 @@ pub const InstructionType = enum {
     div,
     call,
     call_d,
+    call_vtable,
     label,
     get_pc,
     get_bp,
@@ -429,6 +430,7 @@ pub const Instruction = union(InstructionType) {
     div: bool,
     call: []const u8, // (resolve_label phase) replaced with call_d
     call_d: usize,
+    call_vtable: usize, // For JIT
     label: []const u8, // (resolve_label phase) replaced with nop
     get_pc: bool,
     get_bp: bool,
@@ -583,6 +585,9 @@ pub const Instruction = union(InstructionType) {
             },
             Instruction.table_get => {
                 try std.fmt.format(writer, "table_get", .{});
+            },
+            Instruction.call_vtable => {
+                try std.fmt.format(writer, "call_vtable #{d}", .{self.call_vtable});
             },
         }
     }

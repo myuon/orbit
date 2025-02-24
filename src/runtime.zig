@@ -31,14 +31,13 @@ pub const VmRuntimeError = error{
 };
 
 pub const VmRuntime = struct {
-    const JitCache = std.StringHashMap(jit.CompiledFn);
-
     pc: usize,
     envs: std.ArrayList(std.StringHashMap(i64)),
     enable_jit: bool,
     hot_spot_labels: std.StringHashMap(i32),
     traces: ?std.ArrayList(ast.Instruction),
-    jit_cache: JitCache,
+    jit_cache_ptr: std.StringHashMap(usize),
+    jit_vtable: std.ArrayList(jit.CompiledFn),
     allocator: std.mem.Allocator,
     arena_allocator: std.heap.ArenaAllocator,
     memory: []u8,
@@ -57,7 +56,8 @@ pub const VmRuntime = struct {
             .envs = std.ArrayList(std.StringHashMap(i64)).init(allocator),
             .hot_spot_labels = std.StringHashMap(i32).init(allocator),
             .traces = null,
-            .jit_cache = JitCache.init(allocator),
+            .jit_cache_ptr = std.StringHashMap(usize).init(allocator),
+            .jit_vtable = std.ArrayList(jit.CompiledFn).init(allocator),
             .enable_jit = true,
             .allocator = allocator,
             .arena_allocator = std.heap.ArenaAllocator.init(allocator),
@@ -71,7 +71,8 @@ pub const VmRuntime = struct {
         }
         self.envs.deinit();
         self.hot_spot_labels.deinit();
-        self.jit_cache.deinit();
+        self.jit_cache_ptr.deinit();
+        self.jit_vtable.deinit();
         self.arena_allocator.deinit();
     }
 
@@ -100,6 +101,20 @@ pub const VmRuntime = struct {
         }
 
         return @intCast(b + k);
+    }
+
+    fn find_fnptr(self: *VmRuntime, label: []const u8) ?jit.CompiledFn {
+        if (self.jit_cache_ptr.get(label)) |i| {
+            return self.jit_vtable.items[i];
+        } else {
+            return null;
+        }
+    }
+
+    fn insert_fnptr(self: *VmRuntime, label: []const u8, fn_ptr: jit.CompiledFn) anyerror!void {
+        const i = self.jit_vtable.items.len;
+        try self.jit_vtable.append(fn_ptr);
+        try self.jit_cache_ptr.put(label, i);
     }
 
     pub fn step(
@@ -169,7 +184,7 @@ pub const VmRuntime = struct {
                 const target = (try VmRuntime.find_label(program, label)).?;
 
                 var result_fn_ptr: ?jit.CompiledFn = null;
-                if (self.jit_cache.get(label)) |fn_ptr| {
+                if (self.find_fnptr(label)) |fn_ptr| {
                     result_fn_ptr = fn_ptr;
                 } else if (self.enable_jit and entry.value_ptr.* > 10) {
                     // When tracing is finished
@@ -234,7 +249,7 @@ pub const VmRuntime = struct {
                             if (!quit_compiling) {
                                 try ir_block.appendSlice(fallback_block.items);
 
-                                try vmc.resolveIrLabels(ir_block.items, exit_stub);
+                                try vmc.resolveIrLabels(ir_block.items, exit_stub, self.jit_cache_ptr);
 
                                 var runtime = jit.JitRuntime.init(self.allocator);
 
@@ -253,7 +268,7 @@ pub const VmRuntime = struct {
                                     std.log.info("Tracing & compile finished {s} {d}", .{ label, ir_block.items.len });
 
                                     const f = try result;
-                                    try self.jit_cache.put(label, f);
+                                    try self.insert_fnptr(label, f);
 
                                     self.traces.?.deinit();
                                     self.traces = null;
@@ -371,7 +386,7 @@ pub const VmRuntime = struct {
                     if (entry.value_ptr.* > 10) {
                         var fn_ptr: ?jit.CompiledFn = null;
 
-                        if (self.jit_cache.get(label)) |f| {
+                        if (self.find_fnptr(label)) |f| {
                             fn_ptr = f;
                         } else {
                             const zone = P.begin(@src(), "VmRuntime.step.call.jitCompile");
@@ -394,7 +409,7 @@ pub const VmRuntime = struct {
 
                             var quit_compiling = false;
 
-                            const resolveLabelsResult = vmc.resolveIrLabels(ir_block, null);
+                            const resolveLabelsResult = vmc.resolveIrLabels(ir_block, null, self.jit_cache_ptr);
                             resolveLabelsResult catch |err| {
                                 std.log.warn("Resolve IR labels failed: {any}", .{err});
 
@@ -422,7 +437,7 @@ pub const VmRuntime = struct {
 
                                 if (!quit_compiling) {
                                     const f = try result;
-                                    try self.jit_cache.put(label, f);
+                                    try self.insert_fnptr(label, f);
 
                                     std.log.info("JIT compile finished: {s}", .{label});
 
@@ -451,6 +466,9 @@ pub const VmRuntime = struct {
                 }
 
                 self.pc = (try VmRuntime.find_label(program, label)).?;
+            },
+            .call_vtable => {
+                unreachable;
             },
             .get_local_d => |k| {
                 const value = stack.items[try get_address_on_stack(stack, bp, k)];

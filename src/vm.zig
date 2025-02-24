@@ -61,6 +61,7 @@ pub const VmCompiler = struct {
         self: *VmCompiler,
         prog: []ast.Instruction,
         exit_stub: ?std.StringHashMap(usize),
+        vtable: ?std.StringHashMap(usize),
     ) anyerror!void {
         var labels = std.StringHashMap(usize).init(self.allocator);
         defer labels.deinit();
@@ -104,12 +105,18 @@ pub const VmCompiler = struct {
                     prog[i] = ast.Instruction{ .nop = true };
                 },
                 .call => |label| {
-                    var target: usize = undefined;
                     if (labels.get(label)) |t| {
-                        target = t;
+                        prog[i] = ast.Instruction{ .call_d = t };
                     } else if (exit_stub) |es| {
                         if (es.get(label)) |fallback| {
-                            target = fallback;
+                            prog[i] = ast.Instruction{ .call_d = fallback };
+                        } else {
+                            std.log.warn("Label not found: {s}", .{label});
+                            return error.LabelNotFound;
+                        }
+                    } else if (vtable) |vt| {
+                        if (vt.get(label)) |t| {
+                            prog[i] = ast.Instruction{ .call_vtable = t };
                         } else {
                             std.log.warn("Label not found: {s}", .{label});
                             return error.LabelNotFound;
@@ -118,7 +125,6 @@ pub const VmCompiler = struct {
                         std.log.warn("Label not found: {s}", .{label});
                         return error.LabelNotFound;
                     }
-                    prog[i] = ast.Instruction{ .call_d = target };
                 },
                 else => {},
             }
