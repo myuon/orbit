@@ -67,7 +67,7 @@ pub const Parser = struct {
         if (self.is_next(keyword)) {
             _ = self.consume();
         } else {
-            std.debug.print("unexpected token: want {any} but got {any}\n", .{ keyword, self.tokens[self.position..] });
+            std.debug.print("unexpected token: want {} but got {any}\n", .{ keyword, self.tokens[self.position..] });
             return ParserError.UnexpectedToken;
         }
     }
@@ -156,7 +156,10 @@ pub const Parser = struct {
 
                             try self.expect(ast.Operator.do);
                             const body = try self.block(null);
-                            try self.expect(ast.Operator.end);
+                            self.expect(ast.Operator.end) catch |err| {
+                                std.log.err("Error: {any} (next: {any})\n    {s}:{}", .{ err, self.peek(), @src().file, @src().line });
+                                return error.UnexpectedToken;
+                            };
 
                             return ast.Decl{ .fun = .{
                                 .name = name,
@@ -566,7 +569,7 @@ pub const Parser = struct {
                 .keyword => |op| {
                     switch (op) {
                         .star => {
-                            _ = self.consume();
+                            try self.expect(ast.Operator.star);
 
                             const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
                             rhs.* = try self.expr3();
@@ -602,7 +605,7 @@ pub const Parser = struct {
         if (self.peek()) |token| {
             switch (token) {
                 .ident => |ident| {
-                    _ = self.consume();
+                    _ = try self.expect_ident();
 
                     const current = try self.ast_arena_allocator.allocator().create(ast.Expression);
                     const identExpr = ast.Expression{ .var_ = ident };
@@ -712,7 +715,7 @@ pub const Parser = struct {
         if (self.peek()) |token| {
             switch (token) {
                 .number => |n| {
-                    _ = self.consume();
+                    _ = try self.expect_number();
 
                     return ast.Expression{ .literal = ast.Literal{ .number = n } };
                 },

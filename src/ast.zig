@@ -49,6 +49,28 @@ pub const Token = union(TokenType) {
     number: u32,
     ident: []const u8,
     string: []const u8,
+
+    pub fn format(
+        self: Token,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            Token.keyword => {
+                try std.fmt.format(writer, "{any}", .{self.keyword});
+            },
+            Token.number => {
+                try std.fmt.format(writer, "{d}", .{self.number});
+            },
+            Token.ident => {
+                try std.fmt.format(writer, "{s}", .{self.ident});
+            },
+            Token.string => {
+                try std.fmt.format(writer, "{s}", .{self.string});
+            },
+        }
+    }
 };
 
 pub const StructInitializer = struct {

@@ -17,6 +17,7 @@ fn readFile(allocator: std.mem.Allocator, path: []const u8, content: *std.ArrayL
         defer allocator.free(line);
 
         try content.appendSlice(line);
+        try content.appendSlice("\n");
     }
 }
 
