@@ -118,6 +118,16 @@ pub const Lexer = struct {
             .{ .str = "{", .operator = ast.Operator.lbrace },
             .{ .str = "}", .operator = ast.Operator.rbrace },
             .{ .str = "%", .operator = ast.Operator.percent },
+        };
+
+        for (tokenTable) |token| {
+            if (utils.startsWith(self.source[self.position..], token.str)) {
+                self.position += token.str.len;
+                return ast.Token{ .keyword = token.operator };
+            }
+        }
+
+        const keywordTable = comptime [_]struct { str: []const u8, operator: ast.Operator }{
             .{ .str = "let", .operator = ast.Operator.let },
             .{ .str = "do", .operator = ast.Operator.do },
             .{ .str = "end", .operator = ast.Operator.end },
@@ -132,20 +142,26 @@ pub const Lexer = struct {
             .{ .str = "struct", .operator = ast.Operator.struct_ },
         };
 
-        for (tokenTable) |token| {
-            if (utils.startsWith(self.source[self.position..], token.str)) {
-                self.position += token.str.len;
-                return ast.Token{ .keyword = token.operator };
+        for (keywordTable) |keyword| {
+            if (utils.startsWith(self.source[self.position..], keyword.str) and
+                (self.position + keyword.str.len >= self.source.len or !isIdentChar(self.source[self.position + keyword.str.len])))
+            {
+                self.position += keyword.str.len;
+                return ast.Token{ .keyword = keyword.operator };
             }
         }
 
         return null;
     }
 
+    fn isIdentChar(ch: u8) bool {
+        return (ch >= 'a' and ch <= 'z') or (ch >= 'A' and ch <= 'Z') or ch == '_' or (ch >= '0' and ch <= '9');
+    }
+
     fn consume_ident(self: *Lexer) ?[]const u8 {
         const start = self.position;
         while (self.peek()) |ch| {
-            if ((ch < 'a' or ch > 'z') and ch != '_' and (ch < 'A' or ch > 'Z') and (ch < '0' or ch > '9')) {
+            if (!isIdentChar(ch)) {
                 break;
             }
 

@@ -47,6 +47,20 @@ pub const Compiler = struct {
     pub fn compileInIr(self: *Compiler, str: []const u8) anyerror![]ast.Instruction {
         const stdlib =
             \\let hp;
+            \\
+            \\fun allocate_memory(size) do
+            \\  let p = hp;
+            \\  hp = hp + size;
+            \\
+            \\  return p;
+            \\end
+            \\
+            // \\fun new_slice(size, len) do
+            // \\  let pair = new struct{ptr: ptr(byte), len: int} { .ptr = allocate_memory(size * len), .len = len };
+            // \\
+            // \\  return pair;
+            // \\end
+            \\
         ;
         const input = try std.fmt.allocPrint(self.arena_allocator.allocator(), "{s}\n{s}", .{ stdlib, str });
 
