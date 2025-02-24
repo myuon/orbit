@@ -305,15 +305,17 @@ pub const VmCompiler = struct {
                     .array => |array| {
                         std.debug.assert(new.initializers.len == 0);
 
-                        try buffer.append(ast.Instruction{ .push = @intCast(array.size * @as(usize, array.elem_type.size())) });
-                        try buffer.append(ast.Instruction{ .allocate_memory = true });
+                        try self.callFunction(buffer, "allocate_memory", @constCast(&[_]ast.Expression{
+                            .{ .literal = .{ .number = @intCast(array.size * @as(usize, array.elem_type.size())) } },
+                        }));
                     },
                     .map => |map| {
                         std.debug.assert(new.initializers.len == 0);
 
                         // TODO: growable capacity
-                        try buffer.append(ast.Instruction{ .push = @intCast(128 * @as(usize, map.value_type.size())) });
-                        try buffer.append(ast.Instruction{ .allocate_memory = true });
+                        try self.callFunction(buffer, "allocate_memory", @constCast(&[_]ast.Expression{
+                            .{ .literal = .{ .number = @intCast(128 * @as(usize, map.value_type.size())) } },
+                        }));
                     },
                     .vec => |vec| {
                         std.debug.assert(new.initializers.len == 0);
@@ -323,9 +325,10 @@ pub const VmCompiler = struct {
                     .struct_ => |struct_| {
                         std.debug.assert(new.initializers.len == struct_.fields.len);
 
-                        // aligned to 64 bits
-                        try buffer.append(ast.Instruction{ .push = @intCast(struct_.fields.len * 8) });
-                        try buffer.append(ast.Instruction{ .allocate_memory = true });
+                        // TODO: calculate the size of each field
+                        try self.callFunction(buffer, "allocate_memory", @constCast(&[_]ast.Expression{
+                            .{ .literal = .{ .number = @intCast(struct_.fields.len * 8) } },
+                        }));
 
                         var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, struct_.fields.len);
                         for (new.initializers) |sinit| {
