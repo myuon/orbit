@@ -378,25 +378,34 @@ pub const VmRuntime = struct {
                             var vmc = vm.VmCompiler.init(self.allocator);
                             defer vmc.deinit();
 
-                            try vmc.resolveIrLabels(ir_block, null);
-
-                            var params = std.ArrayList([]const u8).init(self.allocator);
-                            defer params.deinit();
-
-                            var runtime = jit.JitRuntime.init(self.allocator);
-                            const result = runtime.compile(ir_block, false);
-
                             var quit_compiling = false;
-                            _ = result catch |err| {
-                                std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
+
+                            const resolveLabelsResult = vmc.resolveIrLabels(ir_block, null);
+                            resolveLabelsResult catch {
+                                // std.log.warn("Resolve IR labels failed: {any}", .{err});
                                 quit_compiling = true;
                             };
 
                             if (!quit_compiling) {
-                                const f = try result;
-                                try self.jit_cache.put(label, f);
+                                _ = try resolveLabelsResult;
 
-                                fn_ptr = f;
+                                var params = std.ArrayList([]const u8).init(self.allocator);
+                                defer params.deinit();
+
+                                var runtime = jit.JitRuntime.init(self.allocator);
+                                const result = runtime.compile(ir_block, false);
+
+                                _ = result catch |err| {
+                                    std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
+                                    quit_compiling = true;
+                                };
+
+                                if (!quit_compiling) {
+                                    const f = try result;
+                                    try self.jit_cache.put(label, f);
+
+                                    fn_ptr = f;
+                                }
                             }
                         }
 

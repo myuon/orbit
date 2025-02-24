@@ -107,8 +107,13 @@ pub const VmCompiler = struct {
                     var target: usize = undefined;
                     if (labels.get(label)) |t| {
                         target = t;
-                    } else if (exit_stub.?.get(label)) |fallback| {
-                        target = fallback;
+                    } else if (exit_stub) |es| {
+                        if (es.get(label)) |fallback| {
+                            target = fallback;
+                        } else {
+                            std.log.err("Label not found: {s}", .{label});
+                            return error.LabelNotFound;
+                        }
                     } else {
                         std.log.err("Label not found: {s}", .{label});
                         return error.LabelNotFound;
@@ -567,6 +572,10 @@ pub const VmCompiler = struct {
             .push => |push| {
                 switch (push.type_) {
                     .vec => {
+                        // try self.callFunction(buffer, "push_vec_int", @constCast(&[_]ast.Expression{
+                        //     push.lhs,
+                        //     push.rhs,
+                        // }));
                         try self.compileExprFromAst(buffer, push.lhs);
                         try self.compileExprFromAst(buffer, push.rhs);
                         try buffer.append(ast.Instruction{ .vec_push = true });

@@ -71,7 +71,7 @@ pub const Compiler = struct {
             \\  return ptr[index];
             \\end
             \\
-            \\fun new_vec(size: int, capacity: int) do
+            \\fun new_vec(size: int, capacity: int): struct{ptr: ptr(byte), len: int, capacity: int} do
             \\  let vec = new struct{ptr: ptr(byte), len: int, capacity: int} { .ptr = allocate_memory(size * capacity), .len = 0, .capacity = capacity };
             \\  return vec;
             \\end
@@ -80,9 +80,30 @@ pub const Compiler = struct {
             \\  let ptr = data.ptr;
             \\  return ptr[index];
             \\end
+            \\
             \\fun set_vec_int(data: struct{ptr: ptr(int), len: int, capacity: int}, index: int, value: int) do
             \\  let ptr = data.ptr;
             \\  ptr[index] = value;
+            \\  return 0;
+            \\end
+            \\
+            \\fun push_vec_int(data: struct{ptr: ptr(int), len: int, capacity: int}, value: int) do
+            \\  if (data.len + 1 < data.capacity) do
+            \\    let ptr = data.ptr;
+            \\    ptr[data.len] = value;
+            \\    data.len = data.len + 1;
+            \\  else
+            \\    let new_data_byte = new_vec(4, data.capacity * 2);
+            \\    let new_data = new_data_byte as struct{ptr: ptr(int), len: int, capacity: int};
+            \\    let i = 0;
+            \\    while (i < data.len) do
+            \\      set_vec_int(new_data, i, get_vec_int(data, i));
+            \\      i = i + 1;
+            \\    end
+            \\
+            \\    push_vec_int(new_data, value);
+            \\  end
+            \\
             \\  return 0;
             \\end
         ;

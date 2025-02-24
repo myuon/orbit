@@ -125,15 +125,18 @@ pub const Typechecker = struct {
                     },
                 }
             },
-            .struct_ => {
+            .struct_ => |expect_data| {
                 switch (actual) {
-                    .struct_ => {
-                        if (expect.struct_.fields.len != actual.struct_.fields.len) {
-                            std.log.err("Expected struct with {any} fields, got {any}\n", .{ expect.struct_.fields.len, actual.struct_.fields.len });
+                    .struct_ => |actual_data| {
+                        if (expect_data.fields.len != actual_data.fields.len) {
+                            std.log.err("Expected struct with {any} fields, got {any}\n", .{ expect_data.fields.len, actual_data.fields.len });
                             return TypecheckerError.UnexpectedType;
                         }
-                        for (expect.struct_.fields, 0..) |field, i| {
-                            _ = try assertType(field.type_, actual.struct_.fields[i].type_);
+                        for (expect_data.fields, 0..) |field, i| {
+                            _ = assertType(field.type_, actual_data.fields[i].type_) catch |err| {
+                                std.log.err("Error in field {s}: {}\n   {s}:{}", .{ field.name, err, @src().file, @src().line });
+                                return err;
+                            };
                         }
                     },
                     else => {
@@ -224,7 +227,10 @@ pub const Typechecker = struct {
 
                         for (fun.params, 0..) |param, i| {
                             const arg = try self.typecheckExpr(&call.args[i]);
-                            _ = try assertType(param, arg);
+                            _ = assertType(param, arg) catch |err| {
+                                std.log.err("Error in argument {any} ({any}, {any}): {}\n   {s}:{}", .{ call.args[i], param, arg, err, @src().file, @src().line });
+                                return err;
+                            };
                         }
 
                         return fun.return_type.*;
@@ -297,21 +303,21 @@ pub const Typechecker = struct {
                 return field_type;
             },
             .as => |as| {
-                var lhs = as.lhs.*;
-                const lhs_type = try self.typecheckExpr(&lhs);
-                switch (as.rhs) {
-                    .ptr => {
-                        switch (lhs_type) {
-                            .int => {},
-                            else => {
-                                unreachable;
-                            },
-                        }
-                    },
-                    else => {
-                        unreachable;
-                    },
-                }
+                // var lhs = as.lhs.*;
+                // const lhs_type = try self.typecheckExpr(&lhs);
+                // switch (as.rhs) {
+                //     .ptr => {
+                //         switch (lhs_type) {
+                //             .int => {},
+                //             else => {
+                //                 unreachable;
+                //             },
+                //         }
+                //     },
+                //     else => {
+                //         unreachable;
+                //     },
+                // }
 
                 return as.rhs;
             },
@@ -323,7 +329,10 @@ pub const Typechecker = struct {
             .let => |let| {
                 var value = let.value;
 
-                const t = try self.typecheckExpr(&value);
+                const t = self.typecheckExpr(&value) catch |err| {
+                    std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ value, err, @src().file, @src().line });
+                    return err;
+                };
                 try self.env.put(let.name, t);
 
                 stmt.let.value = value;
@@ -338,7 +347,10 @@ pub const Typechecker = struct {
             },
             .expr => |expr| {
                 var e = expr;
-                _ = try self.typecheckExpr(&e);
+                _ = self.typecheckExpr(&e) catch |err| {
+                    std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ e, err, @src().file, @src().line });
+                    return err;
+                };
             },
             .if_ => |if_| {
                 const cond_type = try self.typecheckExpr(if_.cond);
@@ -393,7 +405,10 @@ pub const Typechecker = struct {
     fn typecheckBlock(self: *Typechecker, block: *ast.Block) anyerror!void {
         for (block.statements, 0..) |stmt, i| {
             var s = stmt;
-            try self.typecheckStatement(&s);
+            self.typecheckStatement(&s) catch |err| {
+                std.log.err("Error in statement {any}: {}\n   {s}:{}", .{ s, err, @src().file, @src().line });
+                return err;
+            };
 
             block.statements[i] = s;
         }
@@ -419,7 +434,7 @@ pub const Typechecker = struct {
                         }
 
                         try self.env.put(param.name, t);
-                        try params.append(ast.Type{ .int = true });
+                        try params.append(t);
                     }
 
                     self.return_type = fun.result_type;
@@ -438,7 +453,10 @@ pub const Typechecker = struct {
 
                     var body = fun.body;
 
-                    try self.typecheckBlock(&body);
+                    self.typecheckBlock(&body) catch |err| {
+                        std.log.err("Error in function {s}: {}\n   {s}:{}", .{ fun.name, err, @src().file, @src().line });
+                        return err;
+                    };
 
                     return_type.* = self.return_type.?;
 
