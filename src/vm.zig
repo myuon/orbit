@@ -259,14 +259,30 @@ pub const VmCompiler = struct {
                     },
                     .slice => |slice| {
                         const valueType = slice.elem_type.*;
-
-                        try self.compileExprFromAst(buffer, index.lhs.*);
-                        try buffer.append(ast.Instruction{ .load = 8 });
-                        try self.compileExprFromAst(buffer, index.rhs.*);
-                        try buffer.append(ast.Instruction{ .push = valueType.size() });
-                        try buffer.append(ast.Instruction{ .mul = true });
-                        try buffer.append(ast.Instruction{ .add = true });
-                        try buffer.append(ast.Instruction{ .load = valueType.size() });
+                        switch (valueType) {
+                            .int => {
+                                try self.callFunction(buffer, "get_slice_int", @constCast(&[_]ast.Expression{
+                                    index.lhs.*,
+                                    index.rhs.*,
+                                }));
+                            },
+                            .byte => {
+                                try self.callFunction(buffer, "get_slice_byte", @constCast(&[_]ast.Expression{
+                                    index.lhs.*,
+                                    index.rhs.*,
+                                }));
+                            },
+                            else => {
+                                // Deprecated:
+                                try self.compileExprFromAst(buffer, index.lhs.*);
+                                try buffer.append(ast.Instruction{ .load = 8 });
+                                try self.compileExprFromAst(buffer, index.rhs.*);
+                                try buffer.append(ast.Instruction{ .push = valueType.size() });
+                                try buffer.append(ast.Instruction{ .mul = true });
+                                try buffer.append(ast.Instruction{ .add = true });
+                                try buffer.append(ast.Instruction{ .load = valueType.size() });
+                            },
+                        }
                     },
                     .vec => {
                         try self.compileExprFromAst(buffer, index.lhs.*);
@@ -376,13 +392,6 @@ pub const VmCompiler = struct {
                         try buffer.append(ast.Instruction{ .add = true });
                     },
                     .array => {
-                        try self.compileExprFromAst(buffer, index.lhs.*);
-                        try self.compileExprFromAst(buffer, index.rhs.*);
-                        try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
-                        try buffer.append(ast.Instruction{ .mul = true });
-                        try buffer.append(ast.Instruction{ .add = true });
-                    },
-                    .slice => {
                         try self.compileExprFromAst(buffer, index.lhs.*);
                         try self.compileExprFromAst(buffer, index.rhs.*);
                         try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
@@ -673,8 +682,7 @@ pub const VmCompiler = struct {
         var global_offset: usize = 0;
 
         var iter = self.global_data.keyIterator();
-        while (iter.next()) |k| {
-            std.log.info("global: {s}\n", .{k.*});
+        while (iter.next()) |_| {
             global_offset += 8;
         }
 

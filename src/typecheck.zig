@@ -325,6 +325,8 @@ pub const Typechecker = struct {
 
                 const t = try self.typecheckExpr(&value);
                 try self.env.put(let.name, t);
+
+                stmt.let.value = value;
             },
             .return_ => |ret| {
                 var e = ret;

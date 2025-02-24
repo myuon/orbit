@@ -61,6 +61,15 @@ pub const Compiler = struct {
             \\  return pair;
             \\end
             \\
+            \\fun get_slice_int(data: struct{ptr: ptr(int), len: int}, index: int): int do
+            \\  let ptr = data.ptr;
+            \\  return ptr[index];
+            \\end
+            \\
+            \\fun get_slice_byte(data: struct{ptr: ptr(byte), len: int}, index: int): byte do
+            \\  let ptr = data.ptr;
+            \\  return ptr[index];
+            \\end
         ;
         const input = try std.fmt.allocPrint(self.arena_allocator.allocator(), "{s}\n{s}", .{ stdlib, str });
 

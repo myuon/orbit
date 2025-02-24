@@ -311,6 +311,7 @@ pub const Parser = struct {
                             } };
                         },
                         else => {
+                            std.log.err("unexpected token: want statement but got {any}\n", .{self.tokens[self.position..]});
                             unreachable;
                         },
                     }
