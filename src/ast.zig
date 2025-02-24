@@ -403,7 +403,6 @@ pub const InstructionType = enum {
     set_cip,
     table_set,
     table_get,
-    vec_push,
 };
 
 pub const Instruction = union(InstructionType) {
@@ -458,7 +457,6 @@ pub const Instruction = union(InstructionType) {
     set_cip: usize, // For tracing JIT
     table_set: bool, // For hashmap
     table_get: bool, // For hashmap
-    vec_push: bool, // For vector
 
     pub fn format(
         self: Instruction,
@@ -585,9 +583,6 @@ pub const Instruction = union(InstructionType) {
             },
             Instruction.table_get => {
                 try std.fmt.format(writer, "table_get", .{});
-            },
-            Instruction.vec_push => {
-                try std.fmt.format(writer, "vec_push", .{});
             },
         }
     }

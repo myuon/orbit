@@ -597,36 +597,6 @@ pub const VmRuntime = struct {
                 try stack.append(data.entry.?.value.i64_);
                 self.pc += 1;
             },
-            .vec_push => {
-                const value = stack.pop();
-                const vec = stack.pop();
-
-                const vecData = try self.loadVecData(vec);
-                if (vecData.len + 1 < vecData.capacity) {
-                    self.storeMemory(8, vecData.array_ptr + vecData.len * 8, value);
-                    self.storeMemory(8, @intCast(vec + 8), @intCast(vecData.len + 1));
-                } else {
-                    try self.allocateVec(stack, 8, vecData.capacity * 2);
-
-                    const array_ptr = stack.pop();
-                    self.storeMemory(8, @intCast(vec), @intCast(array_ptr));
-                    self.storeMemory(8, @intCast(vec + 8), @intCast(vecData.len + 1));
-                    self.storeMemory(8, @intCast(vec + 16), @intCast(vecData.capacity * 2));
-
-                    for (0..vecData.len) |i| {
-                        self.storeMemory(8, vecData.array_ptr + i * 8, self.loadMemory(8, vec + @as(i64, @intCast(i)) * 8));
-                    }
-                    self.storeMemory(8, vecData.array_ptr + vecData.len * 8, value);
-
-                    const newVecData = try self.loadVecData(vec);
-                    std.log.info("{any} -> {any}", .{ vecData, newVecData });
-                    std.debug.assert(newVecData.array_ptr == array_ptr);
-                    std.debug.assert(newVecData.len == vecData.len + 1);
-                    std.debug.assert(newVecData.capacity == vecData.capacity * 2);
-                }
-
-                self.pc += 1;
-            },
         }
 
         return ControlFlow.Continue;
@@ -745,37 +715,6 @@ pub const VmRuntime = struct {
         }
 
         return buffer.items;
-    }
-
-    fn allocateVec(self: *VmRuntime, stack: *std.ArrayList(i64), size: u4, capacity: usize) anyerror!void {
-        try self.allocateMemory(stack, 8 * 3);
-        const entry_ptr = stack.pop();
-
-        try self.allocateMemory(stack, @as(usize, size) * capacity);
-        const array_ptr = stack.pop();
-
-        self.storeMemory(8, @intCast(entry_ptr), array_ptr);
-        self.storeMemory(8, @intCast(entry_ptr + 8), 0);
-        self.storeMemory(8, @intCast(entry_ptr + 16), @intCast(capacity));
-
-        try stack.append(entry_ptr);
-
-        const vecData = try self.loadVecData(entry_ptr);
-        std.debug.assert(vecData.array_ptr == array_ptr);
-        std.debug.assert(vecData.len == 0);
-        std.debug.assert(vecData.capacity == capacity);
-    }
-
-    fn loadVecData(self: *VmRuntime, address: i64) anyerror!VecData {
-        const array_ptr = self.loadMemory(8, @intCast(address));
-        const len = self.loadMemory(8, @intCast(address + 8));
-        const capacity = self.loadMemory(8, @intCast(address + 16));
-
-        return VecData{
-            .array_ptr = @intCast(array_ptr),
-            .len = @intCast(len),
-            .capacity = @intCast(capacity),
-        };
     }
 
     pub fn run(
