@@ -570,7 +570,7 @@ test "compiler.evalModule" {
             std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, c.evalModule(case.program) catch |err| {
                 std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
             }) catch |err| {
-                std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
+                std.debug.panic("Unexpected error: {any}\n--enable_jit:{}\n==INPUT==\n{s}\n", .{ err, flag, case.program });
             };
         }
     }

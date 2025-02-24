@@ -233,7 +233,7 @@ pub const VmRuntime = struct {
                                     .call => |name| {
                                         std.log.warn("JIT compile error, fallback to VM execution: call the non-cached function: {s}", .{name});
 
-                                        try self.hot_spot_labels.put(label, -100);
+                                        try self.hot_spot_labels.put(label, -300);
 
                                         quit_compiling = true;
                                         self.traces.?.deinit();
@@ -255,7 +255,7 @@ pub const VmRuntime = struct {
                                 _ = result catch |err| {
                                     std.log.warn("JIT compile error, fallback to VM execution: {any}", .{err});
 
-                                    try self.hot_spot_labels.put(label, -1);
+                                    try self.hot_spot_labels.put(label, -300);
 
                                     quit_compiling = true;
                                     self.traces.?.deinit();
@@ -433,7 +433,7 @@ pub const VmRuntime = struct {
                                 _ = result catch |err| {
                                     std.debug.print("JIT compile error, fallback to VM execution: {s} {any}\n", .{ label, err });
 
-                                    try self.hot_spot_labels.put(label, -1);
+                                    try self.hot_spot_labels.put(label, -300);
 
                                     quit_compiling = true;
                                 };

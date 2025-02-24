@@ -940,6 +940,7 @@ test {
         var c_sp: i64 = 0;
         var c_stack = [_]i64{0} ** 1024;
         var c_memory = [_]u8{0} ** 1024;
+        const c_vtable = std.ArrayList(CompiledFn).init(std.testing.allocator);
 
         if (c.initial_stack.len > 0) {
             for (c.initial_stack, 0..) |v, i| {
@@ -955,7 +956,14 @@ test {
         var runtime = JitRuntime.init(std.testing.allocator);
         const fn_ptr = try runtime.compile(c.prog, false);
         var ip: i64 = 0;
-        fn_ptr(@constCast((&c_stack).ptr), @constCast(&c_sp), @constCast(&c_bp), @constCast(&ip), @constCast((&c_memory).ptr));
+        fn_ptr(
+            @constCast((&c_stack).ptr),
+            @constCast(&c_sp),
+            @constCast(&c_bp),
+            @constCast(&ip),
+            @constCast((&c_memory).ptr),
+            @ptrCast(c_vtable.items.ptr),
+        );
 
         std.testing.expectEqualSlices(i64, c.expected, c_stack[0..@min(@as(usize, @intCast(c_sp)), c_stack.len)]) catch |err| {
             std.debug.panic("prog: {any}, error: {any}\n", .{ c.prog, err });
