@@ -21,6 +21,7 @@ pub const CompilerError = error{
 pub const Compiler = struct {
     jit_cache: std.StringHashMap(jit.CompiledFn),
     allocator: std.mem.Allocator,
+    arena_allocator: std.heap.ArenaAllocator,
     vmc: vm.VmCompiler,
     enable_jit: bool,
     dump_ir_path: ?[]const u8 = null,
@@ -30,6 +31,7 @@ pub const Compiler = struct {
         return Compiler{
             .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
             .allocator = allocator,
+            .arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .vmc = vm.VmCompiler.init(allocator),
             .enable_jit = true,
             .enable_optimize_ir = true,
@@ -39,13 +41,19 @@ pub const Compiler = struct {
     pub fn deinit(self: *Compiler) void {
         self.jit_cache.deinit();
         self.vmc.deinit();
+        self.arena_allocator.deinit();
     }
 
     pub fn compileInIr(self: *Compiler, str: []const u8) anyerror![]ast.Instruction {
+        const stdlib =
+            \\let hp = 1234;
+        ;
+        const input = try std.fmt.allocPrint(self.arena_allocator.allocator(), "{s}\n{s}", .{ stdlib, str });
+
         const zone = P.begin(@src(), "Compiler.compileInIr");
         defer zone.end();
 
-        var l = lexer.Lexer.init(self.allocator, str);
+        var l = lexer.Lexer.init(self.allocator, input);
         defer l.deinit();
 
         const tokens = try l.run();
@@ -100,13 +108,7 @@ pub const Compiler = struct {
         const zone = P.begin(@src(), "Compiler.evalModule");
         defer zone.end();
 
-        const stdlib =
-            \\
-        ;
-        const input = try std.fmt.allocPrint(self.allocator, "{s}\n{s}", .{ stdlib, str });
-        defer self.allocator.free(input);
-
-        const ir = try self.compileInIr(input);
+        const ir = try self.compileInIr(str);
         if (self.dump_ir_path) |path| {
             const file = try std.fs.cwd().createFile(path, .{});
             defer file.close();

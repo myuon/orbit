@@ -148,9 +148,8 @@ pub const VmCompiler = struct {
             .var_ => |v| {
                 if (self.env.get(v)) |k| {
                     try buffer.append(ast.Instruction{ .get_local_d = k });
-                } else if (self.global_data.get(v)) |k| {
-                    // FIXME: global positioning
-                    try buffer.append(ast.Instruction{ .push = @intCast(k * 8) });
+                } else if (self.global_data.contains(v)) {
+                    try self.compileLhsExprFromAst(buffer, expr);
                     try buffer.append(ast.Instruction{ .load = 8 });
                 } else {
                     std.log.err("Variable not found: {s}\n", .{v});
@@ -372,8 +371,10 @@ pub const VmCompiler = struct {
                 if (self.env.get(name)) |k| {
                     try buffer.append(ast.Instruction{ .set_local_d = k });
                 } else if (self.global_data.get(name)) |k| {
-                    // FIXME: global positioning
+                    try buffer.append(ast.Instruction{ .push = global_section_ptr });
+                    try buffer.append(ast.Instruction{ .load = 8 });
                     try buffer.append(ast.Instruction{ .push = @intCast(k * 8) });
+                    try buffer.append(ast.Instruction{ .add = true });
                 } else {
                     std.log.err("Variable not found: {s}\n", .{name});
                     return error.VariableNotFound;
@@ -503,8 +504,8 @@ pub const VmCompiler = struct {
                         if (self.env.get(name)) |k| {
                             try self.compileExprFromAst(buffer, assign.rhs);
                             try buffer.append(ast.Instruction{ .set_local_d = k });
-                        } else if (self.global_data.get(name)) |k| {
-                            try buffer.append(ast.Instruction{ .push = @intCast(k * 8) });
+                        } else if (self.global_data.contains(name)) {
+                            try self.compileLhsExprFromAst(buffer, assign.lhs);
                             try self.compileExprFromAst(buffer, assign.rhs);
                             try buffer.append(ast.Instruction{ .store = 8 });
                         } else {
@@ -684,10 +685,8 @@ pub const VmCompiler = struct {
         var global_offset: usize = 0;
 
         var iter = self.global_data.keyIterator();
-        while (iter.next()) |k| {
-            const offset = self.global_data.get(k.*).?;
-
-            global_offset = @as(usize, @intCast(offset)) + 8;
+        while (iter.next()) |_| {
+            global_offset += 8;
         }
 
         for (self.initialized_statements.items) |stmt| {
