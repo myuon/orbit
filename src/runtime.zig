@@ -175,9 +175,7 @@ pub const VmRuntime = struct {
                 defer zone.end();
 
                 const entry = try self.hot_spot_labels.getOrPutValue(label, 0);
-                if (entry.value_ptr.* >= 0) {
-                    entry.value_ptr.* += 1;
-                }
+                entry.value_ptr.* += 1;
 
                 const pc = self.pc;
 
@@ -235,7 +233,7 @@ pub const VmRuntime = struct {
                                     .call => |name| {
                                         std.log.warn("JIT compile error, fallback to VM execution: call the non-cached function: {s}", .{name});
 
-                                        try self.hot_spot_labels.put(label, -1);
+                                        try self.hot_spot_labels.put(label, -100);
 
                                         quit_compiling = true;
                                         self.traces.?.deinit();
@@ -386,9 +384,7 @@ pub const VmRuntime = struct {
             .call => |label| {
                 const entry = try self.hot_spot_labels.getOrPut(label);
                 if (self.enable_jit and entry.found_existing) {
-                    if (entry.value_ptr.* >= 0) {
-                        entry.value_ptr.* += 1;
-                    }
+                    entry.value_ptr.* += 1;
 
                     if (entry.value_ptr.* > 10) {
                         var fn_ptr: ?jit.CompiledFn = null;
@@ -420,7 +416,7 @@ pub const VmRuntime = struct {
                             resolveLabelsResult catch |err| {
                                 std.log.warn("Resolve IR labels failed: {any}", .{err});
 
-                                try self.hot_spot_labels.put(label, -1);
+                                try self.hot_spot_labels.put(label, -100);
 
                                 quit_compiling = true;
                             };
