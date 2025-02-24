@@ -70,6 +70,12 @@ pub const Compiler = struct {
             \\  let ptr = data.ptr;
             \\  return ptr[index];
             \\end
+            \\
+            \\fun new_vec(size: int, capacity: int) do
+            \\  let vec = new struct{ptr: ptr(byte), len: int, capacity: int} { .ptr = allocate_memory(size * capacity), .len = 0, .capacity = capacity };
+            \\  return vec;
+            \\end
+            \\
         ;
         const input = try std.fmt.allocPrint(self.arena_allocator.allocator(), "{s}\n{s}", .{ stdlib, str });
 

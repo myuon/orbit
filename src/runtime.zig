@@ -579,12 +579,6 @@ pub const VmRuntime = struct {
                 try stack.append(data.entry.?.value.i64_);
                 self.pc += 1;
             },
-            .allocate_vec => |size| {
-                std.debug.assert(size == 8);
-                try self.allocateVec(stack, size, 128);
-
-                self.pc += 1;
-            },
             .vec_get => {
                 const index = stack.pop();
                 const vec = stack.pop();

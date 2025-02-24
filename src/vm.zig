@@ -320,7 +320,10 @@ pub const VmCompiler = struct {
                     .vec => |vec| {
                         std.debug.assert(new.initializers.len == 0);
 
-                        try buffer.append(ast.Instruction{ .allocate_vec = vec.elem_type.size() });
+                        try self.callFunction(buffer, "new_vec", @constCast(&[_]ast.Expression{
+                            .{ .literal = .{ .number = @intCast(vec.elem_type.size()) } },
+                            .{ .literal = .{ .number = @intCast(128) } },
+                        }));
                     },
                     .struct_ => |struct_| {
                         std.debug.assert(new.initializers.len == struct_.fields.len);
