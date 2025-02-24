@@ -296,6 +296,25 @@ pub const Typechecker = struct {
 
                 return field_type;
             },
+            .as => |as| {
+                var lhs = as.lhs.*;
+                const lhs_type = try self.typecheckExpr(&lhs);
+                switch (as.rhs) {
+                    .ptr => {
+                        switch (lhs_type) {
+                            .int => {},
+                            else => {
+                                unreachable;
+                            },
+                        }
+                    },
+                    else => {
+                        unreachable;
+                    },
+                }
+
+                return as.rhs;
+            },
         }
     }
 

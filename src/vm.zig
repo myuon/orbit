@@ -362,6 +362,9 @@ pub const VmCompiler = struct {
                 const valueType = try project.struct_.getFieldType(project.rhs);
                 try buffer.append(ast.Instruction{ .load = valueType.size() });
             },
+            .as => |as| {
+                try self.compileExprFromAst(buffer, as.lhs.*);
+            },
         }
     }
 

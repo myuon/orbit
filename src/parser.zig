@@ -659,6 +659,18 @@ pub const Parser = struct {
                             .lhs = lhs,
                             .rhs = rhs,
                         } };
+                    } else if (self.is_next(ast.Operator.as)) {
+                        try self.expect(ast.Operator.as);
+
+                        const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                        lhs.* = identExpr;
+
+                        const rhs = try self.type_();
+
+                        current.* = ast.Expression{ .as = .{
+                            .lhs = lhs,
+                            .rhs = rhs,
+                        } };
                     } else {
                         current.* = identExpr;
                     }

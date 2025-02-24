@@ -52,7 +52,7 @@ pub const Compiler = struct {
             \\  let p = hp;
             \\  hp = hp + size;
             \\
-            \\  return p;
+            \\  return p as ptr(int);
             \\end
             \\
             // \\fun new_slice(size, len) do

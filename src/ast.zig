@@ -34,6 +34,7 @@ pub const Operator = enum {
     false_,
     new,
     struct_,
+    as,
 };
 
 pub const TokenType = enum {
@@ -65,6 +66,7 @@ pub const ExpressionType = enum {
     index,
     new,
     project,
+    as,
 };
 
 pub const Expression = union(ExpressionType) {
@@ -98,6 +100,10 @@ pub const Expression = union(ExpressionType) {
         struct_: StructData,
         lhs: *Expression,
         rhs: []const u8,
+    },
+    as: struct {
+        lhs: *Expression,
+        rhs: Type,
     },
 };
 
