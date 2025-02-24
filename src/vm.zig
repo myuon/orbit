@@ -284,10 +284,18 @@ pub const VmCompiler = struct {
                             },
                         }
                     },
-                    .vec => {
-                        try self.compileExprFromAst(buffer, index.lhs.*);
-                        try self.compileExprFromAst(buffer, index.rhs.*);
-                        try buffer.append(ast.Instruction{ .vec_get = true });
+                    .vec => |vec| {
+                        switch (vec.elem_type.*) {
+                            .int => {
+                                try self.callFunction(buffer, "get_vec_int", @constCast(&[_]ast.Expression{
+                                    index.lhs.*,
+                                    index.rhs.*,
+                                }));
+                            },
+                            else => {
+                                unreachable;
+                            },
+                        }
                     },
                     .map => {
                         try self.compileExprFromAst(buffer, index.lhs.*);
@@ -403,10 +411,6 @@ pub const VmCompiler = struct {
                         try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
                         try buffer.append(ast.Instruction{ .mul = true });
                         try buffer.append(ast.Instruction{ .add = true });
-                    },
-                    .vec => {
-                        try self.compileExprFromAst(buffer, index.lhs.*);
-                        try buffer.append(ast.Instruction{ .vec_get = true });
                     },
                     else => {
                         std.log.err("Invalid index type: {any}\n", .{index.type_});

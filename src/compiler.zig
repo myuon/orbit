@@ -76,6 +76,10 @@ pub const Compiler = struct {
             \\  return vec;
             \\end
             \\
+            \\fun get_vec_int(data: struct{ptr: ptr(int), len: int, capacity: int}, index: int) do
+            \\  let ptr = data.ptr;
+            \\  return ptr[index];
+            \\end
         ;
         const input = try std.fmt.allocPrint(self.arena_allocator.allocator(), "{s}\n{s}", .{ stdlib, str });
 

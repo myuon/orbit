@@ -579,16 +579,6 @@ pub const VmRuntime = struct {
                 try stack.append(data.entry.?.value.i64_);
                 self.pc += 1;
             },
-            .vec_get => {
-                const index = stack.pop();
-                const vec = stack.pop();
-
-                const vecData = try self.loadVecData(vec);
-                const value = self.loadMemory(8, @as(i64, @intCast(vecData.array_ptr)) + index * 8);
-                try stack.append(value);
-
-                self.pc += 1;
-            },
             .vec_set => {
                 const value = stack.pop();
                 const index = stack.pop();
