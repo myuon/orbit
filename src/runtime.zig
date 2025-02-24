@@ -639,7 +639,7 @@ pub const VmRuntime = struct {
         return ControlFlow.Continue;
     }
 
-    fn loadMemory(self: *VmRuntime, size: u4, addr: i64) i64 {
+    pub fn loadMemory(self: *VmRuntime, size: u4, addr: i64) i64 {
         var n: i64 = 0;
         n |= @as(i64, @intCast(self.memory[@intCast(addr)]));
         if (size >= 2) {
@@ -668,10 +668,8 @@ pub const VmRuntime = struct {
     }
 
     fn allocateMemory(self: *VmRuntime, stack: *std.ArrayList(i64), size: usize) anyerror!void {
-        const heap_section_ptr: i64 = 24;
-
-        const hp = self.loadMemory(8, heap_section_ptr);
-        self.storeMemory(8, heap_section_ptr, hp + @as(i64, @intCast(size)));
+        const hp = self.loadMemory(8, vm.heap_section_ptr);
+        self.storeMemory(8, vm.heap_section_ptr, hp + @as(i64, @intCast(size)));
 
         try stack.append(@intCast(hp));
     }

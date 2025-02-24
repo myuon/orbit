@@ -239,13 +239,20 @@ pub fn main() !void {
             var next = std.ArrayList(u8).init(draw_allocator);
             try std.json.stringify(prog[vmr.pc], .{}, next.writer());
 
-            var adm = std.ArrayList(u8).init(draw_allocator);
-            defer adm.deinit();
-
             const s = try writeStack(draw_allocator, stack.items, bp);
 
             var memory = std.ArrayList(u8).init(draw_allocator);
             defer memory.deinit();
+
+            try memory.appendSlice("section:meta [0-24]\n");
+            const dsp = vmr.loadMemory(8, vm.data_section_ptr);
+            try std.fmt.format(memory.writer(), "  data_section_ptr: {x:0>2}\n", .{dsp});
+            const gsp = vmr.loadMemory(8, vm.global_section_ptr);
+            try std.fmt.format(memory.writer(), "  global_section_ptr: {x:0>2}\n", .{gsp});
+            const hsp = vmr.loadMemory(8, vm.heap_section_ptr);
+            try std.fmt.format(memory.writer(), "  heap_section_ptr: {x:0>2}\n", .{hsp});
+
+            try memory.appendSlice("memory:\n");
 
             for (vmr.memory, 0..) |v, i| {
                 const p = try std.fmt.allocPrint(draw_allocator, "{x:0>2} ", .{v});
@@ -265,9 +272,8 @@ pub fn main() !void {
 
             const k = try std.fmt.allocPrint(draw_allocator,
                 \\pc: {d}, bp: {d}, next: {s}
-                \\address_map: {s}
                 \\stack: {s}
-            , .{ vmr.pc, bp, next.items, adm.items, s });
+            , .{ vmr.pc, bp, next.items, s });
 
             try dbg.set_text("stack", k);
             try dbg.set_text("memory", memory.items);

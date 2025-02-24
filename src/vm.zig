@@ -4,6 +4,10 @@ const ast = @import("ast.zig");
 const jit = @import("jit.zig");
 const P = @import("profiler");
 
+pub const data_section_ptr: i64 = 8;
+pub const global_section_ptr: i64 = 16;
+pub const heap_section_ptr: i64 = 24;
+
 pub const VmError = error{
     VariableNotFound,
     LabelNotFound,
@@ -22,9 +26,6 @@ pub const VmCompiler = struct {
     global_data: std.StringHashMap(i32),
     global_data_offset: usize,
     initialized_statements: std.ArrayList(ast.Statement),
-    data_section_ptr: i64,
-    global_section_ptr: i64,
-    heap_section_ptr: i64,
 
     pub fn init(allocator: std.mem.Allocator) VmCompiler {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -44,9 +45,6 @@ pub const VmCompiler = struct {
             .global_data = std.StringHashMap(i32).init(allocator),
             .global_data_offset = 8, // avoid nullptr
             .initialized_statements = std.ArrayList(ast.Statement).init(allocator),
-            .data_section_ptr = -1,
-            .global_section_ptr = -1,
-            .heap_section_ptr = -1,
         };
     }
 
@@ -182,7 +180,7 @@ pub const VmCompiler = struct {
                             address = @intCast(i);
                         }
 
-                        try buffer.append(ast.Instruction{ .push = @intCast(self.data_section_ptr) });
+                        try buffer.append(ast.Instruction{ .push = @intCast(data_section_ptr) });
                         try buffer.append(ast.Instruction{ .load = 8 });
                         try buffer.append(ast.Instruction{ .push = address });
                         try buffer.append(ast.Instruction{ .add = true });
@@ -528,6 +526,16 @@ pub const VmCompiler = struct {
                                 try self.compileExprFromAst(buffer, assign.rhs);
                                 try buffer.append(ast.Instruction{ .vec_set = true });
                             },
+                            .slice => {
+                                try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
+                                try buffer.append(ast.Instruction{ .load = 8 });
+                                try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);
+                                try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
+                                try buffer.append(ast.Instruction{ .mul = true });
+                                try buffer.append(ast.Instruction{ .add = true });
+                                try self.compileExprFromAst(buffer, assign.rhs);
+                                try buffer.append(ast.Instruction{ .store = (try index.type_.getValueType()).size() });
+                            },
                             else => {
                                 try self.compileLhsExprFromAst(buffer, assign.lhs);
                                 try self.compileExprFromAst(buffer, assign.rhs);
@@ -660,7 +668,7 @@ pub const VmCompiler = struct {
         while (iter.next()) |k| {
             const offset = self.string_data.get(k.*).?;
 
-            try buffer.append(ast.Instruction{ .push = @intCast(self.data_section_ptr) });
+            try buffer.append(ast.Instruction{ .push = @intCast(data_section_ptr) });
             try buffer.append(ast.Instruction{ .load = 8 });
             try buffer.append(ast.Instruction{ .push = offset });
             try buffer.append(ast.Instruction{ .add = true });
@@ -699,9 +707,6 @@ pub const VmCompiler = struct {
         // ...
         // ==== global section [32+sizeDataSection-32+sizeDataSection+sizeGlobalSection]
         // ...
-        self.data_section_ptr = 8;
-        self.global_section_ptr = 16;
-        self.heap_section_ptr = 24;
 
         var progBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
         defer progBuffer.deinit();
@@ -712,17 +717,17 @@ pub const VmCompiler = struct {
         const sizeDataSection = try self.compileDataSection(&dataBuffer);
 
         // set data_section_ptr
-        try initBuffer.append(ast.Instruction{ .push = @intCast(self.data_section_ptr) });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(data_section_ptr) });
         try initBuffer.append(ast.Instruction{ .push = 32 });
         try initBuffer.append(ast.Instruction{ .store = 8 });
 
         // set global_section_ptr
-        try initBuffer.append(ast.Instruction{ .push = @intCast(self.global_section_ptr) });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(global_section_ptr) });
         try initBuffer.append(ast.Instruction{ .push = @intCast(32 + sizeDataSection) });
         try initBuffer.append(ast.Instruction{ .store = 8 });
 
         // set heap_section_ptr
-        try initBuffer.append(ast.Instruction{ .push = @intCast(self.heap_section_ptr) });
+        try initBuffer.append(ast.Instruction{ .push = @intCast(heap_section_ptr) });
         try initBuffer.append(ast.Instruction{ .push = @intCast(32 + sizeDataSection + 128) }); // FIXME: sizeGlobalSection
         try initBuffer.append(ast.Instruction{ .store = 8 });
 
