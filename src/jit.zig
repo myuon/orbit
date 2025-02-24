@@ -192,6 +192,12 @@ const Arm64 = struct {
         try self.emit(Arm64.getBLInstr(offset));
     }
 
+    fn emitBLR(self: *Arm64, source: Register) anyerror!void {
+        const s: u32 = @intFromEnum(source);
+
+        try self.emit(0xD63F0000 | (s << 5));
+    }
+
     fn getBLInstr(offset: i26) u32 {
         const o = @as(u32, @intCast(@as(u26, @bitCast(offset))));
 
@@ -244,6 +250,7 @@ pub const CompiledFn = *fn (
     c_bp: *i64, // .x2
     c_ip: *i64, // .x3
     c_memory: [*]u8, // .x4
+    c_vtable: [*]*void, // .x5
 ) callconv(.C) void;
 
 pub const JitRuntime = struct {
@@ -254,6 +261,7 @@ pub const JitRuntime = struct {
     const reg_c_bp = Register.x2;
     const reg_c_ip = Register.x3;
     const reg_c_memory = Register.x4;
+    const reg_c_vtable = Register.x5;
 
     pub fn init(allocator: std.mem.Allocator) JitRuntime {
         return JitRuntime{
@@ -353,6 +361,13 @@ pub const JitRuntime = struct {
     fn loadCStackOffset(code: *Arm64, k: i32, target: Register, tmp1: Register, tmp2: Register) anyerror!void {
         try JitRuntime.getIndexFromOffset(code, k, tmp1, tmp2);
         try JitRuntime.getCStackAddress(code, tmp1, tmp1, tmp2);
+        try code.emitLdr(0, tmp1, target);
+    }
+
+    fn loadVTablePtr(code: *Arm64, index: usize, target: Register, tmp1: Register, tmp2: Register) anyerror!void {
+        try code.emitMovImm(target, @intCast(index));
+        try code.emitMovImm(tmp2, 8);
+        try code.emitMadd(tmp1, target, tmp2, reg_c_vtable);
         try code.emitLdr(0, tmp1, target);
     }
 
@@ -599,6 +614,10 @@ pub const JitRuntime = struct {
                     try JitRuntime.popCStack(&code, .x10, .x15, .x14, .x13); // address
 
                     try JitRuntime.storeCMemory(&code, .x10, .x9, .x15);
+                },
+                .call_vtable => |index| {
+                    try JitRuntime.loadVTablePtr(&code, index, .x10, .x15, .x14);
+                    try code.emitBLR(.x10);
                 },
                 else => {
                     std.debug.print("unhandled instruction: {any}\n", .{inst});

@@ -294,7 +294,14 @@ pub const VmRuntime = struct {
                     var sp = @as(i64, @intCast(stack.items.len));
 
                     // std.log.info("BEF: {s}, {d} {any} ({d}) {any}", .{ label, bp.*, stack.items[0..@intCast(sp)], self.pc, self.memory[0..100] });
-                    fn_ptr((&stack.items).ptr, &sp, bp, &ip, self.memory.ptr);
+                    fn_ptr(
+                        (&stack.items).ptr,
+                        &sp,
+                        bp,
+                        &ip,
+                        self.memory.ptr,
+                        @ptrCast(self.jit_vtable.items.ptr),
+                    );
                     // std.log.info("AFT: {s}, {d} {any} ({d}) {any}", .{ label, bp.*, stack.items[0..@intCast(sp)], ip, self.memory[0..100] });
 
                     // epilogue here
@@ -450,7 +457,14 @@ pub const VmRuntime = struct {
                             var ip: i64 = -1;
                             var sp = @as(i64, @intCast(stack.items.len));
 
-                            f((&stack.items).ptr, &sp, bp, &ip, self.memory.ptr);
+                            f(
+                                (&stack.items).ptr,
+                                &sp,
+                                bp,
+                                &ip,
+                                self.memory.ptr,
+                                @ptrCast(self.jit_vtable.items.ptr),
+                            );
 
                             // epilogue here
                             self.pc += 1;
