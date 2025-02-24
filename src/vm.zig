@@ -60,8 +60,8 @@ pub const VmCompiler = struct {
     pub fn resolveIrLabels(
         self: *VmCompiler,
         prog: []ast.Instruction,
-        exit_stub: ?std.StringHashMap(usize),
-        vtable: ?std.StringHashMap(usize),
+        exit_stub: std.StringHashMap(usize),
+        vtable: std.StringHashMap(usize),
     ) anyerror!void {
         var labels = std.StringHashMap(usize).init(self.allocator);
         defer labels.deinit();
@@ -81,7 +81,7 @@ pub const VmCompiler = struct {
                     var target: usize = undefined;
                     if (labels.get(label)) |t| {
                         target = t;
-                    } else if (exit_stub.?.get(label)) |fallback| {
+                    } else if (exit_stub.get(label)) |fallback| {
                         target = fallback;
                     } else {
                         std.log.warn("Label not found: {s}", .{label});
@@ -93,7 +93,7 @@ pub const VmCompiler = struct {
                     var target: usize = undefined;
                     if (labels.get(label)) |t| {
                         target = t;
-                    } else if (exit_stub.?.get(label)) |fallback| {
+                    } else if (exit_stub.get(label)) |fallback| {
                         target = fallback;
                     } else {
                         std.log.warn("Label not found: {s}", .{label});
@@ -107,20 +107,10 @@ pub const VmCompiler = struct {
                 .call => |label| {
                     if (labels.get(label)) |t| {
                         prog[i] = ast.Instruction{ .call_d = t };
-                    } else if (exit_stub) |es| {
-                        if (es.get(label)) |fallback| {
-                            prog[i] = ast.Instruction{ .call_d = fallback };
-                        } else {
-                            std.log.warn("Label not found: {s}", .{label});
-                            return error.LabelNotFound;
-                        }
-                    } else if (vtable) |vt| {
-                        if (vt.get(label)) |t| {
-                            prog[i] = ast.Instruction{ .call_vtable = t };
-                        } else {
-                            std.log.warn("Label not found: {s}", .{label});
-                            return error.LabelNotFound;
-                        }
+                    } else if (exit_stub.get(label)) |fallback| {
+                        prog[i] = ast.Instruction{ .call_d = fallback };
+                    } else if (vtable.get(label)) |t| {
+                        prog[i] = ast.Instruction{ .call_vtable = t };
                     } else {
                         std.log.warn("Label not found: {s}", .{label});
                         return error.LabelNotFound;
@@ -545,6 +535,7 @@ pub const VmCompiler = struct {
                                             assign.lhs.index.rhs.*,
                                             assign.rhs,
                                         }));
+                                        try buffer.append(ast.Instruction{ .pop = true });
                                     },
                                     else => {
                                         unreachable;
@@ -582,6 +573,7 @@ pub const VmCompiler = struct {
                             push.lhs,
                             push.rhs,
                         }));
+                        try buffer.append(ast.Instruction{ .pop = true });
                     },
                     else => {
                         unreachable;
