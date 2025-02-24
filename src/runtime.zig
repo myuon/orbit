@@ -36,7 +36,7 @@ pub const VmRuntime = struct {
     pc: usize,
     envs: std.ArrayList(std.StringHashMap(i64)),
     enable_jit: bool,
-    hot_spot_labels: std.StringHashMap(usize),
+    hot_spot_labels: std.StringHashMap(i32),
     traces: ?std.ArrayList(ast.Instruction),
     jit_cache: JitCache,
     allocator: std.mem.Allocator,
@@ -55,7 +55,7 @@ pub const VmRuntime = struct {
         return VmRuntime{
             .pc = 0,
             .envs = std.ArrayList(std.StringHashMap(i64)).init(allocator),
-            .hot_spot_labels = std.StringHashMap(usize).init(allocator),
+            .hot_spot_labels = std.StringHashMap(i32).init(allocator),
             .traces = null,
             .jit_cache = JitCache.init(allocator),
             .enable_jit = true,
@@ -88,7 +88,7 @@ pub const VmRuntime = struct {
             }
         }
 
-        std.log.err("Label not found: {s}\n", .{target_label});
+        std.log.warn("Label not found: {s}\n", .{target_label});
         return error.LabelNotFound;
     }
 
@@ -160,7 +160,9 @@ pub const VmRuntime = struct {
                 defer zone.end();
 
                 const entry = try self.hot_spot_labels.getOrPutValue(label, 0);
-                entry.value_ptr.* += 1;
+                if (entry.value_ptr.* >= 0) {
+                    entry.value_ptr.* += 1;
+                }
 
                 const pc = self.pc;
 
@@ -233,6 +235,8 @@ pub const VmRuntime = struct {
                                 const result = runtime.compile(ir_block.items, true);
                                 _ = result catch |err| {
                                     std.log.debug("JIT compile error, fallback to VM execution: {any}", .{err});
+
+                                    try self.hot_spot_labels.put(label, -1);
 
                                     quit_compiling = true;
                                 };
@@ -352,7 +356,9 @@ pub const VmRuntime = struct {
             .call => |label| {
                 const entry = try self.hot_spot_labels.getOrPut(label);
                 if (self.enable_jit and entry.found_existing) {
-                    entry.value_ptr.* += 1;
+                    if (entry.value_ptr.* >= 0) {
+                        entry.value_ptr.* += 1;
+                    }
 
                     if (entry.value_ptr.* > 3) {
                         var fn_ptr: ?jit.CompiledFn = null;
@@ -381,8 +387,11 @@ pub const VmRuntime = struct {
                             var quit_compiling = false;
 
                             const resolveLabelsResult = vmc.resolveIrLabels(ir_block, null);
-                            resolveLabelsResult catch {
-                                // std.log.warn("Resolve IR labels failed: {any}", .{err});
+                            resolveLabelsResult catch |err| {
+                                std.log.warn("Resolve IR labels failed: {any}", .{err});
+
+                                try self.hot_spot_labels.put(label, -1);
+
                                 quit_compiling = true;
                             };
 

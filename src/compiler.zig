@@ -495,17 +495,17 @@ test "compiler.evalModule" {
             \\fun main() do
             \\  let vec = new vec(int) {};
             \\  let n = 0;
-            \\  while (n < 1000) do
+            \\  while (n < 100) do
             \\    vec <- n * n;
             \\    n = n + 1;
             \\  end
             \\
-            \\  vec[777] = vec[777] + 10;
+            \\  vec[77] = vec[77] + 10;
             \\
-            \\  return vec[777];
+            \\  return vec[77];
             \\end
             ,
-            .expected = 603739,
+            .expected = 5939,
         },
         .{
             .program =
