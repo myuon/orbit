@@ -392,7 +392,6 @@ pub const Typechecker = struct {
                     var params = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
 
                     for (fun.params) |param| {
-                        // Assume all parameters are integers
                         var t = ast.Type{ .unknown = true };
                         if (param.type_) |pt| {
                             t = pt;
@@ -402,10 +401,10 @@ pub const Typechecker = struct {
                         try params.append(ast.Type{ .int = true });
                     }
 
-                    self.return_type = ast.Type{ .unknown = true };
+                    self.return_type = fun.result_type;
 
                     const return_type = try self.arena_allocator.allocator().create(ast.Type);
-                    return_type.* = ast.Type{ .unknown = true };
+                    return_type.* = fun.result_type;
 
                     if (self.env.contains(fun.name)) {
                         std.log.err("Function {s} already defined\n", .{fun.name});

@@ -170,6 +170,7 @@ pub const Decl = union(DeclType) {
     fun: struct {
         name: []const u8,
         params: []FunParam,
+        result_type: Type,
         body: Block,
     },
     let: struct {

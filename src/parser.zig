@@ -148,6 +148,12 @@ pub const Parser = struct {
                             }
                             try self.expect(ast.Operator.rparen);
 
+                            var result_type = ast.Type{ .unknown = true };
+                            if (self.is_next(ast.Operator.colon)) {
+                                try self.expect(ast.Operator.colon);
+                                result_type = try self.type_();
+                            }
+
                             try self.expect(ast.Operator.do);
                             const body = try self.block(null);
                             try self.expect(ast.Operator.end);
@@ -155,6 +161,7 @@ pub const Parser = struct {
                             return ast.Decl{ .fun = .{
                                 .name = name,
                                 .params = args.items,
+                                .result_type = result_type,
                                 .body = body,
                             } };
                         },
