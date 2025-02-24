@@ -48,18 +48,18 @@ pub const Compiler = struct {
         const stdlib =
             \\let hp;
             \\
-            \\fun allocate_memory(size: int): ptr(int) do
+            \\fun allocate_memory(size: int): ptr(byte) do
             \\  let p = hp;
             \\  hp = hp + size;
             \\
-            \\  return p as ptr(int);
+            \\  return p as ptr(byte);
             \\end
             \\
-            // \\fun new_slice(size, len) do
-            // \\  let pair = new struct{ptr: ptr(byte), len: int} { .ptr = allocate_memory(size * len), .len = len };
-            // \\
-            // \\  return pair;
-            // \\end
+            \\fun new_slice(size: int, len: int) do
+            \\  let pair = new struct{ptr: ptr(byte), len: int} { .ptr = allocate_memory(size * len), .len = len };
+            \\
+            \\  return pair;
+            \\end
             \\
         ;
         const input = try std.fmt.allocPrint(self.arena_allocator.allocator(), "{s}\n{s}", .{ stdlib, str });
