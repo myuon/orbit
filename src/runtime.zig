@@ -239,10 +239,12 @@ pub const VmRuntime = struct {
                                     try self.hot_spot_labels.put(label, -1);
 
                                     quit_compiling = true;
+                                    self.traces.?.deinit();
+                                    self.traces = null;
                                 };
 
                                 if (!quit_compiling) {
-                                    std.log.info("Tracing & compile finished, {d}", .{ir_block.items.len});
+                                    std.log.info("Tracing & compile finished {s} {d}", .{ label, ir_block.items.len });
 
                                     const f = try result;
                                     try self.jit_cache.put(label, f);
@@ -405,7 +407,7 @@ pub const VmRuntime = struct {
                                 const result = runtime.compile(ir_block, false);
 
                                 _ = result catch |err| {
-                                    std.debug.print("JIT compile error, fallback to VM execution: {any}\n", .{err});
+                                    std.debug.print("JIT compile error, fallback to VM execution: {s} {any}\n", .{ label, err });
 
                                     try self.hot_spot_labels.put(label, -1);
 
