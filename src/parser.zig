@@ -126,14 +126,19 @@ pub const Parser = struct {
                             const name = try self.expect_ident();
 
                             try self.expect(ast.Operator.lparen);
-                            var args = std.ArrayList([]const u8).init(self.ast_arena_allocator.allocator());
+                            var args = std.ArrayList(ast.FunParam).init(self.ast_arena_allocator.allocator());
                             while (self.can_peek()) {
                                 if (self.is_next(ast.Operator.rparen)) {
                                     break;
                                 }
 
                                 const arg = try self.expect_ident();
-                                try args.append(arg);
+                                var t: ?ast.Type = null;
+                                if (self.is_next(ast.Operator.colon)) {
+                                    try self.expect(ast.Operator.colon);
+                                    t = try self.type_();
+                                }
+                                try args.append(.{ .name = arg, .type_ = t });
 
                                 if (self.is_next(ast.Operator.comma)) {
                                     try self.expect(ast.Operator.comma);

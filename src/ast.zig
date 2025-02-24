@@ -161,10 +161,15 @@ pub const DeclType = enum {
     let,
 };
 
+pub const FunParam = struct {
+    name: []const u8,
+    type_: ?Type,
+};
+
 pub const Decl = union(DeclType) {
     fun: struct {
         name: []const u8,
-        params: []const []const u8,
+        params: []FunParam,
         body: Block,
     },
     let: struct {

@@ -48,7 +48,7 @@ pub const Compiler = struct {
         const stdlib =
             \\let hp;
             \\
-            \\fun allocate_memory(size) do
+            \\fun allocate_memory(size: int) do
             \\  let p = hp;
             \\  hp = hp + size;
             \\

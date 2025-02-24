@@ -608,7 +608,7 @@ pub const VmCompiler = struct {
 
                     // register names in the reverse order
                     for (f.params, 0..) |param, i| {
-                        try self.env.put(param, -@as(i32, @intCast(f.params.len - i)) - 2);
+                        try self.env.put(param.name, -@as(i32, @intCast(f.params.len - i)) - 2);
                     }
 
                     self.compiling_context = f.name;

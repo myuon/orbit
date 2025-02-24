@@ -393,7 +393,12 @@ pub const Typechecker = struct {
 
                     for (fun.params) |param| {
                         // Assume all parameters are integers
-                        try self.env.put(param, ast.Type{ .int = true });
+                        var t = ast.Type{ .unknown = true };
+                        if (param.type_) |pt| {
+                            t = pt;
+                        }
+
+                        try self.env.put(param.name, t);
                         try params.append(ast.Type{ .int = true });
                     }
 
