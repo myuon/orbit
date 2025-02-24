@@ -217,8 +217,14 @@ pub const VmRuntime = struct {
                                             try fallback_block.append(ast.Instruction{ .ret = true });
                                         }
                                     },
-                                    .call => {
+                                    .call => |name| {
+                                        std.log.warn("JIT compile error, fallback to VM execution: call the non-cached function: {s}", .{name});
+
+                                        try self.hot_spot_labels.put(label, -1);
+
                                         quit_compiling = true;
+                                        self.traces.?.deinit();
+                                        self.traces = null;
                                         break;
                                     },
                                     else => {},
@@ -234,7 +240,7 @@ pub const VmRuntime = struct {
 
                                 const result = runtime.compile(ir_block.items, true);
                                 _ = result catch |err| {
-                                    std.log.debug("JIT compile error, fallback to VM execution: {any}", .{err});
+                                    std.log.warn("JIT compile error, fallback to VM execution: {any}", .{err});
 
                                     try self.hot_spot_labels.put(label, -1);
 
@@ -417,6 +423,8 @@ pub const VmRuntime = struct {
                                 if (!quit_compiling) {
                                     const f = try result;
                                     try self.jit_cache.put(label, f);
+
+                                    std.log.info("JIT compile finished: {s}", .{label});
 
                                     fn_ptr = f;
                                 }

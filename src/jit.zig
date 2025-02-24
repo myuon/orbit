@@ -326,6 +326,11 @@ pub const JitRuntime = struct {
         try JitRuntime.incrementCSp(code, tmp1);
     }
 
+    fn loadCMemory(code: *Arm64, address: Register, target: Register, tmp1: Register) anyerror!void {
+        try code.emitAdd(address, reg_c_memory, tmp1);
+        try code.emitLdr(0, tmp1, target);
+    }
+
     fn storeCMemory(code: *Arm64, address: Register, value: Register, tmp1: Register) anyerror!void {
         try code.emitAdd(address, reg_c_memory, tmp1);
         try code.emitStr(tmp1, value);
@@ -578,6 +583,14 @@ pub const JitRuntime = struct {
                 .set_cip => |n| {
                     try code.emitMovImm(.x9, @intCast(n));
                     try JitRuntime.setCIp(&code, .x9);
+                },
+                .load => |size| {
+                    std.debug.assert(size == 8);
+
+                    try JitRuntime.popCStack(&code, .x9, .x15, .x14, .x13); // address
+
+                    try JitRuntime.loadCMemory(&code, .x9, .x10, .x15);
+                    try JitRuntime.pushCStack(&code, .x10, .x15, .x14, .x13);
                 },
                 .store => |size| {
                     std.debug.assert(size == 8);
