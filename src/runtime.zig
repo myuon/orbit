@@ -211,8 +211,6 @@ pub const VmRuntime = struct {
                     if (!self.jit_cache_ptr.contains(name)) {
                         std.log.warn("JIT compile error, fallback to VM execution: call the non-cached function: {s}", .{name});
 
-                        try self.hot_spot_labels.put(label, -300);
-
                         return null;
                     }
                 },
@@ -233,6 +231,57 @@ pub const VmRuntime = struct {
         };
 
         std.log.info("Tracing & compile finished {s} {d}", .{ label, ir_block.items.len });
+
+        return f;
+    }
+
+    fn compileCall(
+        self: *VmRuntime,
+        label: []const u8,
+        program: []ast.Instruction,
+    ) anyerror!?jit.CompiledFn {
+        const zone = P.begin(@src(), "VmRuntime.step.call.jitCompile");
+        defer zone.end();
+
+        const call_block_start = try VmRuntime.find_label(program, label);
+
+        const end_label = try std.fmt.allocPrint(self.allocator, "end_of_{s}", .{label});
+        defer self.allocator.free(end_label);
+        const call_block_end = try VmRuntime.find_label(program, end_label);
+
+        var ir_block_list = std.ArrayList(ast.Instruction).init(self.allocator);
+        defer ir_block_list.deinit();
+
+        try ir_block_list.appendSlice(program[call_block_start.?..call_block_end.?]);
+        const ir_block = ir_block_list.items;
+
+        var vmc = vm.VmCompiler.init(self.allocator);
+        defer vmc.deinit();
+
+        var exit_stub = std.StringHashMap(usize).init(self.allocator);
+        defer exit_stub.deinit();
+
+        vmc.resolveIrLabels(ir_block, exit_stub, self.jit_cache_ptr) catch |err| {
+            std.log.warn("Resolve IR labels failed: {any}", .{err});
+
+            return null;
+        };
+
+        var params = std.ArrayList([]const u8).init(self.allocator);
+        defer params.deinit();
+
+        var runtime = jit.JitRuntime.init(self.allocator);
+        const result = runtime.compile(ir_block, false);
+
+        _ = result catch |err| {
+            std.debug.print("JIT compile error, fallback to VM execution: {s} {any}\n", .{ label, err });
+
+            return null;
+        };
+
+        const f = try result;
+
+        std.log.info("JIT compile finished: {s}", .{label});
 
         return f;
     }
@@ -439,63 +488,14 @@ pub const VmRuntime = struct {
                         if (self.find_fnptr(label)) |f| {
                             fn_ptr = f;
                         } else {
-                            const zone = P.begin(@src(), "VmRuntime.step.call.jitCompile");
-                            defer zone.end();
+                            const result = try self.compileCall(label, program);
+                            if (result) |f| {
+                                fn_ptr = f;
 
-                            const call_block_start = try VmRuntime.find_label(program, label);
-
-                            const end_label = try std.fmt.allocPrint(self.allocator, "end_of_{s}", .{label});
-                            defer self.allocator.free(end_label);
-                            const call_block_end = try VmRuntime.find_label(program, end_label);
-
-                            var ir_block_list = std.ArrayList(ast.Instruction).init(self.allocator);
-                            defer ir_block_list.deinit();
-
-                            try ir_block_list.appendSlice(program[call_block_start.?..call_block_end.?]);
-                            const ir_block = ir_block_list.items;
-
-                            var vmc = vm.VmCompiler.init(self.allocator);
-                            defer vmc.deinit();
-
-                            var quit_compiling = false;
-
-                            var exit_stub = std.StringHashMap(usize).init(self.allocator);
-                            defer exit_stub.deinit();
-
-                            const resolveLabelsResult = vmc.resolveIrLabels(ir_block, exit_stub, self.jit_cache_ptr);
-                            resolveLabelsResult catch |err| {
-                                std.log.warn("Resolve IR labels failed: {any}", .{err});
-
-                                try self.hot_spot_labels.put(label, -100);
-
-                                quit_compiling = true;
-                            };
-
-                            if (!quit_compiling) {
-                                _ = try resolveLabelsResult;
-
-                                var params = std.ArrayList([]const u8).init(self.allocator);
-                                defer params.deinit();
-
-                                var runtime = jit.JitRuntime.init(self.allocator);
-                                const result = runtime.compile(ir_block, false);
-
-                                _ = result catch |err| {
-                                    std.debug.print("JIT compile error, fallback to VM execution: {s} {any}\n", .{ label, err });
-
-                                    try self.hot_spot_labels.put(label, -300);
-
-                                    quit_compiling = true;
-                                };
-
-                                if (!quit_compiling) {
-                                    const f = try result;
-                                    try self.insert_fnptr(label, f);
-
-                                    std.log.info("JIT compile finished: {s}", .{label});
-
-                                    fn_ptr = f;
-                                }
+                                try self.insert_fnptr(label, f);
+                            } else {
+                                // Add some penalty
+                                try self.hot_spot_labels.put(label, -300);
                             }
                         }
 
