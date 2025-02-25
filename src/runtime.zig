@@ -116,6 +116,127 @@ pub const VmRuntime = struct {
         try self.jit_cache_ptr.put(label, i);
     }
 
+    fn compileTrace(
+        self: *VmRuntime,
+        traces: []ast.Instruction,
+        label: []const u8,
+        program: []ast.Instruction,
+    ) anyerror!?jit.CompiledFn {
+        const jitCompile = P.begin(@src(), "VmRuntime.compileTrace");
+        defer jitCompile.end();
+
+        // Only supports: [label, ..., jump label] fragment
+        std.debug.assert(std.mem.eql(u8, traces[0].label, label));
+        std.debug.assert(std.mem.eql(u8, traces[traces.len - 1].jump, label));
+
+        var vmc = vm.VmCompiler.init(self.allocator);
+        defer vmc.deinit();
+
+        var ir_block = std.ArrayList(ast.Instruction).init(self.allocator);
+        defer ir_block.deinit();
+
+        // Hacky way to care for the case when the conditional jump does not jump as expected in the trace
+        for (traces, 0..) |item, i| {
+            try ir_block.append(item);
+
+            switch (item) {
+                .jump_ifzero => |jump_target| {
+                    switch (traces[i + 1]) {
+                        .label => |next_label| {
+                            if (std.mem.eql(u8, jump_target, next_label)) {
+                                // If we have ... jump_ifzero L, L:, ..., then add a new exit path just after jump_ifzero L
+
+                                // search the original label
+                                var original_next_label: []const u8 = undefined;
+                                for (program, 0..) |t, j| {
+                                    switch (t) {
+                                        .jump_ifzero => |l| {
+                                            if (std.mem.eql(u8, l, jump_target)) {
+                                                original_next_label = program[j + 1].label;
+                                            }
+                                        },
+                                        else => {},
+                                    }
+                                }
+
+                                try ir_block.append(ast.Instruction{ .jump = original_next_label });
+                            }
+                        },
+                        else => {},
+                    }
+                },
+                else => {},
+            }
+        }
+
+        var exit_positions = std.ArrayList(usize).init(self.allocator);
+        defer exit_positions.deinit();
+
+        // label -> exit position in ir_block
+        var exit_stub = std.StringHashMap(usize).init(self.allocator);
+        defer exit_stub.deinit();
+
+        var fallback_block = std.ArrayList(ast.Instruction).init(self.allocator);
+        defer fallback_block.deinit();
+
+        // find the exit path
+        for (ir_block.items) |t| {
+            switch (t) {
+                .jump => |l| {
+                    const label_found = VmRuntime.find_label(ir_block.items, l) catch null;
+
+                    if (!exit_stub.contains(l) and label_found == null) {
+                        // Isn't there any nicer way?
+                        try exit_stub.put(l, ir_block.items.len + fallback_block.items.len);
+
+                        // Add fallback block (when label not found)
+                        const ip = (try VmRuntime.find_label(program, l)).?;
+                        try fallback_block.append(ast.Instruction{ .set_cip = ip });
+                        try fallback_block.append(ast.Instruction{ .push = -1 });
+                        try fallback_block.append(ast.Instruction{ .ret = true });
+                    }
+                },
+                .jump_ifzero => |l| {
+                    if (!exit_stub.contains(l)) {
+                        try exit_stub.put(l, ir_block.items.len + fallback_block.items.len);
+
+                        // Add fallback block (when label not found)
+                        const ip = (try VmRuntime.find_label(program, l)).?;
+                        try fallback_block.append(ast.Instruction{ .set_cip = ip });
+                        try fallback_block.append(ast.Instruction{ .push = -1 });
+                        try fallback_block.append(ast.Instruction{ .ret = true });
+                    }
+                },
+                .call => |name| {
+                    if (!self.jit_cache_ptr.contains(name)) {
+                        std.log.warn("JIT compile error, fallback to VM execution: call the non-cached function: {s}", .{name});
+
+                        try self.hot_spot_labels.put(label, -300);
+
+                        return null;
+                    }
+                },
+                else => {},
+            }
+        }
+
+        try ir_block.appendSlice(fallback_block.items);
+
+        try vmc.resolveIrLabels(ir_block.items, exit_stub, self.jit_cache_ptr);
+
+        var runtime = jit.JitRuntime.init(self.allocator);
+
+        const f = runtime.compile(ir_block.items, true) catch |err| {
+            std.log.warn("JIT compile error, fallback to VM execution: {any}", .{err});
+
+            return null;
+        };
+
+        std.log.info("Tracing & compile finished {s} {d}", .{ label, ir_block.items.len });
+
+        return f;
+    }
+
     pub fn step(
         self: *VmRuntime,
         program: []ast.Instruction,
@@ -187,138 +308,18 @@ pub const VmRuntime = struct {
                     // When tracing is finished
                     if (self.traces) |traces| {
                         if (std.mem.eql(u8, traces.items[0].label, label)) {
-                            const jitCompile = P.begin(@src(), "VmRuntime.step.jump.jitCompile");
-                            defer jitCompile.end();
+                            const result = try self.compileTrace(traces.items, label, program);
 
-                            // Only supports: [label, ..., jump label] fragment
-                            std.debug.assert(std.mem.eql(u8, traces.items[0].label, label));
-                            std.debug.assert(std.mem.eql(u8, traces.items[traces.items.len - 1].jump, label));
+                            self.traces.?.deinit();
+                            self.traces = null;
 
-                            var vmc = vm.VmCompiler.init(self.allocator);
-                            defer vmc.deinit();
+                            if (result) |f| {
+                                result_fn_ptr = f;
 
-                            var ir_block = std.ArrayList(ast.Instruction).init(self.allocator);
-                            defer ir_block.deinit();
-
-                            // Hacky way to care for the case when the conditional jump does not jump as expected in the trace
-                            for (traces.items, 0..) |item, i| {
-                                try ir_block.append(item);
-
-                                switch (item) {
-                                    .jump_ifzero => |jump_target| {
-                                        switch (traces.items[i + 1]) {
-                                            .label => |next_label| {
-                                                if (std.mem.eql(u8, jump_target, next_label)) {
-                                                    // If we have ... jump_ifzero L, L:, ..., then add a new exit path just after jump_ifzero L
-
-                                                    // search the original label
-                                                    var original_next_label: []const u8 = undefined;
-                                                    for (program, 0..) |t, j| {
-                                                        switch (t) {
-                                                            .jump_ifzero => |l| {
-                                                                if (std.mem.eql(u8, l, jump_target)) {
-                                                                    original_next_label = program[j + 1].label;
-                                                                }
-                                                            },
-                                                            else => {},
-                                                        }
-                                                    }
-
-                                                    try ir_block.append(ast.Instruction{ .jump = original_next_label });
-                                                }
-                                            },
-                                            else => {},
-                                        }
-                                    },
-                                    else => {},
-                                }
-                            }
-
-                            var exit_positions = std.ArrayList(usize).init(self.allocator);
-                            defer exit_positions.deinit();
-
-                            // label -> exit position in ir_block
-                            var exit_stub = std.StringHashMap(usize).init(self.allocator);
-                            defer exit_stub.deinit();
-
-                            var quit_compiling = false;
-
-                            var fallback_block = std.ArrayList(ast.Instruction).init(self.allocator);
-                            defer fallback_block.deinit();
-
-                            // find the exit path
-                            for (ir_block.items) |t| {
-                                switch (t) {
-                                    .jump => |l| {
-                                        const label_found = VmRuntime.find_label(ir_block.items, l) catch null;
-
-                                        if (!exit_stub.contains(l) and label_found == null) {
-                                            // Isn't there any nicer way?
-                                            try exit_stub.put(l, ir_block.items.len + fallback_block.items.len);
-
-                                            // Add fallback block (when label not found)
-                                            const ip = (try VmRuntime.find_label(program, l)).?;
-                                            try fallback_block.append(ast.Instruction{ .set_cip = ip });
-                                            try fallback_block.append(ast.Instruction{ .push = -1 });
-                                            try fallback_block.append(ast.Instruction{ .ret = true });
-                                        }
-                                    },
-                                    .jump_ifzero => |l| {
-                                        if (!exit_stub.contains(l)) {
-                                            try exit_stub.put(l, ir_block.items.len + fallback_block.items.len);
-
-                                            // Add fallback block (when label not found)
-                                            const ip = (try VmRuntime.find_label(program, l)).?;
-                                            try fallback_block.append(ast.Instruction{ .set_cip = ip });
-                                            try fallback_block.append(ast.Instruction{ .push = -1 });
-                                            try fallback_block.append(ast.Instruction{ .ret = true });
-                                        }
-                                    },
-                                    .call => |name| {
-                                        if (!self.jit_cache_ptr.contains(name)) {
-                                            std.log.warn("JIT compile error, fallback to VM execution: call the non-cached function: {s}", .{name});
-
-                                            try self.hot_spot_labels.put(label, -300);
-
-                                            quit_compiling = true;
-                                            self.traces.?.deinit();
-                                            self.traces = null;
-                                            break;
-                                        }
-                                    },
-                                    else => {},
-                                }
-                            }
-
-                            if (!quit_compiling) {
-                                try ir_block.appendSlice(fallback_block.items);
-
-                                try vmc.resolveIrLabels(ir_block.items, exit_stub, self.jit_cache_ptr);
-
-                                var runtime = jit.JitRuntime.init(self.allocator);
-
-                                const result = runtime.compile(ir_block.items, true);
-                                _ = result catch |err| {
-                                    std.log.warn("JIT compile error, fallback to VM execution: {any}", .{err});
-
-                                    try self.hot_spot_labels.put(label, -300);
-
-                                    quit_compiling = true;
-                                    self.traces.?.deinit();
-                                    self.traces = null;
-                                };
-
-                                if (!quit_compiling) {
-                                    std.log.info("Tracing & compile finished {s} {d}", .{ label, ir_block.items.len });
-
-                                    const f = try result;
-                                    try self.insert_fnptr(label, f);
-
-                                    self.traces.?.deinit();
-                                    self.traces = null;
-
-                                    result_fn_ptr = f;
-                                }
+                                try self.insert_fnptr(label, f);
+                            } else {
+                                // Add some penalty
+                                try self.hot_spot_labels.put(label, -300);
                             }
                         }
                     } else {
