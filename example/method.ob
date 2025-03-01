@@ -9,6 +9,8 @@ type Point = struct {
   fun move(self: Point, dx: int, dy: int) do
     self.x = self.x + dx;
     self.y = self.y + dy;
+
+    return 0;
   end
 };
 

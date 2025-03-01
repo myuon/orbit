@@ -122,12 +122,24 @@ pub const VmCompiler = struct {
     }
 
     fn callFunction(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), callee: ast.Expression, args: []ast.Expression) anyerror!void {
+        var argCount: usize = 0;
+
         // return value
         try buffer.append(ast.Instruction{ .push = -2 });
+
+        // self
+        switch (callee) {
+            .project => |project| {
+                try self.compileExprFromAst(buffer, project.lhs.*);
+                argCount += 1;
+            },
+            else => {},
+        }
 
         // order from left to right
         for (args) |arg| {
             try self.compileExprFromAst(buffer, arg);
+            argCount += 1;
         }
 
         // prologue
@@ -150,7 +162,7 @@ pub const VmCompiler = struct {
             },
         }
 
-        for (args) |_| {
+        for (0..argCount) |_| {
             try buffer.append(ast.Instruction{ .pop = true });
         }
     }
