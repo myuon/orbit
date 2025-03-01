@@ -615,123 +615,105 @@ pub const Parser = struct {
     }
 
     fn expr3(self: *Parser) anyerror!ast.Expression {
-        if (try self.expr4()) |e| {
-            return e;
-        }
+        var current = try self.expr4();
 
-        if (self.peek()) |token| {
-            switch (token) {
-                .ident => |ident| {
-                    _ = try self.expect_ident();
+        while (self.peek()) |token| {
+            switch (token.keyword) {
+                .lparen => {
+                    try self.expect(ast.Operator.lparen);
 
-                    const current = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                    const identExpr = ast.Expression{ .var_ = ident };
+                    var ident: []const u8 = undefined;
+                    switch (current) {
+                        .var_ => |v| {
+                            ident = v;
+                        },
+                        else => {
+                            const s = try std.json.stringifyAlloc(self.ast_arena_allocator.allocator(), current, .{});
 
-                    if (self.is_next(ast.Operator.lparen)) {
-                        try self.expect(ast.Operator.lparen);
-
-                        var args = std.ArrayList(ast.Expression).init(self.ast_arena_allocator.allocator());
-                        while (self.can_peek()) {
-                            if (self.is_next(ast.Operator.rparen)) {
-                                break;
-                            }
-
-                            const arg = try self.expr();
-                            try args.append(arg);
-
-                            if (self.is_next(ast.Operator.comma)) {
-                                try self.expect(ast.Operator.comma);
-                            } else {
-                                break;
-                            }
-                        }
-                        try self.expect(ast.Operator.rparen);
-
-                        current.* = ast.Expression{ .call = .{
-                            .name = ident,
-                            .args = args.items,
-                        } };
-                    } else if (self.is_next(ast.Operator.lbracket)) {
-                        try self.expect(ast.Operator.lbracket);
-                        const index = try self.expr();
-                        try self.expect(ast.Operator.rbracket);
-
-                        const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                        lhs.* = identExpr;
-
-                        const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                        rhs.* = index;
-
-                        current.* = ast.Expression{ .index = .{
-                            .type_ = ast.Type{ .unknown = true },
-                            .lhs = lhs,
-                            .rhs = rhs,
-                        } };
-                    } else if (self.is_next(ast.Operator.dot)) {
-                        try self.expect(ast.Operator.dot);
-
-                        const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                        lhs.* = identExpr;
-
-                        const rhs = try self.expect_ident();
-
-                        current.* = ast.Expression{ .project = .{
-                            .struct_ = ast.StructData{
-                                .fields = &[_]ast.StructField{},
-                                .methods = &[_]ast.Decl{},
-                            },
-                            .lhs = lhs,
-                            .rhs = rhs,
-                        } };
-                    } else if (self.is_next(ast.Operator.as)) {
-                        try self.expect(ast.Operator.as);
-
-                        const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                        lhs.* = identExpr;
-
-                        const rhs = try self.type_();
-
-                        current.* = ast.Expression{ .as = .{
-                            .lhs = lhs,
-                            .rhs = rhs,
-                        } };
-                    } else {
-                        current.* = identExpr;
+                            std.log.err("unexpected token: want ident but got {s}\n", .{s});
+                            unreachable;
+                        },
                     }
 
-                    return current.*;
+                    var args = std.ArrayList(ast.Expression).init(self.ast_arena_allocator.allocator());
+                    while (self.can_peek()) {
+                        if (self.is_next(ast.Operator.rparen)) {
+                            break;
+                        }
+
+                        const arg = try self.expr();
+                        try args.append(arg);
+
+                        if (self.is_next(ast.Operator.comma)) {
+                            try self.expect(ast.Operator.comma);
+                        } else {
+                            break;
+                        }
+                    }
+                    try self.expect(ast.Operator.rparen);
+
+                    current = ast.Expression{ .call = .{
+                        .name = ident,
+                        .args = args.items,
+                    } };
                 },
-                else => {},
+                .lbracket => {
+                    try self.expect(ast.Operator.lbracket);
+                    const index = try self.expr();
+                    try self.expect(ast.Operator.rbracket);
+
+                    const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                    lhs.* = current;
+
+                    const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                    rhs.* = index;
+
+                    current = ast.Expression{ .index = .{
+                        .type_ = ast.Type{ .unknown = true },
+                        .lhs = lhs,
+                        .rhs = rhs,
+                    } };
+                },
+                .dot => {
+                    try self.expect(ast.Operator.dot);
+
+                    const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                    lhs.* = current;
+
+                    const rhs = try self.expect_ident();
+
+                    current = ast.Expression{ .project = .{
+                        .struct_ = ast.StructData{
+                            .fields = &[_]ast.StructField{},
+                            .methods = &[_]ast.Decl{},
+                        },
+                        .lhs = lhs,
+                        .rhs = rhs,
+                    } };
+                },
+                .as => {
+                    try self.expect(ast.Operator.as);
+
+                    const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                    lhs.* = current;
+
+                    const rhs = try self.type_();
+
+                    current = ast.Expression{ .as = .{
+                        .lhs = lhs,
+                        .rhs = rhs,
+                    } };
+                },
+                else => {
+                    break;
+                },
             }
         }
 
-        if (self.is_next(ast.Operator.if_)) {
-            try self.expect(ast.Operator.if_);
-
-            try self.expect(ast.Operator.lparen);
-            const cond = try self.ast_arena_allocator.allocator().create(ast.Expression);
-            cond.* = try self.expr();
-            try self.expect(ast.Operator.rparen);
-
-            try self.expect(ast.Operator.do);
-            const then_ = try self.block(ast.Operator.else_);
-
-            try self.expect(ast.Operator.else_);
-            const else_ = try self.block(null);
-            try self.expect(ast.Operator.end);
-
-            return ast.Expression{ .if_ = .{
-                .cond = cond,
-                .then_ = then_,
-                .else_ = else_,
-            } };
-        }
-
-        std.debug.print("unexpected token: {any}\n", .{self.tokens[self.position..]});
-        unreachable;
+        return current;
     }
 
-    fn expr4(self: *Parser) anyerror!?ast.Expression {
+    fn expr4(self: *Parser) anyerror!ast.Expression {
         if (self.peek()) |token| {
             switch (token) {
                 .number => |n| {
@@ -792,18 +774,29 @@ pub const Parser = struct {
                                 .initializers = initializers.items,
                             } };
                         },
+                        .lparen => {
+                            try self.expect(ast.Operator.lparen);
+
+                            const e = try self.expr();
+                            try self.expect(ast.Operator.rparen);
+
+                            return e;
+                        },
                         else => {
-                            return null;
+                            std.log.err("unexpected token: want lparen but got {any}\n", .{token});
+                            unreachable;
                         },
                     }
                 },
-                else => {
-                    return null;
+                .ident => |ident| {
+                    _ = try self.expect_ident();
+
+                    return ast.Expression{ .var_ = ident };
                 },
             }
         }
 
-        return null;
+        return error.UnexpectedEos;
     }
 
     fn type_(self: *Parser) anyerror!ast.Type {
