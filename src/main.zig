@@ -244,6 +244,20 @@ pub fn main() !void {
 
             try memory.appendSlice("memory (heap):\n");
 
+            var ptr = dsp;
+            while (ptr < hsp) {
+                const size = vmr.loadMemory(8, ptr);
+                if (size == 0) {
+                    break;
+                }
+
+                try std.fmt.format(memory.writer(), "size: {}, 0x{x} - 0x{x}\n", .{ size, ptr, ptr + size });
+
+                ptr += size;
+            }
+
+            try memory.appendSlice("\nmemory (HEX):\n");
+
             for (vmr.memory[@as(usize, @intCast(dsp))..], 0..) |v, i| {
                 const p = try std.fmt.allocPrint(draw_allocator, "{x:0>2} ", .{v});
                 if (v == 0) {
