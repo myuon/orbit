@@ -176,6 +176,22 @@ pub const Lexer = struct {
         return self.source[start..self.position];
     }
 
+    fn consume_line_comment(self: *Lexer) bool {
+        if (utils.startsWith(self.source[self.position..], "//")) {
+            self.position += 2;
+
+            while (self.peek()) |next_ch| {
+                if (next_ch == '\n') {
+                    break;
+                }
+                _ = self.consume();
+            }
+            return true;
+        }
+
+        return false;
+    }
+
     pub fn run(self: *Lexer) anyerror!std.ArrayList(ast.Token) {
         const zone = P.begin(@src(), "Lexer.run");
         defer zone.end();
@@ -184,6 +200,10 @@ pub const Lexer = struct {
 
         while (self.position < self.source.len) {
             if (self.consume_spaces() > 0) {
+                continue;
+            }
+
+            if (self.consume_line_comment()) {
                 continue;
             }
 
