@@ -576,6 +576,8 @@ test "compiler.evalModule" {
 
     for (cases) |case| {
         for ([_]bool{ true, false }) |flag| {
+            // std.debug.print("input: {s}\n", .{case.program});
+
             var c = Compiler.init(std.testing.allocator);
             defer c.deinit();
 

@@ -288,6 +288,9 @@ pub const Typechecker = struct {
                             .fields = fields.items,
                         };
                     },
+                    .array => {},
+                    .map => {},
+                    .vec => {},
                     .ident => |ident| {
                         const t = self.env.get(ident.name) orelse {
                             std.log.err("Struct not found: {s}\n", .{ident.name});
