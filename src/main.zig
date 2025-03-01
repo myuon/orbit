@@ -235,16 +235,16 @@ pub fn main() !void {
             defer memory.deinit();
 
             try memory.appendSlice("section:meta [0-24]\n");
-            const dsp = vmr.loadMemory(8, vm.data_section_ptr);
-            try std.fmt.format(memory.writer(), "  data_section_ptr: {x:0>2}\n", .{dsp});
             const gsp = vmr.loadMemory(8, vm.global_section_ptr);
             try std.fmt.format(memory.writer(), "  global_section_ptr: {x:0>2}\n", .{gsp});
+            const dsp = vmr.loadMemory(8, vm.data_section_ptr);
+            try std.fmt.format(memory.writer(), "  data_section_ptr: {x:0>2}\n", .{dsp});
             const hsp = vmr.loadMemory(8, vm.heap_section_ptr);
             try std.fmt.format(memory.writer(), "  heap_section_ptr: {x:0>2}\n", .{hsp});
 
             try memory.appendSlice("memory (heap):\n");
 
-            for (vmr.memory[@as(usize, @intCast(gsp))..], 0..) |v, i| {
+            for (vmr.memory[@as(usize, @intCast(dsp))..], 0..) |v, i| {
                 const p = try std.fmt.allocPrint(draw_allocator, "{x:0>2} ", .{v});
                 if (v == 0) {
                     try memory.appendSlice(".. ");
