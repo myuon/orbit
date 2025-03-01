@@ -154,6 +154,20 @@ pub const Typechecker = struct {
                     },
                 }
             },
+            .ident => {
+                switch (actual) {
+                    .ident => {
+                        if (!std.mem.eql(u8, expect.ident.name, actual.ident.name)) {
+                            std.log.err("Expected ident {s}, got {s}\n", .{ expect.ident.name, actual.ident.name });
+                            return TypecheckerError.UnexpectedType;
+                        }
+                    },
+                    else => {
+                        std.log.err("Expected ident, got {any}\n", .{actual});
+                        return TypecheckerError.UnexpectedType;
+                    },
+                }
+            },
             .unknown => {
                 return actual;
             },
@@ -274,7 +288,20 @@ pub const Typechecker = struct {
                             .fields = fields.items,
                         };
                     },
-                    else => {},
+                    .ident => |ident| {
+                        const t = self.env.get(ident.name) orelse {
+                            std.log.err("Struct not found: {s}\n", .{ident.name});
+                            return error.VariableNotFound;
+                        };
+
+                        ident.type_.* = t;
+
+                        return t;
+                    },
+                    else => {
+                        std.log.err("Expected struct, got {any}\n", .{new.type_});
+                        unreachable;
+                    },
                 }
 
                 for (new.initializers, 0..) |initializer, k| {
@@ -480,6 +507,9 @@ pub const Typechecker = struct {
                         t = try self.typecheckExpr(&v_);
                     }
                     try self.env.put(let.name, t);
+                },
+                .type_ => |type_decl| {
+                    try self.env.put(type_decl.name, type_decl.type_);
                 },
             }
         }

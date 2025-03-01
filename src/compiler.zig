@@ -559,6 +559,19 @@ test "compiler.evalModule" {
             ,
             .expected = 350,
         },
+        .{
+            .program =
+            \\type Point = struct { x: int, y: int };
+            \\
+            \\fun main() do
+            \\  let p = new Point { .x = 10, .y = 20 };
+            \\  p.x = 33;
+            \\
+            \\  return p.x - p.y;
+            \\end
+            ,
+            .expected = 13,
+        },
     };
 
     for (cases) |case| {

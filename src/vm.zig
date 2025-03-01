@@ -310,65 +310,7 @@ pub const VmCompiler = struct {
                 }
             },
             .new => |new| {
-                switch (new.type_) {
-                    .array => |array| {
-                        std.debug.assert(new.initializers.len == 0);
-
-                        try self.callFunction(buffer, "allocate_memory", @constCast(&[_]ast.Expression{
-                            .{ .literal = .{ .number = @intCast(array.size * @as(usize, array.elem_type.size())) } },
-                        }));
-                    },
-                    .map => |map| {
-                        std.debug.assert(new.initializers.len == 0);
-
-                        // TODO: growable capacity
-                        try self.callFunction(buffer, "allocate_memory", @constCast(&[_]ast.Expression{
-                            .{ .literal = .{ .number = @intCast(128 * @as(usize, map.value_type.size())) } },
-                        }));
-                    },
-                    .vec => |vec| {
-                        std.debug.assert(new.initializers.len == 0);
-
-                        try self.callFunction(buffer, "new_vec", @constCast(&[_]ast.Expression{
-                            .{ .literal = .{ .number = @intCast(vec.elem_type.size()) } },
-                            .{ .literal = .{ .number = @intCast(128) } },
-                        }));
-                    },
-                    .struct_ => |struct_| {
-                        std.debug.assert(new.initializers.len == struct_.fields.len);
-
-                        // TODO: calculate the size of each field
-                        try self.callFunction(buffer, "allocate_memory", @constCast(&[_]ast.Expression{
-                            .{ .literal = .{ .number = @intCast(struct_.fields.len * 8) } },
-                        }));
-
-                        var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, struct_.fields.len);
-                        for (new.initializers) |sinit| {
-                            const offset = try struct_.getFieldOffset(sinit.field);
-                            fields[offset] = sinit.value;
-                        }
-
-                        for (fields, 0..) |e, i| {
-                            try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
-                            try buffer.append(ast.Instruction{ .push = @intCast(i * 8) });
-                            try buffer.append(ast.Instruction{ .add = true });
-                            try self.compileExprFromAst(buffer, e);
-                            try buffer.append(ast.Instruction{ .store = 8 });
-                        }
-                    },
-                    .slice => |slice| {
-                        std.debug.assert(new.initializers.len == 1);
-                        std.debug.assert(std.mem.eql(u8, new.initializers[0].field, "len"));
-
-                        try self.callFunction(buffer, "new_slice", @constCast(&[_]ast.Expression{
-                            .{ .literal = .{ .number = @intCast(slice.elem_type.size()) } },
-                            new.initializers[0].value,
-                        }));
-                    },
-                    else => {
-                        unreachable;
-                    },
-                }
+                try self.compileNewExpr(buffer, new);
             },
             .project => |project| {
                 try self.compileLhsExprFromAst(buffer, expr);
@@ -378,6 +320,75 @@ pub const VmCompiler = struct {
             },
             .as => |as| {
                 try self.compileExprFromAst(buffer, as.lhs.*);
+            },
+        }
+    }
+
+    fn compileNewExpr(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), new: ast.NewExpr) anyerror!void {
+        switch (new.type_) {
+            .array => |array| {
+                std.debug.assert(new.initializers.len == 0);
+
+                try self.callFunction(buffer, "allocate_memory", @constCast(&[_]ast.Expression{
+                    .{ .literal = .{ .number = @intCast(array.size * @as(usize, array.elem_type.size())) } },
+                }));
+            },
+            .map => |map| {
+                std.debug.assert(new.initializers.len == 0);
+
+                // TODO: growable capacity
+                try self.callFunction(buffer, "allocate_memory", @constCast(&[_]ast.Expression{
+                    .{ .literal = .{ .number = @intCast(128 * @as(usize, map.value_type.size())) } },
+                }));
+            },
+            .vec => |vec| {
+                std.debug.assert(new.initializers.len == 0);
+
+                try self.callFunction(buffer, "new_vec", @constCast(&[_]ast.Expression{
+                    .{ .literal = .{ .number = @intCast(vec.elem_type.size()) } },
+                    .{ .literal = .{ .number = @intCast(128) } },
+                }));
+            },
+            .struct_ => |struct_| {
+                std.debug.assert(new.initializers.len == struct_.fields.len);
+
+                // TODO: calculate the size of each field
+                try self.callFunction(buffer, "allocate_memory", @constCast(&[_]ast.Expression{
+                    .{ .literal = .{ .number = @intCast(struct_.fields.len * 8) } },
+                }));
+
+                var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, struct_.fields.len);
+                for (new.initializers) |sinit| {
+                    const offset = try struct_.getFieldOffset(sinit.field);
+                    fields[offset] = sinit.value;
+                }
+
+                for (fields, 0..) |e, i| {
+                    try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
+                    try buffer.append(ast.Instruction{ .push = @intCast(i * 8) });
+                    try buffer.append(ast.Instruction{ .add = true });
+                    try self.compileExprFromAst(buffer, e);
+                    try buffer.append(ast.Instruction{ .store = 8 });
+                }
+            },
+            .slice => |slice| {
+                std.debug.assert(new.initializers.len == 1);
+                std.debug.assert(std.mem.eql(u8, new.initializers[0].field, "len"));
+
+                try self.callFunction(buffer, "new_slice", @constCast(&[_]ast.Expression{
+                    .{ .literal = .{ .number = @intCast(slice.elem_type.size()) } },
+                    new.initializers[0].value,
+                }));
+            },
+            .ident => |ident| {
+                try self.compileNewExpr(buffer, .{
+                    .type_ = ident.type_.*,
+                    .initializers = new.initializers,
+                });
+            },
+            else => {
+                std.log.err("Invalid new type: {any}\n", .{new.type_});
+                unreachable;
             },
         }
     }
@@ -653,6 +664,7 @@ pub const VmCompiler = struct {
                         });
                     }
                 },
+                .type_ => {},
             }
         }
     }

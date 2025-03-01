@@ -35,6 +35,7 @@ pub const Operator = enum {
     new,
     struct_,
     as,
+    type_,
 };
 
 pub const TokenType = enum {
@@ -78,6 +79,11 @@ pub const StructInitializer = struct {
     value: Expression,
 };
 
+pub const NewExpr = struct {
+    type_: Type,
+    initializers: []StructInitializer,
+};
+
 pub const ExpressionType = enum {
     var_,
     literal,
@@ -114,10 +120,7 @@ pub const Expression = union(ExpressionType) {
         lhs: *Expression,
         rhs: *Expression,
     },
-    new: struct {
-        type_: Type,
-        initializers: []StructInitializer,
-    },
+    new: NewExpr,
     project: struct {
         struct_: StructData,
         lhs: *Expression,
@@ -187,6 +190,7 @@ pub const Block = struct {
 pub const DeclType = enum {
     fun,
     let,
+    type_,
 };
 
 pub const FunParam = struct {
@@ -204,6 +208,10 @@ pub const Decl = union(DeclType) {
     let: struct {
         name: []const u8,
         value: ?Expression,
+    },
+    type_: struct {
+        name: []const u8,
+        type_: Type,
     },
 };
 
@@ -223,6 +231,7 @@ pub const TypeType = enum {
     fun,
     struct_,
     ptr,
+    ident,
 };
 
 pub const AstTypeError = error{
@@ -284,6 +293,10 @@ pub const Type = union(TypeType) {
     },
     struct_: StructData,
     ptr: struct { elem_type: *Type },
+    ident: struct {
+        name: []const u8,
+        type_: *Type,
+    },
 
     pub fn size(self: Type) u4 {
         return switch (self) {
@@ -298,6 +311,7 @@ pub const Type = union(TypeType) {
             Type.fun => unreachable,
             Type.struct_ => 8,
             Type.ptr => 8,
+            Type.ident => unreachable,
         };
     }
 

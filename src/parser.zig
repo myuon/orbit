@@ -185,6 +185,19 @@ pub const Parser = struct {
                                 .value = value,
                             } };
                         },
+                        .type_ => {
+                            try self.expect(ast.Operator.type_);
+
+                            const name = try self.expect_ident();
+                            try self.expect(ast.Operator.eq);
+                            const type_value = try self.type_();
+                            try self.expect(ast.Operator.semicolon);
+
+                            return ast.Decl{ .type_ = .{
+                                .name = name,
+                                .type_ = type_value,
+                            } };
+                        },
                         else => {
                             std.debug.print("unexpected token: {any}\n", .{self.tokens[self.position..]});
                             return error.UnexpectedToken;
@@ -857,7 +870,12 @@ pub const Parser = struct {
                         .value_type = value_type,
                     } };
                 } else {
-                    return ast.Type{ .unknown = true };
+                    const t = try self.ast_arena_allocator.allocator().create(ast.Type);
+
+                    return ast.Type{ .ident = .{
+                        .name = current,
+                        .type_ = t,
+                    } };
                 }
             },
             .keyword => |keyword| {
