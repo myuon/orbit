@@ -524,6 +524,21 @@ test "compiler.evalModule" {
             ,
             .expected = 305419896,
         },
+        .{
+            .program =
+            \\type Pair(A: type, B: type) = struct {
+            \\  first: A,
+            \\  second: B,
+            \\};
+            \\
+            \\fun main() do
+            \\  let p = new Pair(int, int) { .first = 1, .second = 2 };
+            \\
+            \\  return p.first + p.second;
+            \\end
+            ,
+            .expected = 3,
+        },
     };
 
     for (cases, 0..) |case, i| {
