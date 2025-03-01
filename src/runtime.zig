@@ -89,6 +89,7 @@ pub const VmRuntime = struct {
             }
         }
 
+        std.log.warn("Label not found: {s}", .{target_label});
         return error.LabelNotFound;
     }
 

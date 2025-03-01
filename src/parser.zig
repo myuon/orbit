@@ -622,19 +622,6 @@ pub const Parser = struct {
                 .lparen => {
                     try self.expect(ast.Operator.lparen);
 
-                    var ident: []const u8 = undefined;
-                    switch (current) {
-                        .var_ => |v| {
-                            ident = v;
-                        },
-                        else => {
-                            const s = try std.json.stringifyAlloc(self.ast_arena_allocator.allocator(), current, .{});
-
-                            std.log.err("unexpected token: want ident but got {s}\n", .{s});
-                            unreachable;
-                        },
-                    }
-
                     var args = std.ArrayList(ast.Expression).init(self.ast_arena_allocator.allocator());
                     while (self.can_peek()) {
                         if (self.is_next(ast.Operator.rparen)) {
@@ -652,8 +639,11 @@ pub const Parser = struct {
                     }
                     try self.expect(ast.Operator.rparen);
 
+                    const callee = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                    callee.* = current;
+
                     current = ast.Expression{ .call = .{
-                        .name = ident,
+                        .callee = callee,
                         .args = args.items,
                     } };
                 },

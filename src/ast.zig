@@ -107,7 +107,7 @@ pub const Expression = union(ExpressionType) {
     },
     block: Block,
     call: struct {
-        name: []const u8,
+        callee: *Expression,
         args: []Expression,
     },
     if_: struct {
@@ -247,10 +247,50 @@ pub const StructData = struct {
     fields: []StructField,
     methods: []Decl,
 
+    pub fn hasField(self: StructData, name: []const u8) bool {
+        for (self.fields) |field| {
+            if (std.mem.eql(u8, field.name, name)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     pub fn getFieldType(self: StructData, name: []const u8) !Type {
         for (self.fields) |field| {
             if (std.mem.eql(u8, field.name, name)) {
                 return field.type_;
+            }
+        }
+
+        unreachable;
+    }
+
+    pub fn hasMethod(self: StructData, name: []const u8) bool {
+        for (self.methods) |method| {
+            switch (method) {
+                .fun => |fun| {
+                    if (std.mem.eql(u8, fun.name, name)) {
+                        return true;
+                    }
+                },
+                else => {},
+            }
+        }
+
+        return false;
+    }
+
+    pub fn getMethod(self: StructData, name: []const u8) struct { params: []FunParam, result_type: Type } {
+        for (self.methods) |method| {
+            switch (method) {
+                .fun => |fun| {
+                    if (std.mem.eql(u8, fun.name, name)) {
+                        return .{ .params = fun.params, .result_type = fun.result_type };
+                    }
+                },
+                else => {},
             }
         }
 
@@ -264,7 +304,7 @@ pub const StructData = struct {
             }
         }
 
-        std.log.err("Field not found: {s} in {any}\n", .{ name, self });
+        std.log.err("Field not found: {s} in fields: {any}, methods: {any}\n", .{ name, self.fields.len, self.methods.len });
         unreachable;
     }
 };

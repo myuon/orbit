@@ -121,7 +121,7 @@ pub const VmCompiler = struct {
         }
     }
 
-    fn callFunction(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), name: []const u8, args: []ast.Expression) anyerror!void {
+    fn callFunction(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), callee: ast.Expression, args: []ast.Expression) anyerror!void {
         // return value
         try buffer.append(ast.Instruction{ .push = -2 });
 
@@ -137,7 +137,18 @@ pub const VmCompiler = struct {
         try buffer.append(ast.Instruction{ .set_bp = true });
 
         // call
-        try buffer.append(ast.Instruction{ .call = name });
+        switch (callee) {
+            .var_ => |name| {
+                try buffer.append(ast.Instruction{ .call = name });
+            },
+            .project => |project| {
+                try buffer.append(ast.Instruction{ .call = project.rhs });
+            },
+            else => {
+                std.log.err("Invalid callee: {any}\n", .{callee});
+                unreachable;
+            },
+        }
 
         for (args) |_| {
             try buffer.append(ast.Instruction{ .pop = true });
@@ -226,7 +237,7 @@ pub const VmCompiler = struct {
                 }
             },
             .call => |call| {
-                try self.callFunction(buffer, call.name, call.args);
+                try self.callFunction(buffer, call.callee.*, call.args);
             },
             .if_ => |if_| {
                 try self.compileExprFromAst(buffer, if_.cond.*);
@@ -262,13 +273,13 @@ pub const VmCompiler = struct {
                         const valueType = slice.elem_type.*;
                         switch (valueType) {
                             .int => {
-                                try self.callFunction(buffer, "get_slice_int", @constCast(&[_]ast.Expression{
+                                try self.callFunction(buffer, ast.Expression{ .var_ = "get_slice_int" }, @constCast(&[_]ast.Expression{
                                     index.lhs.*,
                                     index.rhs.*,
                                 }));
                             },
                             .byte => {
-                                try self.callFunction(buffer, "get_slice_byte", @constCast(&[_]ast.Expression{
+                                try self.callFunction(buffer, ast.Expression{ .var_ = "get_slice_byte" }, @constCast(&[_]ast.Expression{
                                     index.lhs.*,
                                     index.rhs.*,
                                 }));
@@ -288,7 +299,7 @@ pub const VmCompiler = struct {
                     .vec => |vec| {
                         switch (vec.elem_type.*) {
                             .int => {
-                                try self.callFunction(buffer, "get_vec_int", @constCast(&[_]ast.Expression{
+                                try self.callFunction(buffer, ast.Expression{ .var_ = "get_vec_int" }, @constCast(&[_]ast.Expression{
                                     index.lhs.*,
                                     index.rhs.*,
                                 }));
@@ -329,7 +340,7 @@ pub const VmCompiler = struct {
             .array => |array| {
                 std.debug.assert(new.initializers.len == 0);
 
-                try self.callFunction(buffer, "allocate_memory", @constCast(&[_]ast.Expression{
+                try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, @constCast(&[_]ast.Expression{
                     .{ .literal = .{ .number = @intCast(array.size * @as(usize, array.elem_type.size())) } },
                 }));
             },
@@ -337,14 +348,14 @@ pub const VmCompiler = struct {
                 std.debug.assert(new.initializers.len == 0);
 
                 // TODO: growable capacity
-                try self.callFunction(buffer, "allocate_memory", @constCast(&[_]ast.Expression{
+                try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, @constCast(&[_]ast.Expression{
                     .{ .literal = .{ .number = @intCast(128 * @as(usize, map.value_type.size())) } },
                 }));
             },
             .vec => |vec| {
                 std.debug.assert(new.initializers.len == 0);
 
-                try self.callFunction(buffer, "new_vec", @constCast(&[_]ast.Expression{
+                try self.callFunction(buffer, ast.Expression{ .var_ = "new_vec" }, @constCast(&[_]ast.Expression{
                     .{ .literal = .{ .number = @intCast(vec.elem_type.size()) } },
                     .{ .literal = .{ .number = @intCast(128) } },
                 }));
@@ -353,7 +364,7 @@ pub const VmCompiler = struct {
                 std.debug.assert(new.initializers.len == struct_.fields.len);
 
                 // TODO: calculate the size of each field
-                try self.callFunction(buffer, "allocate_memory", @constCast(&[_]ast.Expression{
+                try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, @constCast(&[_]ast.Expression{
                     .{ .literal = .{ .number = @intCast(struct_.fields.len * 8) } },
                 }));
 
@@ -375,7 +386,7 @@ pub const VmCompiler = struct {
                 std.debug.assert(new.initializers.len == 1);
                 std.debug.assert(std.mem.eql(u8, new.initializers[0].field, "len"));
 
-                try self.callFunction(buffer, "new_slice", @constCast(&[_]ast.Expression{
+                try self.callFunction(buffer, ast.Expression{ .var_ = "new_slice" }, @constCast(&[_]ast.Expression{
                     .{ .literal = .{ .number = @intCast(slice.elem_type.size()) } },
                     new.initializers[0].value,
                 }));
@@ -541,7 +552,7 @@ pub const VmCompiler = struct {
                             .vec => |vec| {
                                 switch (vec.elem_type.*) {
                                     .int => {
-                                        try self.callFunction(buffer, "set_vec_int", @constCast(&[_]ast.Expression{
+                                        try self.callFunction(buffer, ast.Expression{ .var_ = "set_vec_int" }, @constCast(&[_]ast.Expression{
                                             assign.lhs.index.lhs.*,
                                             assign.lhs.index.rhs.*,
                                             assign.rhs,
@@ -580,7 +591,7 @@ pub const VmCompiler = struct {
             .push => |push| {
                 switch (push.type_) {
                     .vec => {
-                        try self.callFunction(buffer, "push_vec_int", @constCast(&[_]ast.Expression{
+                        try self.callFunction(buffer, ast.Expression{ .var_ = "push_vec_int" }, @constCast(&[_]ast.Expression{
                             push.lhs,
                             push.rhs,
                         }));
@@ -623,49 +634,58 @@ pub const VmCompiler = struct {
         return buffer.items;
     }
 
+    fn compileDecl(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), decl: ast.Decl) anyerror!void {
+        switch (decl) {
+            .fun => |f| {
+                self.env_offset = 0;
+                self.env.clearAndFree();
+
+                try buffer.append(ast.Instruction{ .label = f.name });
+
+                try self.env.put("return", -@as(i32, @intCast(f.params.len)) - 3);
+
+                // register names in the reverse order
+                for (f.params, 0..) |param, i| {
+                    try self.env.put(param.name, -@as(i32, @intCast(f.params.len - i)) - 2);
+                }
+
+                self.compiling_context = f.name;
+
+                try buffer.appendSlice(try self.compileBlock(f.name, f.body));
+
+                self.compiling_context = "";
+
+                const end_of_f = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "end_of_{s}", .{f.name});
+                try buffer.append(ast.Instruction{ .label = end_of_f });
+            },
+            .let => |let| {
+                const i = self.global_data_offset;
+                try self.global_data.put(let.name, @intCast(i));
+                self.global_data_offset += 1;
+
+                if (let.value) |value| {
+                    try self.initialized_statements.append(ast.Statement{
+                        .assign = .{
+                            // FIXME: other types
+                            .type_ = .{ .int = true },
+                            .lhs = .{ .var_ = let.name },
+                            .rhs = value,
+                        },
+                    });
+                }
+            },
+            .type_ => |t| {
+                const str = try t.type_.getStructData();
+                for (str.methods) |m| {
+                    try self.compileDecl(buffer, m);
+                }
+            },
+        }
+    }
+
     fn compileModule(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), module: ast.Module) anyerror!void {
         for (module.decls) |decl| {
-            switch (decl) {
-                .fun => |f| {
-                    self.env_offset = 0;
-                    self.env.clearAndFree();
-
-                    try buffer.append(ast.Instruction{ .label = f.name });
-
-                    try self.env.put("return", -@as(i32, @intCast(f.params.len)) - 3);
-
-                    // register names in the reverse order
-                    for (f.params, 0..) |param, i| {
-                        try self.env.put(param.name, -@as(i32, @intCast(f.params.len - i)) - 2);
-                    }
-
-                    self.compiling_context = f.name;
-
-                    try buffer.appendSlice(try self.compileBlock(f.name, f.body));
-
-                    self.compiling_context = "";
-
-                    const end_of_f = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "end_of_{s}", .{f.name});
-                    try buffer.append(ast.Instruction{ .label = end_of_f });
-                },
-                .let => |let| {
-                    const i = self.global_data_offset;
-                    try self.global_data.put(let.name, @intCast(i));
-                    self.global_data_offset += 1;
-
-                    if (let.value) |value| {
-                        try self.initialized_statements.append(ast.Statement{
-                            .assign = .{
-                                // FIXME: other types
-                                .type_ = .{ .int = true },
-                                .lhs = .{ .var_ = let.name },
-                                .rhs = value,
-                            },
-                        });
-                    }
-                },
-                .type_ => {},
-            }
+            try self.compileDecl(buffer, decl);
         }
     }
 
@@ -681,7 +701,7 @@ pub const VmCompiler = struct {
                 .{
                     .return_ = .{
                         .call = .{
-                            .name = entrypoint,
+                            .callee = @constCast(&ast.Expression{ .var_ = entrypoint }),
                             .args = &[_]ast.Expression{},
                         },
                     },

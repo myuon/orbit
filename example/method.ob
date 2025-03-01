@@ -2,7 +2,7 @@ type Point = struct {
   x: int,
   y: int,
 
-  fun sum() do
+  fun sum(self: Point) do
     return self.x + self.y;
   end
 

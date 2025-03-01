@@ -26,7 +26,7 @@ pub const Typechecker = struct {
         self.arena_allocator.deinit();
     }
 
-    fn assertType(expect: ast.Type, actual: ast.Type) anyerror!ast.Type {
+    fn assertType(self: *Typechecker, expect: ast.Type, actual: ast.Type) anyerror!ast.Type {
         switch (actual) {
             .unknown => {
                 return expect;
@@ -69,7 +69,7 @@ pub const Typechecker = struct {
                             std.log.err("Expected array of size {any}, got {any}\n", .{ expect.array.size, actual.array.size });
                             return TypecheckerError.UnexpectedType;
                         }
-                        _ = try assertType(expect.array.elem_type.*, actual.array.elem_type.*);
+                        _ = try self.assertType(expect.array.elem_type.*, actual.array.elem_type.*);
                     },
                     else => {
                         std.log.err("Expected array, got {any}\n", .{actual});
@@ -79,7 +79,7 @@ pub const Typechecker = struct {
             },
             .slice => {
                 switch (actual) {
-                    .slice => _ = try assertType(expect.slice.elem_type.*, actual.slice.elem_type.*),
+                    .slice => _ = try self.assertType(expect.slice.elem_type.*, actual.slice.elem_type.*),
                     else => {
                         std.log.err("Expected slice, got {any}\n", .{actual});
                         return TypecheckerError.UnexpectedType;
@@ -88,7 +88,7 @@ pub const Typechecker = struct {
             },
             .vec => {
                 switch (actual) {
-                    .vec => _ = try assertType(expect.vec.elem_type.*, actual.vec.elem_type.*),
+                    .vec => _ = try self.assertType(expect.vec.elem_type.*, actual.vec.elem_type.*),
                     else => {
                         std.log.err("Expected vec, got {any}\n", .{actual});
                         return TypecheckerError.UnexpectedType;
@@ -98,8 +98,8 @@ pub const Typechecker = struct {
             .map => {
                 switch (actual) {
                     .map => {
-                        _ = try assertType(expect.map.key_type.*, actual.map.key_type.*);
-                        _ = try assertType(expect.map.value_type.*, actual.map.value_type.*);
+                        _ = try self.assertType(expect.map.key_type.*, actual.map.key_type.*);
+                        _ = try self.assertType(expect.map.value_type.*, actual.map.value_type.*);
                     },
                     else => {
                         std.log.err("Expected map, got {any}\n", .{actual});
@@ -115,9 +115,9 @@ pub const Typechecker = struct {
                             return TypecheckerError.UnexpectedType;
                         }
                         for (expect.fun.params, 0..) |param, i| {
-                            _ = try assertType(param, actual.fun.params[i]);
+                            _ = try self.assertType(param, actual.fun.params[i]);
                         }
-                        _ = try assertType(expect.fun.return_type.*, actual.fun.return_type.*);
+                        _ = try self.assertType(expect.fun.return_type.*, actual.fun.return_type.*);
                     },
                     else => {
                         std.log.err("Expected function, got {any}\n", .{actual});
@@ -133,7 +133,7 @@ pub const Typechecker = struct {
                             return TypecheckerError.UnexpectedType;
                         }
                         for (expect_data.fields, 0..) |field, i| {
-                            _ = assertType(field.type_, actual_data.fields[i].type_) catch |err| {
+                            _ = self.assertType(field.type_, actual_data.fields[i].type_) catch |err| {
                                 std.log.err("Error in field {s}: {}\n   {s}:{}", .{ field.name, err, @src().file, @src().line });
                                 return err;
                             };
@@ -147,7 +147,7 @@ pub const Typechecker = struct {
             },
             .ptr => |ptr| {
                 switch (actual) {
-                    .ptr => _ = try assertType(ptr.elem_type.*, actual.ptr.elem_type.*),
+                    .ptr => _ = try self.assertType(ptr.elem_type.*, actual.ptr.elem_type.*),
                     else => {
                         std.log.err("Expected ptr, got {any}\n", .{actual});
                         return TypecheckerError.UnexpectedType;
@@ -163,8 +163,12 @@ pub const Typechecker = struct {
                         }
                     },
                     else => {
-                        std.log.err("Expected ident, got {any}\n", .{actual});
-                        return TypecheckerError.UnexpectedType;
+                        const expect_type = self.env.get(expect.ident.name) orelse {
+                            std.log.err("Expected ident {s}, got {any}\n", .{ expect.ident.name, actual });
+                            return TypecheckerError.UnexpectedType;
+                        };
+
+                        _ = try self.assertType(expect_type, actual);
                     },
                 }
             },
@@ -206,13 +210,13 @@ pub const Typechecker = struct {
 
                 switch (binop.op) {
                     .eqeq, .langle, .lte, .rangle, .gte => {
-                        _ = try assertType(lhs, rhs);
+                        _ = try self.assertType(lhs, rhs);
 
                         return ast.Type{ .bool_ = true };
                     },
                     .plus, .minus, .star, .percent => {
-                        _ = try assertType(lhs, rhs);
-                        _ = try assertType(lhs, ast.Type{ .int = true });
+                        _ = try self.assertType(lhs, rhs);
+                        _ = try self.assertType(lhs, ast.Type{ .int = true });
 
                         return lhs;
                     },
@@ -227,21 +231,48 @@ pub const Typechecker = struct {
                 unreachable;
             },
             .call => |call| {
-                const fun_type = self.env.get(call.name) orelse {
-                    std.log.err("Function not found: {s}\n", .{call.name});
-                    return error.VariableNotFound;
-                };
+                var fun_type: ast.Type = undefined;
+                switch (call.callee.*) {
+                    .var_ => |ident| {
+                        fun_type = self.env.get(ident) orelse {
+                            std.log.err("Function not found: {s}\n", .{ident});
+                            return error.VariableNotFound;
+                        };
+                    },
+                    .project => |project| {
+                        const lhs_type = try self.typecheckExpr(project.lhs);
+
+                        const method_type = try self.typecheckExpr(call.callee);
+                        switch (method_type) {
+                            .fun => |fun| {
+                                _ = try self.assertType(fun.params[0], lhs_type);
+
+                                fun_type = ast.Type{ .fun = .{
+                                    .params = fun.params[1..],
+                                    .return_type = fun.return_type,
+                                } };
+                            },
+                            else => {
+                                unreachable;
+                            },
+                        }
+                    },
+                    else => {
+                        std.log.err("Expected ident, got {any}\n", .{call.callee});
+                        return TypecheckerError.UnexpectedType;
+                    },
+                }
 
                 switch (fun_type) {
                     .fun => |fun| {
                         if (fun.params.len != call.args.len) {
-                            std.log.err("Function {s} expects {d} arguments, got {d}\n", .{ call.name, fun.params.len, call.args.len });
+                            std.log.err("Function {any} expects {d} arguments, got {d}\n", .{ call.callee, fun.params.len, call.args.len });
                             return error.UnexpectedType;
                         }
 
                         for (fun.params, 0..) |param, i| {
                             const arg = try self.typecheckExpr(&call.args[i]);
-                            _ = assertType(param, arg) catch |err| {
+                            _ = self.assertType(param, arg) catch |err| {
                                 std.log.err("Error in argument {any} ({any}, {any}): {}\n   {s}:{}", .{ call.args[i], param, arg, err, @src().file, @src().line });
                                 return err;
                             };
@@ -265,7 +296,7 @@ pub const Typechecker = struct {
                 const rhs = index.rhs;
                 const rhs_type = try self.typecheckExpr(rhs);
 
-                _ = try assertType(key_type, rhs_type);
+                _ = try self.assertType(key_type, rhs_type);
 
                 expr.*.index.type_ = lhs_type;
 
@@ -314,7 +345,7 @@ pub const Typechecker = struct {
                     var value = initializer.value;
                     const t = try self.typecheckExpr(&value);
 
-                    _ = try assertType(field_type, t);
+                    _ = try self.assertType(field_type, t);
                     expr.new.initializers[k].value = value;
                 }
 
@@ -324,14 +355,47 @@ pub const Typechecker = struct {
                 const lhs = project.lhs;
                 const lhs_type = try self.typecheckExpr(lhs);
 
-                const structData = try lhs_type.getStructData();
-
-                const field = project.rhs;
-                const field_type = try structData.getFieldType(field);
-
+                var structData: ast.StructData = undefined;
+                switch (lhs_type) {
+                    .struct_ => |d| {
+                        structData = d;
+                    },
+                    .ident => |ident| {
+                        if (self.env.get(ident.name)) |v| {
+                            structData = v.struct_;
+                        } else {
+                            unreachable;
+                        }
+                    },
+                    else => {
+                        unreachable;
+                    },
+                }
                 expr.project.struct_ = structData;
 
-                return field_type;
+                const field = project.rhs;
+
+                if (structData.hasField(field)) {
+                    return try structData.getFieldType(field);
+                } else if (structData.hasMethod(field)) {
+                    const method = structData.getMethod(field);
+
+                    var params = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
+                    for (method.params) |fp| {
+                        try params.append(fp.type_.?);
+                    }
+
+                    const return_type = try self.arena_allocator.allocator().create(ast.Type);
+                    return_type.* = method.result_type;
+
+                    return ast.Type{ .fun = .{
+                        .params = params.items,
+                        .return_type = return_type,
+                    } };
+                }
+
+                std.log.err("Expected field or method, got {any}\n", .{field});
+                return TypecheckerError.UnexpectedType;
             },
             .as => |as| {
                 // var lhs = as.lhs.*;
@@ -372,7 +436,7 @@ pub const Typechecker = struct {
                 var e = ret;
                 const t = try self.typecheckExpr(&e);
 
-                self.return_type.? = try assertType(self.return_type.?, t);
+                self.return_type.? = try self.assertType(self.return_type.?, t);
 
                 stmt.*.return_ = e;
             },
@@ -385,7 +449,7 @@ pub const Typechecker = struct {
             },
             .if_ => |if_| {
                 const cond_type = try self.typecheckExpr(if_.cond);
-                _ = try assertType(ast.Type{ .bool_ = true }, cond_type);
+                _ = try self.assertType(ast.Type{ .bool_ = true }, cond_type);
 
                 var then_ = if_.then_;
 
@@ -402,7 +466,7 @@ pub const Typechecker = struct {
                 var rhs = assign.rhs;
                 const rhs_type = try self.typecheckExpr(&rhs);
 
-                _ = try assertType(lhs_type, rhs_type);
+                _ = try self.assertType(lhs_type, rhs_type);
 
                 stmt.*.assign.lhs = lhs;
                 stmt.*.assign.rhs = rhs;
@@ -417,7 +481,7 @@ pub const Typechecker = struct {
                 var rhs = push.rhs;
                 const rhs_type = try self.typecheckExpr(&rhs);
 
-                _ = try assertType(value_type, rhs_type);
+                _ = try self.assertType(value_type, rhs_type);
 
                 stmt.*.push.lhs = lhs;
                 stmt.*.push.rhs = rhs;
@@ -425,7 +489,7 @@ pub const Typechecker = struct {
             },
             .while_ => |while_| {
                 const cond_type = try self.typecheckExpr(while_.cond);
-                _ = try assertType(ast.Type{ .bool_ = true }, cond_type);
+                _ = try self.assertType(ast.Type{ .bool_ = true }, cond_type);
 
                 var body = while_.body;
                 try self.typecheckBlock(&body);
@@ -449,73 +513,84 @@ pub const Typechecker = struct {
         }
     }
 
+    fn typecheckDecl(self: *Typechecker, module: *ast.Module, decl: *ast.Decl) anyerror!void {
+        switch (decl.*) {
+            .fun => |fun| {
+                var params = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
+
+                for (fun.params) |param| {
+                    var t = ast.Type{ .unknown = true };
+                    if (param.type_) |pt| {
+                        t = pt;
+                    }
+
+                    try self.env.put(param.name, t);
+                    try params.append(t);
+                }
+
+                self.return_type = fun.result_type;
+
+                const return_type = try self.arena_allocator.allocator().create(ast.Type);
+                return_type.* = fun.result_type;
+
+                if (self.env.contains(fun.name)) {
+                    std.log.err("Function {s} already defined\n", .{fun.name});
+                    unreachable;
+                }
+                try self.env.put(fun.name, ast.Type{ .fun = .{
+                    .params = params.items,
+                    .return_type = return_type,
+                } });
+
+                var body = fun.body;
+
+                self.typecheckBlock(&body) catch |err| {
+                    std.log.err("Error in function {s}: {}\n   {s}:{}", .{ fun.name, err, @src().file, @src().line });
+                    return err;
+                };
+
+                return_type.* = self.return_type.?;
+
+                const t = ast.Type{ .fun = .{
+                    .params = params.items,
+                    .return_type = return_type,
+                } };
+                try self.env.put(fun.name, t);
+
+                self.return_type = null;
+
+                decl.fun.body = body;
+            },
+            .let => |let| {
+                const value = let.value;
+
+                // FIXME: support other types
+                var t: ast.Type = ast.Type{ .int = true };
+                if (value) |v| {
+                    var v_ = v;
+                    t = try self.typecheckExpr(&v_);
+                }
+                try self.env.put(let.name, t);
+            },
+            .type_ => |type_decl| {
+                try self.env.put(type_decl.name, type_decl.type_);
+
+                var str = try type_decl.type_.getStructData();
+                for (0..str.methods.len) |i| {
+                    try self.typecheckDecl(module, &str.methods[i]);
+                }
+
+                decl.*.type_.type_ = type_decl.type_;
+            },
+        }
+    }
+
     pub fn typecheck(self: *Typechecker, module: *ast.Module) anyerror!void {
         const zone = P.begin(@src(), "Typechecker.typecheck");
         defer zone.end();
 
-        for (module.decls, 0..) |decl, i| {
-            switch (decl) {
-                .fun => |fun| {
-                    var params = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
-
-                    for (fun.params) |param| {
-                        var t = ast.Type{ .unknown = true };
-                        if (param.type_) |pt| {
-                            t = pt;
-                        }
-
-                        try self.env.put(param.name, t);
-                        try params.append(t);
-                    }
-
-                    self.return_type = fun.result_type;
-
-                    const return_type = try self.arena_allocator.allocator().create(ast.Type);
-                    return_type.* = fun.result_type;
-
-                    if (self.env.contains(fun.name)) {
-                        std.log.err("Function {s} already defined\n", .{fun.name});
-                        unreachable;
-                    }
-                    try self.env.put(fun.name, ast.Type{ .fun = .{
-                        .params = params.items,
-                        .return_type = return_type,
-                    } });
-
-                    var body = fun.body;
-
-                    self.typecheckBlock(&body) catch |err| {
-                        std.log.err("Error in function {s}: {}\n   {s}:{}", .{ fun.name, err, @src().file, @src().line });
-                        return err;
-                    };
-
-                    return_type.* = self.return_type.?;
-
-                    const t = ast.Type{ .fun = .{
-                        .params = params.items,
-                        .return_type = return_type,
-                    } };
-                    try self.env.put(fun.name, t);
-
-                    self.return_type = null;
-
-                    module.decls[i].fun.body = body;
-                },
-                .let => |let| {
-                    const value = let.value;
-
-                    // FIXME: support other types
-                    var t: ast.Type = ast.Type{ .int = true };
-                    if (value) |v| {
-                        var v_ = v;
-                        t = try self.typecheckExpr(&v_);
-                    }
-                    try self.env.put(let.name, t);
-                },
-                .type_ => |type_decl| {
-                    try self.env.put(type_decl.name, type_decl.type_);
-                },
-            }
+        for (0..module.decls.len) |i| {
+            try self.typecheckDecl(module, &module.decls[i]);
         }
     }
 };
