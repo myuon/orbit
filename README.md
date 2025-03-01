@@ -11,6 +11,8 @@
 - [ ] Pattern matching
 - [ ] Destructuring
 - [ ] Closures
+- [ ] Error handling and Result type
+- [ ] Modules
 
 ## Hello World
 
