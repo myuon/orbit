@@ -253,9 +253,9 @@ pub fn main() !void {
             const hsp = vmr.loadMemory(8, vm.heap_section_ptr);
             try std.fmt.format(memory.writer(), "  heap_section_ptr: {x:0>2}\n", .{hsp});
 
-            try memory.appendSlice("memory:\n");
+            try memory.appendSlice("memory (heap):\n");
 
-            for (vmr.memory, 0..) |v, i| {
+            for (vmr.memory[@as(usize, @intCast(gsp))..], 0..) |v, i| {
                 const p = try std.fmt.allocPrint(draw_allocator, "{x:0>2} ", .{v});
                 if (v == 0) {
                     try memory.appendSlice(".. ");
