@@ -175,6 +175,9 @@ pub const Typechecker = struct {
             .apply => {
                 unreachable;
             },
+            .forall => {
+                unreachable;
+            },
             .unknown => {
                 return actual;
             },
@@ -336,8 +339,16 @@ pub const Typechecker = struct {
 
                         return t;
                     },
-                    .apply => {
-                        unreachable;
+                    .apply => |apply| {
+                        const f = self.env.get(apply.name) orelse {
+                            std.log.err("Function not found: {s}\n", .{apply.name});
+                            return error.VariableNotFound;
+                        };
+
+                        const applied = try f.applyTypes(self.arena_allocator.allocator(), apply.params);
+                        apply.applied.* = applied;
+
+                        return applied;
                     },
                     else => {
                         std.log.err("Expected struct, got {any}\n", .{new.type_});

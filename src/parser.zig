@@ -167,10 +167,16 @@ pub const Parser = struct {
                             const type_value = try self.type_();
                             try self.expect(ast.Operator.semicolon);
 
+                            const t = try self.ast_arena_allocator.allocator().create(ast.Type);
+                            t.* = type_value;
+
                             return ast.Decl{ .type_ = .{
                                 .name = name,
                                 .params = params.items,
-                                .type_ = type_value,
+                                .type_ = .{ .forall = .{
+                                    .params = params.items,
+                                    .type_ = t,
+                                } },
                             } };
                         },
                         else => {
@@ -770,9 +776,13 @@ pub const Parser = struct {
                         }
                         try self.expect(ast.Operator.rparen);
 
+                        const applied = try self.ast_arena_allocator.allocator().create(ast.Type);
+                        applied.* = .{ .unknown = true };
+
                         return ast.Type{ .apply = .{
                             .name = current,
                             .params = params.items,
+                            .applied = applied,
                         } };
                     }
 
