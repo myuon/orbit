@@ -50,9 +50,14 @@ pub const Compiler = struct {
             \\
             \\fun allocate_memory(size: int): ptr(byte) do
             \\  let p = hp;
-            \\  hp = hp + size;
+            \\  hp = hp + size + 8; // +8 for size field
             \\
-            \\  return p as ptr(byte);
+            \\  let s = p as ptr(int);
+            \\  s[0] = size;
+            \\
+            \\  let b = p + 8;
+            \\
+            \\  return b as ptr(byte);
             \\end
             \\
             \\fun new_slice(size: int, len: int) do
