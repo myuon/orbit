@@ -211,6 +211,7 @@ pub const Decl = union(DeclType) {
     },
     type_: struct {
         name: []const u8,
+        params: [][]const u8,
         type_: Type,
     },
 };
@@ -232,6 +233,7 @@ pub const TypeType = enum {
     struct_,
     ptr,
     ident,
+    apply,
 };
 
 pub const AstTypeError = error{
@@ -338,6 +340,10 @@ pub const Type = union(TypeType) {
         name: []const u8,
         type_: *Type,
     },
+    apply: struct {
+        name: []const u8,
+        params: []Type,
+    },
 
     pub fn size(self: Type) u4 {
         return switch (self) {
@@ -353,6 +359,7 @@ pub const Type = union(TypeType) {
             Type.struct_ => 8,
             Type.ptr => 8,
             Type.ident => unreachable,
+            Type.apply => unreachable,
         };
     }
 

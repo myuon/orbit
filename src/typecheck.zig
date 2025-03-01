@@ -172,6 +172,9 @@ pub const Typechecker = struct {
                     },
                 }
             },
+            .apply => {
+                unreachable;
+            },
             .unknown => {
                 return actual;
             },
@@ -332,6 +335,9 @@ pub const Typechecker = struct {
                         ident.type_.* = t;
 
                         return t;
+                    },
+                    .apply => {
+                        unreachable;
                     },
                     else => {
                         std.log.err("Expected struct, got {any}\n", .{new.type_});

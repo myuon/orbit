@@ -144,12 +144,32 @@ pub const Parser = struct {
                             try self.expect(ast.Operator.type_);
 
                             const name = try self.expect_ident();
+
+                            var params = std.ArrayList([]const u8).init(self.ast_arena_allocator.allocator());
+                            if (self.is_next(ast.Operator.lparen)) {
+                                try self.expect(ast.Operator.lparen);
+                                while (!self.is_next(ast.Operator.rparen)) {
+                                    const param = try self.expect_ident();
+                                    try params.append(param);
+                                    try self.expect(ast.Operator.colon);
+                                    try self.expect(ast.Operator.type_);
+
+                                    if (self.is_next(ast.Operator.comma)) {
+                                        try self.expect(ast.Operator.comma);
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                try self.expect(ast.Operator.rparen);
+                            }
+
                             try self.expect(ast.Operator.eq);
                             const type_value = try self.type_();
                             try self.expect(ast.Operator.semicolon);
 
                             return ast.Decl{ .type_ = .{
                                 .name = name,
+                                .params = params.items,
                                 .type_ = type_value,
                             } };
                         },
@@ -733,6 +753,28 @@ pub const Parser = struct {
                     } };
                 } else {
                     const t = try self.ast_arena_allocator.allocator().create(ast.Type);
+
+                    if (self.is_next(ast.Operator.lparen)) {
+                        try self.expect(ast.Operator.lparen);
+
+                        var params = std.ArrayList(ast.Type).init(self.ast_arena_allocator.allocator());
+                        while (!self.is_next(ast.Operator.rparen)) {
+                            const p = try self.type_();
+                            try params.append(p);
+
+                            if (self.is_next(ast.Operator.comma)) {
+                                try self.expect(ast.Operator.comma);
+                            } else {
+                                break;
+                            }
+                        }
+                        try self.expect(ast.Operator.rparen);
+
+                        return ast.Type{ .apply = .{
+                            .name = current,
+                            .params = params.items,
+                        } };
+                    }
 
                     return ast.Type{ .ident = .{
                         .name = current,
