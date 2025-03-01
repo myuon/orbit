@@ -116,6 +116,39 @@ pub const VmRuntime = struct {
         try self.jit_cache_ptr.put(label, i);
     }
 
+    fn compileIrBlock(
+        self: *VmRuntime,
+        ir_block: []ast.Instruction,
+        label: []const u8,
+        is_trace: bool,
+        exit_stub: ?std.StringHashMap(usize),
+    ) anyerror!?jit.CompiledFn {
+        const zone = P.begin(@src(), "VmRuntime.compileIrBlock");
+        defer zone.end();
+
+        var vmc = vm.VmCompiler.init(self.allocator);
+        defer vmc.deinit();
+
+        var local_exit_stub = std.StringHashMap(usize).init(self.allocator);
+        defer local_exit_stub.deinit();
+
+        const stub_to_use = if (exit_stub) |stub| stub else local_exit_stub;
+        _ = vmc.resolveIrLabels(ir_block, stub_to_use, self.jit_cache_ptr) catch |err| {
+            std.log.warn("Resolve IR labels failed: {any}", .{err});
+            return null;
+        };
+
+        var runtime = jit.JitRuntime.init(self.allocator);
+        const f = runtime.compile(ir_block, is_trace) catch |err| {
+            std.log.warn("JIT compile error, fallback to VM execution: {s} {any}\n", .{ label, err });
+            return null;
+        };
+
+        std.log.info("JIT compile finished: {s}", .{label});
+
+        return f;
+    }
+
     fn compileTrace(
         self: *VmRuntime,
         traces: []ast.Instruction,
@@ -128,9 +161,6 @@ pub const VmRuntime = struct {
         // Only supports: [label, ..., jump label] fragment
         std.debug.assert(std.mem.eql(u8, traces[0].label, label));
         std.debug.assert(std.mem.eql(u8, traces[traces.len - 1].jump, label));
-
-        var vmc = vm.VmCompiler.init(self.allocator);
-        defer vmc.deinit();
 
         var ir_block = std.ArrayList(ast.Instruction).init(self.allocator);
         defer ir_block.deinit();
@@ -220,19 +250,7 @@ pub const VmRuntime = struct {
 
         try ir_block.appendSlice(fallback_block.items);
 
-        try vmc.resolveIrLabels(ir_block.items, exit_stub, self.jit_cache_ptr);
-
-        var runtime = jit.JitRuntime.init(self.allocator);
-
-        const f = runtime.compile(ir_block.items, true) catch |err| {
-            std.log.warn("JIT compile error, fallback to VM execution: {any}", .{err});
-
-            return null;
-        };
-
-        std.log.info("Tracing & compile finished {s} {d}", .{ label, ir_block.items.len });
-
-        return f;
+        return try self.compileIrBlock(ir_block.items, label, true, exit_stub);
     }
 
     fn compileCall(
@@ -253,37 +271,8 @@ pub const VmRuntime = struct {
         defer ir_block_list.deinit();
 
         try ir_block_list.appendSlice(program[call_block_start.?..call_block_end.?]);
-        const ir_block = ir_block_list.items;
 
-        var vmc = vm.VmCompiler.init(self.allocator);
-        defer vmc.deinit();
-
-        var exit_stub = std.StringHashMap(usize).init(self.allocator);
-        defer exit_stub.deinit();
-
-        vmc.resolveIrLabels(ir_block, exit_stub, self.jit_cache_ptr) catch |err| {
-            std.log.warn("Resolve IR labels failed: {any}", .{err});
-
-            return null;
-        };
-
-        var params = std.ArrayList([]const u8).init(self.allocator);
-        defer params.deinit();
-
-        var runtime = jit.JitRuntime.init(self.allocator);
-        const result = runtime.compile(ir_block, false);
-
-        _ = result catch |err| {
-            std.debug.print("JIT compile error, fallback to VM execution: {s} {any}\n", .{ label, err });
-
-            return null;
-        };
-
-        const f = try result;
-
-        std.log.info("JIT compile finished: {s}", .{label});
-
-        return f;
+        return try self.compileIrBlock(ir_block_list.items, label, false, null);
     }
 
     pub fn step(
