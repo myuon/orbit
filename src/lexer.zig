@@ -43,6 +43,31 @@ pub const Lexer = struct {
         }
     }
 
+    fn consume_hex_number(self: *Lexer) ?u32 {
+        if (!utils.startsWith(self.source[self.position..], "0x")) {
+            return null;
+        }
+
+        self.position += 2;
+
+        var number: u32 = 0;
+        while (self.peek()) |ch| {
+            if (ch >= '0' and ch <= '9') {
+                number = number * 16 + @as(u32, (ch - @as(u8, '0')));
+            } else if (ch >= 'a' and ch <= 'f') {
+                number = number * 16 + @as(u32, (ch - @as(u8, 'a') + 10));
+            } else if (ch >= 'A' and ch <= 'F') {
+                number = number * 16 + @as(u32, (ch - @as(u8, 'A') + 10));
+            } else {
+                break;
+            }
+
+            _ = self.consume();
+        }
+
+        return number;
+    }
+
     fn consume_number(self: *Lexer) ?u32 {
         var happened = false;
         var number: u32 = 0;
@@ -209,6 +234,11 @@ pub const Lexer = struct {
 
             if (self.consume_token()) |token| {
                 try tokens.append(token);
+                continue;
+            }
+
+            if (self.consume_hex_number()) |number| {
+                try tokens.append(ast.Token{ .number = number });
                 continue;
             }
 

@@ -577,6 +577,14 @@ test "compiler.evalModule" {
             ,
             .expected = 13,
         },
+        .{
+            .program =
+            \\fun main() do
+            \\  return 0x12345678;
+            \\end
+            ,
+            .expected = 305419896,
+        },
     };
 
     for (cases) |case| {
