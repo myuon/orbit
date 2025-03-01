@@ -712,8 +712,8 @@ pub const VmRuntime = struct {
     }
 
     fn allocateMemory(self: *VmRuntime, stack: *std.ArrayList(i64), size: usize) anyerror!void {
-        const hp = self.loadMemory(8, vm.heap_section_ptr);
-        self.storeMemory(8, vm.heap_section_ptr, hp + @as(i64, @intCast(size)));
+        const hp = self.loadMemory(8, vm.heap_ptr);
+        self.storeMemory(8, vm.heap_ptr, hp + @as(i64, @intCast(size)));
 
         try stack.append(@intCast(hp));
     }

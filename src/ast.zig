@@ -365,7 +365,13 @@ pub const Type = union(TypeType) {
             Type.struct_ => 8,
             Type.ptr => 8,
             Type.ident => unreachable,
-            Type.apply => unreachable,
+            Type.apply => |apply| {
+                if (std.mem.eql(u8, apply.name, "ptr")) {
+                    return 8;
+                } else {
+                    unreachable;
+                }
+            },
             Type.forall => unreachable,
         };
     }
@@ -386,6 +392,22 @@ pub const Type = union(TypeType) {
             },
             .ptr => {
                 return Type{ .int = true };
+            },
+            .apply => |apply| {
+                if (std.mem.eql(u8, apply.name, "ptr")) {
+                    return Type{ .int = true };
+                } else if (std.mem.eql(u8, apply.name, "array")) {
+                    return Type{ .int = true };
+                } else if (std.mem.eql(u8, apply.name, "slice")) {
+                    return Type{ .int = true };
+                } else if (std.mem.eql(u8, apply.name, "vec")) {
+                    return Type{ .int = true };
+                } else if (std.mem.eql(u8, apply.name, "map")) {
+                    return apply.params[0];
+                } else {
+                    std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
+                    return error.UnexpectedType;
+                }
             },
             else => {
                 std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
@@ -410,6 +432,22 @@ pub const Type = union(TypeType) {
             },
             .ptr => |ptr| {
                 return ptr.elem_type.*;
+            },
+            .apply => |apply| {
+                if (std.mem.eql(u8, apply.name, "ptr")) {
+                    return apply.params[0];
+                } else if (std.mem.eql(u8, apply.name, "array")) {
+                    return apply.params[0];
+                } else if (std.mem.eql(u8, apply.name, "slice")) {
+                    return apply.params[0];
+                } else if (std.mem.eql(u8, apply.name, "vec")) {
+                    return apply.params[0];
+                } else if (std.mem.eql(u8, apply.name, "map")) {
+                    return apply.params[1];
+                } else {
+                    std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
+                    return error.UnexpectedType;
+                }
             },
             else => {
                 std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });

@@ -33,6 +33,9 @@ pub const Typechecker = struct {
             },
             else => {},
         }
+        if (std.meta.eql(expect, actual)) {
+            return expect;
+        }
 
         switch (expect) {
             .bool_ => {
@@ -172,8 +175,25 @@ pub const Typechecker = struct {
                     },
                 }
             },
-            .apply => {
-                unreachable;
+            .apply => |eapply| {
+                switch (actual) {
+                    .apply => |aapply| {
+                        if (std.mem.eql(u8, eapply.name, aapply.name)) {
+                            if (eapply.params.len != aapply.params.len) {
+                                std.log.err("Expected {any} parameters, got {any}\n", .{ eapply.params.len, aapply.params.len });
+                                return TypecheckerError.UnexpectedType;
+                            }
+
+                            for (0..eapply.params.len) |i| {
+                                _ = try self.assertType(eapply.params[i], aapply.params[i]);
+                            }
+                        }
+                    },
+                    else => {
+                        std.log.err("Expected apply, got {any}\n", .{actual});
+                        return TypecheckerError.UnexpectedType;
+                    },
+                }
             },
             .forall => {
                 unreachable;
@@ -203,10 +223,11 @@ pub const Typechecker = struct {
                         return ast.Type{ .bool_ = true };
                     },
                     .string => {
-                        const elem = try self.arena_allocator.allocator().create(ast.Type);
-                        elem.* = ast.Type{ .byte = true };
-
-                        return ast.Type{ .ptr = .{ .elem_type = elem } };
+                        return .{ .apply = .{
+                            .name = "ptr",
+                            .params = @constCast(&[_]ast.Type{.{ .byte = true }}),
+                            .applied = try self.arena_allocator.allocator().create(ast.Type),
+                        } };
                     },
                 }
             },
@@ -340,6 +361,24 @@ pub const Typechecker = struct {
                         return t;
                     },
                     .apply => |apply| {
+                        if (std.mem.eql(u8, apply.name, "slice")) {
+                            apply.applied.* = new.type_;
+
+                            return apply.applied.*;
+                        } else if (std.mem.eql(u8, apply.name, "vec")) {
+                            apply.applied.* = new.type_;
+
+                            return apply.applied.*;
+                        } else if (std.mem.eql(u8, apply.name, "map")) {
+                            apply.applied.* = new.type_;
+
+                            return apply.applied.*;
+                        } else if (std.mem.eql(u8, apply.name, "ptr")) {
+                            apply.applied.* = new.type_;
+
+                            return apply.applied.*;
+                        }
+
                         const f = self.env.get(apply.name) orelse {
                             std.log.err("Function not found: {s}\n", .{apply.name});
                             return error.VariableNotFound;

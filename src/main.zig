@@ -241,11 +241,13 @@ pub fn main() !void {
             try std.fmt.format(memory.writer(), "  data_section_ptr: {x:0>2}\n", .{dsp});
             const hsp = vmr.loadMemory(8, vm.heap_section_ptr);
             try std.fmt.format(memory.writer(), "  heap_section_ptr: {x:0>2}\n", .{hsp});
+            const hp = vmr.loadMemory(8, vm.heap_ptr);
+            try std.fmt.format(memory.writer(), "  heap_ptr: {x:0>2}\n", .{hp});
 
             try memory.appendSlice("memory (heap):\n");
 
-            var ptr = dsp;
-            while (ptr < hsp) {
+            var ptr = hsp;
+            while (ptr < hp) {
                 const size = vmr.loadMemory(8, ptr);
                 if (size == 0) {
                     break;

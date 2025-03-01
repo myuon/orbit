@@ -705,66 +705,6 @@ pub const Parser = struct {
                     return ast.Type{ .bool_ = true };
                 } else if (std.mem.eql(u8, current, "byte")) {
                     return ast.Type{ .byte = true };
-                } else if (std.mem.eql(u8, current, "ptr")) {
-                    try self.expect(ast.Operator.lparen);
-                    const t = try self.type_();
-                    try self.expect(ast.Operator.rparen);
-
-                    const elem_type = try self.ast_arena_allocator.allocator().create(ast.Type);
-                    elem_type.* = t;
-
-                    return ast.Type{ .ptr = .{
-                        .elem_type = elem_type,
-                    } };
-                } else if (std.mem.eql(u8, current, "array")) {
-                    try self.expect(ast.Operator.lparen);
-                    const t = try self.type_();
-                    try self.expect(ast.Operator.comma);
-                    const size = try self.expect_number();
-                    try self.expect(ast.Operator.rparen);
-
-                    const elem_type = try self.ast_arena_allocator.allocator().create(ast.Type);
-                    elem_type.* = t;
-
-                    return ast.Type{ .array = .{
-                        .elem_type = elem_type,
-                        .size = size,
-                    } };
-                } else if (std.mem.eql(u8, current, "slice")) {
-                    try self.expect(ast.Operator.lparen);
-                    const t = try self.type_();
-                    try self.expect(ast.Operator.rparen);
-
-                    const elem_type = try self.ast_arena_allocator.allocator().create(ast.Type);
-                    elem_type.* = t;
-
-                    return ast.Type{ .slice = .{ .elem_type = elem_type } };
-                } else if (std.mem.eql(u8, current, "vec")) {
-                    try self.expect(ast.Operator.lparen);
-                    const t = try self.type_();
-                    try self.expect(ast.Operator.rparen);
-
-                    const elem_type = try self.ast_arena_allocator.allocator().create(ast.Type);
-                    elem_type.* = t;
-
-                    return ast.Type{ .vec = .{ .elem_type = elem_type } };
-                } else if (std.mem.eql(u8, current, "map")) {
-                    try self.expect(ast.Operator.lparen);
-                    const k = try self.type_();
-                    try self.expect(ast.Operator.comma);
-                    const v = try self.type_();
-                    try self.expect(ast.Operator.rparen);
-
-                    const key_type = try self.ast_arena_allocator.allocator().create(ast.Type);
-                    key_type.* = k;
-
-                    const value_type = try self.ast_arena_allocator.allocator().create(ast.Type);
-                    value_type.* = v;
-
-                    return ast.Type{ .map = .{
-                        .key_type = key_type,
-                        .value_type = value_type,
-                    } };
                 } else {
                     const t = try self.ast_arena_allocator.allocator().create(ast.Type);
 
@@ -848,6 +788,7 @@ pub const Parser = struct {
                 }
             },
             else => {
+                std.log.err("unexpected token: want type but got {any}\n", .{self.tokens[self.position..]});
                 unreachable;
             },
         }

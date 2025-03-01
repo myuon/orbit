@@ -379,7 +379,7 @@ test "compiler.evalModule" {
         .{
             .program =
             \\fun main() do
-            \\  let s = new array(int, 100) {};
+            \\  let s = new slice(int) { .len = 100 };
             \\  let n = 0;
             \\  while (n < 100) do
             \\    s[n] = n;
@@ -526,9 +526,9 @@ test "compiler.evalModule" {
         },
     };
 
-    for (cases) |case| {
+    for (cases, 0..) |case, i| {
         for ([_]bool{ true, false }) |flag| {
-            // std.debug.print("input: {s}\n", .{case.program});
+            std.debug.print("#{}\n", .{i});
 
             var c = Compiler.init(std.testing.allocator);
             defer c.deinit();
