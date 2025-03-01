@@ -325,6 +325,10 @@ pub const VmCompiler = struct {
                             unreachable;
                         }
                     },
+                    .ptr => |ptr| {
+                        try self.compileLhsExprFromAst(buffer, expr);
+                        try buffer.append(ast.Instruction{ .load = ptr.type_.size() });
+                    },
                     else => {
                         std.log.err("Invalid index type: {any}\n", .{index.type_});
                         unreachable;
@@ -441,6 +445,13 @@ pub const VmCompiler = struct {
                             std.log.err("Invalid index type: {s}({any})\n", .{ apply.name, apply.params });
                             unreachable;
                         }
+                    },
+                    .ptr => |ptr| {
+                        try self.compileExprFromAst(buffer, index.lhs.*);
+                        try self.compileExprFromAst(buffer, index.rhs.*);
+                        try buffer.append(ast.Instruction{ .push = ptr.type_.size() });
+                        try buffer.append(ast.Instruction{ .mul = true });
+                        try buffer.append(ast.Instruction{ .add = true });
                     },
                     else => {
                         std.log.err("Invalid index type: {any}\n", .{index.type_});
@@ -584,6 +595,11 @@ pub const VmCompiler = struct {
                                     try self.compileExprFromAst(buffer, assign.rhs);
                                     try buffer.append(ast.Instruction{ .store = assign.type_.size() });
                                 }
+                            },
+                            .ptr => |ptr| {
+                                try self.compileLhsExprFromAst(buffer, assign.lhs);
+                                try self.compileExprFromAst(buffer, assign.rhs);
+                                try buffer.append(ast.Instruction{ .store = ptr.type_.size() });
                             },
                             else => {
                                 try self.compileLhsExprFromAst(buffer, assign.lhs);

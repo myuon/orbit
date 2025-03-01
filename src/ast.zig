@@ -305,6 +305,7 @@ pub const TypeType = enum {
     ident,
     apply,
     forall,
+    ptr,
 };
 
 pub const Type = union(TypeType) {
@@ -330,6 +331,9 @@ pub const Type = union(TypeType) {
         params: [][]const u8,
         type_: *Type,
     },
+    ptr: struct {
+        type_: *Type,
+    },
 
     pub fn size(self: Type) u4 {
         return switch (self) {
@@ -348,6 +352,7 @@ pub const Type = union(TypeType) {
                 }
             },
             Type.forall => unreachable,
+            Type.ptr => 8,
         };
     }
 
@@ -368,6 +373,9 @@ pub const Type = union(TypeType) {
                     std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
                     return error.UnexpectedType;
                 }
+            },
+            .ptr => {
+                return .{ .int = true };
             },
             else => {
                 std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
@@ -393,6 +401,9 @@ pub const Type = union(TypeType) {
                     std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
                     return error.UnexpectedType;
                 }
+            },
+            .ptr => |ptr| {
+                return ptr.type_.*;
             },
             else => {
                 std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
@@ -469,6 +480,12 @@ pub const Type = union(TypeType) {
             .int => self,
             .fun => unreachable,
             .apply => unreachable,
+            .ptr => |ptr| {
+                const t = try allocator.create(Type);
+                t.* = try ptr.type_.replace(allocator, name, type_);
+
+                return Type{ .ptr = .{ .type_ = t } };
+            },
         };
     }
 };

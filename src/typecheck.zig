@@ -147,6 +147,20 @@ pub const Typechecker = struct {
             .unknown => {
                 return actual;
             },
+            .ptr => |ptr| {
+                switch (actual) {
+                    .ptr => |actual_ptr| {
+                        const t = try self.arena_allocator.allocator().create(ast.Type);
+                        t.* = try self.assertType(ptr.type_.*, actual_ptr.type_.*);
+
+                        return ast.Type{ .ptr = .{ .type_ = t } };
+                    },
+                    else => {
+                        std.log.err("Expected {any}, got {any}\n", .{ expect, actual });
+                        return TypecheckerError.UnexpectedType;
+                    },
+                }
+            },
         }
 
         return expect;
@@ -169,11 +183,10 @@ pub const Typechecker = struct {
                         return ast.Type{ .bool_ = true };
                     },
                     .string => {
-                        return .{ .apply = .{
-                            .name = "ptr",
-                            .params = @constCast(&[_]ast.Type{.{ .byte = true }}),
-                            .applied = try self.arena_allocator.allocator().create(ast.Type),
-                        } };
+                        const t = try self.arena_allocator.allocator().create(ast.Type);
+                        t.* = ast.Type{ .byte = true };
+
+                        return ast.Type{ .ptr = .{ .type_ = t } };
                     },
                 }
             },

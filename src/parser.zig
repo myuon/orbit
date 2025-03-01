@@ -781,6 +781,17 @@ pub const Parser = struct {
                             },
                         };
                     },
+                    .lbracket => {
+                        try self.expect(ast.Operator.star);
+                        try self.expect(ast.Operator.rbracket);
+
+                        const t = try self.type_();
+
+                        const ptr = try self.ast_arena_allocator.allocator().create(ast.Type);
+                        ptr.* = t;
+
+                        return ast.Type{ .ptr = .{ .type_ = ptr } };
+                    },
                     else => {
                         std.log.err("unexpected token: want type but got {any}\n", .{self.tokens[self.position..]});
                         unreachable;
