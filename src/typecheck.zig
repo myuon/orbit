@@ -65,51 +65,6 @@ pub const Typechecker = struct {
                     },
                 }
             },
-            .array => {
-                switch (actual) {
-                    .array => {
-                        if (expect.array.size != actual.array.size) {
-                            std.log.err("Expected array of size {any}, got {any}\n", .{ expect.array.size, actual.array.size });
-                            return TypecheckerError.UnexpectedType;
-                        }
-                        _ = try self.assertType(expect.array.elem_type.*, actual.array.elem_type.*);
-                    },
-                    else => {
-                        std.log.err("Expected array, got {any}\n", .{actual});
-                        return TypecheckerError.UnexpectedType;
-                    },
-                }
-            },
-            .slice => {
-                switch (actual) {
-                    .slice => _ = try self.assertType(expect.slice.elem_type.*, actual.slice.elem_type.*),
-                    else => {
-                        std.log.err("Expected slice, got {any}\n", .{actual});
-                        return TypecheckerError.UnexpectedType;
-                    },
-                }
-            },
-            .vec => {
-                switch (actual) {
-                    .vec => _ = try self.assertType(expect.vec.elem_type.*, actual.vec.elem_type.*),
-                    else => {
-                        std.log.err("Expected vec, got {any}\n", .{actual});
-                        return TypecheckerError.UnexpectedType;
-                    },
-                }
-            },
-            .map => {
-                switch (actual) {
-                    .map => {
-                        _ = try self.assertType(expect.map.key_type.*, actual.map.key_type.*);
-                        _ = try self.assertType(expect.map.value_type.*, actual.map.value_type.*);
-                    },
-                    else => {
-                        std.log.err("Expected map, got {any}\n", .{actual});
-                        return TypecheckerError.UnexpectedType;
-                    },
-                }
-            },
             .fun => {
                 switch (actual) {
                     .fun => {
@@ -144,15 +99,6 @@ pub const Typechecker = struct {
                     },
                     else => {
                         std.log.err("Expected struct, got {any}\n", .{actual});
-                        return TypecheckerError.UnexpectedType;
-                    },
-                }
-            },
-            .ptr => |ptr| {
-                switch (actual) {
-                    .ptr => _ = try self.assertType(ptr.elem_type.*, actual.ptr.elem_type.*),
-                    else => {
-                        std.log.err("Expected ptr, got {any}\n", .{actual});
                         return TypecheckerError.UnexpectedType;
                     },
                 }
@@ -335,21 +281,6 @@ pub const Typechecker = struct {
                     .struct_ => |d| {
                         structData = d;
                     },
-                    .slice => {
-                        var fields = std.ArrayList(ast.StructField).init(self.arena_allocator.allocator());
-                        try fields.append(ast.StructField{
-                            .name = "len",
-                            .type_ = ast.Type{ .int = true },
-                        });
-
-                        structData = ast.StructData{
-                            .fields = fields.items,
-                            .methods = &[_]ast.Decl{},
-                        };
-                    },
-                    .array => {},
-                    .map => {},
-                    .vec => {},
                     .ident => |ident| {
                         const t = self.env.get(ident.name) orelse {
                             std.log.err("Struct not found: {s}\n", .{ident.name});

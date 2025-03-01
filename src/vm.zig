@@ -274,59 +274,6 @@ pub const VmCompiler = struct {
             },
             .index => |index| {
                 switch (index.type_) {
-                    .ptr => {
-                        try self.compileLhsExprFromAst(buffer, expr);
-                        try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
-                    },
-                    .array => {
-                        try self.compileLhsExprFromAst(buffer, expr);
-                        try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
-                    },
-                    .slice => |slice| {
-                        const valueType = slice.elem_type.*;
-                        switch (valueType) {
-                            .int => {
-                                try self.callFunction(buffer, ast.Expression{ .var_ = "get_slice_int" }, @constCast(&[_]ast.Expression{
-                                    index.lhs.*,
-                                    index.rhs.*,
-                                }));
-                            },
-                            .byte => {
-                                try self.callFunction(buffer, ast.Expression{ .var_ = "get_slice_byte" }, @constCast(&[_]ast.Expression{
-                                    index.lhs.*,
-                                    index.rhs.*,
-                                }));
-                            },
-                            else => {
-                                // Deprecated:
-                                try self.compileExprFromAst(buffer, index.lhs.*);
-                                try buffer.append(ast.Instruction{ .load = 8 });
-                                try self.compileExprFromAst(buffer, index.rhs.*);
-                                try buffer.append(ast.Instruction{ .push = valueType.size() });
-                                try buffer.append(ast.Instruction{ .mul = true });
-                                try buffer.append(ast.Instruction{ .add = true });
-                                try buffer.append(ast.Instruction{ .load = valueType.size() });
-                            },
-                        }
-                    },
-                    .vec => |vec| {
-                        switch (vec.elem_type.*) {
-                            .int => {
-                                try self.callFunction(buffer, ast.Expression{ .var_ = "get_vec_int" }, @constCast(&[_]ast.Expression{
-                                    index.lhs.*,
-                                    index.rhs.*,
-                                }));
-                            },
-                            else => {
-                                unreachable;
-                            },
-                        }
-                    },
-                    .map => {
-                        try self.compileExprFromAst(buffer, index.lhs.*);
-                        try self.compileExprFromAst(buffer, index.rhs.*);
-                        try buffer.append(ast.Instruction{ .table_get = true });
-                    },
                     .apply => |apply| {
                         if (std.mem.eql(u8, apply.name, "ptr") or std.mem.eql(u8, apply.name, "array")) {
                             try self.compileLhsExprFromAst(buffer, expr);
@@ -401,29 +348,6 @@ pub const VmCompiler = struct {
 
     fn compileNewExpr(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), new: ast.NewExpr) anyerror!void {
         switch (new.type_) {
-            .array => |array| {
-                std.debug.assert(new.initializers.len == 0);
-
-                try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, @constCast(&[_]ast.Expression{
-                    .{ .literal = .{ .number = @intCast(array.size * @as(usize, array.elem_type.size())) } },
-                }));
-            },
-            .map => |map| {
-                std.debug.assert(new.initializers.len == 0);
-
-                // TODO: growable capacity
-                try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, @constCast(&[_]ast.Expression{
-                    .{ .literal = .{ .number = @intCast(128 * @as(usize, map.value_type.size())) } },
-                }));
-            },
-            .vec => |vec| {
-                std.debug.assert(new.initializers.len == 0);
-
-                try self.callFunction(buffer, ast.Expression{ .var_ = "new_vec" }, @constCast(&[_]ast.Expression{
-                    .{ .literal = .{ .number = @intCast(vec.elem_type.size()) } },
-                    .{ .literal = .{ .number = @intCast(128) } },
-                }));
-            },
             .struct_ => |struct_| {
                 std.debug.assert(new.initializers.len == struct_.fields.len);
 
@@ -445,15 +369,6 @@ pub const VmCompiler = struct {
                     try self.compileExprFromAst(buffer, e);
                     try buffer.append(ast.Instruction{ .store = 8 });
                 }
-            },
-            .slice => |slice| {
-                std.debug.assert(new.initializers.len == 1);
-                std.debug.assert(std.mem.eql(u8, new.initializers[0].field, "len"));
-
-                try self.callFunction(buffer, ast.Expression{ .var_ = "new_slice" }, @constCast(&[_]ast.Expression{
-                    .{ .literal = .{ .number = @intCast(slice.elem_type.size()) } },
-                    new.initializers[0].value,
-                }));
             },
             .ident => |ident| {
                 try self.compileNewExpr(buffer, .{
@@ -515,20 +430,6 @@ pub const VmCompiler = struct {
             },
             .index => |index| {
                 switch (index.type_) {
-                    .ptr => {
-                        try self.compileExprFromAst(buffer, index.lhs.*);
-                        try self.compileExprFromAst(buffer, index.rhs.*);
-                        try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
-                        try buffer.append(ast.Instruction{ .mul = true });
-                        try buffer.append(ast.Instruction{ .add = true });
-                    },
-                    .array => {
-                        try self.compileExprFromAst(buffer, index.lhs.*);
-                        try self.compileExprFromAst(buffer, index.rhs.*);
-                        try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
-                        try buffer.append(ast.Instruction{ .mul = true });
-                        try buffer.append(ast.Instruction{ .add = true });
-                    },
                     .apply => |apply| {
                         if (std.mem.eql(u8, apply.name, "ptr") or std.mem.eql(u8, apply.name, "array")) {
                             try self.compileExprFromAst(buffer, index.lhs.*);
@@ -649,37 +550,6 @@ pub const VmCompiler = struct {
                     },
                     .index => |index| {
                         switch (index.type_) {
-                            .map => {
-                                try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
-                                try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);
-                                try self.compileExprFromAst(buffer, assign.rhs);
-                                try buffer.append(ast.Instruction{ .table_set = true });
-                            },
-                            .vec => |vec| {
-                                switch (vec.elem_type.*) {
-                                    .int => {
-                                        try self.callFunction(buffer, ast.Expression{ .var_ = "set_vec_int" }, @constCast(&[_]ast.Expression{
-                                            assign.lhs.index.lhs.*,
-                                            assign.lhs.index.rhs.*,
-                                            assign.rhs,
-                                        }));
-                                        try buffer.append(ast.Instruction{ .pop = true });
-                                    },
-                                    else => {
-                                        unreachable;
-                                    },
-                                }
-                            },
-                            .slice => {
-                                try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
-                                try buffer.append(ast.Instruction{ .load = 8 });
-                                try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);
-                                try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
-                                try buffer.append(ast.Instruction{ .mul = true });
-                                try buffer.append(ast.Instruction{ .add = true });
-                                try self.compileExprFromAst(buffer, assign.rhs);
-                                try buffer.append(ast.Instruction{ .store = (try index.type_.getValueType()).size() });
-                            },
                             .apply => |apply| {
                                 if (std.mem.eql(u8, apply.name, "slice")) {
                                     try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);

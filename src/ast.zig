@@ -300,13 +300,8 @@ pub const TypeType = enum {
     bool_,
     byte,
     int,
-    array,
-    slice,
-    vec,
-    map,
     fun,
     struct_,
-    ptr,
     ident,
     apply,
     forall,
@@ -317,26 +312,11 @@ pub const Type = union(TypeType) {
     bool_: bool,
     byte: bool,
     int: bool,
-    array: struct {
-        elem_type: *Type,
-        size: usize,
-    },
-    slice: struct {
-        elem_type: *Type,
-    },
-    vec: struct {
-        elem_type: *Type,
-    },
-    map: struct {
-        key_type: *Type,
-        value_type: *Type,
-    },
     fun: struct {
         params: []Type,
         return_type: *Type,
     },
     struct_: StructData,
-    ptr: struct { elem_type: *Type },
     ident: struct {
         name: []const u8,
         type_: *Type,
@@ -357,13 +337,8 @@ pub const Type = union(TypeType) {
             Type.bool_ => 1,
             Type.byte => 1,
             Type.int => 8,
-            Type.array => 8,
-            Type.slice => 8,
-            Type.vec => 8,
-            Type.map => 8,
             Type.fun => unreachable,
             Type.struct_ => 8,
-            Type.ptr => 8,
             Type.ident => unreachable,
             Type.apply => |apply| {
                 if (std.mem.eql(u8, apply.name, "ptr")) {
@@ -378,21 +353,6 @@ pub const Type = union(TypeType) {
 
     pub fn getIndexType(actual: Type) anyerror!Type {
         switch (actual) {
-            .array => {
-                return Type{ .int = true };
-            },
-            .slice => {
-                return Type{ .int = true };
-            },
-            .map => |map| {
-                return map.key_type.*;
-            },
-            .vec => {
-                return Type{ .int = true };
-            },
-            .ptr => {
-                return Type{ .int = true };
-            },
             .apply => |apply| {
                 if (std.mem.eql(u8, apply.name, "ptr")) {
                     return Type{ .int = true };
@@ -418,21 +378,6 @@ pub const Type = union(TypeType) {
 
     pub fn getValueType(actual: Type) anyerror!Type {
         switch (actual) {
-            .array => |array| {
-                return array.elem_type.*;
-            },
-            .slice => |slice| {
-                return slice.elem_type.*;
-            },
-            .map => |map| {
-                return map.value_type.*;
-            },
-            .vec => |vec| {
-                return vec.elem_type.*;
-            },
-            .ptr => |ptr| {
-                return ptr.elem_type.*;
-            },
             .apply => |apply| {
                 if (std.mem.eql(u8, apply.name, "ptr")) {
                     return apply.params[0];
@@ -522,12 +467,7 @@ pub const Type = union(TypeType) {
             .bool_ => self,
             .byte => self,
             .int => self,
-            .array => unreachable,
-            .slice => unreachable,
-            .vec => unreachable,
-            .map => unreachable,
             .fun => unreachable,
-            .ptr => unreachable,
             .apply => unreachable,
         };
     }
