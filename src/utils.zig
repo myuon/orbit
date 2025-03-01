@@ -18,3 +18,15 @@ test "startsWith" {
     try std.testing.expect(startsWith("hello world", "hello"));
     try std.testing.expect(!startsWith("hello world", "world"));
 }
+
+pub fn readFile(allocator: std.mem.Allocator, path: []const u8, content: *std.ArrayList(u8)) anyerror!void {
+    var file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    while (try file.reader().readUntilDelimiterOrEofAlloc(allocator, '\n', std.math.maxInt(usize))) |line| {
+        defer allocator.free(line);
+
+        try content.appendSlice(line);
+        try content.appendSlice("\n");
+    }
+}

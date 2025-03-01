@@ -6,20 +6,9 @@ const vm = @import("vm.zig");
 const runtime = @import("runtime.zig");
 const vaxis = @import("vaxis");
 const P = @import("profiler");
+const utils = @import("utils.zig");
 
 pub const panic = vaxis.panic_handler;
-
-fn readFile(allocator: std.mem.Allocator, path: []const u8, content: *std.ArrayList(u8)) anyerror!void {
-    var file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-
-    while (try file.reader().readUntilDelimiterOrEofAlloc(allocator, '\n', std.math.maxInt(usize))) |line| {
-        defer allocator.free(line);
-
-        try content.appendSlice(line);
-        try content.appendSlice("\n");
-    }
-}
 
 fn writeStack(allocator: std.mem.Allocator, stack: []i64, bp: i64) ![]u8 {
     var stack_frames = std.AutoHashMap(i64, bool).init(allocator);
@@ -124,7 +113,7 @@ pub fn main() !void {
         var content = std.ArrayList(u8).init(allocator);
         defer content.deinit();
 
-        try readFile(allocator, argv[2][0..std.mem.len(argv[2])], &content);
+        try utils.readFile(allocator, argv[2][0..std.mem.len(argv[2])], &content);
 
         c.enable_jit = enableJit;
         c.enable_optimize_ir = enableOptimizeIr;
@@ -144,7 +133,7 @@ pub fn main() !void {
         var content = std.ArrayList(u8).init(allocator);
         defer content.deinit();
 
-        try readFile(allocator, argv[2][0..std.mem.len(argv[2])], &content);
+        try utils.readFile(allocator, argv[2][0..std.mem.len(argv[2])], &content);
 
         const prog = try c.compileInIr(content.items);
 
