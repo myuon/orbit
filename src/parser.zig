@@ -118,55 +118,10 @@ pub const Parser = struct {
     fn decl(self: *Parser) anyerror!ast.Decl {
         if (self.peek()) |token| {
             switch (token) {
-                .keyword => |op2| {
-                    switch (op2) {
+                .keyword => |op| {
+                    switch (op) {
                         .fun => {
-                            try self.expect(ast.Operator.fun);
-
-                            const name = try self.expect_ident();
-
-                            try self.expect(ast.Operator.lparen);
-                            var args = std.ArrayList(ast.FunParam).init(self.ast_arena_allocator.allocator());
-                            while (self.can_peek()) {
-                                if (self.is_next(ast.Operator.rparen)) {
-                                    break;
-                                }
-
-                                const arg = try self.expect_ident();
-                                var t: ?ast.Type = null;
-                                if (self.is_next(ast.Operator.colon)) {
-                                    try self.expect(ast.Operator.colon);
-                                    t = try self.type_();
-                                }
-                                try args.append(.{ .name = arg, .type_ = t });
-
-                                if (self.is_next(ast.Operator.comma)) {
-                                    try self.expect(ast.Operator.comma);
-                                } else {
-                                    break;
-                                }
-                            }
-                            try self.expect(ast.Operator.rparen);
-
-                            var result_type = ast.Type{ .unknown = true };
-                            if (self.is_next(ast.Operator.colon)) {
-                                try self.expect(ast.Operator.colon);
-                                result_type = try self.type_();
-                            }
-
-                            try self.expect(ast.Operator.do);
-                            const body = try self.block(null);
-                            self.expect(ast.Operator.end) catch |err| {
-                                std.log.err("Error: {any} (next: {any})\n    {s}:{}", .{ err, self.peek(), @src().file, @src().line });
-                                return error.UnexpectedToken;
-                            };
-
-                            return ast.Decl{ .fun = .{
-                                .name = name,
-                                .params = args.items,
-                                .result_type = result_type,
-                                .body = body,
-                            } };
+                            return try self.parseFunDecl();
                         },
                         .let => {
                             try self.expect(ast.Operator.let);
@@ -212,6 +167,55 @@ pub const Parser = struct {
         }
 
         return error.UnexpectedToken;
+    }
+
+    fn parseFunDecl(self: *Parser) anyerror!ast.Decl {
+        try self.expect(ast.Operator.fun);
+
+        const name = try self.expect_ident();
+
+        try self.expect(ast.Operator.lparen);
+        var args = std.ArrayList(ast.FunParam).init(self.ast_arena_allocator.allocator());
+        while (self.can_peek()) {
+            if (self.is_next(ast.Operator.rparen)) {
+                break;
+            }
+
+            const arg = try self.expect_ident();
+            var t: ?ast.Type = null;
+            if (self.is_next(ast.Operator.colon)) {
+                try self.expect(ast.Operator.colon);
+                t = try self.type_();
+            }
+            try args.append(.{ .name = arg, .type_ = t });
+
+            if (self.is_next(ast.Operator.comma)) {
+                try self.expect(ast.Operator.comma);
+            } else {
+                break;
+            }
+        }
+        try self.expect(ast.Operator.rparen);
+
+        var result_type = ast.Type{ .unknown = true };
+        if (self.is_next(ast.Operator.colon)) {
+            try self.expect(ast.Operator.colon);
+            result_type = try self.type_();
+        }
+
+        try self.expect(ast.Operator.do);
+        const body = try self.block(null);
+        self.expect(ast.Operator.end) catch |err| {
+            std.log.err("Error: {any} (next: {any})\n    {s}:{}", .{ err, self.peek(), @src().file, @src().line });
+            return error.UnexpectedToken;
+        };
+
+        return ast.Decl{ .fun = .{
+            .name = name,
+            .params = args.items,
+            .result_type = result_type,
+            .body = body,
+        } };
     }
 
     pub fn block(self: *Parser, endOp: ?ast.Operator) anyerror!ast.Block {
@@ -672,7 +676,10 @@ pub const Parser = struct {
                         const rhs = try self.expect_ident();
 
                         current.* = ast.Expression{ .project = .{
-                            .struct_ = ast.StructData{ .fields = &[_]ast.StructField{} },
+                            .struct_ = ast.StructData{
+                                .fields = &[_]ast.StructField{},
+                                .methods = &[_]ast.Decl{},
+                            },
                             .lhs = lhs,
                             .rhs = rhs,
                         } };
@@ -882,6 +889,7 @@ pub const Parser = struct {
                 switch (keyword) {
                     .struct_ => {
                         var fields = std.ArrayList(ast.StructField).init(self.ast_arena_allocator.allocator());
+                        var methods = std.ArrayList(ast.Decl).init(self.ast_arena_allocator.allocator());
 
                         try self.expect(ast.Operator.lbrace);
 
@@ -889,6 +897,13 @@ pub const Parser = struct {
                             if (self.is_next(ast.Operator.rbrace)) {
                                 break;
                             }
+
+                            if (self.is_next(ast.Operator.fun)) {
+                                const method = try self.parseFunDecl();
+                                try methods.append(method);
+                                continue;
+                            }
+
                             const field_name = try self.expect_ident();
                             try self.expect(ast.Operator.colon);
                             const field_type = try self.type_();
@@ -904,7 +919,12 @@ pub const Parser = struct {
                         }
                         try self.expect(ast.Operator.rbrace);
 
-                        return ast.Type{ .struct_ = ast.StructData{ .fields = fields.items } };
+                        return ast.Type{
+                            .struct_ = ast.StructData{
+                                .fields = fields.items,
+                                .methods = methods.items,
+                            },
+                        };
                     },
                     else => {
                         std.log.err("unexpected token: want type but got {any}\n", .{self.tokens[self.position..]});

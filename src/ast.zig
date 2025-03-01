@@ -245,6 +245,7 @@ pub const StructField = struct {
 
 pub const StructData = struct {
     fields: []StructField,
+    methods: []Decl,
 
     pub fn getFieldType(self: StructData, name: []const u8) !Type {
         for (self.fields) |field| {

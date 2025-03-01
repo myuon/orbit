@@ -1,0 +1,20 @@
+type Point = struct {
+  x: int,
+  y: int,
+
+  fun sum() do
+    return self.x + self.y;
+  end
+
+  fun move(self: Point, dx: int, dy: int) do
+    self.x = self.x + dx;
+    self.y = self.y + dy;
+  end
+};
+
+fun main() do
+  let p = new Point { .x = 10, .y = 20 };
+  p.move(5, 6);
+
+  return p.sum();
+end

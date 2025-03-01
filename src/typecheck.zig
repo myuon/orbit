@@ -286,6 +286,7 @@ pub const Typechecker = struct {
 
                         structData = ast.StructData{
                             .fields = fields.items,
+                            .methods = &[_]ast.Decl{},
                         };
                     },
                     .array => {},
