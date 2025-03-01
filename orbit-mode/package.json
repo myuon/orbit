@@ -4,14 +4,32 @@
   "description": "",
   "version": "0.0.1",
   "engines": {
-    "vscode": "^1.97.0"
+    "vscode": "^1.96.0"
   },
   "categories": [
-    "Other"
+    "Programming Languages"
   ],
-  "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "orbit",
+        "aliases": [
+          "orbit"
+        ],
+        "extensions": [
+          ".ob"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "orbit",
+        "scopeName": "source.orbit",
+        "path": "./syntaxes/orbit.tmLanguage.json"
+      }
+    ],
     "commands": [
       {
         "command": "orbit-mode.helloWorld",
@@ -28,7 +46,7 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.97.0",
+    "@types/vscode": "^1.96.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
     "@typescript-eslint/eslint-plugin": "^8.22.0",

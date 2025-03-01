@@ -1,0 +1,170 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "orbit-mode",
+  "patterns": [
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#variables"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#types"
+    }
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.orbit",
+          "match": "\\b(if|else|while|do|end|return|let|fun|new|type|struct)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.orbit",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.orbit",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.orbit",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.orbit",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.orbit",
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\("
+        },
+        {
+          "name": "meta.function.orbit",
+          "begin": "\\b(fun)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.orbit"
+            },
+            "2": {
+              "name": "entity.name.function.orbit"
+            }
+          },
+          "end": "\\)",
+          "patterns": [
+            {
+              "include": "#parameters"
+            }
+          ]
+        }
+      ]
+    },
+    "parameters": {
+      "patterns": [
+        {
+          "name": "variable.parameter.orbit",
+          "match": "[a-zA-Z_][a-zA-Z0-9_]*"
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "match": "\\b(let)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.orbit"
+            },
+            "2": {
+              "name": "variable.other.orbit"
+            }
+          }
+        },
+        {
+          "name": "variable.other.orbit",
+          "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "name": "constant.numeric.orbit",
+      "match": "\\b[0-9]+\\b"
+    },
+    "operators": {
+      "name": "keyword.operator.orbit",
+      "match": "=|\\+|\\-|\\*|/|<|>|==|!=|<=|>=|<-"
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "meta.type.declaration.orbit",
+          "begin": "\\b(type)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*=\\s*(struct)\\s*\\{",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.orbit"
+            },
+            "2": {
+              "name": "entity.name.type.orbit"
+            },
+            "3": {
+              "name": "keyword.control.orbit"
+            }
+          },
+          "end": "\\}",
+          "patterns": [
+            {
+              "include": "#type_fields"
+            }
+          ]
+        },
+        {
+          "match": "\\b(int|string|bool|float)\\b",
+          "name": "support.type.primitive.orbit"
+        }
+      ]
+    },
+    "type_fields": {
+      "patterns": [
+        {
+          "match": "([a-zA-Z_][a-zA-Z0-9_]*)\\s*:\\s*([a-zA-Z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "variable.other.property.orbit"
+            },
+            "2": {
+              "name": "support.type.orbit"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "scopeName": "source.orbit"
+}
