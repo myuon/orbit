@@ -167,6 +167,14 @@ pub const Parser = struct {
                             const type_value = try self.type_();
                             try self.expect(ast.Operator.semicolon);
 
+                            if (params.items.len == 0) {
+                                return ast.Decl{ .type_ = .{
+                                    .name = name,
+                                    .params = params.items,
+                                    .type_ = type_value,
+                                } };
+                            }
+
                             const t = try self.ast_arena_allocator.allocator().create(ast.Type);
                             t.* = type_value;
 

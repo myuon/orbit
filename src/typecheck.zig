@@ -385,6 +385,7 @@ pub const Typechecker = struct {
                         }
                     },
                     else => {
+                        std.log.err("Expected struct, got {any}\n", .{lhs_type});
                         unreachable;
                     },
                 }
