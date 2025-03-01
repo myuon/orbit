@@ -409,6 +409,12 @@ pub const VmCompiler = struct {
                     .initializers = new.initializers,
                 });
             },
+            .apply => |apply| {
+                try self.compileNewExpr(buffer, .{
+                    .type_ = apply.applied.*,
+                    .initializers = new.initializers,
+                });
+            },
             else => {
                 std.log.err("Invalid new type: {any}\n", .{new.type_});
                 unreachable;

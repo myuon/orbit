@@ -211,27 +211,13 @@ pub const Decl = union(DeclType) {
     },
     type_: struct {
         name: []const u8,
+        params: [][]const u8,
         type_: Type,
     },
 };
 
 pub const Module = struct {
     decls: []Decl,
-};
-
-pub const TypeType = enum {
-    unknown,
-    bool_,
-    byte,
-    int,
-    array,
-    slice,
-    vec,
-    map,
-    fun,
-    struct_,
-    ptr,
-    ident,
 };
 
 pub const AstTypeError = error{
@@ -309,6 +295,23 @@ pub const StructData = struct {
     }
 };
 
+pub const TypeType = enum {
+    unknown,
+    bool_,
+    byte,
+    int,
+    array,
+    slice,
+    vec,
+    map,
+    fun,
+    struct_,
+    ptr,
+    ident,
+    apply,
+    forall,
+};
+
 pub const Type = union(TypeType) {
     unknown: bool,
     bool_: bool,
@@ -338,6 +341,15 @@ pub const Type = union(TypeType) {
         name: []const u8,
         type_: *Type,
     },
+    apply: struct {
+        name: []const u8,
+        params: []Type,
+        applied: *Type,
+    },
+    forall: struct {
+        params: [][]const u8,
+        type_: *Type,
+    },
 
     pub fn size(self: Type) u4 {
         return switch (self) {
@@ -353,6 +365,8 @@ pub const Type = union(TypeType) {
             Type.struct_ => 8,
             Type.ptr => 8,
             Type.ident => unreachable,
+            Type.apply => unreachable,
+            Type.forall => unreachable,
         };
     }
 
@@ -407,7 +421,76 @@ pub const Type = union(TypeType) {
     pub fn getStructData(t: Type) anyerror!StructData {
         return switch (t) {
             Type.struct_ => t.struct_,
+            Type.forall => |forall| {
+                return forall.type_.getStructData();
+            },
             else => error.UnexpectedType,
+        };
+    }
+
+    pub fn applyTypes(self: Type, allocator: std.mem.Allocator, args: []Type) anyerror!Type {
+        return switch (self) {
+            Type.forall => |forall| {
+                if (args.len != forall.params.len) {
+                    std.log.err("Expected {d} arguments, got {d}\n", .{ forall.params.len, args.len });
+                    return error.UnexpectedType;
+                }
+
+                var t = forall.type_.*;
+
+                for (args, 0..) |arg, i| {
+                    t = try t.replace(allocator, forall.params[i], arg);
+                }
+
+                return t;
+            },
+            else => error.UnexpectedType,
+        };
+    }
+
+    fn replace(self: Type, allocator: std.mem.Allocator, name: []const u8, type_: Type) anyerror!Type {
+        return switch (self) {
+            .forall => |forall| {
+                for (forall.params) |param| {
+                    if (std.mem.eql(u8, param, name)) {
+                        return self;
+                    }
+                }
+
+                return self;
+            },
+            .ident => |ident| {
+                if (std.mem.eql(u8, ident.name, name)) {
+                    return type_;
+                }
+
+                return self;
+            },
+            .struct_ => |data| {
+                var fields = std.ArrayList(StructField).init(allocator);
+                for (data.fields) |field| {
+                    try fields.append(StructField{
+                        .name = field.name,
+                        .type_ = try field.type_.replace(allocator, name, type_),
+                    });
+                }
+
+                return Type{ .struct_ = .{
+                    .fields = fields.items,
+                    .methods = data.methods,
+                } };
+            },
+            .unknown => unreachable,
+            .bool_ => self,
+            .byte => self,
+            .int => self,
+            .array => unreachable,
+            .slice => unreachable,
+            .vec => unreachable,
+            .map => unreachable,
+            .fun => unreachable,
+            .ptr => unreachable,
+            .apply => unreachable,
         };
     }
 };

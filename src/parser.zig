@@ -144,13 +144,39 @@ pub const Parser = struct {
                             try self.expect(ast.Operator.type_);
 
                             const name = try self.expect_ident();
+
+                            var params = std.ArrayList([]const u8).init(self.ast_arena_allocator.allocator());
+                            if (self.is_next(ast.Operator.lparen)) {
+                                try self.expect(ast.Operator.lparen);
+                                while (!self.is_next(ast.Operator.rparen)) {
+                                    const param = try self.expect_ident();
+                                    try params.append(param);
+                                    try self.expect(ast.Operator.colon);
+                                    try self.expect(ast.Operator.type_);
+
+                                    if (self.is_next(ast.Operator.comma)) {
+                                        try self.expect(ast.Operator.comma);
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                try self.expect(ast.Operator.rparen);
+                            }
+
                             try self.expect(ast.Operator.eq);
                             const type_value = try self.type_();
                             try self.expect(ast.Operator.semicolon);
 
+                            const t = try self.ast_arena_allocator.allocator().create(ast.Type);
+                            t.* = type_value;
+
                             return ast.Decl{ .type_ = .{
                                 .name = name,
-                                .type_ = type_value,
+                                .params = params.items,
+                                .type_ = .{ .forall = .{
+                                    .params = params.items,
+                                    .type_ = t,
+                                } },
                             } };
                         },
                         else => {
@@ -392,318 +418,190 @@ pub const Parser = struct {
             }
         }
 
-        return self.expr0();
+        return self.operators();
     }
 
-    fn expr0(self: *Parser) anyerror!ast.Expression {
-        var current = try self.expr01();
+    const ParseOperatorType = enum {
+        op,
+        project,
+        call,
+        index,
+        as,
+    };
 
-        while (self.peek()) |token| {
-            switch (token) {
-                .keyword => |op| {
-                    switch (op) {
-                        .eqeq => {
-                            try self.expect(ast.Operator.eqeq);
+    const ParseOperator = union(ParseOperatorType) {
+        op: ast.Operator,
+        project: bool,
+        call: bool,
+        index: bool,
+        as: bool,
+    };
 
-                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            rhs.* = try self.expr01();
+    fn operators(self: *Parser) anyerror!ast.Expression {
+        const table = @constCast(&[_][]ParseOperator{
+            @constCast(&[_]ParseOperator{
+                .{ .op = .eqeq },
+            }),
+            @constCast(&[_]ParseOperator{
+                .{ .op = .langle },
+                .{ .op = .rangle },
+                .{ .op = .lte },
+                .{ .op = .gte },
+            }),
+            @constCast(&[_]ParseOperator{
+                .{ .op = .plus },
+                .{ .op = .minus },
+            }),
+            @constCast(&[_]ParseOperator{
+                .{ .op = .star },
+                .{ .op = .percent },
+            }),
+            @constCast(&[_]ParseOperator{
+                .{ .project = true },
+                .{ .call = true },
+                .{ .index = true },
+                .{ .as = true },
+            }),
+        });
 
-                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            newCurrent.* = current;
+        return self.operatorN(table, 0);
+    }
 
-                            current = ast.Expression{ .binop = .{
-                                .op = .eqeq,
-                                .lhs = newCurrent,
-                                .rhs = rhs,
-                            } };
-                        },
-                        else => {
-                            break;
-                        },
-                    }
-                },
-                else => {
-                    break;
-                },
-            }
+    fn operatorN(self: *Parser, table: [][]ParseOperator, n: usize) anyerror!ast.Expression {
+        if (n == table.len) {
+            return self.operatorBase();
         }
 
-        return current;
-    }
+        var current = try self.operatorN(table, n + 1);
 
-    fn expr01(self: *Parser) anyerror!ast.Expression {
-        var current = try self.expr1();
+        while (self.peek()) |_| {
+            var found = false;
 
-        while (self.peek()) |token| {
-            switch (token) {
-                .keyword => |op| {
-                    switch (op) {
-                        .langle => {
-                            try self.expect(ast.Operator.langle);
-
-                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            rhs.* = try self.expr1();
-
-                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            newCurrent.* = current;
-
-                            current = ast.Expression{ .binop = .{
-                                .op = .langle,
-                                .lhs = newCurrent,
-                                .rhs = rhs,
-                            } };
-                        },
-                        .rangle => {
-                            try self.expect(ast.Operator.rangle);
-
-                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            rhs.* = try self.expr1();
-
-                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            newCurrent.* = current;
-
-                            current = ast.Expression{ .binop = .{
-                                .op = .rangle,
-                                .lhs = newCurrent,
-                                .rhs = rhs,
-                            } };
-                        },
-                        .lte => {
-                            try self.expect(ast.Operator.lte);
-
-                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            rhs.* = try self.expr1();
-
-                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            newCurrent.* = current;
-
-                            current = ast.Expression{ .binop = .{
-                                .op = .lte,
-                                .lhs = newCurrent,
-                                .rhs = rhs,
-                            } };
-                        },
-                        .gte => {
-                            try self.expect(ast.Operator.gte);
-
-                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            rhs.* = try self.expr1();
-
-                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            newCurrent.* = current;
-
-                            current = ast.Expression{ .binop = .{
-                                .op = .gte,
-                                .lhs = newCurrent,
-                                .rhs = rhs,
-                            } };
-                        },
-                        else => {
-                            break;
-                        },
-                    }
-                },
-                else => {
-                    break;
-                },
-            }
-        }
-
-        return current;
-    }
-
-    fn expr1(self: *Parser) anyerror!ast.Expression {
-        var current = try self.expr2();
-
-        while (self.peek()) |token| {
-            switch (token) {
-                .keyword => |op| {
-                    switch (op) {
-                        .plus => {
-                            try self.expect(ast.Operator.plus);
-
-                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            rhs.* = try self.expr2();
-
-                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            newCurrent.* = current;
-
-                            current = ast.Expression{ .binop = .{
-                                .op = .plus,
-                                .lhs = newCurrent,
-                                .rhs = rhs,
-                            } };
-                        },
-                        .minus => {
-                            try self.expect(ast.Operator.minus);
-
-                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            rhs.* = try self.expr2();
-
-                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            newCurrent.* = current;
-
-                            current = ast.Expression{ .binop = .{
-                                .op = .minus,
-                                .lhs = newCurrent,
-                                .rhs = rhs,
-                            } };
-                        },
-                        .percent => {
-                            try self.expect(ast.Operator.percent);
-
-                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            rhs.* = try self.expr2();
-
-                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            newCurrent.* = current;
-
-                            current = ast.Expression{ .binop = .{
-                                .op = .percent,
-                                .lhs = newCurrent,
-                                .rhs = rhs,
-                            } };
-                        },
-                        else => {
-                            break;
-                        },
-                    }
-                },
-                else => {
-                    break;
-                },
-            }
-        }
-
-        return current;
-    }
-
-    fn expr2(self: *Parser) anyerror!ast.Expression {
-        var current = try self.expr3();
-
-        while (self.peek()) |token| {
-            switch (token) {
-                .keyword => |op| {
-                    switch (op) {
-                        .star => {
-                            try self.expect(ast.Operator.star);
-
-                            const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            rhs.* = try self.expr3();
-
-                            const newCurrent = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                            newCurrent.* = current;
-
-                            current = ast.Expression{ .binop = .{
-                                .op = .star,
-                                .lhs = newCurrent,
-                                .rhs = rhs,
-                            } };
-                        },
-                        else => {
-                            break;
-                        },
-                    }
-                },
-                else => {
-                    break;
-                },
-            }
-        }
-
-        return current;
-    }
-
-    fn expr3(self: *Parser) anyerror!ast.Expression {
-        var current = try self.expr4();
-
-        while (self.peek()) |token| {
-            switch (token.keyword) {
-                .lparen => {
-                    try self.expect(ast.Operator.lparen);
-
-                    var args = std.ArrayList(ast.Expression).init(self.ast_arena_allocator.allocator());
-                    while (self.can_peek()) {
-                        if (self.is_next(ast.Operator.rparen)) {
-                            break;
+            for (table[n]) |target| {
+                switch (target) {
+                    .op => |op| {
+                        if (!self.is_next(op)) {
+                            continue;
                         }
 
-                        const arg = try self.expr();
-                        try args.append(arg);
+                        try self.expect(op);
 
-                        if (self.is_next(ast.Operator.comma)) {
-                            try self.expect(ast.Operator.comma);
-                        } else {
-                            break;
+                        const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                        lhs.* = current;
+
+                        const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                        rhs.* = try self.operatorN(table, n + 1);
+
+                        current = ast.Expression{ .binop = .{
+                            .op = op,
+                            .lhs = lhs,
+                            .rhs = rhs,
+                        } };
+                        found = true;
+                    },
+                    .call => {
+                        if (!self.is_next(ast.Operator.lparen)) {
+                            continue;
                         }
-                    }
-                    try self.expect(ast.Operator.rparen);
 
-                    const callee = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                    callee.* = current;
+                        try self.expect(ast.Operator.lparen);
 
-                    current = ast.Expression{ .call = .{
-                        .callee = callee,
-                        .args = args.items,
-                    } };
-                },
-                .lbracket => {
-                    try self.expect(ast.Operator.lbracket);
-                    const index = try self.expr();
-                    try self.expect(ast.Operator.rbracket);
+                        var args = std.ArrayList(ast.Expression).init(self.ast_arena_allocator.allocator());
+                        while (self.can_peek()) {
+                            if (self.is_next(ast.Operator.rparen)) {
+                                break;
+                            }
 
-                    const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                    lhs.* = current;
+                            const arg = try self.expr();
+                            try args.append(arg);
 
-                    const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                    rhs.* = index;
+                            if (self.is_next(ast.Operator.comma)) {
+                                try self.expect(ast.Operator.comma);
+                            } else {
+                                break;
+                            }
+                        }
+                        try self.expect(ast.Operator.rparen);
 
-                    current = ast.Expression{ .index = .{
-                        .type_ = ast.Type{ .unknown = true },
-                        .lhs = lhs,
-                        .rhs = rhs,
-                    } };
-                },
-                .dot => {
-                    try self.expect(ast.Operator.dot);
+                        const callee = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                        callee.* = current;
 
-                    const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                    lhs.* = current;
+                        current = ast.Expression{ .call = .{
+                            .callee = callee,
+                            .args = args.items,
+                        } };
+                    },
+                    .index => {
+                        if (!self.is_next(ast.Operator.lbracket)) {
+                            continue;
+                        }
 
-                    const rhs = try self.expect_ident();
+                        try self.expect(ast.Operator.lbracket);
+                        const index = try self.expr();
+                        try self.expect(ast.Operator.rbracket);
 
-                    current = ast.Expression{ .project = .{
-                        .struct_ = ast.StructData{
-                            .fields = &[_]ast.StructField{},
-                            .methods = &[_]ast.Decl{},
-                        },
-                        .lhs = lhs,
-                        .rhs = rhs,
-                    } };
-                },
-                .as => {
-                    try self.expect(ast.Operator.as);
+                        const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                        lhs.* = current;
 
-                    const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
-                    lhs.* = current;
+                        const rhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                        rhs.* = index;
 
-                    const rhs = try self.type_();
+                        current = ast.Expression{ .index = .{
+                            .type_ = ast.Type{ .unknown = true },
+                            .lhs = lhs,
+                            .rhs = rhs,
+                        } };
+                    },
+                    .project => {
+                        if (!self.is_next(ast.Operator.dot)) {
+                            continue;
+                        }
 
-                    current = ast.Expression{ .as = .{
-                        .lhs = lhs,
-                        .rhs = rhs,
-                    } };
-                },
-                else => {
-                    break;
-                },
+                        try self.expect(ast.Operator.dot);
+
+                        const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                        lhs.* = current;
+
+                        const rhs = try self.expect_ident();
+
+                        current = ast.Expression{ .project = .{
+                            .struct_ = ast.StructData{
+                                .fields = &[_]ast.StructField{},
+                                .methods = &[_]ast.Decl{},
+                            },
+                            .lhs = lhs,
+                            .rhs = rhs,
+                        } };
+                    },
+                    .as => {
+                        if (!self.is_next(ast.Operator.as)) {
+                            continue;
+                        }
+
+                        try self.expect(ast.Operator.as);
+
+                        const lhs = try self.ast_arena_allocator.allocator().create(ast.Expression);
+                        lhs.* = current;
+
+                        const rhs = try self.type_();
+
+                        current = ast.Expression{ .as = .{
+                            .lhs = lhs,
+                            .rhs = rhs,
+                        } };
+                    },
+                }
+            }
+
+            if (!found) {
+                break;
             }
         }
 
         return current;
     }
 
-    fn expr4(self: *Parser) anyerror!ast.Expression {
+    fn operatorBase(self: *Parser) anyerror!ast.Expression {
         if (self.peek()) |token| {
             switch (token) {
                 .number => |n| {
@@ -773,7 +671,7 @@ pub const Parser = struct {
                             return e;
                         },
                         else => {
-                            std.log.err("unexpected token: want lparen but got {any}\n", .{token});
+                            std.log.err("unexpected token: want lparen but got {any} ({any})\n", .{ token, self.tokens[self.position..] });
                             unreachable;
                         },
                     }
@@ -861,6 +759,32 @@ pub const Parser = struct {
                     } };
                 } else {
                     const t = try self.ast_arena_allocator.allocator().create(ast.Type);
+
+                    if (self.is_next(ast.Operator.lparen)) {
+                        try self.expect(ast.Operator.lparen);
+
+                        var params = std.ArrayList(ast.Type).init(self.ast_arena_allocator.allocator());
+                        while (!self.is_next(ast.Operator.rparen)) {
+                            const p = try self.type_();
+                            try params.append(p);
+
+                            if (self.is_next(ast.Operator.comma)) {
+                                try self.expect(ast.Operator.comma);
+                            } else {
+                                break;
+                            }
+                        }
+                        try self.expect(ast.Operator.rparen);
+
+                        const applied = try self.ast_arena_allocator.allocator().create(ast.Type);
+                        applied.* = .{ .unknown = true };
+
+                        return ast.Type{ .apply = .{
+                            .name = current,
+                            .params = params.items,
+                            .applied = applied,
+                        } };
+                    }
 
                     return ast.Type{ .ident = .{
                         .name = current,
