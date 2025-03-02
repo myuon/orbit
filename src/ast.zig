@@ -419,31 +419,6 @@ pub const Type = union(TypeType) {
         }
     }
 
-    pub fn applyTypes(self: Type, allocator: std.mem.Allocator, args: []Type) anyerror!Type {
-        return switch (self) {
-            .forall => |forall| {
-                if (args.len != forall.params.len) {
-                    std.log.err("Expected {d} arguments, got {d} ({s}:{d})", .{ forall.params.len, args.len, @src().file, @src().line });
-                    return error.UnexpectedType;
-                }
-
-                var t = forall.type_.*;
-
-                for (args, 0..) |arg, i| {
-                    t = try t.replace(allocator, forall.params[i], arg);
-                }
-
-                return t;
-            },
-            .int => self,
-            .bool_ => self,
-            else => {
-                std.log.err("Cannot apply {any} to {any}\n", .{ args, self });
-                return error.UnexpectedType;
-            },
-        };
-    }
-
     fn replace(self: Type, allocator: std.mem.Allocator, name: []const u8, type_: Type) anyerror!Type {
         return switch (self) {
             .forall => |forall| {
