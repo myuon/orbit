@@ -225,6 +225,7 @@ pub const Decl = union(DeclType) {
 
 pub const Module = struct {
     decls: []Decl,
+    type_defs: TypeDefs,
 };
 
 pub const AstTypeError = error{
@@ -508,6 +509,14 @@ pub const Type = union(TypeType) {
         };
     }
 };
+
+pub const TypeDef = struct {
+    name: []const u8,
+    fields: []StructField,
+    methods: []Decl,
+    extends: []ExtendField,
+};
+pub const TypeDefs = std.StringHashMap(TypeDef);
 
 pub const ValueError = error{
     UnexpectedType,

@@ -46,15 +46,15 @@ pub const Compiler = struct {
     }
 
     pub fn compileInIr(self: *Compiler, str: []const u8) anyerror![]ast.Instruction {
+        const zone = P.begin(@src(), "Compiler.compileInIr");
+        defer zone.end();
+
         var stdlib = std.ArrayList(u8).init(self.allocator);
         defer stdlib.deinit();
 
         try utils.readFile(self.allocator, "./lib/std.ob", &stdlib);
 
         const input = try std.fmt.allocPrint(self.arena_allocator.allocator(), "{s}\n{s}", .{ stdlib.items, str });
-
-        const zone = P.begin(@src(), "Compiler.compileInIr");
-        defer zone.end();
 
         var l = lexer.Lexer.init(self.allocator, input);
         defer l.deinit();

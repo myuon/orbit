@@ -27,6 +27,7 @@ pub const VmCompiler = struct {
     global_data: std.StringHashMap(i32),
     global_data_offset: usize,
     initialized_statements: std.ArrayList(ast.Statement),
+    type_defs: ?ast.TypeDefs,
 
     pub fn init(allocator: std.mem.Allocator) VmCompiler {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -46,6 +47,7 @@ pub const VmCompiler = struct {
             .global_data = std.StringHashMap(i32).init(allocator),
             .global_data_offset = 0,
             .initialized_statements = std.ArrayList(ast.Statement).init(allocator),
+            .type_defs = null,
         };
     }
 
@@ -799,6 +801,7 @@ pub const VmCompiler = struct {
 
         self.env_offset = 0;
         self.env.clearAndFree();
+        self.type_defs = module.type_defs;
 
         var initBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
         defer initBuffer.deinit();

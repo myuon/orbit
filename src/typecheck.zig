@@ -583,6 +583,13 @@ pub const Typechecker = struct {
                 }
 
                 decl.*.type_.type_ = type_decl.type_;
+
+                try module.type_defs.put(type_decl.name, .{
+                    .name = type_decl.name,
+                    .fields = str.fields,
+                    .methods = str.methods,
+                    .extends = type_decl.extends,
+                });
             },
         }
     }
