@@ -326,10 +326,7 @@ pub const Type = union(TypeType) {
         return_type: *Type,
     },
     struct_: StructData,
-    ident: struct {
-        name: []const u8,
-        type_: *Type,
-    },
+    ident: []const u8,
     apply: struct {
         name: []const u8,
         params: []Type,
@@ -474,7 +471,7 @@ pub const Type = union(TypeType) {
                 return self;
             },
             .ident => |ident| {
-                if (std.mem.eql(u8, ident.name, name)) {
+                if (std.mem.eql(u8, ident, name)) {
                     return type_;
                 }
 

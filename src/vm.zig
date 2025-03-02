@@ -386,10 +386,29 @@ pub const VmCompiler = struct {
                 }
             },
             .ident => |ident| {
-                try self.compileNewExpr(buffer, .{
-                    .type_ = ident.type_.*,
-                    .initializers = new.initializers,
-                });
+                const info = self.type_defs.?.get(ident).?;
+                const data = ast.StructData{ .fields = info.fields, .methods = info.methods };
+
+                std.debug.assert(new.initializers.len == data.fields.len);
+
+                // TODO: calculate the size of each field
+                try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, @constCast(&[_]ast.Expression{
+                    .{ .literal = .{ .number = @intCast(data.fields.len * 8) } },
+                }));
+
+                var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, info.fields.len);
+                for (new.initializers) |sinit| {
+                    const offset = try data.getFieldOffset(sinit.field);
+                    fields[offset] = sinit.value;
+                }
+
+                for (fields, 0..) |e, i| {
+                    try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
+                    try buffer.append(ast.Instruction{ .push = @intCast(i * 8) });
+                    try buffer.append(ast.Instruction{ .add = true });
+                    try self.compileExprFromAst(buffer, e);
+                    try buffer.append(ast.Instruction{ .store = 8 });
+                }
             },
             .apply => |apply| {
                 if (std.mem.eql(u8, apply.name, "map")) {

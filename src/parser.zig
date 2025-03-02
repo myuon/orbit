@@ -731,8 +731,6 @@ pub const Parser = struct {
                 } else if (std.mem.eql(u8, current, "byte")) {
                     return ast.Type{ .byte = true };
                 } else {
-                    const t = try self.ast_arena_allocator.allocator().create(ast.Type);
-
                     if (self.is_next(ast.Operator.lparen)) {
                         try self.expect(ast.Operator.lparen);
 
@@ -759,10 +757,7 @@ pub const Parser = struct {
                         } };
                     }
 
-                    return ast.Type{ .ident = .{
-                        .name = current,
-                        .type_ = t,
-                    } };
+                    return ast.Type{ .ident = current };
                 }
             },
             .keyword => |keyword| {

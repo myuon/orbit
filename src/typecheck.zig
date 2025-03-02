@@ -108,14 +108,14 @@ pub const Typechecker = struct {
             .ident => {
                 switch (actual) {
                     .ident => {
-                        if (!std.mem.eql(u8, expect.ident.name, actual.ident.name)) {
-                            std.log.err("Expected ident {s}, got {s}\n", .{ expect.ident.name, actual.ident.name });
+                        if (!std.mem.eql(u8, expect.ident, actual.ident)) {
+                            std.log.err("Expected ident {s}, got {s}\n", .{ expect.ident, actual.ident });
                             return TypecheckerError.UnexpectedType;
                         }
                     },
                     else => {
-                        const expect_type = self.env.get(expect.ident.name) orelse {
-                            std.log.err("Expected ident {s}, got {any}\n", .{ expect.ident.name, actual });
+                        const expect_type = self.env.get(expect.ident) orelse {
+                            std.log.err("Expected ident {s}, got {any}\n", .{ expect.ident, actual });
                             return TypecheckerError.UnexpectedType;
                         };
 
@@ -297,14 +297,11 @@ pub const Typechecker = struct {
                         structData = d;
                     },
                     .ident => |ident| {
-                        const t = self.env.get(ident.name) orelse {
-                            std.log.err("Struct not found: {s}\n", .{ident.name});
+                        // FIXME: check against initializers
+                        return self.env.get(ident) orelse {
+                            std.log.err("Struct not found: {s}\n", .{ident});
                             return error.VariableNotFound;
                         };
-
-                        ident.type_.* = t;
-
-                        return t;
                     },
                     .apply => |apply| {
                         if (std.mem.eql(u8, apply.name, "vec")) {
@@ -362,13 +359,9 @@ pub const Typechecker = struct {
                         structData = d;
                     },
                     .ident => |ident| {
-                        if (self.env.get(ident.name)) |v| {
-                            const info = self.type_defs.?.get(v.ident.name).?;
+                        const info = self.type_defs.?.get(ident).?;
 
-                            structData = .{ .fields = info.fields, .methods = info.methods };
-                        } else {
-                            unreachable;
-                        }
+                        structData = .{ .fields = info.fields, .methods = info.methods };
                     },
                     else => {
                         std.log.err("Expected struct, got {any}\n", .{lhs_type});
@@ -588,9 +581,7 @@ pub const Typechecker = struct {
                 try self.env.put(let.name, t);
             },
             .type_ => |type_decl| {
-                const t = try self.arena_allocator.allocator().create(ast.Type);
-                t.* = type_decl.type_;
-                try self.env.put(type_decl.name, .{ .ident = .{ .name = type_decl.name, .type_ = t } });
+                try self.env.put(type_decl.name, .{ .ident = type_decl.name });
 
                 var str = try type_decl.type_.getStructData();
                 for (0..str.methods.len) |i| {
