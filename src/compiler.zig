@@ -412,7 +412,7 @@ test "compiler.evalModule" {
         .{
             .program =
             \\fun main() do
-            \\  let k = new map(ptr(byte), int) {};
+            \\  let k = new map([*]byte, int) {};
             \\  k["hello"] = 1;
             \\  k["world"] = 2;
             \\
@@ -424,7 +424,7 @@ test "compiler.evalModule" {
         .{
             .program =
             \\fun main() do
-            \\  let k = new map(ptr(byte), int) {};
+            \\  let k = new map([*]byte, int) {};
             \\  k["a"] = 1;
             \\  k["b"] = 2;
             \\  k["a"] = 3;
