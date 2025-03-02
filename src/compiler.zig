@@ -71,6 +71,7 @@ pub const Compiler = struct {
 
         try tc.typecheck(&module);
 
+        self.vmc.generic_calls = module.generic_calls;
         var ir = try self.vmc.compile("main", module);
 
         if (self.enable_optimize_ir) {

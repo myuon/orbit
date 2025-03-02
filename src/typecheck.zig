@@ -479,9 +479,17 @@ pub const Typechecker = struct {
                                 else => unreachable,
                             }
 
+                            var params = std.ArrayList(ast.TypeParam).init(self.arena_allocator.allocator());
+                            for (fun.type_params, 0..) |tp, i| {
+                                try params.append(ast.TypeParam{
+                                    .name = tp,
+                                    .type_ = args.items[i],
+                                });
+                            }
+
                             try self.generic_calls.append(ast.GenericCallInfo{
-                                .function_name = function_name,
-                                .type_args = args.items,
+                                .name = function_name,
+                                .types = params.items,
                             });
                         }
                         for (fun.params, 0..) |param, i| {

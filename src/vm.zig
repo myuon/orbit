@@ -760,7 +760,8 @@ pub const VmCompiler = struct {
                     md.fun.type_params = t.params;
 
                     for (self.generic_calls) |generic_call| {
-                        if (std.mem.eql(u8, generic_call.function_name, md.fun.name)) {
+                        if (std.mem.eql(u8, generic_call.name, md.fun.name)) {
+                            std.log.info("generic_call: {s} {any}\n", .{ generic_call.name, generic_call.types });
                             try self.compileDecl(buffer, md);
                         }
                     }

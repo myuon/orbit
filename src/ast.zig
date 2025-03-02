@@ -545,9 +545,14 @@ pub const Type = union(TypeType) {
 
 pub const Assingments = std.StringHashMap(Type);
 
+pub const TypeParam = struct {
+    name: []const u8,
+    type_: Type,
+};
+
 pub const GenericCallInfo = struct {
-    function_name: []const u8,
-    type_args: []Type,
+    name: []const u8,
+    types: []TypeParam,
 };
 
 pub const TypeDef = struct {
