@@ -512,6 +512,7 @@ pub const Type = union(TypeType) {
 
 pub const TypeDef = struct {
     name: []const u8,
+    params: [][]const u8,
     fields: []StructField,
     methods: []Decl,
     extends: []ExtendField,
