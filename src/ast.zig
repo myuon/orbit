@@ -208,13 +208,33 @@ pub const ExtendField = struct {
 
 pub const MethodField = struct {
     name: []const u8,
+    type_params: [][]const u8,
     params: []FunParam,
     result_type: Type,
+
+    pub fn format(
+        self: MethodField,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try std.fmt.format(writer, "MethodField {{", .{});
+        try std.fmt.format(writer, "name: {s}, ", .{self.name});
+        try std.fmt.format(writer, "type_params: {s}, ", .{self.type_params});
+        try std.fmt.format(writer, "params: {{", .{});
+        for (self.params) |param| {
+            try std.fmt.format(writer, "{s}: {any}, ", .{ param.name, param.type_ });
+        }
+        try std.fmt.format(writer, "}}, ", .{});
+        try std.fmt.format(writer, "result_type: {any}", .{self.result_type});
+        try std.fmt.format(writer, "}}", .{});
+    }
 };
 
 pub const Decl = union(DeclType) {
     fun: struct {
         name: []const u8,
+        type_params: [][]const u8,
         params: []FunParam,
         result_type: Type,
         body: Block,
@@ -265,6 +285,7 @@ pub const Type = union(TypeType) {
     byte: bool,
     int: bool,
     fun: struct {
+        type_params: [][]const u8,
         params: []Type,
         return_type: *Type,
     },
@@ -293,7 +314,17 @@ pub const Type = union(TypeType) {
             .bool_ => try std.fmt.format(writer, "bool", .{}),
             .byte => try std.fmt.format(writer, "byte", .{}),
             .int => try std.fmt.format(writer, "int", .{}),
-            .fun => try std.fmt.format(writer, "fun", .{}),
+            .fun => {
+                try std.fmt.format(writer, "fun(", .{});
+                for (self.fun.type_params) |param| {
+                    try std.fmt.format(writer, "{s}: type, ", .{param});
+                }
+                for (self.fun.params) |param| {
+                    try std.fmt.format(writer, "{any}, ", .{param});
+                }
+                try std.fmt.format(writer, ")", .{});
+                try std.fmt.format(writer, "-> {any}", .{self.fun.return_type});
+            },
             .struct_ => |fields| {
                 try std.fmt.format(writer, "struct {{", .{});
                 for (fields) |field| {
@@ -553,8 +584,11 @@ pub const TypeDef = struct {
             var result_type = method.result_type;
             result_type = try result_type.replaceMany(allocator, self.params, args);
 
+            std.debug.assert(method.type_params.len == args.len);
+
             try methods.append(MethodField{
                 .name = method.name,
+                .type_params = &[_][]const u8{},
                 .params = params.items,
                 .result_type = result_type,
             });

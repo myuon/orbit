@@ -710,12 +710,22 @@ pub const VmCompiler = struct {
 
                 try buffer.append(ast.Instruction{ .label = f.name });
 
-                try self.env.put("return", -@as(i32, @intCast(f.params.len)) - 3);
+                var index: i32 = -3;
 
                 // register names in the reverse order
-                for (f.params, 0..) |param, i| {
-                    try self.env.put(param.name, -@as(i32, @intCast(f.params.len - i)) - 2);
+                for (0..f.params.len) |ri| {
+                    const i = f.params.len - ri - 1;
+                    try self.env.put(f.params[i].name, index);
+                    index -= 1;
                 }
+                // register type_params in the reverse order
+                for (0..f.type_params.len) |ri| {
+                    const i = f.type_params.len - ri - 1;
+                    try self.env.put(f.type_params[i], index);
+                    index -= 1;
+                }
+                // register return value
+                try self.env.put("return", index);
 
                 self.compiling_context = f.name;
 
@@ -744,7 +754,9 @@ pub const VmCompiler = struct {
             },
             .type_ => |t| {
                 for (t.methods) |m| {
-                    try self.compileDecl(buffer, m);
+                    var md = m;
+                    md.fun.type_params = t.params;
+                    try self.compileDecl(buffer, md);
                 }
             },
         }

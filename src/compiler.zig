@@ -566,6 +566,28 @@ test "compiler.evalModule" {
             ,
             .expected = 41,
         },
+        .{
+            .program =
+            \\type Pair(A: type, B: type) = struct {
+            \\  first: A,
+            \\  second: B,
+            \\
+            \\  fun set_first(self: Pair(A, B), a: A): int do
+            \\    self.first = a;
+            \\
+            \\    return 0;
+            \\  end
+            \\};
+            \\
+            \\fun main() do
+            \\  let p = new Pair(int, [*]byte) { .first = 1, .second = "hello, world" };
+            \\  p.set_first(3);
+            \\
+            \\  return p.first + (p.second[3] as int);
+            \\end
+            ,
+            .expected = 104,
+        },
     };
 
     for (cases, 0..) |case, i| {

@@ -256,6 +256,7 @@ pub const Typechecker = struct {
                                 _ = try self.assertType(fun.params[0], lhs_type);
 
                                 fun_type = ast.Type{ .fun = .{
+                                    .type_params = fun.type_params,
                                     .params = fun.params[1..],
                                     .return_type = fun.return_type,
                                 } };
@@ -428,6 +429,7 @@ pub const Typechecker = struct {
                     return_type.* = method.result_type;
 
                     return ast.Type{ .fun = .{
+                        .type_params = method.type_params,
                         .params = params.items,
                         .return_type = return_type,
                     } };
@@ -588,6 +590,7 @@ pub const Typechecker = struct {
                     unreachable;
                 }
                 try self.env.put(fun.name, ast.Type{ .fun = .{
+                    .type_params = &[_][]const u8{},
                     .params = params.items,
                     .return_type = return_type,
                 } });
@@ -602,6 +605,7 @@ pub const Typechecker = struct {
                 return_type.* = self.return_type.?;
 
                 const t = ast.Type{ .fun = .{
+                    .type_params = &[_][]const u8{},
                     .params = params.items,
                     .return_type = return_type,
                 } };
@@ -642,6 +646,7 @@ pub const Typechecker = struct {
                 for (td.methods) |method| {
                     try methodTypes.append(.{
                         .name = method.fun.name,
+                        .type_params = td.params,
                         .params = method.fun.params,
                         .result_type = method.fun.result_type,
                     });
