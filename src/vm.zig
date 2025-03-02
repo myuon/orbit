@@ -331,15 +331,6 @@ pub const VmCompiler = struct {
                         try self.compileLhsExprFromAst(buffer, expr);
                         try buffer.append(ast.Instruction{ .load = ptr.type_.size() });
                     },
-                    .struct_ => |struct_| {
-                        // FIXME: adhoc patch
-                        if (struct_.len == 2 and std.mem.eql(u8, struct_[0].name, "ptr")) {
-                            try self.compileLhsExprFromAst(buffer, expr);
-                            try buffer.append(ast.Instruction{ .load = struct_[0].type_.ptr.type_.size() });
-                        } else {
-                            unreachable;
-                        }
-                    },
                     else => {
                         std.log.err("Invalid index type: {any}\n", .{index.type_});
                         unreachable;

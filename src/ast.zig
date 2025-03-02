@@ -356,17 +356,6 @@ pub const Type = union(TypeType) {
             .ptr => {
                 return .{ .int = true };
             },
-            .struct_ => |data| {
-                // FIXME: adhoc patch
-                if (data.len == 2) {
-                    if (std.mem.eql(u8, data[0].name, "ptr")) {
-                        return .{ .int = true };
-                    }
-                }
-
-                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
-                return error.UnexpectedType;
-            },
             else => {
                 std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                 return error.UnexpectedType;
@@ -401,17 +390,6 @@ pub const Type = union(TypeType) {
             },
             .ptr => |ptr| {
                 return ptr.type_.*;
-            },
-            .struct_ => |data| {
-                // FIXME: adhoc patch
-                if (data.len == 2) {
-                    if (std.mem.eql(u8, data[0].name, "ptr")) {
-                        return data[0].type_.ptr.type_.*;
-                    }
-                }
-
-                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
-                return error.UnexpectedType;
             },
             else => {
                 std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
