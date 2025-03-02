@@ -32,7 +32,7 @@
       "patterns": [
         {
           "name": "keyword.control.orbit",
-          "match": "\\b(if|else|while|do|end|return|let|fun|new|type|struct|as)\\b"
+          "match": "\\b(if|else|while|do|end|return|let|fun|new|type|struct|as|extends)\\b"
         }
       ]
     },

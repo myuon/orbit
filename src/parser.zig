@@ -165,6 +165,27 @@ pub const Parser = struct {
 
                             try self.expect(ast.Operator.eq);
                             const type_value = try self.type_();
+
+                            var extends = std.ArrayList(ast.ExtendField).init(self.ast_arena_allocator.allocator());
+                            if (self.is_next(ast.Operator.extends)) {
+                                try self.expect(ast.Operator.extends);
+                                try self.expect(ast.Operator.lbrace);
+                                while (!self.is_next(ast.Operator.rbrace)) {
+                                    try self.expect(ast.Operator.dot);
+                                    const field_name = try self.expect_ident();
+                                    try self.expect(ast.Operator.eq);
+                                    const field_type = try self.type_();
+                                    try extends.append(.{ .name = field_name, .type_ = field_type });
+
+                                    if (self.is_next(ast.Operator.comma)) {
+                                        try self.expect(ast.Operator.comma);
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                try self.expect(ast.Operator.rbrace);
+                            }
+
                             try self.expect(ast.Operator.semicolon);
 
                             if (params.items.len == 0) {
@@ -172,6 +193,7 @@ pub const Parser = struct {
                                     .name = name,
                                     .params = params.items,
                                     .type_ = type_value,
+                                    .extends = extends.items,
                                 } };
                             }
 
@@ -185,6 +207,7 @@ pub const Parser = struct {
                                     .params = params.items,
                                     .type_ = t,
                                 } },
+                                .extends = extends.items,
                             } };
                         },
                         else => {

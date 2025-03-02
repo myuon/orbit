@@ -36,6 +36,7 @@ pub const Operator = enum {
     struct_,
     as,
     type_,
+    extends,
 };
 
 pub const TokenType = enum {
@@ -198,6 +199,11 @@ pub const FunParam = struct {
     type_: ?Type,
 };
 
+pub const ExtendField = struct {
+    name: []const u8,
+    type_: Type,
+};
+
 pub const Decl = union(DeclType) {
     fun: struct {
         name: []const u8,
@@ -213,6 +219,7 @@ pub const Decl = union(DeclType) {
         name: []const u8,
         params: [][]const u8,
         type_: Type,
+        extends: []ExtendField,
     },
 };
 

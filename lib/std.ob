@@ -15,6 +15,9 @@ end
 type slice(T: type) = struct {
   ptr: [*]T,
   len: int,
+} extends {
+  .key = int,
+  .value = T,
 };
 
 fun new_slice(size: int, len: int) do
