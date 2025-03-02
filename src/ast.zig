@@ -123,7 +123,8 @@ pub const Expression = union(ExpressionType) {
     },
     new: NewExpr,
     project: struct {
-        struct_: StructData,
+        name: []const u8,
+        fields: []StructField, // For anonymous structs
         lhs: *Expression,
         rhs: []const u8,
     },
@@ -204,6 +205,12 @@ pub const ExtendField = struct {
     type_: Type,
 };
 
+pub const MethodField = struct {
+    name: []const u8,
+    params: []FunParam,
+    result_type: Type,
+};
+
 pub const Decl = union(DeclType) {
     fun: struct {
         name: []const u8,
@@ -218,7 +225,8 @@ pub const Decl = union(DeclType) {
     type_: struct {
         name: []const u8,
         params: [][]const u8,
-        type_: Type,
+        methods: []Decl,
+        fields: []StructField,
         extends: []ExtendField,
     },
 };
@@ -235,72 +243,6 @@ pub const AstTypeError = error{
 pub const StructField = struct {
     name: []const u8,
     type_: Type,
-};
-
-pub const StructData = struct {
-    fields: []StructField,
-    methods: []Decl,
-
-    pub fn hasField(self: StructData, name: []const u8) bool {
-        for (self.fields) |field| {
-            if (std.mem.eql(u8, field.name, name)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    pub fn getFieldType(self: StructData, name: []const u8) !Type {
-        for (self.fields) |field| {
-            if (std.mem.eql(u8, field.name, name)) {
-                return field.type_;
-            }
-        }
-
-        unreachable;
-    }
-
-    pub fn hasMethod(self: StructData, name: []const u8) bool {
-        for (self.methods) |method| {
-            switch (method) {
-                .fun => |fun| {
-                    if (std.mem.eql(u8, fun.name, name)) {
-                        return true;
-                    }
-                },
-                else => {},
-            }
-        }
-
-        return false;
-    }
-
-    pub fn getMethod(self: StructData, name: []const u8) struct { params: []FunParam, result_type: Type } {
-        for (self.methods) |method| {
-            switch (method) {
-                .fun => |fun| {
-                    if (std.mem.eql(u8, fun.name, name)) {
-                        return .{ .params = fun.params, .result_type = fun.result_type };
-                    }
-                },
-                else => {},
-            }
-        }
-
-        unreachable;
-    }
-
-    pub fn getFieldOffset(self: StructData, name: []const u8) !usize {
-        for (self.fields, 0..) |field, i| {
-            if (std.mem.eql(u8, field.name, name)) {
-                return i;
-            }
-        }
-
-        std.log.err("Field not found: {s} in fields: {any}, methods: {any}\n", .{ name, self.fields.len, self.methods.len });
-        unreachable;
-    }
 };
 
 pub const TypeType = enum {
@@ -325,7 +267,7 @@ pub const Type = union(TypeType) {
         params: []Type,
         return_type: *Type,
     },
-    struct_: StructData,
+    struct_: []StructField,
     ident: []const u8,
     apply: struct {
         name: []const u8,
@@ -339,6 +281,38 @@ pub const Type = union(TypeType) {
     ptr: struct {
         type_: *Type,
     },
+
+    pub fn format(
+        self: Type,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .unknown => try std.fmt.format(writer, "unknown", .{}),
+            .bool_ => try std.fmt.format(writer, "bool", .{}),
+            .byte => try std.fmt.format(writer, "byte", .{}),
+            .int => try std.fmt.format(writer, "int", .{}),
+            .fun => try std.fmt.format(writer, "fun", .{}),
+            .struct_ => |fields| {
+                try std.fmt.format(writer, "struct {{", .{});
+                for (fields) |field| {
+                    try std.fmt.format(writer, "{s}: {any},", .{ field.name, field.type_ });
+                }
+                try std.fmt.format(writer, "}}", .{});
+            },
+            .ident => try std.fmt.format(writer, "{s}", .{self.ident}),
+            .apply => |apply| {
+                try std.fmt.format(writer, "{s}(", .{apply.name});
+                for (apply.params) |param| {
+                    try std.fmt.format(writer, "{any}, ", .{param});
+                }
+                try std.fmt.format(writer, ")", .{});
+            },
+            .forall => try std.fmt.format(writer, "forall({})", .{self.forall.params.len}),
+            .ptr => try std.fmt.format(writer, "[*]{s}", .{self.ptr.type_}),
+        }
+    }
 
     pub fn size(self: Type) u4 {
         return switch (self) {
@@ -376,8 +350,8 @@ pub const Type = union(TypeType) {
             },
             .struct_ => |data| {
                 // FIXME: adhoc patch
-                if (data.fields.len == 2) {
-                    if (std.mem.eql(u8, data.fields[0].name, "ptr")) {
+                if (data.len == 2) {
+                    if (std.mem.eql(u8, data[0].name, "ptr")) {
                         return .{ .int = true };
                     }
                 }
@@ -413,9 +387,9 @@ pub const Type = union(TypeType) {
             },
             .struct_ => |data| {
                 // FIXME: adhoc patch
-                if (data.fields.len == 2) {
-                    if (std.mem.eql(u8, data.fields[0].name, "ptr")) {
-                        return data.fields[0].type_.ptr.type_.*;
+                if (data.len == 2) {
+                    if (std.mem.eql(u8, data[0].name, "ptr")) {
+                        return data[0].type_.ptr.type_.*;
                     }
                 }
 
@@ -429,21 +403,11 @@ pub const Type = union(TypeType) {
         }
     }
 
-    pub fn getStructData(t: Type) anyerror!StructData {
-        return switch (t) {
-            Type.struct_ => t.struct_,
-            Type.forall => |forall| {
-                return forall.type_.getStructData();
-            },
-            else => error.UnexpectedType,
-        };
-    }
-
     pub fn applyTypes(self: Type, allocator: std.mem.Allocator, args: []Type) anyerror!Type {
         return switch (self) {
             Type.forall => |forall| {
                 if (args.len != forall.params.len) {
-                    std.log.err("Expected {d} arguments, got {d}\n", .{ forall.params.len, args.len });
+                    std.log.err("Expected {d} arguments, got {d} ({s}:{d})", .{ forall.params.len, args.len, @src().file, @src().line });
                     return error.UnexpectedType;
                 }
 
@@ -479,17 +443,14 @@ pub const Type = union(TypeType) {
             },
             .struct_ => |data| {
                 var fields = std.ArrayList(StructField).init(allocator);
-                for (data.fields) |field| {
+                for (data) |field| {
                     try fields.append(StructField{
                         .name = field.name,
                         .type_ = try field.type_.replace(allocator, name, type_),
                     });
                 }
 
-                return Type{ .struct_ = .{
-                    .fields = fields.items,
-                    .methods = data.methods,
-                } };
+                return Type{ .struct_ = fields.items };
             },
             .unknown => unreachable,
             .bool_ => self,
@@ -511,8 +472,115 @@ pub const TypeDef = struct {
     name: []const u8,
     params: [][]const u8,
     fields: []StructField,
-    methods: []Decl,
+    methods: []MethodField,
     extends: []ExtendField,
+
+    pub fn hasField(self: TypeDef, name: []const u8) bool {
+        for (self.fields) |field| {
+            if (std.mem.eql(u8, field.name, name)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    pub fn getFieldType(self: TypeDef, name: []const u8) !Type {
+        for (self.fields) |field| {
+            if (std.mem.eql(u8, field.name, name)) {
+                return field.type_;
+            }
+        }
+
+        unreachable;
+    }
+
+    pub fn getFieldOffset(self: TypeDef, name: []const u8) !usize {
+        for (self.fields, 0..) |field, i| {
+            if (std.mem.eql(u8, field.name, name)) {
+                return i;
+            }
+        }
+
+        std.log.err("Field not found: {s} in fields: {any}, methods: {any}\n", .{ name, self.fields.len, self.methods.len });
+        unreachable;
+    }
+
+    pub fn hasMethod(self: TypeDef, name: []const u8) bool {
+        for (self.methods) |method| {
+            if (std.mem.eql(u8, method.name, name)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    pub fn getMethod(self: TypeDef, name: []const u8) MethodField {
+        for (self.methods) |method| {
+            if (std.mem.eql(u8, method.name, name)) {
+                return method;
+            }
+        }
+
+        unreachable;
+    }
+
+    pub fn apply(self: TypeDef, allocator: std.mem.Allocator, args: []Type) anyerror!TypeDef {
+        if (self.params.len != args.len) {
+            std.log.err("Expected {d} arguments, got {d} ({s}:{d})", .{ self.params.len, args.len, @src().file, @src().line });
+            return error.UnexpectedType;
+        }
+
+        var fields = std.ArrayList(StructField).init(allocator);
+        for (self.fields) |field| {
+            var t = field.type_;
+            for (self.params, 0..) |param, i| {
+                t = try t.replace(allocator, param, args[i]);
+            }
+
+            try fields.append(StructField{
+                .name = field.name,
+                .type_ = t,
+            });
+        }
+
+        var methods = std.ArrayList(MethodField).init(allocator);
+        for (self.methods) |method| {
+            try methods.append(MethodField{
+                .name = method.name,
+                .params = method.params,
+                .result_type = method.result_type,
+            });
+        }
+
+        var extends = std.ArrayList(ExtendField).init(allocator);
+        for (self.extends) |extend| {
+            try extends.append(ExtendField{
+                .name = extend.name,
+                .type_ = extend.type_,
+            });
+        }
+
+        return TypeDef{
+            .name = self.name,
+            .params = &[_][]const u8{},
+            .fields = fields.items,
+            .methods = methods.items,
+            .extends = extends.items,
+        };
+    }
+
+    fn replace(self: TypeDef, name: []const u8, arg: Type) anyerror!TypeDef {
+        switch (self) {
+            .name => |n| {
+                if (std.mem.eql(u8, n, name)) {
+                    return arg;
+                }
+            },
+            else => error.UnexpectedType,
+        }
+    }
 };
 pub const TypeDefs = std.StringHashMap(TypeDef);
 

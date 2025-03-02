@@ -166,7 +166,38 @@ pub const Parser = struct {
                             }
 
                             try self.expect(ast.Operator.eq);
-                            const type_value = try self.type_();
+
+                            try self.expect(ast.Operator.struct_);
+                            try self.expect(ast.Operator.lbrace);
+
+                            var fields = std.ArrayList(ast.StructField).init(self.ast_arena_allocator.allocator());
+                            var methods = std.ArrayList(ast.Decl).init(self.ast_arena_allocator.allocator());
+
+                            while (true) {
+                                if (self.is_next(ast.Operator.rbrace)) {
+                                    break;
+                                }
+
+                                if (self.is_next(ast.Operator.fun)) {
+                                    const method = try self.parseFunDecl();
+                                    try methods.append(method);
+                                    continue;
+                                }
+
+                                const field_name = try self.expect_ident();
+                                try self.expect(ast.Operator.colon);
+                                const field_type = try self.type_();
+
+                                try fields.append(.{ .name = field_name, .type_ = field_type });
+
+                                if (self.is_next(ast.Operator.comma)) {
+                                    try self.expect(ast.Operator.comma);
+                                    continue;
+                                } else {
+                                    break;
+                                }
+                            }
+                            try self.expect(ast.Operator.rbrace);
 
                             var extends = std.ArrayList(ast.ExtendField).init(self.ast_arena_allocator.allocator());
                             if (self.is_next(ast.Operator.extends)) {
@@ -190,25 +221,11 @@ pub const Parser = struct {
 
                             try self.expect(ast.Operator.semicolon);
 
-                            if (params.items.len == 0) {
-                                return ast.Decl{ .type_ = .{
-                                    .name = name,
-                                    .params = params.items,
-                                    .type_ = type_value,
-                                    .extends = extends.items,
-                                } };
-                            }
-
-                            const t = try self.ast_arena_allocator.allocator().create(ast.Type);
-                            t.* = type_value;
-
                             return ast.Decl{ .type_ = .{
                                 .name = name,
                                 .params = params.items,
-                                .type_ = .{ .forall = .{
-                                    .params = params.items,
-                                    .type_ = t,
-                                } },
+                                .fields = fields.items,
+                                .methods = methods.items,
                                 .extends = extends.items,
                             } };
                         },
@@ -598,10 +615,8 @@ pub const Parser = struct {
                         const rhs = try self.expect_ident();
 
                         current = ast.Expression{ .project = .{
-                            .struct_ = ast.StructData{
-                                .fields = &[_]ast.StructField{},
-                                .methods = &[_]ast.Decl{},
-                            },
+                            .name = "",
+                            .fields = &[_]ast.StructField{},
                             .lhs = lhs,
                             .rhs = rhs,
                         } };
@@ -764,42 +779,23 @@ pub const Parser = struct {
                 switch (keyword) {
                     .struct_ => {
                         var fields = std.ArrayList(ast.StructField).init(self.ast_arena_allocator.allocator());
-                        var methods = std.ArrayList(ast.Decl).init(self.ast_arena_allocator.allocator());
 
                         try self.expect(ast.Operator.lbrace);
-
-                        while (true) {
-                            if (self.is_next(ast.Operator.rbrace)) {
-                                break;
-                            }
-
-                            if (self.is_next(ast.Operator.fun)) {
-                                const method = try self.parseFunDecl();
-                                try methods.append(method);
-                                continue;
-                            }
-
-                            const field_name = try self.expect_ident();
+                        while (!self.is_next(ast.Operator.rbrace)) {
+                            const field = try self.expect_ident();
                             try self.expect(ast.Operator.colon);
-                            const field_type = try self.type_();
-
-                            try fields.append(.{ .name = field_name, .type_ = field_type });
+                            const t = try self.type_();
+                            try fields.append(.{ .name = field, .type_ = t });
 
                             if (self.is_next(ast.Operator.comma)) {
                                 try self.expect(ast.Operator.comma);
-                                continue;
                             } else {
                                 break;
                             }
                         }
                         try self.expect(ast.Operator.rbrace);
 
-                        return ast.Type{
-                            .struct_ = ast.StructData{
-                                .fields = fields.items,
-                                .methods = methods.items,
-                            },
-                        };
+                        return ast.Type{ .struct_ = fields.items };
                     },
                     .lbracket => {
                         try self.expect(ast.Operator.star);

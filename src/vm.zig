@@ -333,9 +333,9 @@ pub const VmCompiler = struct {
                     },
                     .struct_ => |struct_| {
                         // FIXME: adhoc patch
-                        if (struct_.fields.len == 2 and std.mem.eql(u8, struct_.fields[0].name, "ptr")) {
+                        if (struct_.len == 2 and std.mem.eql(u8, struct_[0].name, "ptr")) {
                             try self.compileLhsExprFromAst(buffer, expr);
-                            try buffer.append(ast.Instruction{ .load = struct_.fields[0].type_.ptr.type_.size() });
+                            try buffer.append(ast.Instruction{ .load = struct_[0].type_.ptr.type_.size() });
                         } else {
                             unreachable;
                         }
@@ -352,8 +352,21 @@ pub const VmCompiler = struct {
             .project => |project| {
                 try self.compileLhsExprFromAst(buffer, expr);
 
-                const valueType = try project.struct_.getFieldType(project.rhs);
-                try buffer.append(ast.Instruction{ .load = valueType.size() });
+                var size: u4 = undefined;
+                if (project.fields.len > 0) {
+                    // FIXME: anonymous struct + applied types
+                    for (project.fields) |field| {
+                        if (std.mem.eql(u8, field.name, project.rhs)) {
+                            size = field.type_.size();
+                            break;
+                        }
+                    }
+                } else {
+                    const def = self.type_defs.?.get(project.name).?;
+                    size = def.fields[try def.getFieldOffset(project.rhs)].type_.size();
+                }
+
+                try buffer.append(ast.Instruction{ .load = size });
             },
             .as => |as| {
                 try self.compileExprFromAst(buffer, as.lhs.*);
@@ -364,16 +377,22 @@ pub const VmCompiler = struct {
     fn compileNewExpr(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), new: ast.NewExpr) anyerror!void {
         switch (new.type_) {
             .struct_ => |struct_| {
-                std.debug.assert(new.initializers.len == struct_.fields.len);
+                std.debug.assert(new.initializers.len == struct_.len);
 
                 // TODO: calculate the size of each field
                 try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, @constCast(&[_]ast.Expression{
-                    .{ .literal = .{ .number = @intCast(struct_.fields.len * 8) } },
+                    .{ .literal = .{ .number = @intCast(struct_.len * 8) } },
                 }));
 
-                var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, struct_.fields.len);
+                var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, struct_.len);
                 for (new.initializers) |sinit| {
-                    const offset = try struct_.getFieldOffset(sinit.field);
+                    var offset: usize = 0;
+                    for (struct_, 0..) |field, i| {
+                        if (std.mem.eql(u8, field.name, sinit.field)) {
+                            offset = i;
+                            break;
+                        }
+                    }
                     fields[offset] = sinit.value;
                 }
 
@@ -386,19 +405,18 @@ pub const VmCompiler = struct {
                 }
             },
             .ident => |ident| {
-                const info = self.type_defs.?.get(ident).?;
-                const data = ast.StructData{ .fields = info.fields, .methods = info.methods };
+                const def = self.type_defs.?.get(ident).?;
 
-                std.debug.assert(new.initializers.len == data.fields.len);
+                std.debug.assert(new.initializers.len == def.fields.len);
 
                 // TODO: calculate the size of each field
                 try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, @constCast(&[_]ast.Expression{
-                    .{ .literal = .{ .number = @intCast(data.fields.len * 8) } },
+                    .{ .literal = .{ .number = @intCast(def.fields.len * 8) } },
                 }));
 
-                var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, info.fields.len);
+                var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, def.fields.len);
                 for (new.initializers) |sinit| {
-                    const offset = try data.getFieldOffset(sinit.field);
+                    const offset = try def.getFieldOffset(sinit.field);
                     fields[offset] = sinit.value;
                 }
 
@@ -426,10 +444,29 @@ pub const VmCompiler = struct {
                         .{ .literal = .{ .number = @intCast(128) } },
                     }));
                 } else {
-                    try self.compileNewExpr(buffer, .{
-                        .type_ = apply.applied.*,
-                        .initializers = new.initializers,
-                    });
+                    var def = self.type_defs.?.get(apply.name).?;
+                    def = try def.apply(self.ast_arena_allocator.allocator(), apply.params);
+
+                    std.debug.assert(new.initializers.len == def.fields.len);
+
+                    // TODO: calculate the size of each field
+                    try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, @constCast(&[_]ast.Expression{
+                        .{ .literal = .{ .number = @intCast(def.fields.len * 8) } },
+                    }));
+
+                    var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, def.fields.len);
+                    for (new.initializers) |sinit| {
+                        const offset = try def.getFieldOffset(sinit.field);
+                        fields[offset] = sinit.value;
+                    }
+
+                    for (fields, 0..) |e, i| {
+                        try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
+                        try buffer.append(ast.Instruction{ .push = @intCast(i * 8) });
+                        try buffer.append(ast.Instruction{ .add = true });
+                        try self.compileExprFromAst(buffer, e);
+                        try buffer.append(ast.Instruction{ .store = 8 });
+                    }
                 }
             },
             else => {
@@ -477,10 +514,10 @@ pub const VmCompiler = struct {
                     },
                     .struct_ => |struct_| {
                         // FIXME: adhoc patch
-                        if (std.mem.eql(u8, struct_.fields[0].name, "ptr")) {
+                        if (std.mem.eql(u8, struct_[0].name, "ptr")) {
                             try self.compileExprFromAst(buffer, index.lhs.*);
                             try self.compileExprFromAst(buffer, index.rhs.*);
-                            try buffer.append(ast.Instruction{ .push = struct_.fields[0].type_.ptr.type_.size() });
+                            try buffer.append(ast.Instruction{ .push = struct_[0].type_.ptr.type_.size() });
                             try buffer.append(ast.Instruction{ .mul = true });
                             try buffer.append(ast.Instruction{ .add = true });
                         } else {
@@ -494,8 +531,28 @@ pub const VmCompiler = struct {
                 }
             },
             .project => |project| {
+                var offset: i32 = -1;
+                if (project.name.len == 0) {
+                    for (project.fields, 0..) |field, i| {
+                        if (std.mem.eql(u8, field.name, project.rhs)) {
+                            offset = @intCast(i);
+                            break;
+                        }
+                    }
+
+                    if (offset < 0) {
+                        std.log.err("Field not found: {s} in {any}\n", .{ project.rhs, project.fields });
+                        unreachable;
+                    }
+                } else {
+                    var def = self.type_defs.?.get(project.name).?;
+                    offset = @intCast(try def.getFieldOffset(project.rhs));
+                }
+
+                std.debug.assert(offset >= 0);
+
                 try self.compileExprFromAst(buffer, project.lhs.*);
-                try buffer.append(ast.Instruction{ .push = @intCast(try project.struct_.getFieldOffset(project.rhs)) });
+                try buffer.append(ast.Instruction{ .push = @intCast(offset) });
                 try buffer.append(ast.Instruction{ .push = 8 });
                 try buffer.append(ast.Instruction{ .mul = true });
                 try buffer.append(ast.Instruction{ .add = true });
@@ -738,8 +795,7 @@ pub const VmCompiler = struct {
                 }
             },
             .type_ => |t| {
-                const str = try t.type_.getStructData();
-                for (str.methods) |m| {
+                for (t.methods) |m| {
                     try self.compileDecl(buffer, m);
                 }
             },

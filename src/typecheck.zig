@@ -13,13 +13,21 @@ pub const Typechecker = struct {
     arena_allocator: std.heap.ArenaAllocator,
     return_type: ?ast.Type,
     type_defs: ?ast.TypeDefs,
+    prng: std.Random.Xoshiro256,
 
     pub fn init(allocator: std.mem.Allocator) Typechecker {
+        const prng = std.rand.DefaultPrng.init(blk: {
+            var seed: u64 = undefined;
+            std.posix.getrandom(std.mem.asBytes(&seed)) catch unreachable;
+            break :blk seed;
+        });
+
         return Typechecker{
             .env = std.StringHashMap(ast.Type).init(allocator),
             .arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .return_type = null,
             .type_defs = null,
+            .prng = prng,
         };
     }
 
@@ -88,19 +96,31 @@ pub const Typechecker = struct {
             .struct_ => |expect_data| {
                 switch (actual) {
                     .struct_ => |actual_data| {
-                        if (expect_data.fields.len != actual_data.fields.len) {
-                            std.log.err("Expected struct with {any} fields, got {any}\n", .{ expect_data.fields.len, actual_data.fields.len });
+                        if (expect_data.len != actual_data.len) {
+                            std.log.err("Expected struct with {any} fields, got {any}\n", .{ expect_data.len, actual_data.len });
                             return TypecheckerError.UnexpectedType;
                         }
-                        for (expect_data.fields, 0..) |field, i| {
-                            _ = self.assertType(field.type_, actual_data.fields[i].type_) catch |err| {
+                        for (expect_data, 0..) |field, i| {
+                            _ = self.assertType(field.type_, actual_data[i].type_) catch |err| {
                                 std.log.err("Error in field {s}: {}\n   {s}:{}", .{ field.name, err, @src().file, @src().line });
                                 return err;
                             };
                         }
                     },
+                    .ident => |ident| {
+                        const def = self.type_defs.?.get(ident).?;
+
+                        if (expect_data.len != def.fields.len) {
+                            std.log.err("Expected struct with {any} fields, got {any}\n", .{ def.fields.len, expect_data.len });
+                            return TypecheckerError.UnexpectedType;
+                        }
+
+                        for (0..def.fields.len) |i| {
+                            _ = try self.assertType(def.fields[i].type_, expect_data[i].type_);
+                        }
+                    },
                     else => {
-                        std.log.err("Expected struct, got {any}\n", .{actual});
+                        std.log.err("Expected struct, got {any} ({s}:{d})", .{ actual, @src().file, @src().line });
                         return TypecheckerError.UnexpectedType;
                     },
                 }
@@ -109,13 +129,13 @@ pub const Typechecker = struct {
                 switch (actual) {
                     .ident => {
                         if (!std.mem.eql(u8, expect.ident, actual.ident)) {
-                            std.log.err("Expected ident {s}, got {s}\n", .{ expect.ident, actual.ident });
+                            std.log.err("Expected ident {s}, got {s} ({s}:{d})", .{ expect.ident, actual.ident, @src().file, @src().line });
                             return TypecheckerError.UnexpectedType;
                         }
                     },
                     else => {
                         const expect_type = self.env.get(expect.ident) orelse {
-                            std.log.err("Expected ident {s}, got {any}\n", .{ expect.ident, actual });
+                            std.log.err("Expected ident {s}, got {any} ({s}:{d})", .{ expect.ident, actual, @src().file, @src().line });
                             return TypecheckerError.UnexpectedType;
                         };
 
@@ -128,7 +148,7 @@ pub const Typechecker = struct {
                     .apply => |aapply| {
                         if (std.mem.eql(u8, eapply.name, aapply.name)) {
                             if (eapply.params.len != aapply.params.len) {
-                                std.log.err("Expected {any} parameters, got {any}\n", .{ eapply.params.len, aapply.params.len });
+                                std.log.err("Expected {any} parameters, got {any} ({s}:{d})", .{ eapply.params.len, aapply.params.len, @src().file, @src().line });
                                 return TypecheckerError.UnexpectedType;
                             }
 
@@ -158,7 +178,7 @@ pub const Typechecker = struct {
                         return ast.Type{ .ptr = .{ .type_ = t } };
                     },
                     else => {
-                        std.log.err("Expected {any}, got {any}\n", .{ expect, actual });
+                        std.log.err("Expected {any}, got {any} ({s}:{d})", .{ expect, actual, @src().file, @src().line });
                         return TypecheckerError.UnexpectedType;
                     },
                 }
@@ -291,14 +311,19 @@ pub const Typechecker = struct {
                 return value_type;
             },
             .new => |new| {
-                var structData: ast.StructData = undefined;
+                var def: ast.TypeDef = undefined;
                 switch (new.type_) {
                     .struct_ => |d| {
-                        structData = d;
+                        def = .{
+                            .name = "",
+                            .params = &[_][]const u8{},
+                            .fields = d,
+                            .methods = &[_]ast.MethodField{},
+                            .extends = &[_]ast.ExtendField{},
+                        };
                     },
                     .ident => |ident| {
-                        // FIXME: check against initializers
-                        return self.env.get(ident) orelse {
+                        def = self.type_defs.?.get(ident) orelse {
                             std.log.err("Struct not found: {s}\n", .{ident});
                             return error.VariableNotFound;
                         };
@@ -319,17 +344,7 @@ pub const Typechecker = struct {
                             return error.VariableNotFound;
                         };
 
-                        const gt = try self.arena_allocator.allocator().create(ast.Type);
-                        gt.* = .{ .struct_ = .{ .fields = info.fields, .methods = info.methods } };
-
-                        const generalized = ast.Type{ .forall = .{ .params = info.params, .type_ = gt } };
-                        const applied = try generalized.applyTypes(self.arena_allocator.allocator(), apply.params);
-
-                        structData = try applied.getStructData();
-
-                        apply.applied.* = applied;
-
-                        return applied;
+                        def = try info.apply(self.arena_allocator.allocator(), apply.params);
                     },
                     else => {
                         std.log.err("Expected struct, got {any}\n", .{new.type_});
@@ -338,44 +353,72 @@ pub const Typechecker = struct {
                 }
 
                 for (new.initializers, 0..) |initializer, k| {
-                    const field_type = try structData.getFieldType(initializer.field);
+                    const field_type = try def.getFieldType(initializer.field);
 
                     var value = initializer.value;
                     const t = try self.typecheckExpr(&value);
 
-                    _ = try self.assertType(field_type, t);
+                    _ = self.assertType(field_type, t) catch |err| {
+                        std.log.err("Error in initializer .{s} = {any} : {any}: {}\n   {s}:{}", .{ initializer.field, initializer.value, t, err, @src().file, @src().line });
+                        return err;
+                    };
                     expr.new.initializers[k].value = value;
                 }
 
-                return new.type_;
+                return expr.new.type_;
             },
             .project => |project| {
                 const lhs = project.lhs;
                 const lhs_type = try self.typecheckExpr(lhs);
 
-                var structData: ast.StructData = undefined;
+                var def: ast.TypeDef = undefined;
                 switch (lhs_type) {
-                    .struct_ => |d| {
-                        structData = d;
-                    },
                     .ident => |ident| {
-                        const info = self.type_defs.?.get(ident).?;
+                        def = self.type_defs.?.get(ident) orelse {
+                            std.log.err("Struct not found: {s}\n", .{ident});
+                            return error.VariableNotFound;
+                        };
 
-                        structData = .{ .fields = info.fields, .methods = info.methods };
+                        expr.project.name = ident;
+                    },
+                    .struct_ => |fields| {
+                        for (fields) |field| {
+                            if (std.mem.eql(u8, field.name, project.rhs)) {
+                                expr.project.fields = fields;
+
+                                return field.type_;
+                            }
+                        }
+
+                        std.log.err("Field not found: {s}\n", .{project.rhs});
+                        return TypecheckerError.UnexpectedType;
+                    },
+                    .apply => |apply| {
+                        var d = self.type_defs.?.get(apply.name) orelse {
+                            std.log.err("Function not found: {s}\n", .{apply.name});
+                            return error.VariableNotFound;
+                        };
+
+                        d = try d.apply(self.arena_allocator.allocator(), apply.params);
+
+                        def = d;
+
+                        expr.project.name = apply.name;
+                        expr.project.fields = d.fields;
                     },
                     else => {
-                        std.log.err("Expected struct, got {any}\n", .{lhs_type});
+                        const j = try std.json.stringifyAlloc(self.arena_allocator.allocator(), lhs_type, .{});
+                        std.log.err("Expected struct, got {s}\n", .{j});
                         unreachable;
                     },
                 }
-                expr.project.struct_ = structData;
 
                 const field = project.rhs;
 
-                if (structData.hasField(field)) {
-                    return try structData.getFieldType(field);
-                } else if (structData.hasMethod(field)) {
-                    const method = structData.getMethod(field);
+                if (def.hasField(field)) {
+                    return try def.getFieldType(field);
+                } else if (def.hasMethod(field)) {
+                    const method = def.getMethod(field);
 
                     var params = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
                     for (method.params) |fp| {
@@ -580,22 +623,28 @@ pub const Typechecker = struct {
                 }
                 try self.env.put(let.name, t);
             },
-            .type_ => |type_decl| {
-                try self.env.put(type_decl.name, .{ .ident = type_decl.name });
+            .type_ => |td| {
+                try self.env.put(td.name, .{ .ident = td.name });
 
-                var str = try type_decl.type_.getStructData();
-                for (0..str.methods.len) |i| {
-                    try self.typecheckDecl(module, &str.methods[i]);
+                for (0..td.methods.len) |i| {
+                    try self.typecheckDecl(module, &td.methods[i]);
                 }
 
-                decl.*.type_.type_ = type_decl.type_;
+                var methodTypes = std.ArrayList(ast.MethodField).init(self.arena_allocator.allocator());
+                for (td.methods) |method| {
+                    try methodTypes.append(.{
+                        .name = method.fun.name,
+                        .params = method.fun.params,
+                        .result_type = method.fun.result_type,
+                    });
+                }
 
-                try module.type_defs.put(type_decl.name, .{
-                    .name = type_decl.name,
-                    .params = type_decl.params,
-                    .fields = str.fields,
-                    .methods = str.methods,
-                    .extends = type_decl.extends,
+                try module.type_defs.put(td.name, .{
+                    .name = td.name,
+                    .params = td.params,
+                    .fields = td.fields,
+                    .methods = methodTypes.items,
+                    .extends = td.extends,
                 });
             },
         }
