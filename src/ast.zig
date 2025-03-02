@@ -444,15 +444,13 @@ pub const Type = union(TypeType) {
         }
     }
 
-    pub fn getValueType(self: Type, defs: TypeDefs, allocator: std.mem.Allocator) anyerror!Type {
+    pub fn getValueType(self: Type, defs: TypeDefs, _: std.mem.Allocator) anyerror!Type {
         switch (self) {
             .apply => |apply| {
                 if (std.mem.eql(u8, apply.name, "array")) {
                     return apply.params[0];
                 } else if (std.mem.eql(u8, apply.name, "slice")) {
-                    var def = defs.get(apply.name).?;
-                    def = try def.apply(allocator, apply.params);
-
+                    const def = defs.get(apply.name).?;
                     for (def.extends) |extend| {
                         if (std.mem.eql(u8, extend.name, "value")) {
                             return extend.type_;
@@ -628,9 +626,12 @@ pub const TypeDef = struct {
         for (self.methods) |method| {
             var params = std.ArrayList(FunParam).init(allocator);
             for (method.params) |param| {
+                var param_type = param.type_.?;
+                param_type = try param_type.replaceMany(allocator, self.params, args);
+                
                 try params.append(.{
                     .name = param.name,
-                    .type_ = try param.type_.?.replaceMany(allocator, self.params, args),
+                    .type_ = param_type,
                 });
             }
 
@@ -651,6 +652,7 @@ pub const TypeDef = struct {
         for (self.extends) |extend| {
             var type_ = extend.type_;
             type_ = try type_.replaceMany(allocator, self.params, args);
+            
             try extends.append(ExtendField{
                 .name = extend.name,
                 .type_ = type_,

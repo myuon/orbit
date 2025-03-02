@@ -41,6 +41,175 @@ pub const Typechecker = struct {
         self.assignments.deinit();
     }
 
+    fn replace(self: *Typechecker, type_: ast.Type, name: []const u8, replacement: ast.Type, context: ?[]const u8) anyerror!ast.Type {
+        return switch (type_) {
+            .forall => |forall| {
+                for (forall.params) |param| {
+                    if (std.mem.eql(u8, param, name)) {
+                        return type_;
+                    }
+                }
+
+                return type_;
+            },
+            .ident => |ident| {
+                if (std.mem.eql(u8, ident, name)) {
+                    if (context) |ctx| {
+                        const entry = try self.assignments.getOrPut(ctx);
+                        if (!entry.found_existing) {
+                            entry.key_ptr.* = ctx;
+                            entry.value_ptr.* = std.StringHashMap(ast.Type).init(self.arena_allocator.allocator());
+                        }
+                        try entry.value_ptr.*.put(name, replacement);
+                    }
+                    return replacement;
+                }
+
+                return type_;
+            },
+            .struct_ => |data| {
+                var fields = std.ArrayList(ast.StructField).init(self.arena_allocator.allocator());
+                for (data) |field| {
+                    try fields.append(ast.StructField{
+                        .name = field.name,
+                        .type_ = try self.replace(field.type_, name, replacement, context),
+                    });
+                }
+
+                return ast.Type{ .struct_ = fields.items };
+            },
+            .unknown => unreachable,
+            .bool_ => type_,
+            .byte => type_,
+            .int => type_,
+            .fun => unreachable,
+            .apply => |apply| {
+                var params = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
+                for (apply.params) |param| {
+                    try params.append(try self.replace(param, name, replacement, context));
+                }
+
+                return ast.Type{ .apply = .{
+                    .name = apply.name,
+                    .params = params.items,
+                } };
+            },
+            .ptr => |ptr| {
+                const t = try self.arena_allocator.allocator().create(ast.Type);
+                t.* = try self.replace(ptr.type_.*, name, replacement, context);
+
+                return ast.Type{ .ptr = .{ .type_ = t } };
+            },
+        };
+    }
+
+    fn replaceMany(self: *Typechecker, type_: ast.Type, names: [][]const u8, types: []ast.Type, context: ?[]const u8) anyerror!ast.Type {
+        var t = type_;
+
+        for (names, types) |name, replacement| {
+            t = try self.replace(t, name, replacement, context);
+        }
+
+        return t;
+    }
+
+    fn applyTypeDef(self: *Typechecker, def: ast.TypeDef, args: []ast.Type) anyerror!ast.TypeDef {
+        if (def.params.len != args.len) {
+            std.log.err("Expected {d} arguments, got {d} ({s}:{d})", .{ def.params.len, args.len, @src().file, @src().line });
+            return error.UnexpectedType;
+        }
+
+        var fields = std.ArrayList(ast.StructField).init(self.arena_allocator.allocator());
+        for (def.fields) |field| {
+            var t = field.type_;
+            for (def.params, 0..) |param, i| {
+                t = try self.replace(t, param, args[i], def.name);
+            }
+
+            try fields.append(ast.StructField{
+                .name = field.name,
+                .type_ = t,
+            });
+        }
+
+        var methods = std.ArrayList(ast.MethodField).init(self.arena_allocator.allocator());
+        for (def.methods) |method| {
+            var params = std.ArrayList(ast.FunParam).init(self.arena_allocator.allocator());
+            for (method.params) |param| {
+                try params.append(.{
+                    .name = param.name,
+                    .type_ = try self.replaceMany(param.type_.?, def.params, args, def.name),
+                });
+            }
+
+            var result_type = method.result_type;
+            result_type = try self.replaceMany(result_type, def.params, args, def.name);
+
+            std.debug.assert(method.type_params.len == args.len);
+
+            try methods.append(ast.MethodField{
+                .name = method.name,
+                .type_params = method.type_params,
+                .params = params.items,
+                .result_type = result_type,
+            });
+        }
+
+        var extends = std.ArrayList(ast.ExtendField).init(self.arena_allocator.allocator());
+        for (def.extends) |extend| {
+            var type_ = extend.type_;
+            type_ = try self.replaceMany(type_, def.params, args, def.name);
+            try extends.append(ast.ExtendField{
+                .name = extend.name,
+                .type_ = type_,
+            });
+        }
+
+        return ast.TypeDef{
+            .name = def.name,
+            .params = &[_][]const u8{},
+            .fields = fields.items,
+            .methods = methods.items,
+            .extends = extends.items,
+            .assignments = def.assignments,
+        };
+    }
+
+    fn getValueType(self: *Typechecker, type_: ast.Type) anyerror!ast.Type {
+        switch (type_) {
+            .apply => |apply| {
+                if (std.mem.eql(u8, apply.name, "array")) {
+                    return apply.params[0];
+                } else if (std.mem.eql(u8, apply.name, "slice")) {
+                    var def = self.type_defs.?.get(apply.name).?;
+                    def = try self.applyTypeDef(def, apply.params);
+
+                    for (def.extends) |extend| {
+                        if (std.mem.eql(u8, extend.name, "value")) {
+                            return extend.type_;
+                        }
+                    }
+
+                    unreachable;
+                } else if (std.mem.eql(u8, apply.name, "vec")) {
+                    return apply.params[0];
+                } else if (std.mem.eql(u8, apply.name, "map")) {
+                    return apply.params[1];
+                } else {
+                    std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ type_, @src().file, @src().line });
+                    return error.UnexpectedType;
+                }
+            },
+            .ptr => |ptr| {
+                return ptr.type_.*;
+            },
+            else => {
+                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ type_, @src().file, @src().line });
+                return error.UnexpectedType;
+            },
+        }
+    }
+
     fn assertType(self: *Typechecker, expect: ast.Type, actual: ast.Type) anyerror!ast.Type {
         switch (actual) {
             .unknown => {
@@ -312,7 +481,7 @@ pub const Typechecker = struct {
                 const lhs_type = try self.typecheckExpr(lhs);
 
                 const key_type = try lhs_type.getIndexType(self.type_defs.?);
-                const value_type = try lhs_type.getValueType(self.type_defs.?, self.arena_allocator.allocator());
+                const value_type = try self.getValueType(lhs_type);
 
                 const rhs = index.rhs;
                 const rhs_type = try self.typecheckExpr(rhs);
@@ -355,12 +524,7 @@ pub const Typechecker = struct {
                             return error.VariableNotFound;
                         };
 
-                        def = d.apply(self.arena_allocator.allocator(), apply.params) catch |err| {
-                            std.log.err("Error in apply {s}({any}): {}\n   {s}:{}", .{ apply.name, apply.params, err, @src().file, @src().line });
-                            return err;
-                        };
-
-                        std.log.info("apply: {any}\n", .{def.assignments.count()});
+                        def = try self.applyTypeDef(d, apply.params);
                     },
                     else => {
                         std.log.err("Expected struct, got {any}\n", .{new.type_});
@@ -425,7 +589,7 @@ pub const Typechecker = struct {
                             return error.VariableNotFound;
                         };
 
-                        d = try d.apply(self.arena_allocator.allocator(), apply.params);
+                        d = try self.applyTypeDef(d, apply.params);
 
                         def = d;
                     },
@@ -565,7 +729,7 @@ pub const Typechecker = struct {
                 var lhs = push.lhs;
                 const lhs_type = try self.typecheckExpr(&lhs);
 
-                const value_type = try lhs_type.getValueType(self.type_defs.?, self.arena_allocator.allocator());
+                const value_type = try self.getValueType(lhs_type);
 
                 var rhs = push.rhs;
                 const rhs_type = try self.typecheckExpr(&rhs);
