@@ -317,10 +317,6 @@ pub const Typechecker = struct {
                             apply.applied.* = new.type_;
 
                             return apply.applied.*;
-                        } else if (std.mem.eql(u8, apply.name, "ptr")) {
-                            apply.applied.* = new.type_;
-
-                            return apply.applied.*;
                         }
 
                         const f = self.env.get(apply.name) orelse {

@@ -275,7 +275,7 @@ pub const VmCompiler = struct {
             .index => |index| {
                 switch (index.type_) {
                     .apply => |apply| {
-                        if (std.mem.eql(u8, apply.name, "ptr") or std.mem.eql(u8, apply.name, "array")) {
+                        if (std.mem.eql(u8, apply.name, "array")) {
                             try self.compileLhsExprFromAst(buffer, expr);
                             try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
@@ -435,7 +435,7 @@ pub const VmCompiler = struct {
             .index => |index| {
                 switch (index.type_) {
                     .apply => |apply| {
-                        if (std.mem.eql(u8, apply.name, "ptr") or std.mem.eql(u8, apply.name, "array")) {
+                        if (std.mem.eql(u8, apply.name, "array")) {
                             try self.compileExprFromAst(buffer, index.lhs.*);
                             try self.compileExprFromAst(buffer, index.rhs.*);
                             try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });

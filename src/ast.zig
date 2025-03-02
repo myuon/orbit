@@ -344,13 +344,7 @@ pub const Type = union(TypeType) {
             Type.fun => unreachable,
             Type.struct_ => 8,
             Type.ident => unreachable,
-            Type.apply => |apply| {
-                if (std.mem.eql(u8, apply.name, "ptr")) {
-                    return 8;
-                } else {
-                    unreachable;
-                }
-            },
+            Type.apply => unreachable,
             Type.forall => unreachable,
             Type.ptr => 8,
         };
@@ -359,9 +353,7 @@ pub const Type = union(TypeType) {
     pub fn getIndexType(actual: Type) anyerror!Type {
         switch (actual) {
             .apply => |apply| {
-                if (std.mem.eql(u8, apply.name, "ptr")) {
-                    return Type{ .int = true };
-                } else if (std.mem.eql(u8, apply.name, "array")) {
+                if (std.mem.eql(u8, apply.name, "array")) {
                     return Type{ .int = true };
                 } else if (std.mem.eql(u8, apply.name, "slice")) {
                     return Type{ .int = true };
@@ -387,9 +379,7 @@ pub const Type = union(TypeType) {
     pub fn getValueType(actual: Type) anyerror!Type {
         switch (actual) {
             .apply => |apply| {
-                if (std.mem.eql(u8, apply.name, "ptr")) {
-                    return apply.params[0];
-                } else if (std.mem.eql(u8, apply.name, "array")) {
+                if (std.mem.eql(u8, apply.name, "array")) {
                     return apply.params[0];
                 } else if (std.mem.eql(u8, apply.name, "slice")) {
                     return apply.params[0];
