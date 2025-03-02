@@ -46,15 +46,15 @@ pub const Compiler = struct {
     }
 
     pub fn compileInIr(self: *Compiler, str: []const u8) anyerror![]ast.Instruction {
+        const zone = P.begin(@src(), "Compiler.compileInIr");
+        defer zone.end();
+
         var stdlib = std.ArrayList(u8).init(self.allocator);
         defer stdlib.deinit();
 
         try utils.readFile(self.allocator, "./lib/std.ob", &stdlib);
 
         const input = try std.fmt.allocPrint(self.arena_allocator.allocator(), "{s}\n{s}", .{ stdlib.items, str });
-
-        const zone = P.begin(@src(), "Compiler.compileInIr");
-        defer zone.end();
 
         var l = lexer.Lexer.init(self.allocator, input);
         defer l.deinit();
@@ -379,7 +379,7 @@ test "compiler.evalModule" {
         .{
             .program =
             \\fun main() do
-            \\  let s = new slice(int) { .len = 100 };
+            \\  let s = new slice(int) { .ptr = allocate_memory(100 * 8) as [*]int, .len = 100 };
             \\  let n = 0;
             \\  while (n < 100) do
             \\    s[n] = n;
@@ -412,7 +412,7 @@ test "compiler.evalModule" {
         .{
             .program =
             \\fun main() do
-            \\  let k = new map(ptr(byte), int) {};
+            \\  let k = new map([*]byte, int) {};
             \\  k["hello"] = 1;
             \\  k["world"] = 2;
             \\
@@ -424,7 +424,7 @@ test "compiler.evalModule" {
         .{
             .program =
             \\fun main() do
-            \\  let k = new map(ptr(byte), int) {};
+            \\  let k = new map([*]byte, int) {};
             \\  k["a"] = 1;
             \\  k["b"] = 2;
             \\  k["a"] = 3;
@@ -465,7 +465,7 @@ test "compiler.evalModule" {
         .{
             .program =
             \\fun main() do
-            \\  let s = new slice(int) { .len = 10 };
+            \\  let s = new slice(int) { .ptr = allocate_memory(10 * 8) as [*]int, .len = 10 };
             \\  let n = 0;
             \\  while (n < 10) do
             \\    if (n == 0) do
@@ -523,6 +523,70 @@ test "compiler.evalModule" {
             \\end
             ,
             .expected = 305419896,
+        },
+        .{
+            .program =
+            \\type Pair(A: type, B: type) = struct {
+            \\  first: A,
+            \\  second: B,
+            \\};
+            \\
+            \\fun main() do
+            \\  let p = new Pair(int, int) { .first = 1, .second = 2 };
+            \\
+            \\  return p.first + p.second;
+            \\end
+            ,
+            .expected = 3,
+        },
+        .{
+            .program =
+            \\type Point = struct {
+            \\  x: int,
+            \\  y: int,
+            \\
+            \\  fun sum(self: Point) do
+            \\    return self.x + self.y;
+            \\  end
+            \\
+            \\  fun move(self: Point, dx: int, dy: int) do
+            \\    self.x = self.x + dx;
+            \\    self.y = self.y + dy;
+            \\
+            \\    return 0;
+            \\  end
+            \\};
+            \\
+            \\fun main() do
+            \\  let p = new Point { .x = 10, .y = 20 };
+            \\  p.move(5, 6);
+            \\
+            \\  return p.sum();
+            \\end
+            ,
+            .expected = 41,
+        },
+        .{
+            .program =
+            \\type Pair(A: type, B: type) = struct {
+            \\  first: A,
+            \\  second: B,
+            \\
+            \\  fun set_first(self: Pair(A, B), a: A): int do
+            \\    self.first = a;
+            \\
+            \\    return 0;
+            \\  end
+            \\};
+            \\
+            \\fun main() do
+            \\  let p = new Pair(int, [*]byte) { .first = 1, .second = "hello, world" };
+            \\  p.set_first(3);
+            \\
+            \\  return p.first + (p.second[3] as int);
+            \\end
+            ,
+            .expected = 104,
         },
     };
 

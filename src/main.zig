@@ -260,7 +260,7 @@ pub fn main() !void {
 
             try memory.appendSlice("\nmemory (HEX):\n");
 
-            for (vmr.memory[@as(usize, @intCast(dsp))..], 0..) |v, i| {
+            for (vmr.memory, 0..) |v, i| {
                 const p = try std.fmt.allocPrint(draw_allocator, "{x:0>2} ", .{v});
                 if (v == 0) {
                     try memory.appendSlice(".. ");
