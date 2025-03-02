@@ -578,6 +578,7 @@ pub const Parser = struct {
                         callee.* = current;
 
                         current = ast.Expression{ .call = .{
+                            .type_args = &[_]ast.Type{},
                             .callee = callee,
                             .args = args.items,
                         } };

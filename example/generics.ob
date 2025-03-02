@@ -13,5 +13,7 @@ fun main() do
   let p = new Pair(int, [*]byte) { .first = 1, .second = "hello, world" };
   p.set_first(3);
 
-  return p.first + (p.second[3] as int);
+  let s = p.second;
+
+  return p.first + (s[3] as int);
 end

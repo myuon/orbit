@@ -108,6 +108,7 @@ pub const Expression = union(ExpressionType) {
     },
     block: Block,
     call: struct {
+        type_args: []Type,
         callee: *Expression,
         args: []Expression,
     },
@@ -133,6 +134,54 @@ pub const Expression = union(ExpressionType) {
         lhs: *Expression,
         rhs: Type,
     },
+
+    pub fn format(
+        self: Expression,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .var_ => |var_| {
+                try std.fmt.format(writer, "{s}", .{var_});
+            },
+            .literal => |literal| {
+                try std.fmt.format(writer, "{any}", .{literal});
+            },
+            .binop => |binop| {
+                try std.fmt.format(writer, "({any} {any} {any})", .{ binop.lhs.*, binop.op, binop.rhs.* });
+            },
+            .block => |block| {
+                try std.fmt.format(writer, "{{", .{});
+                for (block.statements) |statement| {
+                    try std.fmt.format(writer, "{any}", .{statement});
+                }
+                try std.fmt.format(writer, "}}", .{});
+            },
+            .call => |call| {
+                try std.fmt.format(writer, "{any}(", .{call.callee.*});
+                for (call.args) |arg| {
+                    try std.fmt.format(writer, "{any}, ", .{arg});
+                }
+                try std.fmt.format(writer, ")", .{});
+            },
+            .if_ => |if_| {
+                try std.fmt.format(writer, "if {any} {any} {any}", .{ if_.cond.*, if_.then_, if_.else_ });
+            },
+            .index => |index| {
+                try std.fmt.format(writer, "{any}[{any}]", .{ index.lhs.*, index.rhs.* });
+            },
+            .new => |new| {
+                try std.fmt.format(writer, "new {any}", .{new.type_});
+            },
+            .project => |project| {
+                try std.fmt.format(writer, "{any}.{s}", .{ project.lhs.*, project.rhs });
+            },
+            .as => |as| {
+                try std.fmt.format(writer, "{any} as {any}", .{ as.lhs.*, as.rhs });
+            },
+        }
+    }
 };
 
 pub const LiteralType = enum {
@@ -288,6 +337,7 @@ pub const Type = union(TypeType) {
         type_params: [][]const u8,
         params: []Type,
         return_type: *Type,
+        context: ?[]const u8,
     },
     struct_: []StructField,
     ident: []const u8,
@@ -494,12 +544,15 @@ pub const Type = union(TypeType) {
     }
 };
 
+pub const Assingments = std.StringHashMap(Type);
+
 pub const TypeDef = struct {
     name: []const u8,
     params: [][]const u8,
     fields: []StructField,
     methods: []MethodField,
     extends: []ExtendField,
+    assignments: Assingments,
 
     pub fn hasField(self: TypeDef, name: []const u8) bool {
         for (self.fields) |field| {
@@ -588,7 +641,7 @@ pub const TypeDef = struct {
 
             try methods.append(MethodField{
                 .name = method.name,
-                .type_params = &[_][]const u8{},
+                .type_params = method.type_params,
                 .params = params.items,
                 .result_type = result_type,
             });
@@ -610,6 +663,7 @@ pub const TypeDef = struct {
             .fields = fields.items,
             .methods = methods.items,
             .extends = extends.items,
+            .assignments = self.assignments,
         };
     }
 
@@ -617,6 +671,8 @@ pub const TypeDef = struct {
         switch (self) {
             .name => |n| {
                 if (std.mem.eql(u8, n, name)) {
+                    self.assignments.put(name, arg);
+
                     return arg;
                 }
             },

@@ -28,6 +28,7 @@ pub const VmCompiler = struct {
     global_data_offset: usize,
     initialized_statements: std.ArrayList(ast.Statement),
     type_defs: ?ast.TypeDefs,
+    called_generics: std.ArrayList(ast.TypeDef),
 
     pub fn init(allocator: std.mem.Allocator) VmCompiler {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -48,6 +49,7 @@ pub const VmCompiler = struct {
             .global_data_offset = 0,
             .initialized_statements = std.ArrayList(ast.Statement).init(allocator),
             .type_defs = null,
+            .called_generics = std.ArrayList(ast.TypeDef).init(allocator),
         };
     }
 
@@ -57,6 +59,7 @@ pub const VmCompiler = struct {
         self.string_data.deinit();
         self.global_data.deinit();
         self.initialized_statements.deinit();
+        self.called_generics.deinit();
     }
 
     /// This function MUST NOT move the label positions.
@@ -332,7 +335,7 @@ pub const VmCompiler = struct {
                         try buffer.append(ast.Instruction{ .load = ptr.type_.size() });
                     },
                     else => {
-                        std.log.err("Invalid index type: {any}\n", .{index.type_});
+                        std.log.err("Invalid index type: {any} {any}[{any}]\n", .{ index.type_, index.lhs, index.rhs });
                         unreachable;
                     },
                 }
@@ -756,7 +759,7 @@ pub const VmCompiler = struct {
                 for (t.methods) |m| {
                     var md = m;
                     md.fun.type_params = t.params;
-                    try self.compileDecl(buffer, md);
+                    // try self.compileDecl(buffer, md);
                 }
             },
         }
@@ -780,6 +783,7 @@ pub const VmCompiler = struct {
                 .{
                     .return_ = .{
                         .call = .{
+                            .type_args = &[_]ast.Type{},
                             .callee = @constCast(&ast.Expression{ .var_ = entrypoint }),
                             .args = &[_]ast.Expression{},
                         },
