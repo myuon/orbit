@@ -762,13 +762,9 @@ pub const Parser = struct {
                         }
                         try self.expect(ast.Operator.rparen);
 
-                        const applied = try self.ast_arena_allocator.allocator().create(ast.Type);
-                        applied.* = .{ .unknown = true };
-
                         return ast.Type{ .apply = .{
                             .name = current,
                             .params = params.items,
-                            .applied = applied,
                         } };
                     }
 

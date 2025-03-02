@@ -330,13 +330,9 @@ pub const Typechecker = struct {
                     },
                     .apply => |apply| {
                         if (std.mem.eql(u8, apply.name, "vec")) {
-                            apply.applied.* = new.type_;
-
-                            return apply.applied.*;
+                            return new.type_;
                         } else if (std.mem.eql(u8, apply.name, "map")) {
-                            apply.applied.* = new.type_;
-
-                            return apply.applied.*;
+                            return new.type_;
                         }
 
                         const info = self.type_defs.?.get(apply.name) orelse {

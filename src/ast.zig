@@ -272,7 +272,6 @@ pub const Type = union(TypeType) {
     apply: struct {
         name: []const u8,
         params: []Type,
-        applied: *Type,
     },
     forall: struct {
         params: [][]const u8,
