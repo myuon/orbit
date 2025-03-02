@@ -379,12 +379,14 @@ pub const Typechecker = struct {
                             return error.VariableNotFound;
                         };
 
-                        expr.project.name = ident;
+                        expr.project.index = @intCast(try def.getFieldOffset(project.rhs));
+                        expr.project.result_type = try def.getFieldType(project.rhs);
                     },
                     .struct_ => |fields| {
-                        for (fields) |field| {
+                        for (fields, 0..) |field, i| {
                             if (std.mem.eql(u8, field.name, project.rhs)) {
-                                expr.project.fields = fields;
+                                expr.project.index = @intCast(i);
+                                expr.project.result_type = field.type_;
 
                                 return field.type_;
                             }
@@ -403,8 +405,8 @@ pub const Typechecker = struct {
 
                         def = d;
 
-                        expr.project.name = apply.name;
-                        expr.project.fields = d.fields;
+                        expr.project.index = @intCast(try d.getFieldOffset(project.rhs));
+                        expr.project.result_type = try d.getFieldType(project.rhs);
                     },
                     else => {
                         const j = try std.json.stringifyAlloc(self.arena_allocator.allocator(), lhs_type, .{});

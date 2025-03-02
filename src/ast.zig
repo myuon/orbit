@@ -123,8 +123,8 @@ pub const Expression = union(ExpressionType) {
     },
     new: NewExpr,
     project: struct {
-        name: []const u8,
-        fields: []StructField, // For anonymous structs
+        index: i32,
+        result_type: Type,
         lhs: *Expression,
         rhs: []const u8,
     },

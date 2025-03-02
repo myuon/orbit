@@ -351,22 +351,7 @@ pub const VmCompiler = struct {
             },
             .project => |project| {
                 try self.compileLhsExprFromAst(buffer, expr);
-
-                var size: u4 = undefined;
-                if (project.fields.len > 0) {
-                    // FIXME: anonymous struct + applied types
-                    for (project.fields) |field| {
-                        if (std.mem.eql(u8, field.name, project.rhs)) {
-                            size = field.type_.size();
-                            break;
-                        }
-                    }
-                } else {
-                    const def = self.type_defs.?.get(project.name).?;
-                    size = def.fields[try def.getFieldOffset(project.rhs)].type_.size();
-                }
-
-                try buffer.append(ast.Instruction{ .load = size });
+                try buffer.append(ast.Instruction{ .load = project.result_type.size() });
             },
             .as => |as| {
                 try self.compileExprFromAst(buffer, as.lhs.*);
@@ -531,28 +516,10 @@ pub const VmCompiler = struct {
                 }
             },
             .project => |project| {
-                var offset: i32 = -1;
-                if (project.name.len == 0) {
-                    for (project.fields, 0..) |field, i| {
-                        if (std.mem.eql(u8, field.name, project.rhs)) {
-                            offset = @intCast(i);
-                            break;
-                        }
-                    }
-
-                    if (offset < 0) {
-                        std.log.err("Field not found: {s} in {any}\n", .{ project.rhs, project.fields });
-                        unreachable;
-                    }
-                } else {
-                    var def = self.type_defs.?.get(project.name).?;
-                    offset = @intCast(try def.getFieldOffset(project.rhs));
-                }
-
-                std.debug.assert(offset >= 0);
+                std.debug.assert(project.index >= 0);
 
                 try self.compileExprFromAst(buffer, project.lhs.*);
-                try buffer.append(ast.Instruction{ .push = @intCast(offset) });
+                try buffer.append(ast.Instruction{ .push = project.index });
                 try buffer.append(ast.Instruction{ .push = 8 });
                 try buffer.append(ast.Instruction{ .mul = true });
                 try buffer.append(ast.Instruction{ .add = true });

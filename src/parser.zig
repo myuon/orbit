@@ -615,8 +615,8 @@ pub const Parser = struct {
                         const rhs = try self.expect_ident();
 
                         current = ast.Expression{ .project = .{
-                            .name = "",
-                            .fields = &[_]ast.StructField{},
+                            .index = -1,
+                            .result_type = ast.Type{ .unknown = true },
                             .lhs = lhs,
                             .rhs = rhs,
                         } };
