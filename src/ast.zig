@@ -304,6 +304,7 @@ pub const Decl = union(DeclType) {
 pub const Module = struct {
     decls: []Decl,
     type_defs: TypeDefs,
+    generic_calls: []GenericCallInfo,
 };
 
 pub const AstTypeError = error{
@@ -544,6 +545,11 @@ pub const Type = union(TypeType) {
 
 pub const Assingments = std.StringHashMap(Type);
 
+pub const GenericCallInfo = struct {
+    function_name: []const u8,
+    type_args: []Type,
+};
+
 pub const TypeDef = struct {
     name: []const u8,
     params: [][]const u8,
@@ -628,7 +634,7 @@ pub const TypeDef = struct {
             for (method.params) |param| {
                 var param_type = param.type_.?;
                 param_type = try param_type.replaceMany(allocator, self.params, args);
-                
+
                 try params.append(.{
                     .name = param.name,
                     .type_ = param_type,
@@ -652,7 +658,7 @@ pub const TypeDef = struct {
         for (self.extends) |extend| {
             var type_ = extend.type_;
             type_ = try type_.replaceMany(allocator, self.params, args);
-            
+
             try extends.append(ExtendField{
                 .name = extend.name,
                 .type_ = type_,

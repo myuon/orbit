@@ -114,7 +114,11 @@ pub const Parser = struct {
 
         const type_defs = ast.TypeDefs.init(self.ast_arena_allocator.allocator());
 
-        return ast.Module{ .decls = decls.items, .type_defs = type_defs };
+        return ast.Module{
+            .decls = decls.items,
+            .type_defs = type_defs,
+            .generic_calls = &[_]ast.GenericCallInfo{},
+        };
     }
 
     fn decl(self: *Parser) anyerror!ast.Decl {

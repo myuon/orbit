@@ -16,6 +16,7 @@ pub const Typechecker = struct {
     prng: std.Random.Xoshiro256,
     context: ?[]const u8,
     assignments: std.StringHashMap(ast.Assingments),
+    generic_calls: std.ArrayList(ast.GenericCallInfo),
 
     pub fn init(allocator: std.mem.Allocator) Typechecker {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -32,6 +33,7 @@ pub const Typechecker = struct {
             .prng = prng,
             .context = null,
             .assignments = std.StringHashMap(ast.Assingments).init(allocator),
+            .generic_calls = std.ArrayList(ast.GenericCallInfo).init(allocator),
         };
     }
 
@@ -39,6 +41,7 @@ pub const Typechecker = struct {
         self.env.deinit();
         self.arena_allocator.deinit();
         self.assignments.deinit();
+        self.generic_calls.deinit();
     }
 
     fn replace(self: *Typechecker, type_: ast.Type, name: []const u8, replacement: ast.Type, context: ?[]const u8) anyerror!ast.Type {
@@ -463,6 +466,23 @@ pub const Typechecker = struct {
                             }
 
                             expr.call.type_args = args.items;
+
+                            // 型引数を持つ関数呼び出しを記録
+                            var function_name: []const u8 = undefined;
+                            switch (call.callee.*) {
+                                .var_ => |ident| {
+                                    function_name = ident;
+                                },
+                                .project => |project| {
+                                    function_name = project.rhs;
+                                },
+                                else => unreachable,
+                            }
+
+                            try self.generic_calls.append(ast.GenericCallInfo{
+                                .function_name = function_name,
+                                .type_args = args.items,
+                            });
                         }
                         for (fun.params, 0..) |param, i| {
                             const arg = try self.typecheckExpr(&call.args[i]);
@@ -471,8 +491,6 @@ pub const Typechecker = struct {
                                 return err;
                             };
                         }
-
-                        std.log.info("call: {any}\n", .{expr.call});
 
                         return fun.return_type.*;
                     },
@@ -878,8 +896,12 @@ pub const Typechecker = struct {
         const zone = P.begin(@src(), "Typechecker.typecheck");
         defer zone.end();
 
+        self.generic_calls.clearAndFree();
+
         for (0..module.decls.len) |i| {
             try self.typecheckDecl(module, &module.decls[i]);
         }
+
+        module.generic_calls = self.generic_calls.items;
     }
 };

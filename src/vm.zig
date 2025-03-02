@@ -28,7 +28,7 @@ pub const VmCompiler = struct {
     global_data_offset: usize,
     initialized_statements: std.ArrayList(ast.Statement),
     type_defs: ?ast.TypeDefs,
-    called_generics: std.ArrayList(ast.TypeDef),
+    generic_calls: []ast.GenericCallInfo,
 
     pub fn init(allocator: std.mem.Allocator) VmCompiler {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -49,7 +49,7 @@ pub const VmCompiler = struct {
             .global_data_offset = 0,
             .initialized_statements = std.ArrayList(ast.Statement).init(allocator),
             .type_defs = null,
-            .called_generics = std.ArrayList(ast.TypeDef).init(allocator),
+            .generic_calls = &[_]ast.GenericCallInfo{},
         };
     }
 
@@ -59,7 +59,6 @@ pub const VmCompiler = struct {
         self.string_data.deinit();
         self.global_data.deinit();
         self.initialized_statements.deinit();
-        self.called_generics.deinit();
     }
 
     /// This function MUST NOT move the label positions.
@@ -759,7 +758,12 @@ pub const VmCompiler = struct {
                 for (t.methods) |m| {
                     var md = m;
                     md.fun.type_params = t.params;
-                    // try self.compileDecl(buffer, md);
+
+                    for (self.generic_calls) |generic_call| {
+                        if (std.mem.eql(u8, generic_call.function_name, md.fun.name)) {
+                            try self.compileDecl(buffer, md);
+                        }
+                    }
                 }
             },
         }
@@ -841,6 +845,7 @@ pub const VmCompiler = struct {
         self.env_offset = 0;
         self.env.clearAndFree();
         self.type_defs = module.type_defs;
+        self.generic_calls = module.generic_calls;
 
         var initBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
         defer initBuffer.deinit();
