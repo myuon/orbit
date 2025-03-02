@@ -12,8 +12,13 @@ fun allocate_memory(size: int): [*]byte do
   return b as [*]byte;
 end
 
+type slice(T: type) = struct {
+  ptr: [*]T,
+  len: int,
+};
+
 fun new_slice(size: int, len: int) do
-  let pair = new struct{ptr: [*]byte, len: int} { .ptr = allocate_memory(size * len), .len = len };
+  let pair = new slice(byte) { .ptr = allocate_memory(size * len), .len = len };
 
   return pair;
 end

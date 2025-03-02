@@ -362,15 +362,26 @@ pub const Type = union(TypeType) {
                 } else if (std.mem.eql(u8, apply.name, "map")) {
                     return apply.params[0];
                 } else {
-                    std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
+                    std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ actual, @src().file, @src().line });
                     return error.UnexpectedType;
                 }
             },
             .ptr => {
                 return .{ .int = true };
             },
+            .struct_ => |data| {
+                // FIXME: adhoc patch
+                if (data.fields.len == 2) {
+                    if (std.mem.eql(u8, data.fields[0].name, "ptr")) {
+                        return .{ .int = true };
+                    }
+                }
+
+                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ actual, @src().file, @src().line });
+                return error.UnexpectedType;
+            },
             else => {
-                std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
+                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ actual, @src().file, @src().line });
                 return error.UnexpectedType;
             },
         }
@@ -388,15 +399,26 @@ pub const Type = union(TypeType) {
                 } else if (std.mem.eql(u8, apply.name, "map")) {
                     return apply.params[1];
                 } else {
-                    std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
+                    std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ actual, @src().file, @src().line });
                     return error.UnexpectedType;
                 }
             },
             .ptr => |ptr| {
                 return ptr.type_.*;
             },
+            .struct_ => |data| {
+                // FIXME: adhoc patch
+                if (data.fields.len == 2) {
+                    if (std.mem.eql(u8, data.fields[0].name, "ptr")) {
+                        return data.fields[0].type_.ptr.type_.*;
+                    }
+                }
+
+                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ actual, @src().file, @src().line });
+                return error.UnexpectedType;
+            },
             else => {
-                std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
+                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ actual, @src().file, @src().line });
                 return error.UnexpectedType;
             },
         }

@@ -305,11 +305,7 @@ pub const Typechecker = struct {
                         return t;
                     },
                     .apply => |apply| {
-                        if (std.mem.eql(u8, apply.name, "slice")) {
-                            apply.applied.* = new.type_;
-
-                            return apply.applied.*;
-                        } else if (std.mem.eql(u8, apply.name, "vec")) {
+                        if (std.mem.eql(u8, apply.name, "vec")) {
                             apply.applied.* = new.type_;
 
                             return apply.applied.*;
@@ -458,12 +454,21 @@ pub const Typechecker = struct {
             },
             .assign => |assign| {
                 var lhs = assign.lhs;
-                const lhs_type = try self.typecheckExpr(&lhs);
+                const lhs_type = self.typecheckExpr(&lhs) catch |err| {
+                    std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ lhs, err, @src().file, @src().line });
+                    return err;
+                };
 
                 var rhs = assign.rhs;
-                const rhs_type = try self.typecheckExpr(&rhs);
+                const rhs_type = self.typecheckExpr(&rhs) catch |err| {
+                    std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ rhs, err, @src().file, @src().line });
+                    return err;
+                };
 
-                _ = try self.assertType(lhs_type, rhs_type);
+                _ = self.assertType(lhs_type, rhs_type) catch |err| {
+                    std.log.err("Error in assignment {any} != {any}: {}\n   {s}:{}", .{ lhs_type, rhs_type, err, @src().file, @src().line });
+                    return err;
+                };
 
                 stmt.*.assign.lhs = lhs;
                 stmt.*.assign.rhs = rhs;

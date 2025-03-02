@@ -329,6 +329,15 @@ pub const VmCompiler = struct {
                         try self.compileLhsExprFromAst(buffer, expr);
                         try buffer.append(ast.Instruction{ .load = ptr.type_.size() });
                     },
+                    .struct_ => |struct_| {
+                        // FIXME: adhoc patch
+                        if (struct_.fields.len == 2 and std.mem.eql(u8, struct_.fields[0].name, "ptr")) {
+                            try self.compileLhsExprFromAst(buffer, expr);
+                            try buffer.append(ast.Instruction{ .load = struct_.fields[0].type_.ptr.type_.size() });
+                        } else {
+                            unreachable;
+                        }
+                    },
                     else => {
                         std.log.err("Invalid index type: {any}\n", .{index.type_});
                         unreachable;
@@ -381,15 +390,7 @@ pub const VmCompiler = struct {
                 });
             },
             .apply => |apply| {
-                if (std.mem.eql(u8, apply.name, "slice")) {
-                    std.debug.assert(new.initializers.len == 1);
-                    std.debug.assert(std.mem.eql(u8, new.initializers[0].field, "len"));
-
-                    try self.callFunction(buffer, ast.Expression{ .var_ = "new_slice" }, @constCast(&[_]ast.Expression{
-                        .{ .literal = .{ .number = @intCast(apply.params[0].size()) } },
-                        new.initializers[0].value,
-                    }));
-                } else if (std.mem.eql(u8, apply.name, "map")) {
+                if (std.mem.eql(u8, apply.name, "map")) {
                     std.debug.assert(new.initializers.len == 0);
 
                     // TODO: growable capacity
@@ -452,6 +453,18 @@ pub const VmCompiler = struct {
                         try buffer.append(ast.Instruction{ .push = ptr.type_.size() });
                         try buffer.append(ast.Instruction{ .mul = true });
                         try buffer.append(ast.Instruction{ .add = true });
+                    },
+                    .struct_ => |struct_| {
+                        // FIXME: adhoc patch
+                        if (std.mem.eql(u8, struct_.fields[0].name, "ptr")) {
+                            try self.compileExprFromAst(buffer, index.lhs.*);
+                            try self.compileExprFromAst(buffer, index.rhs.*);
+                            try buffer.append(ast.Instruction{ .push = struct_.fields[0].type_.ptr.type_.size() });
+                            try buffer.append(ast.Instruction{ .mul = true });
+                            try buffer.append(ast.Instruction{ .add = true });
+                        } else {
+                            unreachable;
+                        }
                     },
                     else => {
                         std.log.err("Invalid index type: {any}\n", .{index.type_});

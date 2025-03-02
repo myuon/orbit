@@ -379,7 +379,7 @@ test "compiler.evalModule" {
         .{
             .program =
             \\fun main() do
-            \\  let s = new slice(int) { .len = 100 };
+            \\  let s = new slice(int) { .ptr = allocate_memory(100 * 8), .len = 100 };
             \\  let n = 0;
             \\  while (n < 100) do
             \\    s[n] = n;
@@ -465,7 +465,7 @@ test "compiler.evalModule" {
         .{
             .program =
             \\fun main() do
-            \\  let s = new slice(int) { .len = 10 };
+            \\  let s = new slice(int) { .ptr = allocate_memory(10 * 8), .len = 10 };
             \\  let n = 0;
             \\  while (n < 10) do
             \\    if (n == 0) do
