@@ -432,7 +432,17 @@ pub const Type = union(TypeType) {
             .byte => self,
             .int => self,
             .fun => unreachable,
-            .apply => unreachable,
+            .apply => |apply| {
+                var params = std.ArrayList(Type).init(allocator);
+                for (apply.params) |param| {
+                    try params.append(try param.replace(allocator, name, type_));
+                }
+
+                return Type{ .apply = .{
+                    .name = apply.name,
+                    .params = params.items,
+                } };
+            },
             .ptr => |ptr| {
                 const t = try allocator.create(Type);
                 t.* = try ptr.type_.replace(allocator, name, type_);

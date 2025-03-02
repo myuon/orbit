@@ -243,7 +243,7 @@ pub const Typechecker = struct {
                 switch (call.callee.*) {
                     .var_ => |ident| {
                         fun_type = self.env.get(ident) orelse {
-                            std.log.err("Function not found: {s}\n", .{ident});
+                            std.log.err("Function not found: {s}\n   {s}:{d}", .{ ident, @src().file, @src().line });
                             return error.VariableNotFound;
                         };
                     },
@@ -337,7 +337,7 @@ pub const Typechecker = struct {
                         }
 
                         const d = self.type_defs.?.get(apply.name) orelse {
-                            std.log.err("Function not found: {s}\n", .{apply.name});
+                            std.log.err("Function not found: {s}\n   {s}:{d}", .{ apply.name, @src().file, @src().line });
                             return error.VariableNotFound;
                         };
 
@@ -378,9 +378,6 @@ pub const Typechecker = struct {
                             std.log.err("Struct not found: {s}\n", .{ident});
                             return error.VariableNotFound;
                         };
-
-                        expr.project.index = @intCast(try def.getFieldOffset(project.rhs));
-                        expr.project.result_type = try def.getFieldType(project.rhs);
                     },
                     .struct_ => |fields| {
                         for (fields, 0..) |field, i| {
@@ -397,16 +394,13 @@ pub const Typechecker = struct {
                     },
                     .apply => |apply| {
                         var d = self.type_defs.?.get(apply.name) orelse {
-                            std.log.err("Function not found: {s}\n", .{apply.name});
+                            std.log.err("Function not found: {s}\n   {s}:{d}", .{ apply.name, @src().file, @src().line });
                             return error.VariableNotFound;
                         };
 
                         d = try d.apply(self.arena_allocator.allocator(), apply.params);
 
                         def = d;
-
-                        expr.project.index = @intCast(try d.getFieldOffset(project.rhs));
-                        expr.project.result_type = try d.getFieldType(project.rhs);
                     },
                     else => {
                         const j = try std.json.stringifyAlloc(self.arena_allocator.allocator(), lhs_type, .{});
@@ -418,6 +412,9 @@ pub const Typechecker = struct {
                 const field = project.rhs;
 
                 if (def.hasField(field)) {
+                    expr.project.index = @intCast(try def.getFieldOffset(project.rhs));
+                    expr.project.result_type = try def.getFieldType(project.rhs);
+
                     return try def.getFieldType(field);
                 } else if (def.hasMethod(field)) {
                     const method = def.getMethod(field);
@@ -628,6 +625,15 @@ pub const Typechecker = struct {
             .type_ => |td| {
                 try self.env.put(td.name, .{ .ident = td.name });
 
+                var def = ast.TypeDef{
+                    .name = td.name,
+                    .params = td.params,
+                    .fields = td.fields,
+                    .methods = &[_]ast.MethodField{},
+                    .extends = td.extends,
+                };
+                try module.type_defs.put(td.name, def);
+
                 for (0..td.methods.len) |i| {
                     try self.typecheckDecl(module, &td.methods[i]);
                 }
@@ -641,13 +647,9 @@ pub const Typechecker = struct {
                     });
                 }
 
-                try module.type_defs.put(td.name, .{
-                    .name = td.name,
-                    .params = td.params,
-                    .fields = td.fields,
-                    .methods = methodTypes.items,
-                    .extends = td.extends,
-                });
+                def.methods = methodTypes.items;
+
+                try module.type_defs.put(td.name, def);
             },
         }
     }

@@ -539,6 +539,33 @@ test "compiler.evalModule" {
             ,
             .expected = 3,
         },
+        .{
+            .program =
+            \\type Point = struct {
+            \\  x: int,
+            \\  y: int,
+            \\
+            \\  fun sum(self: Point) do
+            \\    return self.x + self.y;
+            \\  end
+            \\
+            \\  fun move(self: Point, dx: int, dy: int) do
+            \\    self.x = self.x + dx;
+            \\    self.y = self.y + dy;
+            \\
+            \\    return 0;
+            \\  end
+            \\};
+            \\
+            \\fun main() do
+            \\  let p = new Point { .x = 10, .y = 20 };
+            \\  p.move(5, 6);
+            \\
+            \\  return p.sum();
+            \\end
+            ,
+            .expected = 41,
+        },
     };
 
     for (cases, 0..) |case, i| {
