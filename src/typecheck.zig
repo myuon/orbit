@@ -455,10 +455,14 @@ pub const Typechecker = struct {
                         }
 
                         if (fun.type_params.len > 0) {
+                            var args = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
+
                             const ctx = self.assignments.get(fun.context.?).?;
                             for (fun.type_params) |tp| {
-                                std.log.info("assignments: .{s} = {any}\n", .{ tp, ctx.get(tp) });
+                                try args.append(ctx.get(tp).?);
                             }
+
+                            expr.call.type_args = args.items;
                         }
                         for (fun.params, 0..) |param, i| {
                             const arg = try self.typecheckExpr(&call.args[i]);
@@ -467,6 +471,8 @@ pub const Typechecker = struct {
                                 return err;
                             };
                         }
+
+                        std.log.info("call: {any}\n", .{expr.call});
 
                         return fun.return_type.*;
                     },
