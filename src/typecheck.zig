@@ -298,8 +298,8 @@ pub const Typechecker = struct {
                 const lhs = index.lhs;
                 const lhs_type = try self.typecheckExpr(lhs);
 
-                const key_type = try lhs_type.getIndexType();
-                const value_type = try lhs_type.getValueType();
+                const key_type = try lhs_type.getIndexType(self.type_defs.?);
+                const value_type = try lhs_type.getValueType(self.type_defs.?, self.arena_allocator.allocator());
 
                 const rhs = index.rhs;
                 const rhs_type = try self.typecheckExpr(rhs);
@@ -335,12 +335,15 @@ pub const Typechecker = struct {
                             return new.type_;
                         }
 
-                        const info = self.type_defs.?.get(apply.name) orelse {
+                        const d = self.type_defs.?.get(apply.name) orelse {
                             std.log.err("Function not found: {s}\n", .{apply.name});
                             return error.VariableNotFound;
                         };
 
-                        def = try info.apply(self.arena_allocator.allocator(), apply.params);
+                        def = d.apply(self.arena_allocator.allocator(), apply.params) catch |err| {
+                            std.log.err("Error in apply {s}({any}): {}\n   {s}:{}", .{ apply.name, apply.params, err, @src().file, @src().line });
+                            return err;
+                        };
                     },
                     else => {
                         std.log.err("Expected struct, got {any}\n", .{new.type_});
@@ -523,7 +526,7 @@ pub const Typechecker = struct {
                 var lhs = push.lhs;
                 const lhs_type = try self.typecheckExpr(&lhs);
 
-                const value_type = try lhs_type.getValueType();
+                const value_type = try lhs_type.getValueType(self.type_defs.?, self.arena_allocator.allocator());
 
                 var rhs = push.rhs;
                 const rhs_type = try self.typecheckExpr(&rhs);

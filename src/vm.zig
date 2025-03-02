@@ -279,9 +279,9 @@ pub const VmCompiler = struct {
                     .apply => |apply| {
                         if (std.mem.eql(u8, apply.name, "array")) {
                             try self.compileLhsExprFromAst(buffer, expr);
-                            try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
+                            try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator())).size() });
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
-                            const valueType = apply.params[0];
+                            const valueType = try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator());
                             switch (valueType) {
                                 .int => {
                                     try self.callFunction(buffer, ast.Expression{ .var_ = "get_slice_int" }, @constCast(&[_]ast.Expression{
@@ -482,7 +482,7 @@ pub const VmCompiler = struct {
                         if (std.mem.eql(u8, apply.name, "array")) {
                             try self.compileExprFromAst(buffer, index.lhs.*);
                             try self.compileExprFromAst(buffer, index.rhs.*);
-                            try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
+                            try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator())).size() });
                             try buffer.append(ast.Instruction{ .mul = true });
                             try buffer.append(ast.Instruction{ .add = true });
                         } else {
@@ -624,11 +624,11 @@ pub const VmCompiler = struct {
                                     try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
                                     try buffer.append(ast.Instruction{ .load = 8 });
                                     try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);
-                                    try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
+                                    try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator())).size() });
                                     try buffer.append(ast.Instruction{ .mul = true });
                                     try buffer.append(ast.Instruction{ .add = true });
                                     try self.compileExprFromAst(buffer, assign.rhs);
-                                    try buffer.append(ast.Instruction{ .store = (try index.type_.getValueType()).size() });
+                                    try buffer.append(ast.Instruction{ .store = (try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator())).size() });
                                 } else if (std.mem.eql(u8, apply.name, "map")) {
                                     try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
                                     try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);

@@ -328,19 +328,27 @@ pub const Type = union(TypeType) {
         };
     }
 
-    pub fn getIndexType(actual: Type) anyerror!Type {
-        switch (actual) {
+    pub fn getIndexType(self: Type, defs: TypeDefs) anyerror!Type {
+        switch (self) {
             .apply => |apply| {
                 if (std.mem.eql(u8, apply.name, "array")) {
                     return Type{ .int = true };
                 } else if (std.mem.eql(u8, apply.name, "slice")) {
-                    return Type{ .int = true };
+                    // FIXME: type params for key
+                    const def = defs.get(apply.name).?;
+                    for (def.extends) |extend| {
+                        if (std.mem.eql(u8, extend.name, "key")) {
+                            return extend.type_;
+                        }
+                    }
+
+                    unreachable;
                 } else if (std.mem.eql(u8, apply.name, "vec")) {
                     return Type{ .int = true };
                 } else if (std.mem.eql(u8, apply.name, "map")) {
                     return apply.params[0];
                 } else {
-                    std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ actual, @src().file, @src().line });
+                    std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                     return error.UnexpectedType;
                 }
             },
@@ -355,29 +363,38 @@ pub const Type = union(TypeType) {
                     }
                 }
 
-                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ actual, @src().file, @src().line });
+                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                 return error.UnexpectedType;
             },
             else => {
-                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ actual, @src().file, @src().line });
+                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                 return error.UnexpectedType;
             },
         }
     }
 
-    pub fn getValueType(actual: Type) anyerror!Type {
-        switch (actual) {
+    pub fn getValueType(self: Type, defs: TypeDefs, allocator: std.mem.Allocator) anyerror!Type {
+        switch (self) {
             .apply => |apply| {
                 if (std.mem.eql(u8, apply.name, "array")) {
                     return apply.params[0];
                 } else if (std.mem.eql(u8, apply.name, "slice")) {
-                    return apply.params[0];
+                    var def = defs.get(apply.name).?;
+                    def = try def.apply(allocator, apply.params);
+
+                    for (def.extends) |extend| {
+                        if (std.mem.eql(u8, extend.name, "value")) {
+                            return extend.type_;
+                        }
+                    }
+
+                    unreachable;
                 } else if (std.mem.eql(u8, apply.name, "vec")) {
                     return apply.params[0];
                 } else if (std.mem.eql(u8, apply.name, "map")) {
                     return apply.params[1];
                 } else {
-                    std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ actual, @src().file, @src().line });
+                    std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                     return error.UnexpectedType;
                 }
             },
@@ -392,11 +409,11 @@ pub const Type = union(TypeType) {
                     }
                 }
 
-                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ actual, @src().file, @src().line });
+                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                 return error.UnexpectedType;
             },
             else => {
-                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ actual, @src().file, @src().line });
+                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                 return error.UnexpectedType;
             },
         }
@@ -404,7 +421,7 @@ pub const Type = union(TypeType) {
 
     pub fn applyTypes(self: Type, allocator: std.mem.Allocator, args: []Type) anyerror!Type {
         return switch (self) {
-            Type.forall => |forall| {
+            .forall => |forall| {
                 if (args.len != forall.params.len) {
                     std.log.err("Expected {d} arguments, got {d} ({s}:{d})", .{ forall.params.len, args.len, @src().file, @src().line });
                     return error.UnexpectedType;
@@ -418,7 +435,12 @@ pub const Type = union(TypeType) {
 
                 return t;
             },
-            else => error.UnexpectedType,
+            .int => self,
+            .bool_ => self,
+            else => {
+                std.log.err("Cannot apply {any} to {any}\n", .{ args, self });
+                return error.UnexpectedType;
+            },
         };
     }
 
@@ -464,6 +486,16 @@ pub const Type = union(TypeType) {
                 return Type{ .ptr = .{ .type_ = t } };
             },
         };
+    }
+
+    fn replaceMany(self: Type, allocator: std.mem.Allocator, names: [][]const u8, types: []Type) anyerror!Type {
+        var t = self;
+
+        for (names, types) |name, type_| {
+            t = try t.replace(allocator, name, type_);
+        }
+
+        return t;
     }
 };
 
@@ -546,18 +578,31 @@ pub const TypeDef = struct {
 
         var methods = std.ArrayList(MethodField).init(allocator);
         for (self.methods) |method| {
+            var params = std.ArrayList(FunParam).init(allocator);
+            for (method.params) |param| {
+                try params.append(.{
+                    .name = param.name,
+                    .type_ = try param.type_.?.replaceMany(allocator, self.params, args),
+                });
+            }
+
+            var result_type = method.result_type;
+            result_type = try result_type.replaceMany(allocator, self.params, args);
+
             try methods.append(MethodField{
                 .name = method.name,
-                .params = method.params,
-                .result_type = method.result_type,
+                .params = params.items,
+                .result_type = result_type,
             });
         }
 
         var extends = std.ArrayList(ExtendField).init(allocator);
         for (self.extends) |extend| {
+            var type_ = extend.type_;
+            type_ = try type_.replaceMany(allocator, self.params, args);
             try extends.append(ExtendField{
                 .name = extend.name,
-                .type_ = extend.type_,
+                .type_ = type_,
             });
         }
 
@@ -577,7 +622,10 @@ pub const TypeDef = struct {
                     return arg;
                 }
             },
-            else => error.UnexpectedType,
+            else => {
+                std.log.err("Cannot replace {any} in {any}\n", .{ name, self });
+                return error.UnexpectedType;
+            },
         }
     }
 };
