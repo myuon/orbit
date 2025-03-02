@@ -477,12 +477,14 @@ pub const VmCompiler = struct {
                 }
             },
             .index => |index| {
+                std.debug.assert(index.elem_type != .unknown);
+
                 switch (index.type_) {
                     .apply => |apply| {
                         if (std.mem.eql(u8, apply.name, "array")) {
                             try self.compileExprFromAst(buffer, index.lhs.*);
                             try self.compileExprFromAst(buffer, index.rhs.*);
-                            try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator())).size() });
+                            try buffer.append(ast.Instruction{ .push = index.elem_type.size() });
                             try buffer.append(ast.Instruction{ .mul = true });
                             try buffer.append(ast.Instruction{ .add = true });
                         } else {
@@ -496,18 +498,6 @@ pub const VmCompiler = struct {
                         try buffer.append(ast.Instruction{ .push = ptr.type_.size() });
                         try buffer.append(ast.Instruction{ .mul = true });
                         try buffer.append(ast.Instruction{ .add = true });
-                    },
-                    .struct_ => |struct_| {
-                        // FIXME: adhoc patch
-                        if (std.mem.eql(u8, struct_[0].name, "ptr")) {
-                            try self.compileExprFromAst(buffer, index.lhs.*);
-                            try self.compileExprFromAst(buffer, index.rhs.*);
-                            try buffer.append(ast.Instruction{ .push = struct_[0].type_.ptr.type_.size() });
-                            try buffer.append(ast.Instruction{ .mul = true });
-                            try buffer.append(ast.Instruction{ .add = true });
-                        } else {
-                            unreachable;
-                        }
                     },
                     else => {
                         std.log.err("Invalid index type: {any}\n", .{index.type_});
@@ -624,11 +614,11 @@ pub const VmCompiler = struct {
                                     try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
                                     try buffer.append(ast.Instruction{ .load = 8 });
                                     try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);
-                                    try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator())).size() });
+                                    try buffer.append(ast.Instruction{ .push = index.elem_type.size() });
                                     try buffer.append(ast.Instruction{ .mul = true });
                                     try buffer.append(ast.Instruction{ .add = true });
                                     try self.compileExprFromAst(buffer, assign.rhs);
-                                    try buffer.append(ast.Instruction{ .store = (try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator())).size() });
+                                    try buffer.append(ast.Instruction{ .store = index.elem_type.size() });
                                 } else if (std.mem.eql(u8, apply.name, "map")) {
                                     try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
                                     try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);

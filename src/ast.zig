@@ -118,6 +118,7 @@ pub const Expression = union(ExpressionType) {
     },
     index: struct {
         type_: Type,
+        elem_type: Type,
         lhs: *Expression,
         rhs: *Expression,
     },

@@ -307,6 +307,7 @@ pub const Typechecker = struct {
                 _ = try self.assertType(key_type, rhs_type);
 
                 expr.*.index.type_ = lhs_type;
+                expr.*.index.elem_type = value_type;
 
                 return value_type;
             },

@@ -598,6 +598,7 @@ pub const Parser = struct {
 
                         current = ast.Expression{ .index = .{
                             .type_ = ast.Type{ .unknown = true },
+                            .elem_type = ast.Type{ .unknown = true },
                             .lhs = lhs,
                             .rhs = rhs,
                         } };
