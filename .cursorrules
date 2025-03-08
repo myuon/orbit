@@ -1,0 +1,26 @@
+# Orbit Programming Guidelines
+
+## General Guidelines
+
+- Use `zig build test` to run the tests.
+
+## Compiler Architecture
+
+All code is written in Zig, placed in the `src` directory.
+
+- Compiler entrypoint: `src/compiler.zig`
+- Lexer: `src/lexer.zig`
+- Parser: `src/parser.zig`
+- Type Checker: `src/typecheck.zig`
+- Code Generation to IR: `src/vm.zig`
+- JIT Compiler: `src/jit.zig`
+- VM runtime: `src/runtime.zig`
+
+other tools:
+
+- TUI debugger: `src/tui.zig`
+
+## Implementation details: Generics
+
+- If you have `Point::move(int, bool)` method calls, add type tag for each labels like `Point_move_int_bool`
+- When compile to IR, all generic types should be resolved to primitive types.
