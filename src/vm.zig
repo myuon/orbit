@@ -21,6 +21,7 @@ pub const VmCompiler = struct {
     compiling_context: []const u8 = "",
     prng: std.Random.Xoshiro256,
     env: std.StringHashMap(i32),
+    env_types: std.StringHashMap(ast.Type),
     env_offset: i32 = 0,
     string_data: std.StringHashMap(i32),
     string_data_offset: usize,
@@ -28,7 +29,7 @@ pub const VmCompiler = struct {
     global_data_offset: usize,
     initialized_statements: std.ArrayList(ast.Statement),
     type_defs: ?ast.TypeDefs,
-    generic_calls: []ast.GenericCallInfo,
+    generic_calls: std.ArrayList(ast.GenericCallInfo),
 
     pub fn init(allocator: std.mem.Allocator) VmCompiler {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -42,6 +43,7 @@ pub const VmCompiler = struct {
             .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .prng = prng,
             .env = std.StringHashMap(i32).init(allocator),
+            .env_types = std.StringHashMap(ast.Type).init(allocator),
             .env_offset = 0,
             .string_data = std.StringHashMap(i32).init(allocator),
             .string_data_offset = 0,
@@ -49,16 +51,18 @@ pub const VmCompiler = struct {
             .global_data_offset = 0,
             .initialized_statements = std.ArrayList(ast.Statement).init(allocator),
             .type_defs = null,
-            .generic_calls = &[_]ast.GenericCallInfo{},
+            .generic_calls = std.ArrayList(ast.GenericCallInfo).init(allocator),
         };
     }
 
     pub fn deinit(self: *VmCompiler) void {
         self.ast_arena_allocator.deinit();
         self.env.deinit();
+        self.env_types.deinit();
         self.string_data.deinit();
         self.global_data.deinit();
         self.initialized_statements.deinit();
+        self.generic_calls.deinit();
     }
 
     /// This function MUST NOT move the label positions.
@@ -126,6 +130,91 @@ pub const VmCompiler = struct {
         }
     }
 
+    fn generateMethodLabel(self: *VmCompiler, type_name: []const u8, method_name: []const u8, args: []ast.Expression) anyerror![]const u8 {
+        var label_parts = std.ArrayList([]const u8).init(self.ast_arena_allocator.allocator());
+        try label_parts.append(type_name);
+        try label_parts.append("_");
+        try label_parts.append(method_name);
+
+        // 引数の型を追加（selfを除く）
+        for (args) |arg| {
+            try label_parts.append("_");
+            const arg_type = switch (arg) {
+                .literal => |lit| switch (lit) {
+                    .number => "int",
+                    .boolean => "bool",
+                    else => "unknown",
+                },
+                .binop => "int", // 演算結果は常にint型と仮定
+                .var_ => "int", // 変数も常にint型と仮定（一時的な対応）
+                else => blk: {
+                    std.log.warn("Unknown argument type: {any}", .{arg});
+                    break :blk "unknown";
+                },
+            };
+            try label_parts.append(arg_type);
+        }
+
+        const label = try std.mem.concat(self.ast_arena_allocator.allocator(), u8, label_parts.items);
+
+        if (args.len == 2) {
+            std.debug.assert(args.len == 2);
+
+            try self.generic_calls.append(ast.GenericCallInfo{
+                .name = method_name,
+                .types = @constCast(&[_]ast.TypeParam{
+                    .{ .name = "0", .type_ = .{ .int = true } },
+                    .{ .name = "1", .type_ = .{ .int = true } },
+                }),
+            });
+        } else if (args.len == 1) {
+            std.debug.assert(args.len == 1);
+
+            try self.generic_calls.append(ast.GenericCallInfo{
+                .name = method_name,
+                .types = @constCast(&[_]ast.TypeParam{
+                    .{ .name = "0", .type_ = .{ .int = true } },
+                }),
+            });
+        } else {
+            std.debug.assert(args.len == 0);
+
+            try self.generic_calls.append(ast.GenericCallInfo{
+                .name = method_name,
+                .types = @constCast(&[_]ast.TypeParam{}),
+            });
+        }
+
+        return label;
+    }
+
+    fn generateMethodDefLabel(self: *VmCompiler, type_name: []const u8, method_name: []const u8, params: []ast.FunParam) anyerror![]const u8 {
+        var label_parts = std.ArrayList([]const u8).init(self.ast_arena_allocator.allocator());
+        try label_parts.append(type_name);
+        try label_parts.append("_");
+        try label_parts.append(method_name);
+
+        // 引数の型を追加（selfを除く）
+        for (params[1..]) |param| {
+            try label_parts.append("_");
+            const param_type = switch (param.type_.?) {
+                .int => "int",
+                .bool_ => "bool",
+                .byte => "byte",
+                .ident => |ident| ident,
+                .apply => |apply| apply.name,
+                else => blk: {
+                    std.log.warn("Unknown parameter type: {any}", .{param.type_});
+                    break :blk "unknown";
+                },
+            };
+            try label_parts.append(param_type);
+        }
+
+        const label = try std.mem.concat(self.ast_arena_allocator.allocator(), u8, label_parts.items);
+        return label;
+    }
+
     fn callFunction(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), callee: ast.Expression, args: []ast.Expression) anyerror!void {
         var argCount: usize = 0;
 
@@ -159,7 +248,40 @@ pub const VmCompiler = struct {
                 try buffer.append(ast.Instruction{ .call = name });
             },
             .project => |project| {
-                try buffer.append(ast.Instruction{ .call = project.rhs });
+                // メソッド呼び出しの場合、型タグを付加したラベルを生成
+                const type_name = switch (project.lhs.*) {
+                    .var_ => |v| blk: {
+                        if (self.env_types.get(v)) |t| {
+                            switch (t) {
+                                .ident => |ident| break :blk ident,
+                                .apply => |apply| break :blk apply.name,
+                                else => {
+                                    std.log.warn("Unknown type for variable: {s} = {any}", .{ v, t });
+                                    break :blk v;
+                                },
+                            }
+                        } else {
+                            std.log.warn("Variable type not found in env: {s}", .{v});
+                            break :blk v;
+                        }
+                    },
+                    .new => |new| switch (new.type_) {
+                        .ident => |ident| ident,
+                        .apply => |apply| apply.name,
+                        else => blk: {
+                            std.log.warn("Unknown type for method call: {any}", .{new.type_});
+                            break :blk "unknown";
+                        },
+                    },
+                    else => blk: {
+                        std.log.warn("Unknown expression for method call: {any}", .{project.lhs.*});
+                        break :blk "unknown";
+                    },
+                };
+
+                const label = try self.generateMethodLabel(type_name, project.rhs, args);
+                std.log.info("Generated method call label: {s}", .{label});
+                try buffer.append(ast.Instruction{ .call = label });
             },
             else => {
                 std.log.err("Invalid callee: {any}\n", .{callee});
@@ -280,8 +402,16 @@ pub const VmCompiler = struct {
                 switch (index.type_) {
                     .apply => |apply| {
                         if (std.mem.eql(u8, apply.name, "array")) {
-                            try self.compileLhsExprFromAst(buffer, expr);
-                            try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator())).size() });
+                            try self.compileExprFromAst(buffer, index.lhs.*);
+                            try self.compileExprFromAst(buffer, index.rhs.*);
+                            try buffer.append(ast.Instruction{ .push = index.elem_type.size() });
+                            try buffer.append(ast.Instruction{ .mul = true });
+                            try buffer.append(ast.Instruction{ .add = true });
+                        } else if (std.mem.eql(u8, apply.name, "vec")) {
+                            try self.callFunction(buffer, ast.Expression{ .var_ = "get_vec_int" }, @constCast(&[_]ast.Expression{
+                                index.lhs.*,
+                                index.rhs.*,
+                            }));
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
                             const valueType = try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator());
                             switch (valueType) {
@@ -298,7 +428,6 @@ pub const VmCompiler = struct {
                                     }));
                                 },
                                 else => {
-                                    // Deprecated:
                                     try self.compileExprFromAst(buffer, index.lhs.*);
                                     try buffer.append(ast.Instruction{ .load = 8 });
                                     try self.compileExprFromAst(buffer, index.rhs.*);
@@ -306,18 +435,6 @@ pub const VmCompiler = struct {
                                     try buffer.append(ast.Instruction{ .mul = true });
                                     try buffer.append(ast.Instruction{ .add = true });
                                     try buffer.append(ast.Instruction{ .load = valueType.size() });
-                                },
-                            }
-                        } else if (std.mem.eql(u8, apply.name, "vec")) {
-                            switch (apply.params[0]) {
-                                .int => {
-                                    try self.callFunction(buffer, ast.Expression{ .var_ = "get_vec_int" }, @constCast(&[_]ast.Expression{
-                                        index.lhs.*,
-                                        index.rhs.*,
-                                    }));
-                                },
-                                else => {
-                                    unreachable;
                                 },
                             }
                         } else if (std.mem.eql(u8, apply.name, "map")) {
@@ -421,6 +538,7 @@ pub const VmCompiler = struct {
                         .{ .literal = .{ .number = @intCast(apply.params[0].size()) } },
                         .{ .literal = .{ .number = @intCast(128) } },
                     }));
+                    return;
                 } else {
                     var def = self.type_defs.?.get(apply.name).?;
                     def = try def.apply(self.ast_arena_allocator.allocator(), apply.params);
@@ -480,6 +598,40 @@ pub const VmCompiler = struct {
                             try buffer.append(ast.Instruction{ .push = index.elem_type.size() });
                             try buffer.append(ast.Instruction{ .mul = true });
                             try buffer.append(ast.Instruction{ .add = true });
+                        } else if (std.mem.eql(u8, apply.name, "vec")) {
+                            try self.callFunction(buffer, ast.Expression{ .var_ = "get_vec_int" }, @constCast(&[_]ast.Expression{
+                                index.lhs.*,
+                                index.rhs.*,
+                            }));
+                        } else if (std.mem.eql(u8, apply.name, "slice")) {
+                            const valueType = try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator());
+                            switch (valueType) {
+                                .int => {
+                                    try self.callFunction(buffer, ast.Expression{ .var_ = "get_slice_int" }, @constCast(&[_]ast.Expression{
+                                        index.lhs.*,
+                                        index.rhs.*,
+                                    }));
+                                },
+                                .byte => {
+                                    try self.callFunction(buffer, ast.Expression{ .var_ = "get_slice_byte" }, @constCast(&[_]ast.Expression{
+                                        index.lhs.*,
+                                        index.rhs.*,
+                                    }));
+                                },
+                                else => {
+                                    try self.compileExprFromAst(buffer, index.lhs.*);
+                                    try buffer.append(ast.Instruction{ .load = 8 });
+                                    try self.compileExprFromAst(buffer, index.rhs.*);
+                                    try buffer.append(ast.Instruction{ .push = valueType.size() });
+                                    try buffer.append(ast.Instruction{ .mul = true });
+                                    try buffer.append(ast.Instruction{ .add = true });
+                                    try buffer.append(ast.Instruction{ .load = valueType.size() });
+                                },
+                            }
+                        } else if (std.mem.eql(u8, apply.name, "map")) {
+                            try self.compileExprFromAst(buffer, index.lhs.*);
+                            try self.compileExprFromAst(buffer, index.rhs.*);
+                            try buffer.append(ast.Instruction{ .table_set = true });
                         } else {
                             std.log.err("Invalid index type: {s}({any})\n", .{ apply.name, apply.params });
                             unreachable;
@@ -521,6 +673,10 @@ pub const VmCompiler = struct {
 
                 const i = self.env_offset;
                 try self.env.put(let.name, i);
+                // 変数の型情報を保存
+                if (let.value == .new) {
+                    try self.env_types.put(let.name, let.value.new.type_);
+                }
                 self.env_offset += 1;
             },
             .return_ => |val| {
@@ -709,8 +865,26 @@ pub const VmCompiler = struct {
             .fun => |f| {
                 self.env_offset = 0;
                 self.env.clearAndFree();
+                self.env_types.clearAndFree();
 
-                try buffer.append(ast.Instruction{ .label = f.name });
+                // メソッド定義の場合、型タグを付加したラベルを生成
+                var label = f.name;
+                if (f.params.len > 0 and std.mem.eql(u8, f.params[0].name, "self")) {
+                    // 型名を取得（self引数の型から）
+                    const type_name = switch (f.params[0].type_.?) {
+                        .ident => |ident| ident,
+                        .apply => |apply| apply.name,
+                        else => blk: {
+                            std.log.warn("Unknown type for method definition: {any}", .{f.params[0].type_});
+                            break :blk "unknown";
+                        },
+                    };
+
+                    label = try self.generateMethodDefLabel(type_name, f.name, f.params);
+                    std.log.info("Generated method definition label: {s}", .{label});
+                }
+
+                try buffer.append(ast.Instruction{ .label = label });
 
                 var index: i32 = -3;
 
@@ -718,6 +892,9 @@ pub const VmCompiler = struct {
                 for (0..f.params.len) |ri| {
                     const i = f.params.len - ri - 1;
                     try self.env.put(f.params[i].name, index);
+                    if (f.params[i].type_) |t| {
+                        try self.env_types.put(f.params[i].name, t);
+                    }
                     index -= 1;
                 }
                 // register type_params in the reverse order
@@ -735,7 +912,7 @@ pub const VmCompiler = struct {
 
                 self.compiling_context = "";
 
-                const end_of_f = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "end_of_{s}", .{f.name});
+                const end_of_f = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "end_of_{s}", .{label});
                 try buffer.append(ast.Instruction{ .label = end_of_f });
             },
             .let => |let| {
@@ -759,7 +936,7 @@ pub const VmCompiler = struct {
                     var md = m;
                     md.fun.type_params = t.params;
 
-                    for (self.generic_calls) |generic_call| {
+                    for (self.generic_calls.items) |generic_call| {
                         if (std.mem.eql(u8, generic_call.name, md.fun.name)) {
                             std.log.info("generic_call: {s} {any}\n", .{ generic_call.name, generic_call.types });
                             try self.compileDecl(buffer, md);
@@ -772,7 +949,21 @@ pub const VmCompiler = struct {
 
     fn compileModule(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), module: ast.Module) anyerror!void {
         for (module.decls) |decl| {
-            try self.compileDecl(buffer, decl);
+            switch (decl) {
+                .type_ => {},
+                else => {
+                    try self.compileDecl(buffer, decl);
+                },
+            }
+        }
+
+        for (module.decls) |decl| {
+            switch (decl) {
+                .type_ => {
+                    try self.compileDecl(buffer, decl);
+                },
+                else => {},
+            }
         }
     }
 
@@ -846,7 +1037,8 @@ pub const VmCompiler = struct {
         self.env_offset = 0;
         self.env.clearAndFree();
         self.type_defs = module.type_defs;
-        self.generic_calls = module.generic_calls;
+        self.generic_calls.clearAndFree();
+        try self.generic_calls.appendSlice(module.generic_calls);
 
         var initBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
         defer initBuffer.deinit();
@@ -925,7 +1117,7 @@ pub const VmCompiler = struct {
                         const rhs = result.pop().push;
                         const lhs = result.pop().get_local_d;
                         try result.append(ast.Instruction{ .add_di = .{ .lhs = lhs, .imm = rhs, .target = null } });
-                    } else if (program[i - 1].is_mul() and program[i - 2].is_get_local_d() and program[i - 3].is_get_local_d() and program[i - 4].is_get_local_d()) {
+                    } else if (program[i - 1].is_mul() and program[i - 2].is_get_local_d() and program[i - 3].is_get_local_d()) {
                         _ = result.pop().mul;
                         const rhs = result.pop().get_local_d;
                         const lhs = result.pop().get_local_d;

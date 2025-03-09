@@ -71,7 +71,11 @@ pub const Compiler = struct {
 
         try tc.typecheck(&module);
 
-        self.vmc.generic_calls = module.generic_calls;
+        var gcalls = std.ArrayList(ast.GenericCallInfo).init(self.allocator);
+        defer gcalls.deinit();
+        try gcalls.appendSlice(module.generic_calls);
+        self.vmc.generic_calls = gcalls;
+
         var ir = try self.vmc.compile("main", module);
 
         if (self.enable_optimize_ir) {
