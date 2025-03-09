@@ -10,7 +10,7 @@ type Pair(A: type, B: type) = struct {
 };
 
 fun main() do
-  let p = new Pair(int, [*]byte) { .first = 1, .second = "hello, world" };
+  let p = new Pair(type int, type [*]byte) { .first = 1, .second = "hello, world" };
   p.set_first(3);
 
   let s = p.second;

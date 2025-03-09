@@ -335,6 +335,7 @@ pub const VmCompiler = struct {
                         try buffer.append(ast.Instruction{ .push = address });
                         try buffer.append(ast.Instruction{ .add = true });
                     },
+                    .type_ => {},
                 }
             },
             .binop => |binop| {

@@ -103,6 +103,9 @@ pub const Typechecker = struct {
 
                 return ast.Type{ .ptr = .{ .type_ = t } };
             },
+            .type_ => {
+                return type_;
+            },
         };
     }
 
@@ -360,6 +363,17 @@ pub const Typechecker = struct {
                     },
                 }
             },
+            .type_ => {
+                switch (actual) {
+                    .type_ => {
+                        return expect;
+                    },
+                    else => {
+                        std.log.err("Expected type, got {any} ({s}:{d})", .{ actual, @src().file, @src().line });
+                        return TypecheckerError.UnexpectedType;
+                    },
+                }
+            },
         }
 
         return expect;
@@ -386,6 +400,9 @@ pub const Typechecker = struct {
                         t.* = ast.Type{ .byte = true };
 
                         return ast.Type{ .ptr = .{ .type_ = t } };
+                    },
+                    .type_ => {
+                        return ast.Type{ .type_ = true };
                     },
                 }
             },

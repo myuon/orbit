@@ -188,12 +188,14 @@ pub const LiteralType = enum {
     boolean,
     number,
     string,
+    type_,
 };
 
 pub const Literal = union(LiteralType) {
     boolean: bool,
     number: u32,
     string: []const u8,
+    type_: Type,
 };
 
 pub const StatementType = enum {
@@ -327,6 +329,7 @@ pub const TypeType = enum {
     apply,
     forall,
     ptr,
+    type_,
 };
 
 pub const Type = union(TypeType) {
@@ -353,6 +356,7 @@ pub const Type = union(TypeType) {
     ptr: struct {
         type_: *Type,
     },
+    type_: bool, // for type parameters
 
     pub fn format(
         self: Type,
@@ -393,6 +397,7 @@ pub const Type = union(TypeType) {
             },
             .forall => try std.fmt.format(writer, "forall({})", .{self.forall.params.len}),
             .ptr => try std.fmt.format(writer, "[*]{s}", .{self.ptr.type_}),
+            .type_ => try std.fmt.format(writer, "type", .{}),
         }
     }
 
@@ -404,10 +409,11 @@ pub const Type = union(TypeType) {
             Type.int => 8,
             Type.fun => unreachable,
             Type.struct_ => 8,
-            Type.ident => 8,
+            Type.ident => 8, // FIXME: should be unreachable
             Type.apply => unreachable,
             Type.forall => unreachable,
             Type.ptr => 8,
+            Type.type_ => unreachable,
         };
     }
 
@@ -529,6 +535,7 @@ pub const Type = union(TypeType) {
 
                 return Type{ .ptr = .{ .type_ = t } };
             },
+            .type_ => unreachable,
         };
     }
 

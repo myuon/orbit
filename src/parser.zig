@@ -725,6 +725,13 @@ pub const Parser = struct {
 
                             return e;
                         },
+                        .type_ => {
+                            try self.expect(ast.Operator.type_);
+
+                            const t = try self.type_();
+
+                            return ast.Expression{ .literal = ast.Literal{ .type_ = t } };
+                        },
                         else => {
                             std.log.err("unexpected token: want lparen but got {any} ({any})\n", .{ token, self.tokens[self.position..] });
                             unreachable;
@@ -810,6 +817,9 @@ pub const Parser = struct {
                         ptr.* = t;
 
                         return ast.Type{ .ptr = .{ .type_ = ptr } };
+                    },
+                    .type_ => {
+                        return ast.Type{ .type_ = true };
                     },
                     else => {
                         std.log.err("unexpected token: want type but got {any}\n", .{self.tokens[self.position..]});

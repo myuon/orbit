@@ -1,0 +1,9 @@
+fun get_first(A: type, B: type, a: A, b: B): A do
+  return a;
+end
+
+fun main() do
+  let a = get_first(type int, type [*]byte, 1, "Hello, World");
+
+  return a + 1;
+end
