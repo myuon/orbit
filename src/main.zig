@@ -118,9 +118,9 @@ pub fn main() !void {
         c.enable_jit = enableJit;
         c.enable_optimize_ir = enableOptimizeIr;
 
-        const result = try c.evalModule(content.items);
+        try c.compile(content.items, true);
 
-        try stdout.print("Result: {any}\n", .{result});
+        try stdout.print("Result: {any}\n", .{c.result});
         try bw.flush();
     } else if (std.mem.eql(u8, command, "dbg")) {
         var breakpoint: i32 = -1;
@@ -135,7 +135,8 @@ pub fn main() !void {
 
         try utils.readFile(allocator, argv[2][0..std.mem.len(argv[2])], &content);
 
-        const prog = try c.compileInIr(content.items);
+        try c.compile(content.items, false);
+        const prog = c.ir.?;
 
         var vmr = runtime.VmRuntime.init(arena_allocator.allocator());
         defer vmr.deinit();

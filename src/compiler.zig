@@ -23,30 +23,41 @@ pub const Compiler = struct {
     jit_cache: std.StringHashMap(jit.CompiledFn),
     allocator: std.mem.Allocator,
     arena_allocator: std.heap.ArenaAllocator,
+    tc: typecheck.Typechecker,
     vmc: vm.VmCompiler,
     enable_jit: bool,
     dump_ir_path: ?[]const u8 = null,
     enable_optimize_ir: bool = true,
+    ir: ?[]ast.Instruction,
+    result: ?ast.Value,
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
         return Compiler{
             .jit_cache = std.StringHashMap(jit.CompiledFn).init(allocator),
             .allocator = allocator,
             .arena_allocator = std.heap.ArenaAllocator.init(allocator),
+            .tc = typecheck.Typechecker.init(allocator),
             .vmc = vm.VmCompiler.init(allocator),
             .enable_jit = true,
             .enable_optimize_ir = true,
+            .ir = null,
+            .result = null,
         };
     }
 
     pub fn deinit(self: *Compiler) void {
         self.jit_cache.deinit();
+        self.tc.deinit();
         self.vmc.deinit();
         self.arena_allocator.deinit();
     }
 
-    pub fn compileInIr(self: *Compiler, str: []const u8) anyerror![]ast.Instruction {
-        const zone = P.begin(@src(), "Compiler.compileInIr");
+    pub fn compile(
+        self: *Compiler,
+        str: []const u8,
+        execute: bool,
+    ) anyerror!void {
+        const zone = P.begin(@src(), "Compiler.compile");
         defer zone.end();
 
         var stdlib = std.ArrayList(u8).init(self.allocator);
@@ -66,10 +77,7 @@ pub const Compiler = struct {
 
         var module = try p.module();
 
-        var tc = typecheck.Typechecker.init(self.allocator);
-        defer tc.deinit();
-
-        try tc.typecheck(&module);
+        try self.tc.typecheck(&module);
 
         var gcalls = std.ArrayList(ast.GenericCallInfo).init(self.allocator);
         try gcalls.appendSlice(module.generic_calls);
@@ -81,46 +89,13 @@ pub const Compiler = struct {
             ir = try self.vmc.optimize(ir);
         }
 
-        return ir;
-    }
+        self.ir = ir;
 
-    pub fn startVm(self: *Compiler, ir: []ast.Instruction) anyerror!ast.Value {
-        const zone = P.begin(@src(), "Compiler.startVm");
-        defer zone.end();
-
-        var stack = try std.ArrayList(i64).initCapacity(self.allocator, 1024);
-        defer stack.deinit();
-
-        var address_map = std.StringHashMap(i64).init(self.allocator);
-        defer address_map.deinit();
-
-        try address_map.put("return", -2 - 1);
-        try stack.append(-2); // return value
-        try stack.append(-1); // pc
-        try stack.append(0); // bp
-
-        var bp: i64 = @intCast(stack.items.len);
-
-        var vmr = runtime.VmRuntime.init(self.allocator);
-        defer vmr.deinit();
-
-        vmr.enable_jit = self.enable_jit;
-
-        try vmr.run(ir, &stack, &bp);
-
-        return ast.Value{ .i64_ = stack.items[0] };
-    }
-
-    pub fn evalModule(self: *Compiler, str: []const u8) anyerror!ast.Value {
-        const zone = P.begin(@src(), "Compiler.evalModule");
-        defer zone.end();
-
-        const ir = try self.compileInIr(str);
         if (self.dump_ir_path) |path| {
             const file = try std.fs.cwd().createFile(path, .{});
             defer file.close();
 
-            for (ir) |inst| {
+            for (self.ir.?) |inst| {
                 switch (inst) {
                     .label => |label| {
                         try std.fmt.format(file.writer(), "{s}:\n", .{label});
@@ -132,7 +107,25 @@ pub const Compiler = struct {
             }
         }
 
-        return try self.startVm(ir);
+        if (execute) {
+            var stack = try std.ArrayList(i64).initCapacity(self.allocator, 1024);
+            defer stack.deinit();
+
+            try stack.append(-2); // return value
+            try stack.append(-1); // pc
+            try stack.append(0); // bp
+
+            var bp: i64 = @intCast(stack.items.len);
+
+            var vmr = runtime.VmRuntime.init(self.allocator);
+            defer vmr.deinit();
+
+            vmr.enable_jit = self.enable_jit;
+
+            try vmr.run(self.ir.?, &stack, &bp);
+
+            self.result = ast.Value{ .i64_ = stack.items[0] };
+        }
     }
 };
 
@@ -299,12 +292,12 @@ test "compiler.compileLabel" {
         var c = Compiler.init(std.testing.allocator);
         defer c.deinit();
 
-        const ir = try c.compileInIr(case.program);
+        try c.compile(case.program, false);
 
         var labels = std.ArrayList([]const u8).init(std.testing.allocator);
         defer labels.deinit();
 
-        for (ir) |inst| {
+        for (c.ir.?) |inst| {
             switch (inst) {
                 .label => |label| {
                     try labels.append(label);
@@ -701,9 +694,10 @@ test "compiler.evalModule" {
             defer c.deinit();
 
             c.enable_jit = flag;
-            std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, c.evalModule(case.program) catch |err| {
+            c.compile(case.program, true) catch |err| {
                 std.debug.panic("Unexpected error: {any}\n==INPUT==\n{s}\n", .{ err, case.program });
-            }) catch |err| {
+            };
+            std.testing.expectEqual(ast.Value{ .i64_ = case.expected }, c.result.?) catch |err| {
                 std.debug.panic("Unexpected error: {any}\n--enable_jit:{}\n==INPUT==\n{s}\n", .{ err, flag, case.program });
             };
         }
