@@ -371,7 +371,7 @@ pub const Typechecker = struct {
         return expect;
     }
 
-    fn resolveFunType(self: *Typechecker, _fun_type: ast.FunType, args: []ast.Expression) anyerror!ast.Type {
+    fn resolveFunType(self: *Typechecker, name: []const u8, _fun_type: ast.FunType, args: []ast.Expression) anyerror!ast.Type {
         var assignments = ast.Assingments.init(self.arena_allocator.allocator());
         var fun_type = _fun_type;
 
@@ -387,12 +387,15 @@ pub const Typechecker = struct {
             }
         }
 
+        var arg_types = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
+
         for (fun_type.params[0..typeArgsIndex], 0..) |param, i| {
             switch (args[i]) {
-                .type_ => {
+                .type_ => |t| {
                     const arg_type = try self.typecheckExpr(&args[i]);
                     _ = try self.assertType(param.type_, arg_type);
 
+                    try arg_types.append(t);
                     try assignments.put(param.name, arg_type);
                 },
                 else => {
@@ -405,6 +408,11 @@ pub const Typechecker = struct {
             const arg_type = try self.typecheckExpr(&args[i + typeArgsIndex]);
             _ = try self.assertType(try param.type_.applyAssignments(self.arena_allocator.allocator(), assignments), arg_type);
         }
+
+        try self.generic_calls.append(.{
+            .name = name,
+            .types = arg_types.items,
+        });
 
         return try fun_type.return_type.applyAssignments(self.arena_allocator.allocator(), assignments);
     }
@@ -461,8 +469,10 @@ pub const Typechecker = struct {
             },
             .call => |call| {
                 var fun_type: ast.Type = undefined;
+                var name: []const u8 = undefined;
                 switch (call.callee.*) {
                     .var_ => |ident| {
+                        name = ident;
                         fun_type = self.env.get(ident) orelse {
                             std.log.err("Function not found: {s}\n   {s}:{d}", .{ ident, @src().file, @src().line });
                             return error.VariableNotFound;
@@ -470,6 +480,7 @@ pub const Typechecker = struct {
                     },
                     .project => |project| {
                         const lhs_type = try self.typecheckExpr(project.lhs);
+                        name = project.rhs;
 
                         const method_type = try self.typecheckExpr(call.callee);
                         switch (method_type) {
@@ -500,7 +511,7 @@ pub const Typechecker = struct {
                             return error.UnexpectedType;
                         }
 
-                        return try self.resolveFunType(fun, call.args);
+                        return try self.resolveFunType(name, fun, call.args);
                     },
                     else => unreachable,
                 }

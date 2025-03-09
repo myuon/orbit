@@ -18,7 +18,6 @@ pub const VmError = error{
 pub const VmCompiler = struct {
     allocator: std.mem.Allocator,
     ast_arena_allocator: std.heap.ArenaAllocator,
-    compiling_context: []const u8 = "",
     prng: std.Random.Xoshiro256,
     env: std.StringHashMap(i32),
     env_types: std.StringHashMap(ast.Type),
@@ -162,9 +161,9 @@ pub const VmCompiler = struct {
 
             try self.generic_calls.append(ast.GenericCallInfo{
                 .name = method_name,
-                .types = @constCast(&[_]ast.TypeParam{
-                    .{ .name = "0", .type_ = .{ .int = true } },
-                    .{ .name = "1", .type_ = .{ .int = true } },
+                .types = @constCast(&[_]ast.Type{
+                    .{ .int = true },
+                    .{ .int = true },
                 }),
             });
         } else if (args.len == 1) {
@@ -172,8 +171,8 @@ pub const VmCompiler = struct {
 
             try self.generic_calls.append(ast.GenericCallInfo{
                 .name = method_name,
-                .types = @constCast(&[_]ast.TypeParam{
-                    .{ .name = "0", .type_ = .{ .int = true } },
+                .types = @constCast(&[_]ast.Type{
+                    .{ .int = true },
                 }),
             });
         } else {
@@ -181,7 +180,7 @@ pub const VmCompiler = struct {
 
             try self.generic_calls.append(ast.GenericCallInfo{
                 .name = method_name,
-                .types = @constCast(&[_]ast.TypeParam{}),
+                .types = @constCast(&[_]ast.Type{}),
             });
         }
 
@@ -851,42 +850,38 @@ pub const VmCompiler = struct {
 
     pub fn compileBlock(
         self: *VmCompiler,
-        entrypoint: []const u8,
         body: ast.Block,
     ) anyerror![]ast.Instruction {
-        self.compiling_context = entrypoint;
-
         var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
         try self.compileBlockFromAst(&buffer, body);
-
-        self.compiling_context = "";
 
         return buffer.items;
     }
 
-    fn compileDecl(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), decl: ast.Decl) anyerror!void {
+    fn compileDecl(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), decl: ast.Decl, label_override: ?[]const u8) anyerror!void {
         switch (decl) {
             .fun => |f| {
                 self.env_offset = 0;
                 self.env.clearAndFree();
                 self.env_types.clearAndFree();
 
-                // メソッド定義の場合、型タグを付加したラベルを生成
-                var label = f.name;
-                if (f.params.len > 0 and std.mem.eql(u8, f.params[0].name, "self")) {
-                    // 型名を取得（self引数の型から）
-                    const type_name = switch (f.params[0].type_) {
-                        .ident => |ident| ident,
-                        .apply => |apply| apply.name,
-                        else => blk: {
-                            std.log.warn("Unknown type for method definition: {any}", .{f.params[0].type_});
-                            break :blk "unknown";
-                        },
-                    };
+                // var label = f.name;
+                // if (f.params.len > 0 and std.mem.eql(u8, f.params[0].name, "self")) {
+                //     // 型名を取得（self引数の型から）
+                //     const type_name = switch (f.params[0].type_) {
+                //         .ident => |ident| ident,
+                //         .apply => |apply| apply.name,
+                //         else => blk: {
+                //             std.log.warn("Unknown type for method definition: {any}", .{f.params[0].type_});
+                //             break :blk "unknown";
+                //         },
+                //     };
 
-                    label = try self.generateMethodDefLabel(type_name, f.name, f.params);
-                    std.log.info("Generated method definition label: {s}", .{label});
-                }
+                //     label = try self.generateMethodDefLabel(type_name, f.name, f.params);
+                //     std.log.info("Generated method definition label: {s}", .{label});
+                // }
+
+                const label = label_override orelse f.name;
 
                 try buffer.append(ast.Instruction{ .label = label });
 
@@ -908,11 +903,7 @@ pub const VmCompiler = struct {
                 // register return value
                 try self.env.put("return", index);
 
-                self.compiling_context = f.name;
-
-                try buffer.appendSlice(try self.compileBlock(f.name, f.body));
-
-                self.compiling_context = "";
+                try buffer.appendSlice(try self.compileBlock(f.body));
 
                 const end_of_f = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "end_of_{s}", .{label});
                 try buffer.append(ast.Instruction{ .label = end_of_f });
@@ -935,15 +926,7 @@ pub const VmCompiler = struct {
             },
             .type_ => |t| {
                 for (t.methods) |m| {
-                    var md = m;
-                    md.fun.type_params = t.params;
-
-                    for (self.generic_calls.items) |generic_call| {
-                        if (std.mem.eql(u8, generic_call.name, md.fun.name)) {
-                            std.log.info("generic_call: {s} {any}\n", .{ generic_call.name, generic_call.types });
-                            try self.compileDecl(buffer, md);
-                        }
-                    }
+                    try self.compileDecl(buffer, m, null);
                 }
             },
         }
@@ -951,18 +934,24 @@ pub const VmCompiler = struct {
 
     fn compileModule(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), module: ast.Module) anyerror!void {
         for (module.decls) |decl| {
-            switch (decl) {
-                .type_ => {},
-                else => {
-                    try self.compileDecl(buffer, decl);
-                },
-            }
+            try self.compileDecl(buffer, decl, null);
         }
 
         for (module.decls) |decl| {
             switch (decl) {
-                .type_ => {
-                    try self.compileDecl(buffer, decl);
+                .fun => |fun| {
+                    for (self.generic_calls.items) |generic_call| {
+                        if (std.mem.eql(u8, generic_call.name, fun.name) and generic_call.types.len > 0) {
+                            var label = std.ArrayList(u8).init(self.ast_arena_allocator.allocator());
+
+                            try label.appendSlice(fun.name);
+                            for (generic_call.types) |type_| {
+                                try std.fmt.format(label.writer(), "_{any}", .{type_});
+                            }
+
+                            try self.compileDecl(buffer, decl, label.items);
+                        }
+                    }
                 },
                 else => {},
             }

@@ -72,7 +72,6 @@ pub const Compiler = struct {
         try tc.typecheck(&module);
 
         var gcalls = std.ArrayList(ast.GenericCallInfo).init(self.allocator);
-        defer gcalls.deinit();
         try gcalls.appendSlice(module.generic_calls);
         self.vmc.generic_calls = gcalls;
 
@@ -264,6 +263,61 @@ test "compiler.parseStatement" {
         const e = try p.statement();
 
         try std.testing.expectEqualDeep(case.expr, e);
+    }
+}
+
+test "compiler.compileLabel" {
+    const cases = [_]struct {
+        program: []const u8,
+        expected: [][]const u8,
+    }{
+        .{
+            .program =
+            \\fun get_first(A: type, B: type, a: A, b: B): A do
+            \\  return a;
+            \\end
+            \\
+            \\fun main() do
+            \\  get_first(type int, type [*]byte, 1, "Hello, ");
+            \\  get_first(type [*]int, type int, 1, 2);
+            \\end
+            ,
+            .expected = @constCast(&[_][]const u8{ "get_first_int_[*]byte", "get_first_[*]int_int" }),
+        },
+    };
+
+    for (cases) |case| {
+        var c = Compiler.init(std.testing.allocator);
+        defer c.deinit();
+
+        const ir = try c.compileInIr(case.program);
+
+        var labels = std.ArrayList([]const u8).init(std.testing.allocator);
+        defer labels.deinit();
+
+        for (ir) |inst| {
+            switch (inst) {
+                .label => |label| {
+                    try labels.append(label);
+                },
+                else => {},
+            }
+        }
+
+        for (case.expected) |expected| {
+            var found = false;
+            for (labels.items) |label| {
+                if (std.mem.eql(u8, label, expected)) {
+                    found = true;
+                    break;
+                }
+            }
+
+            std.testing.expect(found) catch |err| {
+                std.log.err("Expected label {s} not found in {s}\n", .{ expected, labels.items });
+                return err;
+            };
+        }
     }
 }
 

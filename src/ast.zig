@@ -591,7 +591,7 @@ pub const TypeParam = struct {
 
 pub const GenericCallInfo = struct {
     name: []const u8,
-    types: []TypeParam,
+    types: []Type,
 };
 
 pub const TypeDef = struct {
