@@ -110,13 +110,13 @@ type Pair(A: type, B: type) = struct {
   first: A,
   second: B,
 
-  fun set_first(self: Pair(A, B), a: A) do
+  fun set_first(self: Pair(A, B), a: A): int do
     self.first = a;
     return 0;
   end
 };
 
-let p = new Pair(int, [*]byte) { .first = 1, .second = "hello" };
+let p = new Pair(type int, type [*]byte) { .first = 1, .second = "hello" };
 p.set_first(3);
 ```
 

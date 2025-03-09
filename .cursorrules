@@ -19,8 +19,3 @@ All code is written in Zig, placed in the `src` directory.
 other tools:
 
 - TUI debugger: `src/tui.zig`
-
-## Implementation details: Generics
-
-- If you have `Point::move(int, bool)` method calls, add type tag for each labels like `Point_move_int_bool`
-- When compile to IR, all generic types should be resolved to primitive types.
