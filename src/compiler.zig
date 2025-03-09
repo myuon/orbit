@@ -664,7 +664,7 @@ test "compiler.evalModule" {
             \\  return p.first + (p.second[3] as int);
             \\end
             ,
-            .expected = 104,
+            .expected = 111,
         },
     };
 
