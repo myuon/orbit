@@ -286,6 +286,24 @@ test "compiler.compileLabel" {
             ,
             .expected = @constCast(&[_][]const u8{ "sizeof_int", "sizeof_[*]byte" }),
         },
+        .{
+            .program =
+            \\type Pair(A: type, B: type) = struct {
+            \\  first: A,
+            \\  second: B,
+            \\
+            \\  fun set_first(self: Pair(A, B), a: A) do
+            \\    self.first = a;
+            \\  end
+            \\};
+            \\
+            \\fun main() do
+            \\  let p = new Pair(int, [*]byte) { .first = 1, .second = "hello, world!" };
+            \\  p.set_first(3);
+            \\end
+            ,
+            .expected = @constCast(&[_][]const u8{"set_first_int_[*]byte"}),
+        },
     };
 
     for (cases) |case| {

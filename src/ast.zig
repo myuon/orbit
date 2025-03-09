@@ -385,9 +385,12 @@ pub const Type = union(TypeType) {
                 try std.fmt.format(writer, ": {any}", .{self.fun.return_type});
             },
             .struct_ => |fields| {
-                try std.fmt.format(writer, "struct {{", .{});
-                for (fields) |field| {
-                    try std.fmt.format(writer, "{s}: {any},", .{ field.name, field.type_ });
+                try std.fmt.format(writer, "struct{{", .{});
+                for (fields, 0..) |field, i| {
+                    try std.fmt.format(writer, "{s}: {any}", .{ field.name, field.type_ });
+                    if (i < fields.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    }
                 }
                 try std.fmt.format(writer, "}}", .{});
             },
@@ -517,7 +520,7 @@ pub const Type = union(TypeType) {
 
                 return Type{ .struct_ = fields.items };
             },
-            .unknown => unreachable,
+            .unknown => self,
             .bool_ => self,
             .byte => self,
             .int => self,
@@ -575,6 +578,14 @@ pub const Type = union(TypeType) {
                 return Type{ .ptr = .{ .type_ = t } };
             },
             .unknown => return self, // FIXME: should be unreachable
+            .apply => |apply| {
+                var params = std.ArrayList(Type).init(allocator);
+                for (apply.params) |param| {
+                    try params.append(try param.applyAssignments(allocator, assignments));
+                }
+
+                return Type{ .apply = .{ .name = apply.name, .params = params.items } };
+            },
             else => {
                 std.log.err("Unexpected type, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                 unreachable;

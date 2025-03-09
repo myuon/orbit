@@ -258,6 +258,10 @@ pub const VmCompiler = struct {
                 }
             },
             .call => |call| {
+                if (call.label == null) {
+                    std.log.err("Call label is null: {any}\n", .{call});
+                    unreachable;
+                }
                 try self.callFunction(buffer, call.callee.*, call.label.?, call.args);
             },
             .if_ => |if_| {
