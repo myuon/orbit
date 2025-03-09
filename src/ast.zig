@@ -325,6 +325,15 @@ pub const FunType = struct {
     params: []FunParam,
     return_type: *Type,
     context: ?[]const u8,
+
+    pub fn format(
+        self: FunType,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try std.fmt.format(writer, "FunType{{ .params = {any}, .return_type = {any}, .context = {any} }}", .{ self.params, self.return_type.*, self.context });
+    }
 };
 
 pub const TypeType = enum {
@@ -397,8 +406,11 @@ pub const Type = union(TypeType) {
             .ident => try std.fmt.format(writer, "{s}", .{self.ident}),
             .apply => |apply| {
                 try std.fmt.format(writer, "{s}(", .{apply.name});
-                for (apply.params) |param| {
-                    try std.fmt.format(writer, "{any}, ", .{param});
+                for (apply.params, 0..) |param, i| {
+                    try std.fmt.format(writer, "{any}", .{param});
+                    if (i < apply.params.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    }
                 }
                 try std.fmt.format(writer, ")", .{});
             },
@@ -610,6 +622,15 @@ pub const GenericCallInfo = struct {
         for (self.types) |type_| {
             try std.fmt.format(label.writer(), "_{any}", .{type_});
         }
+    }
+
+    pub fn format(
+        self: GenericCallInfo,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try std.fmt.format(writer, "GenericCallInfo{{ .name = {s}, .types = {any} }}", .{ self.name, self.types });
     }
 };
 

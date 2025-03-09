@@ -415,14 +415,33 @@ pub const Typechecker = struct {
         // FIXME: implement HM type inference
         for (fun_type.params[typeArgsIndex..], 0..) |param, i| {
             const arg_type = try self.typecheckExpr(&args[i + typeArgsIndex]);
-            switch (param.type_) {
-                .ident => |ident| {
-                    try assignments.put(ident, arg_type);
+            _ = try self.assertType(try param.type_.applyAssignments(self.arena_allocator.allocator(), assignments), arg_type);
+
+            // Adhoc type inference
+            switch (arg_type) {
+                .apply => |apply_arg| {
+                    switch (param.type_) {
+                        .apply => |apply_param| {
+                            if (std.mem.eql(u8, apply_arg.name, apply_param.name)) {
+                                for (0..apply_arg.params.len) |j| {
+                                    try assignments.put(apply_param.params[j].ident, apply_arg.params[j]);
+                                }
+                            }
+                        },
+                        else => {},
+                    }
                 },
                 else => {},
             }
+        }
 
-            _ = try self.assertType(try param.type_.applyAssignments(self.arena_allocator.allocator(), assignments), arg_type);
+        for (arg_types.items, 0..) |arg_type, i| {
+            switch (arg_type) {
+                .unknown => {
+                    arg_types.items[i] = assignments.get(fun_type.params[i].name).?;
+                },
+                else => {},
+            }
         }
 
         const gcall = ast.GenericCallInfo{

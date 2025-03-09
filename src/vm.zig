@@ -847,6 +847,23 @@ pub const VmCompiler = struct {
                         }
                     }
                 },
+                .type_ => |type_| {
+                    for (type_.methods) |method| {
+                        for (self.generic_calls.items) |generic_call| {
+                            if (std.mem.eql(u8, generic_call.name, method.fun.name) and generic_call.types.len > 0) {
+                                var label = std.ArrayList(u8).init(self.ast_arena_allocator.allocator());
+                                try generic_call.writeLabel(&label);
+
+                                try self.compileDecl(
+                                    buffer,
+                                    method,
+                                    label.items,
+                                    generic_call.types,
+                                );
+                            }
+                        }
+                    }
+                },
                 else => {},
             }
         }
