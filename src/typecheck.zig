@@ -144,7 +144,7 @@ pub const Typechecker = struct {
             for (method.params) |param| {
                 try params.append(.{
                     .name = param.name,
-                    .type_ = try self.replaceMany(param.type_.?, def.params, args, def.name),
+                    .type_ = try self.replaceMany(param.type_, def.params, args, def.name),
                 });
             }
 
@@ -263,7 +263,7 @@ pub const Typechecker = struct {
                             return TypecheckerError.UnexpectedType;
                         }
                         for (expect.fun.params, 0..) |param, i| {
-                            _ = try self.assertType(param, actual.fun.params[i]);
+                            _ = try self.assertType(param.type_, actual.fun.params[i].type_);
                         }
                         _ = try self.assertType(expect.fun.return_type.*, actual.fun.return_type.*);
                     },
@@ -364,19 +364,49 @@ pub const Typechecker = struct {
                 }
             },
             .type_ => {
-                switch (actual) {
-                    .type_ => {
-                        return expect;
-                    },
-                    else => {
-                        std.log.err("Expected type, got {any} ({s}:{d})", .{ actual, @src().file, @src().line });
-                        return TypecheckerError.UnexpectedType;
-                    },
-                }
+                return actual;
             },
         }
 
         return expect;
+    }
+
+    fn resolveFunType(self: *Typechecker, _fun_type: ast.FunType, args: []ast.Expression) anyerror!ast.Type {
+        var assignments = ast.Assingments.init(self.arena_allocator.allocator());
+        var fun_type = _fun_type;
+
+        var typeArgsIndex: usize = 0;
+        for (fun_type.params, 0..) |param, i| {
+            switch (param.type_) {
+                .type_ => {
+                    typeArgsIndex = i + 1;
+                },
+                else => {
+                    break;
+                },
+            }
+        }
+
+        for (fun_type.params[0..typeArgsIndex], 0..) |param, i| {
+            switch (args[i]) {
+                .type_ => {
+                    const arg_type = try self.typecheckExpr(&args[i]);
+                    _ = try self.assertType(param.type_, arg_type);
+
+                    try assignments.put(param.name, arg_type);
+                },
+                else => {
+                    unreachable;
+                },
+            }
+        }
+        // FIXME: implement HM type inference
+        for (fun_type.params[typeArgsIndex..], 0..) |param, i| {
+            const arg_type = try self.typecheckExpr(&args[i + typeArgsIndex]);
+            _ = try self.assertType(try param.type_.applyAssignments(self.arena_allocator.allocator(), assignments), arg_type);
+        }
+
+        return try fun_type.return_type.applyAssignments(self.arena_allocator.allocator(), assignments);
     }
 
     fn typecheckExpr(self: *Typechecker, expr: *ast.Expression) anyerror!ast.Type {
@@ -400,9 +430,6 @@ pub const Typechecker = struct {
                         t.* = ast.Type{ .byte = true };
 
                         return ast.Type{ .ptr = .{ .type_ = t } };
-                    },
-                    .type_ => {
-                        return ast.Type{ .type_ = true };
                     },
                 }
             },
@@ -447,10 +474,9 @@ pub const Typechecker = struct {
                         const method_type = try self.typecheckExpr(call.callee);
                         switch (method_type) {
                             .fun => |fun| {
-                                _ = try self.assertType(fun.params[0], lhs_type);
+                                _ = try self.assertType(fun.params[0].type_, lhs_type);
 
                                 fun_type = ast.Type{ .fun = .{
-                                    .type_params = fun.type_params,
                                     .params = fun.params[1..],
                                     .return_type = fun.return_type,
                                     .context = fun.context,
@@ -474,50 +500,7 @@ pub const Typechecker = struct {
                             return error.UnexpectedType;
                         }
 
-                        if (fun.type_params.len > 0) {
-                            var args = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
-
-                            const ctx = self.assignments.get(fun.context.?).?;
-                            for (fun.type_params) |tp| {
-                                try args.append(ctx.get(tp).?);
-                            }
-
-                            expr.call.type_args = args.items;
-
-                            // 型引数を持つ関数呼び出しを記録
-                            var function_name: []const u8 = undefined;
-                            switch (call.callee.*) {
-                                .var_ => |ident| {
-                                    function_name = ident;
-                                },
-                                .project => |project| {
-                                    function_name = project.rhs;
-                                },
-                                else => unreachable,
-                            }
-
-                            var params = std.ArrayList(ast.TypeParam).init(self.arena_allocator.allocator());
-                            for (fun.type_params, 0..) |tp, i| {
-                                try params.append(ast.TypeParam{
-                                    .name = tp,
-                                    .type_ = args.items[i],
-                                });
-                            }
-
-                            try self.generic_calls.append(ast.GenericCallInfo{
-                                .name = function_name,
-                                .types = params.items,
-                            });
-                        }
-                        for (fun.params, 0..) |param, i| {
-                            const arg = try self.typecheckExpr(&call.args[i]);
-                            _ = self.assertType(param, arg) catch |err| {
-                                std.log.err("Error in argument {any} ({any}, {any}): {}\n   {s}:{}", .{ call.args[i], param, arg, err, @src().file, @src().line });
-                                return err;
-                            };
-                        }
-
-                        return fun.return_type.*;
+                        return try self.resolveFunType(fun, call.args);
                     },
                     else => unreachable,
                 }
@@ -670,17 +653,11 @@ pub const Typechecker = struct {
                 } else if (def.hasMethod(field)) {
                     const method = def.getMethod(field);
 
-                    var params = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
-                    for (method.params) |fp| {
-                        try params.append(fp.type_.?);
-                    }
-
                     const return_type = try self.arena_allocator.allocator().create(ast.Type);
                     return_type.* = method.result_type;
 
                     return ast.Type{ .fun = .{
-                        .type_params = method.type_params,
-                        .params = params.items,
+                        .params = method.params,
                         .return_type = return_type,
                         .context = def.name,
                     } };
@@ -708,6 +685,9 @@ pub const Typechecker = struct {
                 // }
 
                 return as.rhs;
+            },
+            .type_ => {
+                return ast.Type{ .type_ = true };
             },
         }
     }
@@ -820,16 +800,8 @@ pub const Typechecker = struct {
             .fun => |fun| {
                 self.type_defs = module.type_defs;
 
-                var params = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
-
                 for (fun.params) |param| {
-                    var t = ast.Type{ .unknown = true };
-                    if (param.type_) |pt| {
-                        t = pt;
-                    }
-
-                    try self.env.put(param.name, t);
-                    try params.append(t);
+                    try self.env.put(param.name, param.type_);
                 }
 
                 self.return_type = fun.result_type;
@@ -842,8 +814,7 @@ pub const Typechecker = struct {
                     unreachable;
                 }
                 try self.env.put(fun.name, ast.Type{ .fun = .{
-                    .type_params = &[_][]const u8{},
-                    .params = params.items,
+                    .params = fun.params,
                     .return_type = return_type,
                     .context = self.context,
                 } });
@@ -858,8 +829,7 @@ pub const Typechecker = struct {
                 return_type.* = self.return_type.?;
 
                 const t = ast.Type{ .fun = .{
-                    .type_params = &[_][]const u8{},
-                    .params = params.items,
+                    .params = fun.params,
                     .return_type = return_type,
                     .context = self.context,
                 } };

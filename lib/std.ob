@@ -52,7 +52,7 @@ fun set_vec_int(data: struct{ptr: [*]int, len: int, capacity: int}, index: int, 
   return 0;
 end
 
-fun push_vec_int(data: struct{ptr: [*]int, len: int, capacity: int}, value: int) do
+fun push_vec_int(data: struct{ptr: [*]int, len: int, capacity: int}, value: int): int do
   if (data.len + 1 < data.capacity) do
     let ptr = data.ptr;
     ptr[data.len] = value;

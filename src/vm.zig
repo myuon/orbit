@@ -197,7 +197,7 @@ pub const VmCompiler = struct {
         // 引数の型を追加（selfを除く）
         for (params[1..]) |param| {
             try label_parts.append("_");
-            const param_type = switch (param.type_.?) {
+            const param_type = switch (param.type_) {
                 .int => "int",
                 .bool_ => "bool",
                 .byte => "byte",
@@ -335,7 +335,6 @@ pub const VmCompiler = struct {
                         try buffer.append(ast.Instruction{ .push = address });
                         try buffer.append(ast.Instruction{ .add = true });
                     },
-                    .type_ => {},
                 }
             },
             .binop => |binop| {
@@ -466,6 +465,10 @@ pub const VmCompiler = struct {
             },
             .as => |as| {
                 try self.compileExprFromAst(buffer, as.lhs.*);
+            },
+            .type_ => {
+                // TODO: type parameter runtime representation
+                try buffer.append(ast.Instruction{ .push = -1 });
             },
         }
     }
@@ -872,7 +875,7 @@ pub const VmCompiler = struct {
                 var label = f.name;
                 if (f.params.len > 0 and std.mem.eql(u8, f.params[0].name, "self")) {
                     // 型名を取得（self引数の型から）
-                    const type_name = switch (f.params[0].type_.?) {
+                    const type_name = switch (f.params[0].type_) {
                         .ident => |ident| ident,
                         .apply => |apply| apply.name,
                         else => blk: {
@@ -893,9 +896,7 @@ pub const VmCompiler = struct {
                 for (0..f.params.len) |ri| {
                     const i = f.params.len - ri - 1;
                     try self.env.put(f.params[i].name, index);
-                    if (f.params[i].type_) |t| {
-                        try self.env_types.put(f.params[i].name, t);
-                    }
+                    try self.env_types.put(f.params[i].name, f.params[i].type_);
                     index -= 1;
                 }
                 // register type_params in the reverse order

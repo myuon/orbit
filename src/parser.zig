@@ -262,7 +262,7 @@ pub const Parser = struct {
             }
 
             const arg = try self.expect_ident();
-            var t: ?ast.Type = null;
+            var t = ast.Type{ .unknown = true };
             if (self.is_next(ast.Operator.colon)) {
                 try self.expect(ast.Operator.colon);
                 t = try self.type_();
@@ -730,7 +730,7 @@ pub const Parser = struct {
 
                             const t = try self.type_();
 
-                            return ast.Expression{ .literal = ast.Literal{ .type_ = t } };
+                            return ast.Expression{ .type_ = t };
                         },
                         else => {
                             std.log.err("unexpected token: want lparen but got {any} ({any})\n", .{ token, self.tokens[self.position..] });

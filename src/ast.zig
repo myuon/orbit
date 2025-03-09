@@ -96,6 +96,7 @@ pub const ExpressionType = enum {
     new,
     project,
     as,
+    type_,
 };
 
 pub const Expression = union(ExpressionType) {
@@ -134,6 +135,7 @@ pub const Expression = union(ExpressionType) {
         lhs: *Expression,
         rhs: Type,
     },
+    type_: Type,
 
     pub fn format(
         self: Expression,
@@ -180,6 +182,9 @@ pub const Expression = union(ExpressionType) {
             .as => |as| {
                 try std.fmt.format(writer, "{any} as {any}", .{ as.lhs.*, as.rhs });
             },
+            .type_ => |type_| {
+                try std.fmt.format(writer, "type {any}", .{type_});
+            },
         }
     }
 };
@@ -188,14 +193,12 @@ pub const LiteralType = enum {
     boolean,
     number,
     string,
-    type_,
 };
 
 pub const Literal = union(LiteralType) {
     boolean: bool,
     number: u32,
     string: []const u8,
-    type_: Type,
 };
 
 pub const StatementType = enum {
@@ -249,7 +252,7 @@ pub const DeclType = enum {
 
 pub const FunParam = struct {
     name: []const u8,
-    type_: ?Type,
+    type_: Type,
 };
 
 pub const ExtendField = struct {
@@ -318,6 +321,12 @@ pub const StructField = struct {
     type_: Type,
 };
 
+pub const FunType = struct {
+    params: []FunParam,
+    return_type: *Type,
+    context: ?[]const u8,
+};
+
 pub const TypeType = enum {
     unknown,
     bool_,
@@ -337,12 +346,7 @@ pub const Type = union(TypeType) {
     bool_: bool,
     byte: bool,
     int: bool,
-    fun: struct {
-        type_params: [][]const u8,
-        params: []Type,
-        return_type: *Type,
-        context: ?[]const u8,
-    },
+    fun: FunType,
     struct_: []StructField,
     ident: []const u8,
     apply: struct {
@@ -371,14 +375,14 @@ pub const Type = union(TypeType) {
             .int => try std.fmt.format(writer, "int", .{}),
             .fun => {
                 try std.fmt.format(writer, "fun(", .{});
-                for (self.fun.type_params) |param| {
-                    try std.fmt.format(writer, "{s}: type, ", .{param});
-                }
-                for (self.fun.params) |param| {
-                    try std.fmt.format(writer, "{any}, ", .{param});
+                for (self.fun.params, 0..) |param, i| {
+                    try std.fmt.format(writer, "{s}: {any}", .{ param.name, param.type_ });
+                    if (i < self.fun.params.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    }
                 }
                 try std.fmt.format(writer, ")", .{});
-                try std.fmt.format(writer, "-> {any}", .{self.fun.return_type});
+                try std.fmt.format(writer, ": {any}", .{self.fun.return_type});
             },
             .struct_ => |fields| {
                 try std.fmt.format(writer, "struct {{", .{});
@@ -548,6 +552,34 @@ pub const Type = union(TypeType) {
 
         return t;
     }
+
+    pub fn applyAssignments(self: Type, allocator: std.mem.Allocator, assignments: Assingments) anyerror!Type {
+        switch (self) {
+            .ident => |ident| {
+                return assignments.get(ident).?;
+            },
+            .int => return self,
+            .bool_ => return self,
+            .byte => return self,
+            .struct_ => |fields| {
+                var new_fields = std.ArrayList(StructField).init(allocator);
+                for (fields) |field| {
+                    try new_fields.append(StructField{ .name = field.name, .type_ = try field.type_.applyAssignments(allocator, assignments) });
+                }
+                return Type{ .struct_ = new_fields.items };
+            },
+            .ptr => |ptr| {
+                const t = try allocator.create(Type);
+                t.* = try ptr.type_.*.applyAssignments(allocator, assignments);
+
+                return Type{ .ptr = .{ .type_ = t } };
+            },
+            else => {
+                std.log.err("Unexpected type, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
+                unreachable;
+            },
+        }
+    }
 };
 
 pub const Assingments = std.StringHashMap(Type);
@@ -644,7 +676,7 @@ pub const TypeDef = struct {
         for (self.methods) |method| {
             var params = std.ArrayList(FunParam).init(allocator);
             for (method.params) |param| {
-                var param_type = param.type_.?;
+                var param_type = param.type_;
                 param_type = try param_type.replaceMany(allocator, self.params, args);
 
                 try params.append(.{
