@@ -129,91 +129,6 @@ pub const VmCompiler = struct {
         }
     }
 
-    fn generateMethodLabel(self: *VmCompiler, type_name: []const u8, method_name: []const u8, args: []ast.Expression) anyerror![]const u8 {
-        var label_parts = std.ArrayList([]const u8).init(self.ast_arena_allocator.allocator());
-        try label_parts.append(type_name);
-        try label_parts.append("_");
-        try label_parts.append(method_name);
-
-        // 引数の型を追加（selfを除く）
-        for (args) |arg| {
-            try label_parts.append("_");
-            const arg_type = switch (arg) {
-                .literal => |lit| switch (lit) {
-                    .number => "int",
-                    .boolean => "bool",
-                    else => "unknown",
-                },
-                .binop => "int", // 演算結果は常にint型と仮定
-                .var_ => "int", // 変数も常にint型と仮定（一時的な対応）
-                else => blk: {
-                    std.log.warn("Unknown argument type: {any}", .{arg});
-                    break :blk "unknown";
-                },
-            };
-            try label_parts.append(arg_type);
-        }
-
-        const label = try std.mem.concat(self.ast_arena_allocator.allocator(), u8, label_parts.items);
-
-        if (args.len == 2) {
-            std.debug.assert(args.len == 2);
-
-            try self.generic_calls.append(ast.GenericCallInfo{
-                .name = method_name,
-                .types = @constCast(&[_]ast.Type{
-                    .{ .int = true },
-                    .{ .int = true },
-                }),
-            });
-        } else if (args.len == 1) {
-            std.debug.assert(args.len == 1);
-
-            try self.generic_calls.append(ast.GenericCallInfo{
-                .name = method_name,
-                .types = @constCast(&[_]ast.Type{
-                    .{ .int = true },
-                }),
-            });
-        } else {
-            std.debug.assert(args.len == 0);
-
-            try self.generic_calls.append(ast.GenericCallInfo{
-                .name = method_name,
-                .types = @constCast(&[_]ast.Type{}),
-            });
-        }
-
-        return label;
-    }
-
-    fn generateMethodDefLabel(self: *VmCompiler, type_name: []const u8, method_name: []const u8, params: []ast.FunParam) anyerror![]const u8 {
-        var label_parts = std.ArrayList([]const u8).init(self.ast_arena_allocator.allocator());
-        try label_parts.append(type_name);
-        try label_parts.append("_");
-        try label_parts.append(method_name);
-
-        // 引数の型を追加（selfを除く）
-        for (params[1..]) |param| {
-            try label_parts.append("_");
-            const param_type = switch (param.type_) {
-                .int => "int",
-                .bool_ => "bool",
-                .byte => "byte",
-                .ident => |ident| ident,
-                .apply => |apply| apply.name,
-                else => blk: {
-                    std.log.warn("Unknown parameter type: {any}", .{param.type_});
-                    break :blk "unknown";
-                },
-            };
-            try label_parts.append(param_type);
-        }
-
-        const label = try std.mem.concat(self.ast_arena_allocator.allocator(), u8, label_parts.items);
-        return label;
-    }
-
     fn callFunction(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), callee: ast.Expression, args: []ast.Expression) anyerror!void {
         var argCount: usize = 0;
 
@@ -247,40 +162,7 @@ pub const VmCompiler = struct {
                 try buffer.append(ast.Instruction{ .call = name });
             },
             .project => |project| {
-                // メソッド呼び出しの場合、型タグを付加したラベルを生成
-                const type_name = switch (project.lhs.*) {
-                    .var_ => |v| blk: {
-                        if (self.env_types.get(v)) |t| {
-                            switch (t) {
-                                .ident => |ident| break :blk ident,
-                                .apply => |apply| break :blk apply.name,
-                                else => {
-                                    std.log.warn("Unknown type for variable: {s} = {any}", .{ v, t });
-                                    break :blk v;
-                                },
-                            }
-                        } else {
-                            std.log.warn("Variable type not found in env: {s}", .{v});
-                            break :blk v;
-                        }
-                    },
-                    .new => |new| switch (new.type_) {
-                        .ident => |ident| ident,
-                        .apply => |apply| apply.name,
-                        else => blk: {
-                            std.log.warn("Unknown type for method call: {any}", .{new.type_});
-                            break :blk "unknown";
-                        },
-                    },
-                    else => blk: {
-                        std.log.warn("Unknown expression for method call: {any}", .{project.lhs.*});
-                        break :blk "unknown";
-                    },
-                };
-
-                const label = try self.generateMethodLabel(type_name, project.rhs, args);
-                std.log.info("Generated method call label: {s}", .{label});
-                try buffer.append(ast.Instruction{ .call = label });
+                try buffer.append(ast.Instruction{ .call = project.rhs });
             },
             else => {
                 std.log.err("Invalid callee: {any}\n", .{callee});
@@ -864,22 +746,6 @@ pub const VmCompiler = struct {
                 self.env_offset = 0;
                 self.env.clearAndFree();
                 self.env_types.clearAndFree();
-
-                // var label = f.name;
-                // if (f.params.len > 0 and std.mem.eql(u8, f.params[0].name, "self")) {
-                //     // 型名を取得（self引数の型から）
-                //     const type_name = switch (f.params[0].type_) {
-                //         .ident => |ident| ident,
-                //         .apply => |apply| apply.name,
-                //         else => blk: {
-                //             std.log.warn("Unknown type for method definition: {any}", .{f.params[0].type_});
-                //             break :blk "unknown";
-                //         },
-                //     };
-
-                //     label = try self.generateMethodDefLabel(type_name, f.name, f.params);
-                //     std.log.info("Generated method definition label: {s}", .{label});
-                // }
 
                 const label = label_override orelse f.name;
 
