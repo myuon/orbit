@@ -574,6 +574,7 @@ pub const Type = union(TypeType) {
 
                 return Type{ .ptr = .{ .type_ = t } };
             },
+            .unknown => return self, // FIXME: should be unreachable
             else => {
                 std.log.err("Unexpected type, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                 unreachable;
