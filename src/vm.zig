@@ -740,7 +740,13 @@ pub const VmCompiler = struct {
         return buffer.items;
     }
 
-    fn compileDecl(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), decl: ast.Decl, label_override: ?[]const u8) anyerror!void {
+    fn compileDecl(
+        self: *VmCompiler,
+        buffer: *std.ArrayList(ast.Instruction),
+        decl: ast.Decl,
+        label_override: ?[]const u8,
+        arg_types: ?[]const ast.Type,
+    ) anyerror!void {
         switch (decl) {
             .fun => |f| {
                 self.env_offset = 0;
@@ -769,7 +775,23 @@ pub const VmCompiler = struct {
                 // register return value
                 try self.env.put("return", index);
 
-                try buffer.appendSlice(try self.compileBlock(f.body));
+                // Builtin function
+                if (std.mem.eql(u8, f.name, "sizeof") and arg_types != null) {
+                    std.debug.assert(arg_types.?.len == 1);
+
+                    try buffer.appendSlice(try self.compileBlock(.{
+                        .statements = @constCast(&[_]ast.Statement{
+                            .{
+                                .return_ = .{
+                                    .literal = .{ .number = arg_types.?[0].size() },
+                                },
+                            },
+                        }),
+                        .expr = null,
+                    }));
+                } else {
+                    try buffer.appendSlice(try self.compileBlock(f.body));
+                }
 
                 const end_of_f = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "end_of_{s}", .{label});
                 try buffer.append(ast.Instruction{ .label = end_of_f });
@@ -792,7 +814,7 @@ pub const VmCompiler = struct {
             },
             .type_ => |t| {
                 for (t.methods) |m| {
-                    try self.compileDecl(buffer, m, null);
+                    try self.compileDecl(buffer, m, null, null);
                 }
             },
         }
@@ -800,7 +822,7 @@ pub const VmCompiler = struct {
 
     fn compileModule(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), module: ast.Module) anyerror!void {
         for (module.decls) |decl| {
-            try self.compileDecl(buffer, decl, null);
+            try self.compileDecl(buffer, decl, null, null);
         }
 
         for (module.decls) |decl| {
@@ -809,13 +831,14 @@ pub const VmCompiler = struct {
                     for (self.generic_calls.items) |generic_call| {
                         if (std.mem.eql(u8, generic_call.name, fun.name) and generic_call.types.len > 0) {
                             var label = std.ArrayList(u8).init(self.ast_arena_allocator.allocator());
+                            try generic_call.writeLabel(&label);
 
-                            try label.appendSlice(fun.name);
-                            for (generic_call.types) |type_| {
-                                try std.fmt.format(label.writer(), "_{any}", .{type_});
-                            }
-
-                            try self.compileDecl(buffer, decl, label.items);
+                            try self.compileDecl(
+                                buffer,
+                                decl,
+                                label.items,
+                                generic_call.types,
+                            );
                         }
                     }
                 },

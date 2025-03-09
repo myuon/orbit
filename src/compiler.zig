@@ -284,6 +284,15 @@ test "compiler.compileLabel" {
             ,
             .expected = @constCast(&[_][]const u8{ "get_first_int_[*]byte", "get_first_[*]int_int" }),
         },
+        .{
+            .program =
+            \\fun main() do
+            \\  sizeof(type int);
+            \\  sizeof(type [*]byte);
+            \\end
+            ,
+            .expected = @constCast(&[_][]const u8{ "sizeof_int", "sizeof_[*]byte" }),
+        },
     };
 
     for (cases) |case| {
@@ -665,6 +674,22 @@ test "compiler.evalModule" {
             \\end
             ,
             .expected = 111,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  return sizeof(type [*]byte);
+            \\end
+            ,
+            .expected = 8,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  return sizeof(type byte);
+            \\end
+            ,
+            .expected = 1,
         },
     };
 
