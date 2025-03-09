@@ -109,7 +109,7 @@ pub const Expression = union(ExpressionType) {
     },
     block: Block,
     call: struct {
-        type_args: []Type,
+        label: ?[]const u8,
         callee: *Expression,
         args: []Expression,
     },

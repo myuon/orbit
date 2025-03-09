@@ -371,7 +371,13 @@ pub const Typechecker = struct {
         return expect;
     }
 
-    fn resolveFunType(self: *Typechecker, name: []const u8, _fun_type: ast.FunType, args: []ast.Expression) anyerror!ast.Type {
+    fn resolveFunType(
+        self: *Typechecker,
+        name: []const u8,
+        _fun_type: ast.FunType,
+        args: []ast.Expression,
+        label: *std.ArrayList(u8),
+    ) anyerror!ast.Type {
         var assignments = ast.Assingments.init(self.arena_allocator.allocator());
         var fun_type = _fun_type;
 
@@ -409,10 +415,12 @@ pub const Typechecker = struct {
             _ = try self.assertType(try param.type_.applyAssignments(self.arena_allocator.allocator(), assignments), arg_type);
         }
 
-        try self.generic_calls.append(.{
+        const gcall = ast.GenericCallInfo{
             .name = name,
             .types = arg_types.items,
-        });
+        };
+        try self.generic_calls.append(gcall);
+        try gcall.writeLabel(label);
 
         return try fun_type.return_type.applyAssignments(self.arena_allocator.allocator(), assignments);
     }
@@ -511,7 +519,18 @@ pub const Typechecker = struct {
                             return error.UnexpectedType;
                         }
 
-                        return try self.resolveFunType(name, fun, call.args);
+                        var call_label = std.ArrayList(u8).init(self.arena_allocator.allocator());
+
+                        const result_type = try self.resolveFunType(
+                            name,
+                            fun,
+                            call.args,
+                            &call_label,
+                        );
+
+                        expr.call.label = call_label.items;
+
+                        return result_type;
                     },
                     else => unreachable,
                 }
@@ -706,53 +725,40 @@ pub const Typechecker = struct {
     fn typecheckStatement(self: *Typechecker, stmt: *ast.Statement) anyerror!void {
         switch (stmt.*) {
             .let => |let| {
-                var value = let.value;
-
-                const t = self.typecheckExpr(&value) catch |err| {
-                    std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ value, err, @src().file, @src().line });
+                const t = self.typecheckExpr(&stmt.let.value) catch |err| {
+                    std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ stmt.let.value, err, @src().file, @src().line });
                     return err;
                 };
                 try self.env.put(let.name, t);
-
-                stmt.let.value = value;
             },
-            .return_ => |ret| {
-                var e = ret;
-                const t = try self.typecheckExpr(&e);
-
+            .return_ => {
+                const t = try self.typecheckExpr(&stmt.return_);
                 self.return_type.? = try self.assertType(self.return_type.?, t);
-
-                stmt.*.return_ = e;
             },
-            .expr => |expr| {
-                var e = expr;
-                _ = self.typecheckExpr(&e) catch |err| {
-                    std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ e, err, @src().file, @src().line });
+            .expr => {
+                _ = self.typecheckExpr(&stmt.expr) catch |err| {
+                    std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ stmt.expr, err, @src().file, @src().line });
                     return err;
                 };
             },
-            .if_ => |if_| {
-                const cond_type = try self.typecheckExpr(if_.cond);
+            .if_ => {
+                const cond_type = try self.typecheckExpr(stmt.if_.cond);
                 _ = try self.assertType(ast.Type{ .bool_ = true }, cond_type);
 
-                var then_ = if_.then_;
+                try self.typecheckBlock(&stmt.if_.then_);
 
-                try self.typecheckBlock(&then_);
-                if (if_.else_) |else_| {
-                    var e = else_;
-                    try self.typecheckBlock(&e);
+                if (stmt.if_.else_) |_| {
+                    try self.typecheckBlock(&stmt.if_.else_.?);
                 }
             },
-            .assign => |assign| {
-                var lhs = assign.lhs;
-                const lhs_type = self.typecheckExpr(&lhs) catch |err| {
-                    std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ lhs, err, @src().file, @src().line });
+            .assign => {
+                const lhs_type = self.typecheckExpr(&stmt.assign.lhs) catch |err| {
+                    std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ stmt.assign.lhs, err, @src().file, @src().line });
                     return err;
                 };
 
-                var rhs = assign.rhs;
-                const rhs_type = self.typecheckExpr(&rhs) catch |err| {
-                    std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ rhs, err, @src().file, @src().line });
+                const rhs_type = self.typecheckExpr(&stmt.assign.rhs) catch |err| {
+                    std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ stmt.assign.rhs, err, @src().file, @src().line });
                     return err;
                 };
 
@@ -761,31 +767,23 @@ pub const Typechecker = struct {
                     return err;
                 };
 
-                stmt.*.assign.lhs = lhs;
-                stmt.*.assign.rhs = rhs;
                 stmt.*.assign.type_ = lhs_type;
             },
-            .push => |push| {
-                var lhs = push.lhs;
-                const lhs_type = try self.typecheckExpr(&lhs);
-
+            .push => {
+                const lhs_type = try self.typecheckExpr(&stmt.push.lhs);
                 const value_type = try self.getValueType(lhs_type);
 
-                var rhs = push.rhs;
-                const rhs_type = try self.typecheckExpr(&rhs);
+                const rhs_type = try self.typecheckExpr(&stmt.push.rhs);
 
                 _ = try self.assertType(value_type, rhs_type);
 
-                stmt.*.push.lhs = lhs;
-                stmt.*.push.rhs = rhs;
                 stmt.*.push.type_ = lhs_type;
             },
-            .while_ => |while_| {
-                const cond_type = try self.typecheckExpr(while_.cond);
+            .while_ => {
+                const cond_type = try self.typecheckExpr(stmt.while_.cond);
                 _ = try self.assertType(ast.Type{ .bool_ = true }, cond_type);
 
-                var body = while_.body;
-                try self.typecheckBlock(&body);
+                try self.typecheckBlock(&stmt.while_.body);
             },
         }
     }
@@ -831,11 +829,11 @@ pub const Typechecker = struct {
                 } });
 
                 var body = fun.body;
-
                 self.typecheckBlock(&body) catch |err| {
                     std.log.err("Error in function {s}: {}\n   {s}:{}", .{ fun.name, err, @src().file, @src().line });
                     return err;
                 };
+                decl.fun.body = body;
 
                 return_type.* = self.return_type.?;
 
@@ -847,8 +845,6 @@ pub const Typechecker = struct {
                 try self.env.put(fun.name, t);
 
                 self.return_type = null;
-
-                decl.fun.body = body;
             },
             .let => |let| {
                 const value = let.value;
@@ -878,7 +874,7 @@ pub const Typechecker = struct {
                 try module.type_defs.put(td.name, def);
 
                 for (0..td.methods.len) |i| {
-                    try self.typecheckDecl(module, &td.methods[i]);
+                    try self.typecheckDecl(module, &decl.type_.methods[i]);
                 }
 
                 var methodTypes = std.ArrayList(ast.MethodField).init(self.arena_allocator.allocator());
