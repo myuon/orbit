@@ -741,11 +741,6 @@ pub const VmCompiler = struct {
     ) anyerror!void {
         switch (decl) {
             .fun => |f| {
-                // Skip generic functions
-                if (f.type_params.len > 0) {
-                    return;
-                }
-
                 self.env_offset = 0;
                 self.env.clearAndFree();
                 self.env_types.clearAndFree();
@@ -761,12 +756,6 @@ pub const VmCompiler = struct {
                     const i = f.params.len - ri - 1;
                     try self.env.put(f.params[i].name, index);
                     try self.env_types.put(f.params[i].name, f.params[i].type_);
-                    index -= 1;
-                }
-                // register type_params in the reverse order
-                for (0..f.type_params.len) |ri| {
-                    const i = f.type_params.len - ri - 1;
-                    try self.env.put(f.type_params[i], index);
                     index -= 1;
                 }
                 // register return value
@@ -800,11 +789,6 @@ pub const VmCompiler = struct {
                 }
 
                 for (t.methods) |m| {
-                    // Skip generic methods
-                    if (m.fun.type_params.len > 0) {
-                        continue;
-                    }
-
                     try self.compileDecl(buffer, m, null);
                 }
             },

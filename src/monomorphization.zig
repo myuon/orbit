@@ -343,7 +343,6 @@ pub const Monomorphization = struct {
                     return ast.Decl{
                         .fun = .{
                             .name = name.items,
-                            .type_params = &[_][]const u8{},
                             .params = params.items,
                             .result_type = try fun.result_type.applyAssignments(self.arena_allocator.allocator(), self.assignments),
                             .body = block,
@@ -419,7 +418,6 @@ pub const Monomorphization = struct {
                         try methods.append(ast.Decl{
                             .fun = .{
                                 .name = method_name.items,
-                                .type_params = &[_][]const u8{},
                                 .params = params.items,
                                 .result_type = method.fun.result_type,
                                 .body = block,

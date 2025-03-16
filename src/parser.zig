@@ -291,7 +291,6 @@ pub const Parser = struct {
 
         return ast.Decl{ .fun = .{
             .name = name,
-            .type_params = &[_][]const u8{},
             .params = args.items,
             .result_type = result_type,
             .body = body,
