@@ -5,6 +5,7 @@ const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
 const typecheck = @import("typecheck.zig");
 const vm = @import("vm.zig");
+const monomorphization = @import("monomorphization.zig");
 const runtime = @import("runtime.zig");
 const jit = @import("jit.zig");
 const utils = @import("utils.zig");
@@ -25,8 +26,10 @@ pub const Compiler = struct {
     arena_allocator: std.heap.ArenaAllocator,
     tc: typecheck.Typechecker,
     vmc: vm.VmCompiler,
+    mono: monomorphization.Monomorphization,
     enable_jit: bool,
     dump_ir_path: ?[]const u8 = null,
+    dump_mono_ast_path: ?[]const u8 = null,
     enable_optimize_ir: bool = true,
     ir: ?[]ast.Instruction,
     result: ?ast.Value,
@@ -38,6 +41,7 @@ pub const Compiler = struct {
             .arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .tc = typecheck.Typechecker.init(allocator),
             .vmc = vm.VmCompiler.init(allocator),
+            .mono = monomorphization.Monomorphization.init(allocator),
             .enable_jit = true,
             .enable_optimize_ir = true,
             .ir = null,
@@ -49,6 +53,7 @@ pub const Compiler = struct {
         self.jit_cache.deinit();
         self.tc.deinit();
         self.vmc.deinit();
+        self.mono.deinit();
         self.arena_allocator.deinit();
     }
 
@@ -79,11 +84,21 @@ pub const Compiler = struct {
 
         try self.tc.typecheck(&module);
 
+        const entrypoint = "main";
+
+        try self.mono.execute(entrypoint, &module);
+        if (self.dump_mono_ast_path) |path| {
+            const file = try std.fs.cwd().createFile(path, .{});
+            defer file.close();
+
+            try std.fmt.format(file.writer(), "{any}\n", .{module});
+        }
+
         var gcalls = std.ArrayList(ast.GenericCallInfo).init(self.allocator);
         try gcalls.appendSlice(module.generic_calls);
         self.vmc.generic_calls = gcalls;
 
-        var ir = try self.vmc.compile("main", module);
+        var ir = try self.vmc.compile(entrypoint, module);
 
         if (self.enable_optimize_ir) {
             ir = try self.vmc.optimize(ir);

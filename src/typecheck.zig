@@ -538,6 +538,8 @@ pub const Typechecker = struct {
                             }
 
                             try args_list.append(obj.expr);
+
+                            expr.call.type_ = obj.type_;
                         }
 
                         try args_list.appendSlice(call.args);
@@ -731,17 +733,6 @@ pub const Typechecker = struct {
                     self.self_object = .{ .index = self_index, .expr = lhs.*, .type_ = lhs_type };
 
                     return method_type;
-
-                    // const method = def.getMethod(field);
-
-                    // const return_type = try self.arena_allocator.allocator().create(ast.Type);
-                    // return_type.* = method.result_type;
-
-                    // return ast.Type{ .fun = .{
-                    //     .params = method.params,
-                    //     .return_type = return_type,
-                    //     .context = def.name,
-                    // } };
                 }
 
                 std.log.err("Expected field or method, got {any}\n", .{field});

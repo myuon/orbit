@@ -93,6 +93,7 @@ pub fn main() !void {
         var enableJit = true;
         var enableOptimizeIr = true;
         var dumpIr = false;
+        var dumpMonoAst = false;
         for (argv[2..]) |arg| {
             if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--nojit")) {
                 enableJit = false;
@@ -100,11 +101,16 @@ pub fn main() !void {
                 dumpIr = true;
             } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--noopt")) {
                 enableOptimizeIr = false;
+            } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--dump-mono-ast")) {
+                dumpMonoAst = true;
             }
         }
 
         if (dumpIr) {
-            c.dump_ir_path = "dumped.ir";
+            c.dump_ir_path = "out/dumped.ir";
+        }
+        if (dumpMonoAst) {
+            c.dump_mono_ast_path = "out/dumped_mono_ast.ast";
         }
 
         const zone = P.begin(@src(), "main.run");
