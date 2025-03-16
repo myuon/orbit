@@ -513,7 +513,6 @@ pub const TypeType = enum {
     struct_,
     ident,
     apply,
-    forall,
     ptr,
     type_,
 };
@@ -526,14 +525,10 @@ pub const Type = union(TypeType) {
     fun: FunType,
     struct_: []StructField,
     ident: []const u8,
+    // Deprecated
     apply: struct {
         name: []const u8,
         params: []Type,
-    },
-    // Deprecated
-    forall: struct {
-        params: [][]const u8,
-        type_: *Type,
     },
     ptr: struct {
         type_: *Type,
@@ -583,7 +578,6 @@ pub const Type = union(TypeType) {
                 }
                 try std.fmt.format(writer, ")", .{});
             },
-            .forall => try std.fmt.format(writer, "forall({})", .{self.forall.params.len}),
             .ptr => try std.fmt.format(writer, "[*]{s}", .{self.ptr.type_}),
             .type_ => try std.fmt.format(writer, "type", .{}),
         }
@@ -599,7 +593,6 @@ pub const Type = union(TypeType) {
             Type.struct_ => 8,
             Type.ident => 8, // FIXME: should be unreachable
             Type.apply => unreachable,
-            Type.forall => unreachable,
             Type.ptr => 8,
             Type.type_ => unreachable,
         };
@@ -674,15 +667,6 @@ pub const Type = union(TypeType) {
 
     fn replace(self: Type, allocator: std.mem.Allocator, name: []const u8, type_: Type) anyerror!Type {
         return switch (self) {
-            .forall => |forall| {
-                for (forall.params) |param| {
-                    if (std.mem.eql(u8, param, name)) {
-                        return self;
-                    }
-                }
-
-                return self;
-            },
             .ident => |ident| {
                 if (std.mem.eql(u8, ident, name)) {
                     return type_;

@@ -50,15 +50,6 @@ pub const Typechecker = struct {
 
     fn replace(self: *Typechecker, type_: ast.Type, name: []const u8, replacement: ast.Type, context: ?[]const u8) anyerror!ast.Type {
         return switch (type_) {
-            .forall => |forall| {
-                for (forall.params) |param| {
-                    if (std.mem.eql(u8, param, name)) {
-                        return type_;
-                    }
-                }
-
-                return type_;
-            },
             .ident => |ident| {
                 if (std.mem.eql(u8, ident, name)) {
                     if (context) |ctx| {
@@ -346,9 +337,6 @@ pub const Typechecker = struct {
                         return TypecheckerError.UnexpectedType;
                     },
                 }
-            },
-            .forall => {
-                unreachable;
             },
             .unknown => {
                 return actual;
