@@ -254,18 +254,7 @@ pub const VmCompiler = struct {
                     unreachable;
                 }
 
-                // Deprecated
-                var label = std.ArrayList(u8).init(self.ast_arena_allocator.allocator());
-
-                try label.appendSlice(call.label_prefix.?);
-
-                // const appTypes = try call.getArgTypes(self.ast_arena_allocator.allocator());
-                // for (appTypes) |t| {
-                //     const r = try t.applyAssignments(self.ast_arena_allocator.allocator(), self.type_assignments);
-                //     try std.fmt.format(label.writer(), "_{any}", .{r});
-                // }
-
-                try self.callFunction(buffer, call.callee.*, label.items, call.args);
+                try self.callFunction(buffer, call.callee.*, call.label_prefix.?, call.args);
             },
             .if_ => |if_| {
                 try self.compileExprFromAst(buffer, if_.cond.*);
