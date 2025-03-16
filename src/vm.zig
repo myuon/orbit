@@ -29,6 +29,7 @@ pub const VmCompiler = struct {
     initialized_statements: std.ArrayList(ast.Statement),
     type_defs: ?ast.TypeDefs,
     generic_calls: std.ArrayList(ast.GenericCallInfo),
+    type_assignments: ast.Assignments,
 
     pub fn init(allocator: std.mem.Allocator) VmCompiler {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -51,6 +52,7 @@ pub const VmCompiler = struct {
             .initialized_statements = std.ArrayList(ast.Statement).init(allocator),
             .type_defs = null,
             .generic_calls = std.ArrayList(ast.GenericCallInfo).init(allocator),
+            .type_assignments = ast.Assignments.init(allocator),
         };
     }
 
@@ -62,6 +64,7 @@ pub const VmCompiler = struct {
         self.global_data.deinit();
         self.initialized_statements.deinit();
         self.generic_calls.deinit();
+        self.type_assignments.deinit();
     }
 
     /// This function MUST NOT move the label positions.
@@ -158,18 +161,6 @@ pub const VmCompiler = struct {
 
         // call
         try buffer.append(ast.Instruction{ .call = call_label });
-        // switch (callee) {
-        //     .var_ => |name| {
-        //         try buffer.append(ast.Instruction{ .call = name });
-        //     },
-        //     .project => |project| {
-        //         try buffer.append(ast.Instruction{ .call = project.rhs });
-        //     },
-        //     else => {
-        //         std.log.err("Invalid callee: {any}\n", .{callee});
-        //         unreachable;
-        //     },
-        // }
 
         for (0..argCount) |_| {
             try buffer.append(ast.Instruction{ .pop = true });
@@ -258,11 +249,13 @@ pub const VmCompiler = struct {
                 }
             },
             .call => |call| {
-                if (call.label == null) {
+                if (call.label_prefix == null) {
                     std.log.err("Call label is null: {any}\n", .{call});
                     unreachable;
                 }
-                try self.callFunction(buffer, call.callee.*, call.label.?, call.args);
+
+                std.log.info("call: {any}\n", .{call});
+                try self.callFunction(buffer, call.callee.*, call.label_prefix.?, call.args);
             },
             .if_ => |if_| {
                 try self.compileExprFromAst(buffer, if_.cond.*);
@@ -835,6 +828,12 @@ pub const VmCompiler = struct {
                 .fun => |fun| {
                     for (self.generic_calls.items) |generic_call| {
                         if (std.mem.eql(u8, generic_call.name, fun.name) and generic_call.types.len > 0) {
+                            self.type_assignments.clearAndFree();
+                            for (0..fun.type_params.len) |i| {
+                                try self.type_assignments.put(fun.type_params[i], generic_call.types[i]);
+                                std.log.info("type_assignments: {any} -> {any}\n", .{ fun.type_params[i], generic_call.types[i] });
+                            }
+
                             var label = std.ArrayList(u8).init(self.ast_arena_allocator.allocator());
                             try generic_call.writeLabel(&label);
 
@@ -851,6 +850,14 @@ pub const VmCompiler = struct {
                     for (type_.methods) |method| {
                         for (self.generic_calls.items) |generic_call| {
                             if (std.mem.eql(u8, generic_call.name, method.fun.name) and generic_call.types.len > 0) {
+                                self.type_assignments.clearAndFree();
+                                for (0..type_.params.len) |i| {
+                                    try self.type_assignments.put(type_.params[i], generic_call.types[i]);
+                                }
+                                for (0..method.fun.type_params.len) |i| {
+                                    try self.type_assignments.put(method.fun.type_params[i], generic_call.types[i + type_.params.len]);
+                                }
+
                                 var label = std.ArrayList(u8).init(self.ast_arena_allocator.allocator());
                                 try generic_call.writeLabel(&label);
 
@@ -881,7 +888,7 @@ pub const VmCompiler = struct {
                 .{
                     .return_ = .{
                         .call = .{
-                            .label = "main",
+                            .label_prefix = "main",
                             .callee = @constCast(&ast.Expression{ .var_ = entrypoint }),
                             .args = &[_]ast.Expression{},
                         },

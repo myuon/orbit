@@ -15,7 +15,7 @@ pub const Typechecker = struct {
     type_defs: ?ast.TypeDefs,
     prng: std.Random.Xoshiro256,
     context: ?[]const u8,
-    assignments: std.StringHashMap(ast.Assingments),
+    assignments: std.StringHashMap(ast.Assignments),
     generic_calls: std.ArrayList(ast.GenericCallInfo),
     type_params_context: []const []const u8,
     self_object: ?struct { index: i32, expr: ast.Expression, type_: ast.Type },
@@ -34,7 +34,7 @@ pub const Typechecker = struct {
             .type_defs = null,
             .prng = prng,
             .context = null,
-            .assignments = std.StringHashMap(ast.Assingments).init(allocator),
+            .assignments = std.StringHashMap(ast.Assignments).init(allocator),
             .generic_calls = std.ArrayList(ast.GenericCallInfo).init(allocator),
             .type_params_context = &[_][]const u8{},
             .self_object = null,
@@ -382,7 +382,7 @@ pub const Typechecker = struct {
         args: []ast.Expression,
         label: *std.ArrayList(u8),
     ) anyerror!ast.Type {
-        var assignments = ast.Assingments.init(self.arena_allocator.allocator());
+        var assignments = ast.Assignments.init(self.arena_allocator.allocator());
         var fun_type = _fun_type;
 
         var typeArgsIndex: usize = 0;
@@ -408,6 +408,7 @@ pub const Typechecker = struct {
                     try assignments.put(param.name, arg_type);
                 },
                 else => {
+                    std.log.err("Expected type, got {any}\n", .{args[i]});
                     unreachable;
                 },
             }
@@ -557,7 +558,7 @@ pub const Typechecker = struct {
                             &call_label,
                         );
 
-                        expr.call.label = call_label.items;
+                        expr.call.label_prefix = call_label.items;
 
                         // Recover args
                         for (0..call.args.len) |rev_i| {

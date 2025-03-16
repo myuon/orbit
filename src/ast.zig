@@ -109,7 +109,7 @@ pub const Expression = union(ExpressionType) {
     },
     block: Block,
     call: struct {
-        label: ?[]const u8,
+        label_prefix: ?[]const u8,
         callee: *Expression,
         args: []Expression,
     },
@@ -568,10 +568,14 @@ pub const Type = union(TypeType) {
         return t;
     }
 
-    pub fn applyAssignments(self: Type, allocator: std.mem.Allocator, assignments: Assingments) anyerror!Type {
+    pub fn applyAssignments(self: Type, allocator: std.mem.Allocator, assignments: Assignments) anyerror!Type {
         switch (self) {
             .ident => |ident| {
-                return assignments.get(ident).?;
+                if (assignments.get(ident)) |type_| {
+                    return type_;
+                }
+
+                return self;
             },
             .int => return self,
             .bool_ => return self,
@@ -606,7 +610,7 @@ pub const Type = union(TypeType) {
     }
 };
 
-pub const Assingments = std.StringHashMap(Type);
+pub const Assignments = std.StringHashMap(Type);
 
 pub const TypeParam = struct {
     name: []const u8,
@@ -640,7 +644,7 @@ pub const TypeDef = struct {
     fields: []StructField,
     methods: []MethodField,
     extends: []ExtendField,
-    assignments: Assingments,
+    assignments: Assignments,
 
     pub fn hasField(self: TypeDef, name: []const u8) bool {
         for (self.fields) |field| {
