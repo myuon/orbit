@@ -254,15 +254,16 @@ pub const VmCompiler = struct {
                     unreachable;
                 }
 
+                // Deprecated
                 var label = std.ArrayList(u8).init(self.ast_arena_allocator.allocator());
 
                 try label.appendSlice(call.label_prefix.?);
 
-                const appTypes = try call.getArgTypes(self.ast_arena_allocator.allocator());
-                for (appTypes) |t| {
-                    const r = try t.applyAssignments(self.ast_arena_allocator.allocator(), self.type_assignments);
-                    try std.fmt.format(label.writer(), "_{any}", .{r});
-                }
+                // const appTypes = try call.getArgTypes(self.ast_arena_allocator.allocator());
+                // for (appTypes) |t| {
+                //     const r = try t.applyAssignments(self.ast_arena_allocator.allocator(), self.type_assignments);
+                //     try std.fmt.format(label.writer(), "_{any}", .{r});
+                // }
 
                 try self.callFunction(buffer, call.callee.*, label.items, call.args);
             },
@@ -788,6 +789,7 @@ pub const VmCompiler = struct {
                 try self.env.put("return", index);
 
                 // Builtin function
+                // Deprecated
                 if (std.mem.eql(u8, f.name, "sizeof") and arg_types != null) {
                     std.debug.assert(arg_types.?.len == 1);
 

@@ -70,12 +70,37 @@ pub const Monomorphization = struct {
                     try new_args.append(try self.monomorphExpression(target, arg));
                 }
 
-                return ast.Expression{
-                    .call = .{
-                        .label_prefix = call.label_prefix,
-                        .callee = callee,
-                        .args = new_args.items,
+                var new_call = ast.CallExpr{
+                    .label_prefix = null,
+                    .callee = callee,
+                    .args = new_args.items,
+                };
+
+                var label = std.ArrayList(u8).init(self.arena_allocator.allocator());
+                try label.appendSlice(call.label_prefix.?);
+
+                switch (callee.*) {
+                    .var_ => |v| {
+                        self.assignments.clearAndFree();
+
+                        const argTypes = try new_call.getArgTypes(self.arena_allocator.allocator());
+
+                        try self.stack.append(.{
+                            .symbol = v,
+                            .args = argTypes,
+                        });
+
+                        for (argTypes) |t| {
+                            try std.fmt.format(label.writer(), "_{any}", .{t});
+                        }
                     },
+                    else => {},
+                }
+
+                new_call.label_prefix = label.items;
+
+                return ast.Expression{
+                    .call = new_call,
                 };
             },
             .if_ => |if_| {
@@ -254,14 +279,26 @@ pub const Monomorphization = struct {
                         continue;
                     }
 
-                    for (0..fun.type_params.len) |i| {
-                        try self.assignments.put(fun.type_params[i], target.args[i]);
+                    var type_params = std.ArrayList([]const u8).init(self.arena_allocator.allocator());
+                    for (fun.params) |param| {
+                        switch (param.type_) {
+                            .type_ => {
+                                try type_params.append(param.name);
+                            },
+                            else => {
+                                break;
+                            },
+                        }
+                    }
+
+                    for (0..type_params.items.len) |i| {
+                        try self.assignments.put(type_params.items[i], target.args[i]);
                     }
 
                     var name = std.ArrayList(u8).init(self.arena_allocator.allocator());
                     try name.appendSlice(fun.name);
                     for (target.args) |arg| {
-                        try std.fmt.format(name.writer(), "_{s}", .{arg});
+                        try std.fmt.format(name.writer(), "_{s}", .{try arg.applyAssignments(self.arena_allocator.allocator(), self.assignments)});
                     }
 
                     var params = std.ArrayList(ast.FunParam).init(self.arena_allocator.allocator());
@@ -330,9 +367,6 @@ pub const Monomorphization = struct {
                         var method_name = std.ArrayList(u8).init(self.arena_allocator.allocator());
 
                         try method_name.appendSlice(method.fun.name);
-                        for (target.args) |arg| {
-                            try std.fmt.format(method_name.writer(), "_{s}", .{arg});
-                        }
 
                         var params = std.ArrayList(ast.FunParam).init(self.arena_allocator.allocator());
                         for (method.fun.params) |param| {
