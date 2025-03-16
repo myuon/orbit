@@ -16,7 +16,6 @@ pub const Typechecker = struct {
     prng: std.Random.Xoshiro256,
     context: ?[]const u8,
     assignments: std.StringHashMap(ast.Assignments),
-    generic_calls: std.ArrayList(ast.GenericCallInfo),
     type_params_context: []const []const u8,
     self_object: ?struct { index: i32, expr: ast.Expression, type_: ast.Type },
 
@@ -35,7 +34,6 @@ pub const Typechecker = struct {
             .prng = prng,
             .context = null,
             .assignments = std.StringHashMap(ast.Assignments).init(allocator),
-            .generic_calls = std.ArrayList(ast.GenericCallInfo).init(allocator),
             .type_params_context = &[_][]const u8{},
             .self_object = null,
         };
@@ -45,7 +43,6 @@ pub const Typechecker = struct {
         self.env.deinit();
         self.arena_allocator.deinit();
         self.assignments.deinit();
-        self.generic_calls.deinit();
     }
 
     fn replace(self: *Typechecker, type_: ast.Type, name: []const u8, replacement: ast.Type, context: ?[]const u8) anyerror!ast.Type {
@@ -408,11 +405,6 @@ pub const Typechecker = struct {
             }
         }
 
-        const gcall = ast.GenericCallInfo{
-            .name = name,
-            .types = arg_types.items,
-        };
-        try self.generic_calls.append(gcall);
         try label.appendSlice(name);
 
         return try fun_type.return_type.applyAssignments(self.arena_allocator.allocator(), assignments);
@@ -912,12 +904,8 @@ pub const Typechecker = struct {
         const zone = P.begin(@src(), "Typechecker.typecheck");
         defer zone.end();
 
-        self.generic_calls.clearAndFree();
-
         for (0..module.decls.len) |i| {
             try self.typecheckDecl(module, &module.decls[i]);
         }
-
-        module.generic_calls = self.generic_calls.items;
     }
 };

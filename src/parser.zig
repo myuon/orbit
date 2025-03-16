@@ -117,7 +117,6 @@ pub const Parser = struct {
         return ast.Module{
             .decls = decls.items,
             .type_defs = type_defs,
-            .generic_calls = &[_]ast.GenericCallInfo{},
         };
     }
 
