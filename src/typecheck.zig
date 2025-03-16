@@ -133,29 +133,6 @@ pub const Typechecker = struct {
             });
         }
 
-        var methods = std.ArrayList(ast.MethodField).init(self.arena_allocator.allocator());
-        for (def.methods) |method| {
-            var params = std.ArrayList(ast.FunParam).init(self.arena_allocator.allocator());
-            for (method.params) |param| {
-                try params.append(.{
-                    .name = param.name,
-                    .type_ = try self.replaceMany(param.type_, def.params, args, def.name),
-                });
-            }
-
-            var result_type = method.result_type;
-            result_type = try self.replaceMany(result_type, def.params, args, def.name);
-
-            std.debug.assert(method.type_params.len == args.len);
-
-            try methods.append(ast.MethodField{
-                .name = method.name,
-                .type_params = method.type_params,
-                .params = params.items,
-                .result_type = result_type,
-            });
-        }
-
         var extends = std.ArrayList(ast.ExtendField).init(self.arena_allocator.allocator());
         for (def.extends) |extend| {
             var type_ = extend.type_;
@@ -170,7 +147,6 @@ pub const Typechecker = struct {
             .name = def.name,
             .params = &[_][]const u8{},
             .fields = fields.items,
-            .methods = methods.items,
             .extends = extends.items,
             .assignments = def.assignments,
         };
@@ -588,7 +564,6 @@ pub const Typechecker = struct {
                             .name = "",
                             .params = &[_][]const u8{},
                             .fields = d,
-                            .methods = &[_]ast.MethodField{},
                             .extends = &[_]ast.ExtendField{},
                             .assignments = std.StringHashMap(ast.Type).init(self.arena_allocator.allocator()),
                         };
@@ -705,7 +680,7 @@ pub const Typechecker = struct {
                     expr.project.result_type = try def.getFieldType(project.rhs);
 
                     return try def.getFieldType(field);
-                } else if (def.hasMethod(field)) {
+                } else {
                     const method_type = self.env.get(field).?;
 
                     var self_index: i32 = -1;
@@ -914,11 +889,10 @@ pub const Typechecker = struct {
 
                 try self.env.put(td.name, .{ .ident = td.name });
 
-                var def = ast.TypeDef{
+                const def = ast.TypeDef{
                     .name = td.name,
                     .params = td.params,
                     .fields = td.fields,
-                    .methods = &[_]ast.MethodField{},
                     .extends = td.extends,
                     .assignments = std.StringHashMap(ast.Type).init(self.arena_allocator.allocator()),
                 };
@@ -941,8 +915,6 @@ pub const Typechecker = struct {
                         .result_type = method.fun.result_type,
                     });
                 }
-
-                def.methods = methodTypes.items;
 
                 try module.type_defs.put(td.name, def);
             },

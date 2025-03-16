@@ -790,7 +790,6 @@ pub const TypeDef = struct {
     name: []const u8,
     params: [][]const u8,
     fields: []StructField,
-    methods: []MethodField,
     extends: []ExtendField,
     assignments: Assignments,
 
@@ -821,27 +820,7 @@ pub const TypeDef = struct {
             }
         }
 
-        std.log.err("Field not found: {s} in fields: {any}, methods: {any}\n", .{ name, self.fields.len, self.methods.len });
-        unreachable;
-    }
-
-    pub fn hasMethod(self: TypeDef, name: []const u8) bool {
-        for (self.methods) |method| {
-            if (std.mem.eql(u8, method.name, name)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    pub fn getMethod(self: TypeDef, name: []const u8) MethodField {
-        for (self.methods) |method| {
-            if (std.mem.eql(u8, method.name, name)) {
-                return method;
-            }
-        }
-
+        std.log.err("Field not found: {s} in fields: {any}\n", .{ name, self.fields.len });
         unreachable;
     }
 
@@ -864,32 +843,6 @@ pub const TypeDef = struct {
             });
         }
 
-        var methods = std.ArrayList(MethodField).init(allocator);
-        for (self.methods) |method| {
-            var params = std.ArrayList(FunParam).init(allocator);
-            for (method.params) |param| {
-                var param_type = param.type_;
-                param_type = try param_type.replaceMany(allocator, self.params, args);
-
-                try params.append(.{
-                    .name = param.name,
-                    .type_ = param_type,
-                });
-            }
-
-            var result_type = method.result_type;
-            result_type = try result_type.replaceMany(allocator, self.params, args);
-
-            std.debug.assert(method.type_params.len == args.len);
-
-            try methods.append(MethodField{
-                .name = method.name,
-                .type_params = method.type_params,
-                .params = params.items,
-                .result_type = result_type,
-            });
-        }
-
         var extends = std.ArrayList(ExtendField).init(allocator);
         for (self.extends) |extend| {
             var type_ = extend.type_;
@@ -905,7 +858,6 @@ pub const TypeDef = struct {
             .name = self.name,
             .params = &[_][]const u8{},
             .fields = fields.items,
-            .methods = methods.items,
             .extends = extends.items,
             .assignments = self.assignments,
         };
