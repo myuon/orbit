@@ -294,12 +294,16 @@ test "compiler.compileLabel" {
         },
         .{
             .program =
+            \\fun generic(A: type) do
+            \\  return 0;
+            \\end
+            \\
             \\fun main() do
-            \\  sizeof(type int);
-            \\  sizeof(type [*]byte);
+            \\  generic(type int);
+            \\  generic(type [*]byte);
             \\end
             ,
-            .expected = @constCast(&[_][]const u8{ "sizeof_int", "sizeof_[*]byte" }),
+            .expected = @constCast(&[_][]const u8{ "generic_int", "generic_[*]byte" }),
         },
         .{
             .program =

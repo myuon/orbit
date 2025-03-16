@@ -761,6 +761,9 @@ pub const Typechecker = struct {
             .type_ => {
                 return ast.Type{ .type_ = true };
             },
+            .sizeof => {
+                return ast.Type{ .int = true };
+            },
         }
     }
 

@@ -186,6 +186,11 @@ pub const Monomorphization = struct {
                     .type_ = try t.applyAssignments(self.arena_allocator.allocator(), self.assignments),
                 };
             },
+            .sizeof => |t| {
+                return ast.Expression{
+                    .sizeof = try t.applyAssignments(self.arena_allocator.allocator(), self.assignments),
+                };
+            },
         };
     }
 

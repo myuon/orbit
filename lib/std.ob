@@ -71,7 +71,3 @@ fun push_vec_int(data: struct{ptr: [*]int, len: int, capacity: int}, value: int)
 
   return 0;
 end
-
-fun sizeof(T: type): int do
-  return 0 - 1; // FIXME: -1
-end

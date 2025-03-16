@@ -37,6 +37,7 @@ pub const Operator = enum {
     as,
     type_,
     extends,
+    sizeof,
 };
 
 pub const TokenType = enum {
@@ -121,6 +122,7 @@ pub const ExpressionType = enum {
     project,
     as,
     type_,
+    sizeof,
 };
 
 pub const Expression = union(ExpressionType) {
@@ -156,6 +158,7 @@ pub const Expression = union(ExpressionType) {
         rhs: Type,
     },
     type_: Type,
+    sizeof: Type,
 
     pub fn format(
         self: Expression,
@@ -215,6 +218,9 @@ pub const Expression = union(ExpressionType) {
             },
             .type_ => |type_| {
                 try std.fmt.format(writer, "type {any}", .{type_});
+            },
+            .sizeof => |sizeof| {
+                try std.fmt.format(writer, "sizeof {any}", .{sizeof});
             },
         }
     }

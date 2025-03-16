@@ -732,6 +732,13 @@ pub const Parser = struct {
 
                             return ast.Expression{ .type_ = t };
                         },
+                        .sizeof => {
+                            try self.expect(ast.Operator.sizeof);
+
+                            const t = try self.type_();
+
+                            return ast.Expression{ .sizeof = t };
+                        },
                         else => {
                             std.log.err("unexpected token: want lparen but got {any} ({any})\n", .{ token, self.tokens[self.position..] });
                             unreachable;

@@ -359,6 +359,9 @@ pub const VmCompiler = struct {
                 // TODO: type parameter runtime representation
                 try buffer.append(ast.Instruction{ .push = -1 });
             },
+            .sizeof => |t| {
+                try buffer.append(ast.Instruction{ .push = t.size() });
+            },
         }
     }
 

@@ -1,6 +1,6 @@
 fun main(): int do
-  let b = sizeof(type byte);
-  let p = sizeof(type [*]int);
+  let b = sizeof byte;
+  let p = sizeof [*]int;
 
   return b + p;
 end
