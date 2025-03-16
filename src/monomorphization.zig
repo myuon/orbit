@@ -13,6 +13,7 @@ pub const MonomorphizationError = error{
 pub const Monomorphization = struct {
     arena_allocator: std.heap.ArenaAllocator,
     stack: std.ArrayList(MonomorphizationTarget),
+    visited: std.StringHashMap(bool),
     assignments: ast.Assignments,
 
     pub fn init(allocator: std.mem.Allocator) Monomorphization {
@@ -21,6 +22,7 @@ pub const Monomorphization = struct {
         return Monomorphization{
             .arena_allocator = arena_allocator,
             .stack = std.ArrayList(MonomorphizationTarget).init(allocator),
+            .visited = std.StringHashMap(bool).init(allocator),
             .assignments = ast.Assignments.init(allocator),
         };
     }
@@ -28,6 +30,7 @@ pub const Monomorphization = struct {
     pub fn deinit(self: *Monomorphization) void {
         self.stack.deinit();
         self.arena_allocator.deinit();
+        self.visited.deinit();
         self.assignments.deinit();
     }
 
@@ -427,6 +430,12 @@ pub const Monomorphization = struct {
         var decls = std.ArrayList(ast.Decl).init(self.arena_allocator.allocator());
 
         while (self.stack.popOrNull()) |target| {
+            const targetKey = try std.fmt.allocPrint(self.arena_allocator.allocator(), "{any}", .{target});
+            if (self.visited.contains(targetKey)) {
+                continue;
+            }
+
+            try self.visited.put(targetKey, true);
             try decls.append(try self.monomorphDeclInModule(target, module.*));
         }
 
