@@ -666,62 +666,6 @@ pub const Type = union(TypeType) {
         }
     }
 
-    fn replace(self: Type, allocator: std.mem.Allocator, name: []const u8, type_: Type) anyerror!Type {
-        return switch (self) {
-            .ident => |ident| {
-                if (std.mem.eql(u8, ident, name)) {
-                    return type_;
-                }
-
-                return self;
-            },
-            .struct_ => |data| {
-                var fields = std.ArrayList(StructField).init(allocator);
-                for (data) |field| {
-                    try fields.append(StructField{
-                        .name = field.name,
-                        .type_ = try field.type_.replace(allocator, name, type_),
-                    });
-                }
-
-                return Type{ .struct_ = fields.items };
-            },
-            .unknown => self,
-            .bool_ => self,
-            .byte => self,
-            .int => self,
-            .fun => unreachable,
-            .apply => |apply| {
-                var params = std.ArrayList(Type).init(allocator);
-                for (apply.params) |param| {
-                    try params.append(try param.replace(allocator, name, type_));
-                }
-
-                return Type{ .apply = .{
-                    .name = apply.name,
-                    .params = params.items,
-                } };
-            },
-            .ptr => |ptr| {
-                const t = try allocator.create(Type);
-                t.* = try ptr.type_.replace(allocator, name, type_);
-
-                return Type{ .ptr = .{ .type_ = t } };
-            },
-            .type_ => unreachable,
-        };
-    }
-
-    fn replaceMany(self: Type, allocator: std.mem.Allocator, names: [][]const u8, types: []Type) anyerror!Type {
-        var t = self;
-
-        for (names, types) |name, type_| {
-            t = try t.replace(allocator, name, type_);
-        }
-
-        return t;
-    }
-
     pub fn applyAssignments(self: Type, allocator: std.mem.Allocator, assignments: Assignments) anyerror!Type {
         switch (self) {
             .ident => |ident| {
