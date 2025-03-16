@@ -148,7 +148,6 @@ pub const Typechecker = struct {
             .params = &[_][]const u8{},
             .fields = fields.items,
             .extends = extends.items,
-            .assignments = def.assignments,
         };
     }
 
@@ -565,7 +564,6 @@ pub const Typechecker = struct {
                             .params = &[_][]const u8{},
                             .fields = d,
                             .extends = &[_]ast.ExtendField{},
-                            .assignments = std.StringHashMap(ast.Type).init(self.arena_allocator.allocator()),
                         };
                     },
                     .ident => |ident| {
@@ -598,11 +596,6 @@ pub const Typechecker = struct {
                 if (!entry.found_existing) {
                     entry.key_ptr.* = def.name;
                     entry.value_ptr.* = std.StringHashMap(ast.Type).init(self.arena_allocator.allocator());
-                }
-
-                var keyIter = def.assignments.keyIterator();
-                while (keyIter.next()) |key| {
-                    try entry.value_ptr.*.put(key.*, def.assignments.get(key.*).?);
                 }
 
                 for (new.initializers, 0..) |initializer, k| {
@@ -666,11 +659,6 @@ pub const Typechecker = struct {
                 if (!entry.found_existing) {
                     entry.key_ptr.* = def.name;
                     entry.value_ptr.* = std.StringHashMap(ast.Type).init(self.arena_allocator.allocator());
-                }
-
-                var keyIter = def.assignments.keyIterator();
-                while (keyIter.next()) |key| {
-                    try entry.value_ptr.*.put(key.*, def.assignments.get(key.*).?);
                 }
 
                 const field = project.rhs;
@@ -894,7 +882,6 @@ pub const Typechecker = struct {
                     .params = td.params,
                     .fields = td.fields,
                     .extends = td.extends,
-                    .assignments = std.StringHashMap(ast.Type).init(self.arena_allocator.allocator()),
                 };
                 try module.type_defs.put(td.name, def);
 

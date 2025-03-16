@@ -791,7 +791,6 @@ pub const TypeDef = struct {
     params: [][]const u8,
     fields: []StructField,
     extends: []ExtendField,
-    assignments: Assignments,
 
     pub fn hasField(self: TypeDef, name: []const u8) bool {
         for (self.fields) |field| {
