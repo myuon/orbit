@@ -775,14 +775,6 @@ pub const GenericCallInfo = struct {
     name: []const u8,
     types: []Type,
 
-    // Deprecated
-    pub fn writeLabel(self: GenericCallInfo, label: *std.ArrayList(u8)) anyerror!void {
-        try label.appendSlice(self.name);
-        // for (self.types) |type_| {
-        //     try std.fmt.format(label.writer(), "_{any}", .{type_});
-        // }
-    }
-
     pub fn format(
         self: GenericCallInfo,
         comptime _: []const u8,

@@ -876,13 +876,10 @@ pub const VmCompiler = struct {
                                 try self.type_assignments.put(fun.type_params[i], generic_call.types[i]);
                             }
 
-                            var label = std.ArrayList(u8).init(self.ast_arena_allocator.allocator());
-                            try generic_call.writeLabel(&label);
-
                             try self.compileDecl(
                                 buffer,
                                 decl,
-                                label.items,
+                                null,
                                 generic_call.types,
                             );
                         }
@@ -900,13 +897,10 @@ pub const VmCompiler = struct {
                                     try self.type_assignments.put(method.fun.type_params[i], generic_call.types[i + type_.params.len]);
                                 }
 
-                                var label = std.ArrayList(u8).init(self.ast_arena_allocator.allocator());
-                                try generic_call.writeLabel(&label);
-
                                 try self.compileDecl(
                                     buffer,
                                     method,
-                                    label.items,
+                                    null,
                                     generic_call.types,
                                 );
                             }
