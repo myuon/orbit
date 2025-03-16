@@ -756,7 +756,6 @@ pub const VmCompiler = struct {
         buffer: *std.ArrayList(ast.Instruction),
         decl: ast.Decl,
         label_override: ?[]const u8,
-        arg_types: ?[]const ast.Type,
     ) anyerror!void {
         switch (decl) {
             .fun => |f| {
@@ -791,24 +790,7 @@ pub const VmCompiler = struct {
                 // register return value
                 try self.env.put("return", index);
 
-                // Builtin function
-                // Deprecated
-                if (std.mem.eql(u8, f.name, "sizeof") and arg_types != null) {
-                    std.debug.assert(arg_types.?.len == 1);
-
-                    try buffer.appendSlice(try self.compileBlock(.{
-                        .statements = @constCast(&[_]ast.Statement{
-                            .{
-                                .return_ = .{
-                                    .literal = .{ .number = arg_types.?[0].size() },
-                                },
-                            },
-                        }),
-                        .expr = null,
-                    }));
-                } else {
-                    try buffer.appendSlice(try self.compileBlock(f.body));
-                }
+                try buffer.appendSlice(try self.compileBlock(f.body));
 
                 const end_of_f = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "end_of_{s}", .{label});
                 try buffer.append(ast.Instruction{ .label = end_of_f });
@@ -841,7 +823,7 @@ pub const VmCompiler = struct {
                         continue;
                     }
 
-                    try self.compileDecl(buffer, m, null, null);
+                    try self.compileDecl(buffer, m, null);
                 }
             },
         }
@@ -852,7 +834,7 @@ pub const VmCompiler = struct {
         for (module.decls) |decl| {
             switch (decl) {
                 .let => {
-                    try self.compileDecl(buffer, decl, null, null);
+                    try self.compileDecl(buffer, decl, null);
                 },
                 else => {},
             }
@@ -861,7 +843,7 @@ pub const VmCompiler = struct {
             switch (decl) {
                 .let => {},
                 else => {
-                    try self.compileDecl(buffer, decl, null, null);
+                    try self.compileDecl(buffer, decl, null);
                 },
             }
         }
@@ -876,12 +858,7 @@ pub const VmCompiler = struct {
                                 try self.type_assignments.put(fun.type_params[i], generic_call.types[i]);
                             }
 
-                            try self.compileDecl(
-                                buffer,
-                                decl,
-                                null,
-                                generic_call.types,
-                            );
+                            try self.compileDecl(buffer, decl, null);
                         }
                     }
                 },
@@ -897,12 +874,7 @@ pub const VmCompiler = struct {
                                     try self.type_assignments.put(method.fun.type_params[i], generic_call.types[i + type_.params.len]);
                                 }
 
-                                try self.compileDecl(
-                                    buffer,
-                                    method,
-                                    null,
-                                    generic_call.types,
-                                );
+                                try self.compileDecl(buffer, method, null);
                             }
                         }
                     }

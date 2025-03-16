@@ -466,6 +466,7 @@ pub const Decl = union(DeclType) {
 pub const Module = struct {
     decls: []Decl,
     type_defs: TypeDefs,
+    // Deprecated
     generic_calls: []GenericCallInfo,
 
     pub fn format(
