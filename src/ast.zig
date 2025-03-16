@@ -823,61 +823,6 @@ pub const TypeDef = struct {
         std.log.err("Field not found: {s} in fields: {any}\n", .{ name, self.fields.len });
         unreachable;
     }
-
-    pub fn apply(self: TypeDef, allocator: std.mem.Allocator, args: []Type) anyerror!TypeDef {
-        if (self.params.len != args.len) {
-            std.log.err("Expected {d} arguments, got {d} ({s}:{d})", .{ self.params.len, args.len, @src().file, @src().line });
-            return error.UnexpectedType;
-        }
-
-        var fields = std.ArrayList(StructField).init(allocator);
-        for (self.fields) |field| {
-            var t = field.type_;
-            for (self.params, 0..) |param, i| {
-                t = try t.replace(allocator, param, args[i]);
-            }
-
-            try fields.append(StructField{
-                .name = field.name,
-                .type_ = t,
-            });
-        }
-
-        var extends = std.ArrayList(ExtendField).init(allocator);
-        for (self.extends) |extend| {
-            var type_ = extend.type_;
-            type_ = try type_.replaceMany(allocator, self.params, args);
-
-            try extends.append(ExtendField{
-                .name = extend.name,
-                .type_ = type_,
-            });
-        }
-
-        return TypeDef{
-            .name = self.name,
-            .params = &[_][]const u8{},
-            .fields = fields.items,
-            .extends = extends.items,
-            .assignments = self.assignments,
-        };
-    }
-
-    fn replace(self: TypeDef, name: []const u8, arg: Type) anyerror!TypeDef {
-        switch (self) {
-            .name => |n| {
-                if (std.mem.eql(u8, n, name)) {
-                    self.assignments.put(name, arg);
-
-                    return arg;
-                }
-            },
-            else => {
-                std.log.err("Cannot replace {any} in {any}\n", .{ name, self });
-                return error.UnexpectedType;
-            },
-        }
-    }
 };
 pub const TypeDefs = std.StringHashMap(TypeDef);
 

@@ -425,8 +425,7 @@ pub const VmCompiler = struct {
                     }));
                     return;
                 } else {
-                    var def = self.type_defs.?.get(apply.name).?;
-                    def = try def.apply(self.ast_arena_allocator.allocator(), apply.params);
+                    const def = self.type_defs.?.get(apply.name).?;
 
                     std.debug.assert(new.initializers.len == def.fields.len);
 
