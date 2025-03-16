@@ -450,7 +450,7 @@ pub const Typechecker = struct {
             .types = arg_types.items,
         };
         try self.generic_calls.append(gcall);
-        try gcall.writeLabel(label);
+        try label.appendSlice(name);
 
         return try fun_type.return_type.applyAssignments(self.arena_allocator.allocator(), assignments);
     }

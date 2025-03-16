@@ -254,8 +254,17 @@ pub const VmCompiler = struct {
                     unreachable;
                 }
 
-                std.log.info("call: {any}\n", .{call});
-                try self.callFunction(buffer, call.callee.*, call.label_prefix.?, call.args);
+                var label = std.ArrayList(u8).init(self.ast_arena_allocator.allocator());
+
+                try label.appendSlice(call.label_prefix.?);
+
+                const appTypes = try call.getArgTypes(self.ast_arena_allocator.allocator());
+                for (appTypes) |t| {
+                    const r = try t.applyAssignments(self.ast_arena_allocator.allocator(), self.type_assignments);
+                    try std.fmt.format(label.writer(), "_{any}", .{r});
+                }
+
+                try self.callFunction(buffer, call.callee.*, label.items, call.args);
             },
             .if_ => |if_| {
                 try self.compileExprFromAst(buffer, if_.cond.*);
@@ -747,6 +756,11 @@ pub const VmCompiler = struct {
     ) anyerror!void {
         switch (decl) {
             .fun => |f| {
+                // Skip generic functions
+                if (f.type_params.len > 0) {
+                    return;
+                }
+
                 self.env_offset = 0;
                 self.env.clearAndFree();
                 self.env_types.clearAndFree();
@@ -811,7 +825,17 @@ pub const VmCompiler = struct {
                 }
             },
             .type_ => |t| {
+                // Skip generic types
+                if (t.params.len > 0) {
+                    return;
+                }
+
                 for (t.methods) |m| {
+                    // Skip generic methods
+                    if (m.fun.type_params.len > 0) {
+                        continue;
+                    }
+
                     try self.compileDecl(buffer, m, null, null);
                 }
             },

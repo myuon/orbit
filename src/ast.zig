@@ -85,6 +85,29 @@ pub const NewExpr = struct {
     initializers: []StructInitializer,
 };
 
+pub const CallExpr = struct {
+    label_prefix: ?[]const u8,
+    callee: *Expression,
+    args: []Expression,
+
+    pub fn getArgTypes(self: CallExpr, allocator: std.mem.Allocator) anyerror![]Type {
+        var result = std.ArrayList(Type).init(allocator);
+
+        for (self.args) |arg| {
+            switch (arg) {
+                .type_ => |t| {
+                    try result.append(t);
+                },
+                else => {
+                    break;
+                },
+            }
+        }
+
+        return result.items;
+    }
+};
+
 pub const ExpressionType = enum {
     var_,
     literal,
@@ -108,11 +131,7 @@ pub const Expression = union(ExpressionType) {
         rhs: *Expression,
     },
     block: Block,
-    call: struct {
-        label_prefix: ?[]const u8,
-        callee: *Expression,
-        args: []Expression,
-    },
+    call: CallExpr,
     if_: struct {
         cond: *Expression,
         then_: Block,
