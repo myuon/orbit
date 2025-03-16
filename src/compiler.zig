@@ -702,6 +702,42 @@ test "compiler.evalModule" {
             ,
             .expected = 1,
         },
+        .{
+            .program =
+            \\type Container(A: type) = struct {
+            \\  value: A,
+            \\
+            \\  fun get_size(self: Container(A)) do
+            \\    return sizeof(type A);
+            \\  end
+            \\};
+            \\
+            \\fun main() do
+            \\  let c = new Container(int) { .value = 10 };
+            \\
+            \\  return c.get_size();
+            \\end
+            ,
+            .expected = 8,
+        },
+        .{
+            .program =
+            \\type Container(A: type) = struct {
+            \\  value: A,
+            \\
+            \\  fun get_size(self: Container(A)) do
+            \\    return sizeof(type A);
+            \\  end
+            \\};
+            \\
+            \\fun main() do
+            \\  let c = new Container(byte) { .value = "Hello, World!"[0] };
+            \\
+            \\  return c.get_size();
+            \\end
+            ,
+            .expected = 1,
+        },
     };
 
     for (cases, 0..) |case, i| {
