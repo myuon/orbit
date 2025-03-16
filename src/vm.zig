@@ -860,7 +860,6 @@ pub const VmCompiler = struct {
                             self.type_assignments.clearAndFree();
                             for (0..fun.type_params.len) |i| {
                                 try self.type_assignments.put(fun.type_params[i], generic_call.types[i]);
-                                std.log.info("type_assignments: {any} -> {any}\n", .{ fun.type_params[i], generic_call.types[i] });
                             }
 
                             var label = std.ArrayList(u8).init(self.ast_arena_allocator.allocator());

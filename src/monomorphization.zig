@@ -77,9 +77,21 @@ pub const Monomorphization = struct {
                 };
 
                 var label = std.ArrayList(u8).init(self.arena_allocator.allocator());
+                if (call.type_) |t| {
+                    switch (t) {
+                        .apply => |apply| {
+                            try std.fmt.format(label.writer(), "{s}", .{apply.name});
+                            for (apply.params) |param| {
+                                try std.fmt.format(label.writer(), "_{any}", .{param});
+                            }
+                            try std.fmt.format(label.writer(), "_", .{});
+                        },
+                        else => {},
+                    }
+                }
                 try label.appendSlice(call.label_prefix.?);
 
-                switch (callee.*) {
+                switch (call.callee.*) {
                     .var_ => |v| {
                         self.assignments.clearAndFree();
 
@@ -370,8 +382,8 @@ pub const Monomorphization = struct {
                     var methods = std.ArrayList(ast.Decl).init(self.arena_allocator.allocator());
                     for (type_.methods) |method| {
                         var method_name = std.ArrayList(u8).init(self.arena_allocator.allocator());
-
-                        try method_name.appendSlice(method.fun.name);
+                        try method_name.appendSlice(name.items);
+                        try std.fmt.format(method_name.writer(), "_{s}", .{method.fun.name});
 
                         var params = std.ArrayList(ast.FunParam).init(self.arena_allocator.allocator());
                         for (method.fun.params) |param| {
