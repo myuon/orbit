@@ -848,8 +848,22 @@ pub const VmCompiler = struct {
     }
 
     fn compileModule(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), module: ast.Module) anyerror!void {
+        // Compile global variables first
         for (module.decls) |decl| {
-            try self.compileDecl(buffer, decl, null, null);
+            switch (decl) {
+                .let => {
+                    try self.compileDecl(buffer, decl, null, null);
+                },
+                else => {},
+            }
+        }
+        for (module.decls) |decl| {
+            switch (decl) {
+                .let => {},
+                else => {
+                    try self.compileDecl(buffer, decl, null, null);
+                },
+            }
         }
 
         for (module.decls) |decl| {

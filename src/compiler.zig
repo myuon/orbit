@@ -321,7 +321,7 @@ test "compiler.compileLabel" {
             \\  p.set_first(3);
             \\end
             ,
-            .expected = @constCast(&[_][]const u8{"set_first_int_[*]byte"}),
+            .expected = @constCast(&[_][]const u8{"Pair_int_[*]byte_set_first"}),
         },
     };
 
@@ -379,384 +379,384 @@ test "compiler.evalModule" {
             ,
             .expected = 13,
         },
-        // .{
-        //     .program =
-        //     \\fun sum(x) do
-        //     \\  if (x == 0) do
-        //     \\    return 0;
-        //     \\  end
-        //     \\
-        //     \\  return sum(x - 1) + x;
-        //     \\end
-        //     \\
-        //     \\fun main() do
-        //     \\  return sum(10);
-        //     \\end
-        //     ,
-        //     .expected = 55,
-        // },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  let s = 0;
-        //     \\  let n = 0;
-        //     \\  while (n < 10) do
-        //     \\    s = s + n;
-        //     \\    n = n + 1;
-        //     \\  end
-        //     \\
-        //     \\  return s;
-        //     \\end
-        //     ,
-        //     .expected = 45,
-        // },
-        // .{
-        //     .program =
-        //     \\fun fib(n) do
-        //     \\  if (n == 0) do
-        //     \\    return 1;
-        //     \\  end
-        //     \\  if (n == 1) do
-        //     \\    return 1;
-        //     \\  end
-        //     \\
-        //     \\  return fib(n - 1) + fib(n - 2);
-        //     \\end
-        //     \\
-        //     \\fun main() do
-        //     \\  return fib(15);
-        //     \\end
-        //     ,
-        //     .expected = 987,
-        // },
-        // .{
-        //     .program =
-        //     \\fun is_prime(n) do
-        //     \\  if (n < 2) do
-        //     \\    return false;
-        //     \\  end
-        //     \\
-        //     \\  let i = 2;
-        //     \\  while (i * i <= n) do
-        //     \\    if (n % i == 0) do
-        //     \\      return false;
-        //     \\    end
-        //     \\    i = i + 1;
-        //     \\  end
-        //     \\
-        //     \\  return true;
-        //     \\end
-        //     \\
-        //     \\fun main() do
-        //     \\  let n = 1000;
-        //     \\  let sum = 0;
-        //     \\
-        //     \\  while (n > 0) do
-        //     \\    n = n - 1;
-        //     \\
-        //     \\    if (is_prime(n)) do
-        //     \\      sum = sum + n;
-        //     \\    end
-        //     \\  end
-        //     \\
-        //     \\  return sum;
-        //     \\end
-        //     ,
-        //     .expected = 76127,
-        // },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  let s = "Hello, World!";
-        //     \\
-        //     \\  return s[5];
-        //     \\end
-        //     ,
-        //     .expected = 44,
-        // },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  let s = new slice(int) { .ptr = allocate_memory(100 * 8) as [*]int, .len = 100 };
-        //     \\  let n = 0;
-        //     \\  while (n < 100) do
-        //     \\    s[n] = n;
-        //     \\    n = n + 1;
-        //     \\  end
-        //     \\
-        //     \\  return s[50];
-        //     \\end
-        //     ,
-        //     .expected = 50,
-        // },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  let n = 0;
-        //     \\  let a = 1;
-        //     \\  let b = 1;
-        //     \\  while (n < 30) do
-        //     \\    let c = a + b;
-        //     \\    a = b;
-        //     \\    b = c;
-        //     \\    n = n + 1;
-        //     \\  end
-        //     \\
-        //     \\  return a;
-        //     \\end
-        //     ,
-        //     .expected = 1346269,
-        // },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  let k = new map([*]byte, int) {};
-        //     \\  k["hello"] = 1;
-        //     \\  k["world"] = 2;
-        //     \\
-        //     \\  return k["hello"] + k["world"];
-        //     \\end
-        //     ,
-        //     .expected = 3,
-        // },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  let k = new map([*]byte, int) {};
-        //     \\  k["a"] = 1;
-        //     \\  k["b"] = 2;
-        //     \\  k["a"] = 3;
-        //     \\
-        //     \\  return k["a"] + k["b"];
-        //     \\end
-        //     ,
-        //     .expected = 5,
-        // },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  let vec = new vec(int) {};
-        //     \\  let n = 0;
-        //     \\  while (n < 100) do
-        //     \\    vec <- n * n;
-        //     \\    n = n + 1;
-        //     \\  end
-        //     \\
-        //     \\  vec[77] = vec[77] + 10;
-        //     \\
-        //     \\  return vec[77];
-        //     \\end
-        //     ,
-        //     .expected = 5939,
-        // },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  let s = new struct{ a: int, b: int } { .a = 10, .b = 20 };
-        //     \\  s.a = 30;
-        //     \\
-        //     \\  return s.a - s.b;
-        //     \\end
-        //     ,
-        //     .expected = 10,
-        // },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  let s = new slice(int) { .ptr = allocate_memory(10 * 8) as [*]int, .len = 10 };
-        //     \\  let n = 0;
-        //     \\  while (n < 10) do
-        //     \\    if (n == 0) do
-        //     \\      s[n] = 1;
-        //     \\    else
-        //     \\      if (n == 1) do
-        //     \\        s[n] = 1;
-        //     \\      else
-        //     \\        s[n] = s[n-1] + s[n-2];
-        //     \\      end
-        //     \\    end
-        //     \\    n = n + 1;
-        //     \\  end
-        //     \\
-        //     \\  return s[9];
-        //     \\end
-        //     ,
-        //     .expected = 55,
-        // },
-        // .{
-        //     .program =
-        //     \\let global = 100;
-        //     \\
-        //     \\fun increment() do
-        //     \\  global = global + 50;
-        //     \\  return 0;
-        //     \\end
-        //     \\
-        //     \\fun main() do
-        //     \\  let local = 200;
-        //     \\  increment();
-        //     \\
-        //     \\  return global + local;
-        //     \\end
-        //     ,
-        //     .expected = 350,
-        // },
-        // .{
-        //     .program =
-        //     \\type Point = struct { x: int, y: int };
-        //     \\
-        //     \\fun main() do
-        //     \\  let p = new Point { .x = 10, .y = 20 };
-        //     \\  p.x = 33;
-        //     \\
-        //     \\  return p.x - p.y;
-        //     \\end
-        //     ,
-        //     .expected = 13,
-        // },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  return 0x12345678;
-        //     \\end
-        //     ,
-        //     .expected = 305419896,
-        // },
-        // .{
-        //     .program =
-        //     \\fun get_first(A: type, B: type, a: A, b: B): A do
-        //     \\  return a;
-        //     \\end
-        //     \\
-        //     \\fun get_second(A: type, B: type, a: A, b: B): B do
-        //     \\  return b;
-        //     \\end
-        //     \\
-        //     \\fun main() do
-        //     \\  let a = get_first(type int, type [*]byte, 1, "Hello, ");
-        //     \\  let b = get_second(type [*]byte, type int, "World!", 3);
-        //     \\
-        //     \\  return a + b;
-        //     \\end
-        //     ,
-        //     .expected = 4,
-        // },
-        // .{
-        //     .program =
-        //     \\type Pair(A: type, B: type) = struct {
-        //     \\  first: A,
-        //     \\  second: B,
-        //     \\};
-        //     \\
-        //     \\fun main() do
-        //     \\  let p = new Pair(int, int) { .first = 1, .second = 2 };
-        //     \\
-        //     \\  return p.first + p.second;
-        //     \\end
-        //     ,
-        //     .expected = 3,
-        // },
-        // .{
-        //     .program =
-        //     \\type Point = struct {
-        //     \\  x: int,
-        //     \\  y: int,
-        //     \\
-        //     \\  fun sum(self: Point) do
-        //     \\    return self.x + self.y;
-        //     \\  end
-        //     \\
-        //     \\  fun move(self: Point, dx: int, dy: int) do
-        //     \\    self.x = self.x + dx;
-        //     \\    self.y = self.y + dy;
-        //     \\
-        //     \\    return 0;
-        //     \\  end
-        //     \\};
-        //     \\
-        //     \\fun main() do
-        //     \\  let p = new Point { .x = 10, .y = 20 };
-        //     \\  p.move(5, 6);
-        //     \\
-        //     \\  return p.sum();
-        //     \\end
-        //     ,
-        //     .expected = 41,
-        // },
-        // .{
-        //     .program =
-        //     \\type Pair(A: type, B: type) = struct {
-        //     \\  first: A,
-        //     \\  second: B,
-        //     \\
-        //     \\  fun set_first(self: Pair(A, B), a: A): int do
-        //     \\    self.first = a;
-        //     \\
-        //     \\    return 0;
-        //     \\  end
-        //     \\};
-        //     \\
-        //     \\fun main() do
-        //     \\  let p = new Pair(int, [*]byte) { .first = 1, .second = "hello, world" };
-        //     \\  p.set_first(3);
-        //     \\
-        //     \\  return p.first + (p.second[3] as int);
-        //     \\end
-        //     ,
-        //     .expected = 111,
-        // },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  return sizeof(type [*]byte);
-        //     \\end
-        //     ,
-        //     .expected = 8,
-        // },
-        // .{
-        //     .program =
-        //     \\fun main() do
-        //     \\  return sizeof(type byte);
-        //     \\end
-        //     ,
-        //     .expected = 1,
-        // },
-        // .{
-        //     .program =
-        //     \\type Container(A: type) = struct {
-        //     \\  value: A,
-        //     \\
-        //     \\  fun get_size(self: Container(A)) do
-        //     \\    return sizeof(type A);
-        //     \\  end
-        //     \\};
-        //     \\
-        //     \\fun main() do
-        //     \\  let c = new Container(int) { .value = 10 };
-        //     \\
-        //     \\  return c.get_size();
-        //     \\end
-        //     ,
-        //     .expected = 8,
-        // },
-        // .{
-        //     .program =
-        //     \\type Container(A: type) = struct {
-        //     \\  value: A,
-        //     \\
-        //     \\  fun get_size(self: Container(A)) do
-        //     \\    return sizeof(type A);
-        //     \\  end
-        //     \\};
-        //     \\
-        //     \\fun main() do
-        //     \\  let c = new Container(byte) { .value = "Hello, World!"[0] };
-        //     \\
-        //     \\  return c.get_size();
-        //     \\end
-        //     ,
-        //     .expected = 1,
-        // },
+        .{
+            .program =
+            \\fun sum(x) do
+            \\  if (x == 0) do
+            \\    return 0;
+            \\  end
+            \\
+            \\  return sum(x - 1) + x;
+            \\end
+            \\
+            \\fun main() do
+            \\  return sum(10);
+            \\end
+            ,
+            .expected = 55,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  let s = 0;
+            \\  let n = 0;
+            \\  while (n < 10) do
+            \\    s = s + n;
+            \\    n = n + 1;
+            \\  end
+            \\
+            \\  return s;
+            \\end
+            ,
+            .expected = 45,
+        },
+        .{
+            .program =
+            \\fun fib(n) do
+            \\  if (n == 0) do
+            \\    return 1;
+            \\  end
+            \\  if (n == 1) do
+            \\    return 1;
+            \\  end
+            \\
+            \\  return fib(n - 1) + fib(n - 2);
+            \\end
+            \\
+            \\fun main() do
+            \\  return fib(15);
+            \\end
+            ,
+            .expected = 987,
+        },
+        .{
+            .program =
+            \\fun is_prime(n) do
+            \\  if (n < 2) do
+            \\    return false;
+            \\  end
+            \\
+            \\  let i = 2;
+            \\  while (i * i <= n) do
+            \\    if (n % i == 0) do
+            \\      return false;
+            \\    end
+            \\    i = i + 1;
+            \\  end
+            \\
+            \\  return true;
+            \\end
+            \\
+            \\fun main() do
+            \\  let n = 1000;
+            \\  let sum = 0;
+            \\
+            \\  while (n > 0) do
+            \\    n = n - 1;
+            \\
+            \\    if (is_prime(n)) do
+            \\      sum = sum + n;
+            \\    end
+            \\  end
+            \\
+            \\  return sum;
+            \\end
+            ,
+            .expected = 76127,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  let s = "Hello, World!";
+            \\
+            \\  return s[5];
+            \\end
+            ,
+            .expected = 44,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  let s = new slice(int) { .ptr = allocate_memory(100 * 8) as [*]int, .len = 100 };
+            \\  let n = 0;
+            \\  while (n < 100) do
+            \\    s[n] = n;
+            \\    n = n + 1;
+            \\  end
+            \\
+            \\  return s[50];
+            \\end
+            ,
+            .expected = 50,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  let n = 0;
+            \\  let a = 1;
+            \\  let b = 1;
+            \\  while (n < 30) do
+            \\    let c = a + b;
+            \\    a = b;
+            \\    b = c;
+            \\    n = n + 1;
+            \\  end
+            \\
+            \\  return a;
+            \\end
+            ,
+            .expected = 1346269,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  let k = new map([*]byte, int) {};
+            \\  k["hello"] = 1;
+            \\  k["world"] = 2;
+            \\
+            \\  return k["hello"] + k["world"];
+            \\end
+            ,
+            .expected = 3,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  let k = new map([*]byte, int) {};
+            \\  k["a"] = 1;
+            \\  k["b"] = 2;
+            \\  k["a"] = 3;
+            \\
+            \\  return k["a"] + k["b"];
+            \\end
+            ,
+            .expected = 5,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  let vec = new vec(int) {};
+            \\  let n = 0;
+            \\  while (n < 100) do
+            \\    vec <- n * n;
+            \\    n = n + 1;
+            \\  end
+            \\
+            \\  vec[77] = vec[77] + 10;
+            \\
+            \\  return vec[77];
+            \\end
+            ,
+            .expected = 5939,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  let s = new struct{ a: int, b: int } { .a = 10, .b = 20 };
+            \\  s.a = 30;
+            \\
+            \\  return s.a - s.b;
+            \\end
+            ,
+            .expected = 10,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  let s = new slice(int) { .ptr = allocate_memory(10 * 8) as [*]int, .len = 10 };
+            \\  let n = 0;
+            \\  while (n < 10) do
+            \\    if (n == 0) do
+            \\      s[n] = 1;
+            \\    else
+            \\      if (n == 1) do
+            \\        s[n] = 1;
+            \\      else
+            \\        s[n] = s[n-1] + s[n-2];
+            \\      end
+            \\    end
+            \\    n = n + 1;
+            \\  end
+            \\
+            \\  return s[9];
+            \\end
+            ,
+            .expected = 55,
+        },
+        .{
+            .program =
+            \\let global = 100;
+            \\
+            \\fun increment() do
+            \\  global = global + 50;
+            \\  return 0;
+            \\end
+            \\
+            \\fun main() do
+            \\  let local = 200;
+            \\  increment();
+            \\
+            \\  return global + local;
+            \\end
+            ,
+            .expected = 350,
+        },
+        .{
+            .program =
+            \\type Point = struct { x: int, y: int };
+            \\
+            \\fun main() do
+            \\  let p = new Point { .x = 10, .y = 20 };
+            \\  p.x = 33;
+            \\
+            \\  return p.x - p.y;
+            \\end
+            ,
+            .expected = 13,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  return 0x12345678;
+            \\end
+            ,
+            .expected = 305419896,
+        },
+        .{
+            .program =
+            \\fun get_first(A: type, B: type, a: A, b: B): A do
+            \\  return a;
+            \\end
+            \\
+            \\fun get_second(A: type, B: type, a: A, b: B): B do
+            \\  return b;
+            \\end
+            \\
+            \\fun main() do
+            \\  let a = get_first(type int, type [*]byte, 1, "Hello, ");
+            \\  let b = get_second(type [*]byte, type int, "World!", 3);
+            \\
+            \\  return a + b;
+            \\end
+            ,
+            .expected = 4,
+        },
+        .{
+            .program =
+            \\type Pair(A: type, B: type) = struct {
+            \\  first: A,
+            \\  second: B,
+            \\};
+            \\
+            \\fun main() do
+            \\  let p = new Pair(int, int) { .first = 1, .second = 2 };
+            \\
+            \\  return p.first + p.second;
+            \\end
+            ,
+            .expected = 3,
+        },
+        .{
+            .program =
+            \\type Point = struct {
+            \\  x: int,
+            \\  y: int,
+            \\
+            \\  fun sum(self: Point) do
+            \\    return self.x + self.y;
+            \\  end
+            \\
+            \\  fun move(self: Point, dx: int, dy: int) do
+            \\    self.x = self.x + dx;
+            \\    self.y = self.y + dy;
+            \\
+            \\    return 0;
+            \\  end
+            \\};
+            \\
+            \\fun main() do
+            \\  let p = new Point { .x = 10, .y = 20 };
+            \\  p.move(5, 6);
+            \\
+            \\  return p.sum();
+            \\end
+            ,
+            .expected = 41,
+        },
+        .{
+            .program =
+            \\type Pair(A: type, B: type) = struct {
+            \\  first: A,
+            \\  second: B,
+            \\
+            \\  fun set_first(self: Pair(A, B), a: A): int do
+            \\    self.first = a;
+            \\
+            \\    return 0;
+            \\  end
+            \\};
+            \\
+            \\fun main() do
+            \\  let p = new Pair(int, [*]byte) { .first = 1, .second = "hello, world" };
+            \\  p.set_first(3);
+            \\
+            \\  return p.first + (p.second[3] as int);
+            \\end
+            ,
+            .expected = 111,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  return sizeof [*]byte;
+            \\end
+            ,
+            .expected = 8,
+        },
+        .{
+            .program =
+            \\fun main() do
+            \\  return sizeof byte;
+            \\end
+            ,
+            .expected = 1,
+        },
+        .{
+            .program =
+            \\type Container(A: type) = struct {
+            \\  value: A,
+            \\
+            \\  fun get_size(self: Container(A)) do
+            \\    return sizeof A;
+            \\  end
+            \\};
+            \\
+            \\fun main() do
+            \\  let c = new Container(int) { .value = 10 };
+            \\
+            \\  return c.get_size();
+            \\end
+            ,
+            .expected = 8,
+        },
+        .{
+            .program =
+            \\type Container(A: type) = struct {
+            \\  value: A,
+            \\
+            \\  fun get_size(self: Container(A)) do
+            \\    return sizeof A;
+            \\  end
+            \\};
+            \\
+            \\fun main() do
+            \\  let c = new Container(byte) { .value = "Hello, World!"[0] };
+            \\
+            \\  return c.get_size();
+            \\end
+            ,
+            .expected = 1,
+        },
     };
 
     for (cases, 0..) |case, i| {

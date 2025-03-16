@@ -82,6 +82,9 @@ pub const Monomorphization = struct {
                 var label = std.ArrayList(u8).init(self.arena_allocator.allocator());
                 if (call.type_) |t| {
                     switch (t) {
+                        .ident => |ident| {
+                            try std.fmt.format(label.writer(), "{s}_", .{ident});
+                        },
                         .apply => |apply| {
                             try std.fmt.format(label.writer(), "{s}", .{apply.name});
                             for (apply.params) |param| {
@@ -156,6 +159,12 @@ pub const Monomorphization = struct {
                 }
 
                 switch (new_expr.type_) {
+                    .ident => |ident| {
+                        try self.stack.append(.{
+                            .symbol = ident,
+                            .args = &[_]ast.Type{},
+                        });
+                    },
                     .apply => |apply| {
                         try self.stack.append(.{
                             .symbol = apply.name,
@@ -342,6 +351,15 @@ pub const Monomorphization = struct {
                     };
                 },
                 .let => |let| {
+                    const symbol = let.name;
+                    // Always compile the global-let
+                    if (!self.visited.contains(symbol)) {
+                        try self.stack.append(.{
+                            .symbol = symbol,
+                            .args = &[_]ast.Type{},
+                        });
+                    }
+
                     if (!std.mem.eql(u8, let.name, target.symbol)) {
                         continue;
                     }
@@ -436,6 +454,17 @@ pub const Monomorphization = struct {
             }
 
             try self.visited.put(targetKey, true);
+
+            if (std.mem.eql(u8, target.symbol, "map")) {
+                continue;
+            } else if (std.mem.eql(u8, target.symbol, "vec")) {
+                continue;
+            } else if (std.mem.eql(u8, target.symbol, "slice")) {
+                continue;
+            } else if (std.mem.eql(u8, target.symbol, "array")) {
+                continue;
+            }
+
             try decls.append(try self.monomorphDeclInModule(target, module.*));
         }
 
@@ -449,6 +478,8 @@ pub const Monomorphization = struct {
         });
 
         // Implicitly called builtin symbols
+        try self.stack.append(.{ .symbol = "push_vec_int", .args = &[_]ast.Type{} });
+        try self.stack.append(.{ .symbol = "new_vec", .args = &[_]ast.Type{} });
         try self.stack.append(.{ .symbol = "allocate_memory", .args = &[_]ast.Type{} });
         try self.stack.append(.{ .symbol = "hp", .args = &[_]ast.Type{} });
 
