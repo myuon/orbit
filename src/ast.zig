@@ -89,6 +89,7 @@ pub const CallExpr = struct {
     label_prefix: ?[]const u8,
     callee: *Expression,
     args: []Expression,
+    type_: ?Type = null,
 
     pub fn getArgTypes(self: CallExpr, allocator: std.mem.Allocator) anyerror![]Type {
         var result = std.ArrayList(Type).init(allocator);
@@ -181,8 +182,11 @@ pub const Expression = union(ExpressionType) {
             },
             .call => |call| {
                 try std.fmt.format(writer, "{any}(", .{call.callee.*});
-                for (call.args) |arg| {
-                    try std.fmt.format(writer, "{any}, ", .{arg});
+                for (call.args, 0..) |arg, i| {
+                    try std.fmt.format(writer, "{any}", .{arg});
+                    if (i < call.args.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    }
                 }
                 try std.fmt.format(writer, ")", .{});
             },
@@ -194,6 +198,14 @@ pub const Expression = union(ExpressionType) {
             },
             .new => |new| {
                 try std.fmt.format(writer, "new {any}", .{new.type_});
+                try std.fmt.format(writer, "{{", .{});
+                for (new.initializers, 0..) |init, i| {
+                    try std.fmt.format(writer, ".{s} = {any}", .{ init.field, init.value });
+                    if (i < new.initializers.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    }
+                }
+                try std.fmt.format(writer, "}}", .{});
             },
             .project => |project| {
                 try std.fmt.format(writer, "{any}.{s}", .{ project.lhs.*, project.rhs });
@@ -218,6 +230,25 @@ pub const Literal = union(LiteralType) {
     boolean: bool,
     number: u32,
     string: []const u8,
+
+    pub fn format(
+        self: Literal,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .boolean => {
+                try std.fmt.format(writer, "{any}", .{self.boolean});
+            },
+            .number => {
+                try std.fmt.format(writer, "{d}", .{self.number});
+            },
+            .string => {
+                try std.fmt.format(writer, "\"{s}\"", .{self.string});
+            },
+        }
+    }
 };
 
 pub const StatementType = enum {
@@ -256,11 +287,60 @@ pub const Statement = union(StatementType) {
         cond: *Expression,
         body: Block,
     },
+
+    pub fn format(
+        self: Statement,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .let => |let| {
+                try std.fmt.format(writer, "let {s} = {any}; ", .{ let.name, let.value });
+            },
+            .return_ => |return_| {
+                try std.fmt.format(writer, "return {any}; ", .{return_});
+            },
+            .expr => |expr| {
+                try std.fmt.format(writer, "{any}; ", .{expr});
+            },
+            .if_ => |if_| {
+                try std.fmt.format(writer, "if {any} do\n", .{if_.cond});
+                try std.fmt.format(writer, "{any}", .{if_.then_});
+                if (if_.else_) |block| {
+                    try std.fmt.format(writer, "else\n{any}", .{block});
+                }
+                try std.fmt.format(writer, "end", .{});
+            },
+            .assign => |assign| {
+                try std.fmt.format(writer, "{any} = {any}; ", .{ assign.lhs, assign.rhs });
+            },
+            .push => |push| {
+                try std.fmt.format(writer, "{any} << {any}; ", .{ push.lhs, push.rhs });
+            },
+            .while_ => |while_| {
+                try std.fmt.format(writer, "while {any} do\n", .{while_.cond});
+                try std.fmt.format(writer, "{any}", .{while_.body});
+                try std.fmt.format(writer, "end", .{});
+            },
+        }
+    }
 };
 
 pub const Block = struct {
     statements: []Statement,
     expr: ?*Expression,
+
+    pub fn format(
+        self: Block,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        for (self.statements) |statement| {
+            try std.fmt.format(writer, "  {any}\n", .{statement});
+        }
+    }
 };
 
 pub const DeclType = enum {
@@ -323,12 +403,75 @@ pub const Decl = union(DeclType) {
         fields: []StructField,
         extends: []ExtendField,
     },
+
+    pub fn format(
+        self: Decl,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .fun => |fun| {
+                try std.fmt.format(writer, "fun {s}(", .{fun.name});
+                for (fun.params, 0..) |param, i| {
+                    try std.fmt.format(writer, "{s}: {any}", .{ param.name, param.type_ });
+                    if (i < fun.params.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    }
+                }
+                try std.fmt.format(writer, "): {any} do\n", .{fun.result_type});
+                try std.fmt.format(writer, "{any}", .{fun.body});
+                try std.fmt.format(writer, "end", .{});
+            },
+            .let => |let| {
+                try std.fmt.format(writer, "let {s} = {any}; ", .{ let.name, let.value });
+            },
+            .type_ => |type_| {
+                try std.fmt.format(writer, "type {s}", .{type_.name});
+                for (type_.params, 0..) |param, i| {
+                    if (i == 0) {
+                        try std.fmt.format(writer, "(", .{});
+                    }
+                    try std.fmt.format(writer, "{s}: type", .{param});
+                    if (i < type_.params.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    } else {
+                        try std.fmt.format(writer, ")", .{});
+                    }
+                }
+                try std.fmt.format(writer, " = struct {{\n", .{});
+                for (type_.fields) |field| {
+                    try std.fmt.format(writer, "{s}: {any},\n", .{ field.name, field.type_ });
+                }
+                for (type_.methods) |method| {
+                    try std.fmt.format(writer, "{any}", .{method});
+                }
+                try std.fmt.format(writer, "\nextends: {{", .{});
+                for (type_.extends) |extend| {
+                    try std.fmt.format(writer, "{s}: {any},\n", .{ extend.name, extend.type_ });
+                }
+                try std.fmt.format(writer, "}}\n", .{});
+                try std.fmt.format(writer, "}}", .{});
+            },
+        }
+    }
 };
 
 pub const Module = struct {
     decls: []Decl,
     type_defs: TypeDefs,
     generic_calls: []GenericCallInfo,
+
+    pub fn format(
+        self: Module,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        for (self.decls) |decl| {
+            try std.fmt.format(writer, "{any}\n\n", .{decl});
+        }
+    }
 };
 
 pub const AstTypeError = error{
@@ -381,6 +524,7 @@ pub const Type = union(TypeType) {
         name: []const u8,
         params: []Type,
     },
+    // Deprecated
     forall: struct {
         params: [][]const u8,
         type_: *Type,
