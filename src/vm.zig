@@ -28,8 +28,6 @@ pub const VmCompiler = struct {
     global_data_offset: usize,
     initialized_statements: std.ArrayList(ast.Statement),
     type_defs: ?ast.TypeDefs,
-    generic_calls: std.ArrayList(ast.GenericCallInfo),
-    type_assignments: ast.Assignments,
 
     pub fn init(allocator: std.mem.Allocator) VmCompiler {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -51,8 +49,6 @@ pub const VmCompiler = struct {
             .global_data_offset = 0,
             .initialized_statements = std.ArrayList(ast.Statement).init(allocator),
             .type_defs = null,
-            .generic_calls = std.ArrayList(ast.GenericCallInfo).init(allocator),
-            .type_assignments = ast.Assignments.init(allocator),
         };
     }
 
@@ -63,8 +59,6 @@ pub const VmCompiler = struct {
         self.string_data.deinit();
         self.global_data.deinit();
         self.initialized_statements.deinit();
-        self.generic_calls.deinit();
-        self.type_assignments.deinit();
     }
 
     /// This function MUST NOT move the label positions.
@@ -838,33 +832,12 @@ pub const VmCompiler = struct {
 
         for (module.decls) |decl| {
             switch (decl) {
-                .fun => |fun| {
-                    for (self.generic_calls.items) |generic_call| {
-                        if (std.mem.eql(u8, generic_call.name, fun.name) and generic_call.types.len > 0) {
-                            self.type_assignments.clearAndFree();
-                            for (0..fun.type_params.len) |i| {
-                                try self.type_assignments.put(fun.type_params[i], generic_call.types[i]);
-                            }
-
-                            try self.compileDecl(buffer, decl, null);
-                        }
-                    }
+                .fun => {
+                    try self.compileDecl(buffer, decl, null);
                 },
                 .type_ => |type_| {
                     for (type_.methods) |method| {
-                        for (self.generic_calls.items) |generic_call| {
-                            if (std.mem.eql(u8, generic_call.name, method.fun.name) and generic_call.types.len > 0) {
-                                self.type_assignments.clearAndFree();
-                                for (0..type_.params.len) |i| {
-                                    try self.type_assignments.put(type_.params[i], generic_call.types[i]);
-                                }
-                                for (0..method.fun.type_params.len) |i| {
-                                    try self.type_assignments.put(method.fun.type_params[i], generic_call.types[i + type_.params.len]);
-                                }
-
-                                try self.compileDecl(buffer, method, null);
-                            }
-                        }
+                        try self.compileDecl(buffer, method, null);
                     }
                 },
                 else => {},
@@ -942,8 +915,6 @@ pub const VmCompiler = struct {
         self.env_offset = 0;
         self.env.clearAndFree();
         self.type_defs = module.type_defs;
-        self.generic_calls.clearAndFree();
-        try self.generic_calls.appendSlice(module.generic_calls);
 
         var initBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
         defer initBuffer.deinit();

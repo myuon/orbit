@@ -94,10 +94,6 @@ pub const Compiler = struct {
             try std.fmt.format(file.writer(), "{any}\n", .{module});
         }
 
-        var gcalls = std.ArrayList(ast.GenericCallInfo).init(self.allocator);
-        try gcalls.appendSlice(module.generic_calls);
-        self.vmc.generic_calls = gcalls;
-
         var ir = try self.vmc.compile(entrypoint, module);
 
         if (self.enable_optimize_ir) {
