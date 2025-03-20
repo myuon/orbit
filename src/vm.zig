@@ -387,27 +387,36 @@ pub const VmCompiler = struct {
                 } else if (std.mem.eql(u8, apply.name, "vec")) {
                     unreachable;
                 } else {
-                    const def = self.type_defs.?.get(apply.name).?;
+                    if (new.method_name) |method_name| {
+                        var args = std.ArrayList(ast.Expression).init(self.ast_arena_allocator.allocator());
+                        for (new.initializers) |sinit| {
+                            try args.append(sinit.value);
+                        }
 
-                    std.debug.assert(new.initializers.len == def.fields.len);
+                        try self.callFunction(buffer, ast.Expression{ .var_ = method_name }, method_name, args.items);
+                    } else {
+                        const def = self.type_defs.?.get(apply.name).?;
 
-                    // TODO: calculate the size of each field
-                    try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, "allocate_memory", @constCast(&[_]ast.Expression{
-                        .{ .literal = .{ .number = @intCast(def.fields.len * 8) } },
-                    }));
+                        std.debug.assert(new.initializers.len == def.fields.len);
 
-                    var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, def.fields.len);
-                    for (new.initializers) |sinit| {
-                        const offset = try def.getFieldOffset(sinit.field);
-                        fields[offset] = sinit.value;
-                    }
+                        // TODO: calculate the size of each field
+                        try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, "allocate_memory", @constCast(&[_]ast.Expression{
+                            .{ .literal = .{ .number = @intCast(def.fields.len * 8) } },
+                        }));
 
-                    for (fields, 0..) |e, i| {
-                        try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
-                        try buffer.append(ast.Instruction{ .push = @intCast(i * 8) });
-                        try buffer.append(ast.Instruction{ .add = true });
-                        try self.compileExprFromAst(buffer, e);
-                        try buffer.append(ast.Instruction{ .store = 8 });
+                        var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, def.fields.len);
+                        for (new.initializers) |sinit| {
+                            const offset = try def.getFieldOffset(sinit.field);
+                            fields[offset] = sinit.value;
+                        }
+
+                        for (fields, 0..) |e, i| {
+                            try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
+                            try buffer.append(ast.Instruction{ .push = @intCast(i * 8) });
+                            try buffer.append(ast.Instruction{ .add = true });
+                            try self.compileExprFromAst(buffer, e);
+                            try buffer.append(ast.Instruction{ .store = 8 });
+                        }
                     }
                 }
             },

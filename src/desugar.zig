@@ -290,6 +290,8 @@ pub const Desugarer = struct {
                                 },
                             };
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
+                            expr.new.method_name = "_new";
+
                             return;
                         } else {
                             return;

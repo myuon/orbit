@@ -84,6 +84,7 @@ pub const StructInitializer = struct {
 pub const NewExpr = struct {
     type_: Type,
     initializers: []StructInitializer,
+    method_name: ?[]const u8,
 };
 
 pub const CallExpr = struct {

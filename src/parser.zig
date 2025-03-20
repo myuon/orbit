@@ -713,6 +713,7 @@ pub const Parser = struct {
                             return ast.Expression{ .new = .{
                                 .type_ = t,
                                 .initializers = initializers.items,
+                                .method_name = null,
                             } };
                         },
                         .lparen => {

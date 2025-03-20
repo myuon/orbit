@@ -24,7 +24,7 @@ type slice(T: type) = struct {
     self.ptr[index] = value;
   end
 
-  fun constructor(T: type, len: int) do
+  fun _new(len: int) do
     let pair = new struct { ptr: [*]T, len: int } { .ptr = allocate_memory(sizeof T * len), .len = len };
     return pair as slice(T);
   end

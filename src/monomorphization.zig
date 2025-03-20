@@ -174,10 +174,46 @@ pub const Monomorphization = struct {
                     else => {},
                 }
 
+                if (new_expr.method_name) |method_name| {
+                    var label = std.ArrayList(u8).init(self.arena_allocator.allocator());
+                    switch (new_expr.type_) {
+                        .ident => |ident| {
+                            try std.fmt.format(label.writer(), "{s}_", .{ident});
+                        },
+                        .apply => |apply| {
+                            try std.fmt.format(label.writer(), "{s}", .{apply.name});
+                            for (apply.params) |param| {
+                                try std.fmt.format(label.writer(), "_{any}", .{param});
+                            }
+                            try std.fmt.format(label.writer(), "_", .{});
+                        },
+                        else => {},
+                    }
+                    try label.appendSlice(method_name);
+
+                    const callee = try self.arena_allocator.allocator().create(ast.Expression);
+                    callee.* = ast.Expression{ .var_ = label.items };
+
+                    var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
+                    for (new_initializers.items) |inite| {
+                        try args.append(inite.value);
+                    }
+
+                    return ast.Expression{
+                        .call = .{
+                            .callee = callee,
+                            .args = args.items,
+                            .type_ = null,
+                            .label_prefix = label.items,
+                        },
+                    };
+                }
+
                 return ast.Expression{
                     .new = .{
                         .type_ = new_expr.type_,
                         .initializers = new_initializers.items,
+                        .method_name = null,
                     },
                 };
             },
