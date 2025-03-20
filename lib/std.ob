@@ -23,6 +23,11 @@ type slice(T: type) = struct {
   fun set(self: slice(T), index: int, value: T) do
     self.ptr[index] = value;
   end
+
+  fun constructor(T: type, len: int) do
+    let pair = new struct { ptr: [*]T, len: int } { .ptr = allocate_memory(sizeof T * len), .len = len };
+    return pair as slice(T);
+  end
 } extends {
   .key = int,
   .value = T,
