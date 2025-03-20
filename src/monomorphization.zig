@@ -89,9 +89,6 @@ pub const Monomorphization = struct {
                         .ident => {
                             try std.fmt.format(label.writer(), "{s}_", .{t});
                         },
-                        .apply => {
-                            try std.fmt.format(label.writer(), "{s}_", .{t});
-                        },
                         .type_ => {
                             const s = callee.project.lhs.type_;
                             try std.fmt.format(label.writer(), "{s}_", .{s});
@@ -174,14 +171,8 @@ pub const Monomorphization = struct {
                 switch (new_expr.type_) {
                     .ident => |ident| {
                         try self.stack.append(.{
-                            .symbol = ident,
-                            .args = &[_]ast.Type{},
-                        });
-                    },
-                    .apply => |apply| {
-                        try self.stack.append(.{
-                            .symbol = apply.name,
-                            .args = apply.params,
+                            .symbol = ident.name,
+                            .args = ident.params,
                         });
                     },
                     else => {},
@@ -247,14 +238,8 @@ pub const Monomorphization = struct {
                 switch (r) {
                     .ident => |ident| {
                         try self.stack.append(.{
-                            .symbol = ident,
-                            .args = &[_]ast.Type{},
-                        });
-                    },
-                    .apply => |apply| {
-                        try self.stack.append(.{
-                            .symbol = apply.name,
-                            .args = apply.params,
+                            .symbol = ident.name,
+                            .args = ident.params,
                         });
                     },
                     else => {},
@@ -381,7 +366,7 @@ pub const Monomorphization = struct {
 
                     var name = std.ArrayList(u8).init(self.arena_allocator.allocator());
                     if (target.args.len > 0) {
-                        try std.fmt.format(name.writer(), "{s}", .{ast.Type{ .apply = .{
+                        try std.fmt.format(name.writer(), "{s}", .{ast.Type{ .ident = .{
                             .name = fun.name,
                             .params = target.args,
                         } }});
@@ -446,7 +431,7 @@ pub const Monomorphization = struct {
 
                     var name = std.ArrayList(u8).init(self.arena_allocator.allocator());
                     if (target.args.len > 0) {
-                        try std.fmt.format(name.writer(), "{s}", .{ast.Type{ .apply = .{
+                        try std.fmt.format(name.writer(), "{s}", .{ast.Type{ .ident = .{
                             .name = type_.name,
                             .params = target.args,
                         } }});

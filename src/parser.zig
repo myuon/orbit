@@ -789,13 +789,16 @@ pub const Parser = struct {
                         }
                         try self.expect(ast.Operator.rparen);
 
-                        return ast.Type{ .apply = .{
+                        return ast.Type{ .ident = .{
                             .name = current,
                             .params = params.items,
                         } };
                     }
 
-                    return ast.Type{ .ident = current };
+                    return ast.Type{ .ident = .{
+                        .name = current,
+                        .params = &[_]ast.Type{},
+                    } };
                 }
             },
             .keyword => |keyword| {

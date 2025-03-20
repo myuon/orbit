@@ -278,18 +278,18 @@ pub const VmCompiler = struct {
             },
             .index => |index| {
                 switch (index.type_) {
-                    .apply => |apply| {
-                        if (std.mem.eql(u8, apply.name, "array")) {
+                    .ident => |ident| {
+                        if (std.mem.eql(u8, ident.name, "array")) {
                             try self.compileExprFromAst(buffer, index.lhs.*);
                             try self.compileExprFromAst(buffer, index.rhs.*);
                             try buffer.append(ast.Instruction{ .push = index.elem_type.size() });
                             try buffer.append(ast.Instruction{ .mul = true });
                             try buffer.append(ast.Instruction{ .add = true });
-                        } else if (std.mem.eql(u8, apply.name, "vec")) {
+                        } else if (std.mem.eql(u8, ident.name, "vec")) {
                             unreachable;
-                        } else if (std.mem.eql(u8, apply.name, "slice")) {
+                        } else if (std.mem.eql(u8, ident.name, "slice")) {
                             unreachable;
-                        } else if (std.mem.eql(u8, apply.name, "map")) {
+                        } else if (std.mem.eql(u8, ident.name, "map")) {
                             try self.compileExprFromAst(buffer, index.lhs.*);
                             try self.compileExprFromAst(buffer, index.rhs.*);
                             try buffer.append(ast.Instruction{ .table_get = true });
@@ -359,36 +359,12 @@ pub const VmCompiler = struct {
                 }
             },
             .ident => |ident| {
-                const def = self.type_defs.?.get(ident).?;
-
-                std.debug.assert(new.initializers.len == def.fields.len);
-
-                // TODO: calculate the size of each field
-                try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, "allocate_memory", @constCast(&[_]ast.Expression{
-                    .{ .literal = .{ .number = @intCast(def.fields.len * 8) } },
-                }));
-
-                var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, def.fields.len);
-                for (new.initializers) |sinit| {
-                    const offset = try def.getFieldOffset(sinit.field);
-                    fields[offset] = sinit.value;
-                }
-
-                for (fields, 0..) |e, i| {
-                    try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
-                    try buffer.append(ast.Instruction{ .push = @intCast(i * 8) });
-                    try buffer.append(ast.Instruction{ .add = true });
-                    try self.compileExprFromAst(buffer, e);
-                    try buffer.append(ast.Instruction{ .store = 8 });
-                }
-            },
-            .apply => |apply| {
-                if (std.mem.eql(u8, apply.name, "map")) {
+                if (std.mem.eql(u8, ident.name, "map")) {
                     std.debug.assert(new.initializers.len == 0);
 
                     // TODO: growable capacity
                     try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, "allocate_memory", @constCast(&[_]ast.Expression{
-                        .{ .literal = .{ .number = @intCast(128 * @as(usize, apply.params[1].size())) } },
+                        .{ .literal = .{ .number = @intCast(128 * @as(usize, ident.params[1].size())) } },
                     }));
                 } else {
                     if (new.method_name) |method_name| {
@@ -399,7 +375,7 @@ pub const VmCompiler = struct {
 
                         try self.callFunction(buffer, ast.Expression{ .var_ = method_name }, method_name, args.items);
                     } else {
-                        const def = self.type_defs.?.get(apply.name).?;
+                        const def = self.type_defs.?.get(ident.name).?;
 
                         std.debug.assert(new.initializers.len == def.fields.len);
 
@@ -450,23 +426,23 @@ pub const VmCompiler = struct {
                 std.debug.assert(index.elem_type != .unknown);
 
                 switch (index.type_) {
-                    .apply => |apply| {
-                        if (std.mem.eql(u8, apply.name, "array")) {
+                    .ident => |ident| {
+                        if (std.mem.eql(u8, ident.name, "array")) {
                             try self.compileExprFromAst(buffer, index.lhs.*);
                             try self.compileExprFromAst(buffer, index.rhs.*);
                             try buffer.append(ast.Instruction{ .push = index.elem_type.size() });
                             try buffer.append(ast.Instruction{ .mul = true });
                             try buffer.append(ast.Instruction{ .add = true });
-                        } else if (std.mem.eql(u8, apply.name, "vec")) {
+                        } else if (std.mem.eql(u8, ident.name, "vec")) {
                             unreachable;
-                        } else if (std.mem.eql(u8, apply.name, "slice")) {
+                        } else if (std.mem.eql(u8, ident.name, "slice")) {
                             unreachable;
-                        } else if (std.mem.eql(u8, apply.name, "map")) {
+                        } else if (std.mem.eql(u8, ident.name, "map")) {
                             try self.compileExprFromAst(buffer, index.lhs.*);
                             try self.compileExprFromAst(buffer, index.rhs.*);
                             try buffer.append(ast.Instruction{ .table_set = true });
                         } else {
-                            std.log.err("Invalid index type: {s}({any})\n", .{ apply.name, apply.params });
+                            std.log.err("Invalid index type: {s}({any})\n", .{ ident.name, ident.params });
                             unreachable;
                         }
                     },
@@ -591,15 +567,15 @@ pub const VmCompiler = struct {
                     },
                     .index => |index| {
                         switch (index.type_) {
-                            .apply => |apply| {
-                                if (std.mem.eql(u8, apply.name, "slice")) {
+                            .ident => |ident| {
+                                if (std.mem.eql(u8, ident.name, "slice")) {
                                     unreachable;
-                                } else if (std.mem.eql(u8, apply.name, "map")) {
+                                } else if (std.mem.eql(u8, ident.name, "map")) {
                                     try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
                                     try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);
                                     try self.compileExprFromAst(buffer, assign.rhs);
                                     try buffer.append(ast.Instruction{ .table_set = true });
-                                } else if (std.mem.eql(u8, apply.name, "vec")) {
+                                } else if (std.mem.eql(u8, ident.name, "vec")) {
                                     unreachable;
                                 } else {
                                     try self.compileLhsExprFromAst(buffer, assign.lhs);
@@ -626,15 +602,8 @@ pub const VmCompiler = struct {
                     },
                 }
             },
-            .push => |push| {
-                switch (push.type_) {
-                    .apply => {
-                        unreachable;
-                    },
-                    else => {
-                        unreachable;
-                    },
-                }
+            .push => {
+                unreachable;
             },
         }
     }

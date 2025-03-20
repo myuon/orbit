@@ -69,13 +69,13 @@ pub const Desugarer = struct {
                 switch (assign.lhs) {
                     .index => |index| {
                         switch (index.type_) {
-                            .apply => |apply| {
-                                if (std.mem.eql(u8, apply.name, "vec")) {
+                            .ident => |ident| {
+                                if (std.mem.eql(u8, ident.name, "vec")) {
                                     const callee = try self.arena_allocator.allocator().create(ast.Expression);
                                     callee.* = .{
                                         .project = .{
                                             .index = -1,
-                                            .result_type = apply.params[0],
+                                            .result_type = ident.params[0],
                                             .lhs = index.lhs,
                                             .rhs = "_set",
                                         },
@@ -91,17 +91,17 @@ pub const Desugarer = struct {
                                             .call = .{
                                                 .callee = callee,
                                                 .args = args.items,
-                                                .type_ = .{ .apply = apply },
+                                                .type_ = .{ .ident = ident },
                                                 .label_prefix = "_set",
                                             },
                                         },
                                     };
-                                } else if (std.mem.eql(u8, apply.name, "slice")) {
+                                } else if (std.mem.eql(u8, ident.name, "slice")) {
                                     const callee = try self.arena_allocator.allocator().create(ast.Expression);
                                     callee.* = .{
                                         .project = .{
                                             .index = -1,
-                                            .result_type = apply.params[0],
+                                            .result_type = ident.params[0],
                                             .lhs = index.lhs,
                                             .rhs = "_set",
                                         },
@@ -117,7 +117,7 @@ pub const Desugarer = struct {
                                             .call = .{
                                                 .callee = callee,
                                                 .args = args.items,
-                                                .type_ = .{ .apply = apply },
+                                                .type_ = .{ .ident = ident },
                                                 .label_prefix = "_set",
                                             },
                                         },
@@ -135,8 +135,8 @@ pub const Desugarer = struct {
                 try self.desugarExpr(&push.rhs);
 
                 switch (push.type_) {
-                    .apply => |apply| {
-                        if (std.mem.eql(u8, apply.name, "vec")) {
+                    .ident => |ident| {
+                        if (std.mem.eql(u8, ident.name, "vec")) {
                             const lhs = try self.arena_allocator.allocator().create(ast.Expression);
                             lhs.* = push.lhs;
 
@@ -144,7 +144,7 @@ pub const Desugarer = struct {
                             callee.* = .{
                                 .project = .{
                                     .index = -1,
-                                    .result_type = apply.params[0],
+                                    .result_type = ident.params[0],
                                     .lhs = lhs,
                                     .rhs = "_push",
                                 },
@@ -158,7 +158,7 @@ pub const Desugarer = struct {
                                     .call = .{
                                         .callee = callee,
                                         .args = args.items,
-                                        .type_ = .{ .apply = apply },
+                                        .type_ = .{ .ident = ident },
                                         .label_prefix = "_push",
                                     },
                                 },
@@ -203,13 +203,13 @@ pub const Desugarer = struct {
                 try self.desugarExpr(index.rhs);
 
                 switch (index.type_) {
-                    .apply => |apply| {
-                        if (std.mem.eql(u8, apply.name, "vec")) {
+                    .ident => |ident| {
+                        if (std.mem.eql(u8, ident.name, "vec")) {
                             const callee = try self.arena_allocator.allocator().create(ast.Expression);
                             callee.* = .{
                                 .project = .{
                                     .index = -1,
-                                    .result_type = apply.params[0],
+                                    .result_type = ident.params[0],
                                     .lhs = index.lhs,
                                     .rhs = "_get",
                                 },
@@ -222,16 +222,16 @@ pub const Desugarer = struct {
                                 .call = .{
                                     .callee = callee,
                                     .args = args.items,
-                                    .type_ = .{ .apply = apply },
+                                    .type_ = .{ .ident = ident },
                                     .label_prefix = "_get",
                                 },
                             };
-                        } else if (std.mem.eql(u8, apply.name, "slice")) {
+                        } else if (std.mem.eql(u8, ident.name, "slice")) {
                             const callee = try self.arena_allocator.allocator().create(ast.Expression);
                             callee.* = .{
                                 .project = .{
                                     .index = -1,
-                                    .result_type = apply.params[0],
+                                    .result_type = ident.params[0],
                                     .lhs = index.lhs,
                                     .rhs = "_get",
                                 },
@@ -244,7 +244,7 @@ pub const Desugarer = struct {
                                 .call = .{
                                     .callee = callee,
                                     .args = args.items,
-                                    .type_ = .{ .apply = apply },
+                                    .type_ = .{ .ident = ident },
                                     .label_prefix = "_get",
                                 },
                             };
@@ -262,19 +262,16 @@ pub const Desugarer = struct {
             .new => {
                 const new_expr = expr.new;
                 switch (new_expr.type_) {
-                    .apply => |apply| {
-                        if (std.mem.eql(u8, apply.name, "vec")) {
+                    .ident => |ident| {
+                        if (std.mem.eql(u8, ident.name, "vec")) {
                             expr.new.method_name = "_new";
-                        } else if (std.mem.eql(u8, apply.name, "slice")) {
+                        } else if (std.mem.eql(u8, ident.name, "slice")) {
                             expr.new.method_name = "_new";
                         } else {
                             return;
                         }
                     },
                     .struct_ => {
-                        return;
-                    },
-                    .ident => {
                         return;
                     },
                     else => {

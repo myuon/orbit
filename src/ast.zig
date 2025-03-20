@@ -504,6 +504,30 @@ pub const FunType = struct {
     }
 };
 
+pub const IdentType = struct {
+    name: []const u8,
+    params: []Type,
+
+    pub fn format(
+        self: IdentType,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try std.fmt.format(writer, "{s}", .{self.name});
+        if (self.params.len > 0) {
+            try std.fmt.format(writer, "(", .{});
+            for (self.params, 0..) |param, i| {
+                try std.fmt.format(writer, "{any}", .{param});
+                if (i < self.params.len - 1) {
+                    try std.fmt.format(writer, ", ", .{});
+                }
+            }
+            try std.fmt.format(writer, ")", .{});
+        }
+    }
+};
+
 pub const TypeType = enum {
     unknown,
     bool_,
@@ -512,7 +536,6 @@ pub const TypeType = enum {
     fun,
     struct_,
     ident,
-    apply,
     ptr,
     type_,
 };
@@ -524,12 +547,7 @@ pub const Type = union(TypeType) {
     int: bool,
     fun: FunType,
     struct_: []StructField,
-    ident: []const u8,
-    // Deprecated
-    apply: struct {
-        name: []const u8,
-        params: []Type,
-    },
+    ident: IdentType,
     ptr: struct {
         type_: *Type,
     },
@@ -567,16 +585,18 @@ pub const Type = union(TypeType) {
                 }
                 try std.fmt.format(writer, "}}", .{});
             },
-            .ident => try std.fmt.format(writer, "{s}", .{self.ident}),
-            .apply => |apply| {
-                try std.fmt.format(writer, "{s}(", .{apply.name});
-                for (apply.params, 0..) |param, i| {
-                    try std.fmt.format(writer, "{any}", .{param});
-                    if (i < apply.params.len - 1) {
-                        try std.fmt.format(writer, ", ", .{});
+            .ident => |ident| {
+                try std.fmt.format(writer, "{s}", .{ident.name});
+                if (ident.params.len > 0) {
+                    try std.fmt.format(writer, "(", .{});
+                    for (ident.params, 0..) |param, i| {
+                        try std.fmt.format(writer, "{any}", .{param});
+                        if (i < ident.params.len - 1) {
+                            try std.fmt.format(writer, ", ", .{});
+                        }
                     }
+                    try std.fmt.format(writer, ")", .{});
                 }
-                try std.fmt.format(writer, ")", .{});
             },
             .ptr => try std.fmt.format(writer, "[*]{s}", .{self.ptr.type_}),
             .type_ => try std.fmt.format(writer, "type", .{}),
@@ -592,7 +612,6 @@ pub const Type = union(TypeType) {
             Type.fun => unreachable,
             Type.struct_ => 8,
             Type.ident => 8, // FIXME: should be unreachable
-            Type.apply => unreachable,
             Type.ptr => 8,
             Type.type_ => unreachable,
         };
@@ -600,12 +619,12 @@ pub const Type = union(TypeType) {
 
     pub fn getIndexType(self: Type, defs: TypeDefs) anyerror!Type {
         switch (self) {
-            .apply => |apply| {
-                if (std.mem.eql(u8, apply.name, "array")) {
+            .ident => |ident| {
+                if (std.mem.eql(u8, ident.name, "array")) {
                     return Type{ .int = true };
-                } else if (std.mem.eql(u8, apply.name, "slice")) {
+                } else if (std.mem.eql(u8, ident.name, "slice")) {
                     // FIXME: type params for key
-                    const def = defs.get(apply.name).?;
+                    const def = defs.get(ident.name).?;
                     for (def.extends) |extend| {
                         if (std.mem.eql(u8, extend.name, "key")) {
                             return extend.type_;
@@ -613,10 +632,10 @@ pub const Type = union(TypeType) {
                     }
 
                     unreachable;
-                } else if (std.mem.eql(u8, apply.name, "vec")) {
+                } else if (std.mem.eql(u8, ident.name, "vec")) {
                     return Type{ .int = true };
-                } else if (std.mem.eql(u8, apply.name, "map")) {
-                    return apply.params[0];
+                } else if (std.mem.eql(u8, ident.name, "map")) {
+                    return ident.params[0];
                 } else {
                     std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                     return error.UnexpectedType;
@@ -634,11 +653,11 @@ pub const Type = union(TypeType) {
 
     pub fn getValueType(self: Type, defs: TypeDefs, _: std.mem.Allocator) anyerror!Type {
         switch (self) {
-            .apply => |apply| {
-                if (std.mem.eql(u8, apply.name, "array")) {
-                    return apply.params[0];
-                } else if (std.mem.eql(u8, apply.name, "slice")) {
-                    const def = defs.get(apply.name).?;
+            .ident => |ident| {
+                if (std.mem.eql(u8, ident.name, "array")) {
+                    return ident.params[0];
+                } else if (std.mem.eql(u8, ident.name, "slice")) {
+                    const def = defs.get(ident.name).?;
                     for (def.extends) |extend| {
                         if (std.mem.eql(u8, extend.name, "value")) {
                             return extend.type_;
@@ -646,10 +665,10 @@ pub const Type = union(TypeType) {
                     }
 
                     unreachable;
-                } else if (std.mem.eql(u8, apply.name, "vec")) {
-                    return apply.params[0];
-                } else if (std.mem.eql(u8, apply.name, "map")) {
-                    return apply.params[1];
+                } else if (std.mem.eql(u8, ident.name, "vec")) {
+                    return ident.params[0];
+                } else if (std.mem.eql(u8, ident.name, "map")) {
+                    return ident.params[1];
                 } else {
                     std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                     return error.UnexpectedType;
@@ -668,11 +687,16 @@ pub const Type = union(TypeType) {
     pub fn applyAssignments(self: Type, allocator: std.mem.Allocator, assignments: Assignments) anyerror!Type {
         switch (self) {
             .ident => |ident| {
-                if (assignments.get(ident)) |type_| {
+                if (assignments.get(ident.name)) |type_| {
                     return type_;
                 }
 
-                return self;
+                var params = std.ArrayList(Type).init(allocator);
+                for (ident.params) |param| {
+                    try params.append(try param.applyAssignments(allocator, assignments));
+                }
+
+                return Type{ .ident = .{ .name = ident.name, .params = params.items } };
             },
             .int => return self,
             .bool_ => return self,
@@ -691,14 +715,6 @@ pub const Type = union(TypeType) {
                 return Type{ .ptr = .{ .type_ = t } };
             },
             .unknown => return self, // FIXME: should be unreachable
-            .apply => |apply| {
-                var params = std.ArrayList(Type).init(allocator);
-                for (apply.params) |param| {
-                    try params.append(try param.applyAssignments(allocator, assignments));
-                }
-
-                return Type{ .apply = .{ .name = apply.name, .params = params.items } };
-            },
             .type_ => return self,
             else => {
                 std.log.err("Unexpected type, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
