@@ -26,12 +26,12 @@ fun new_slice(size: int, len: int) do
   return pair;
 end
 
-fun get_slice_int(data: struct{ptr: [*]int, len: int}, index: int): int do
+fun get_slice_int(data: slice(int), index: int): int do
   let ptr = data.ptr;
   return ptr[index];
 end
 
-fun get_slice_byte(data: struct{ptr: [*]byte, len: int}, index: int): byte do
+fun get_slice_byte(data: slice(byte), index: int): byte do
   let ptr = data.ptr;
   return ptr[index];
 end
