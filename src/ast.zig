@@ -36,6 +36,8 @@ pub const Operator = enum {
     struct_,
     as,
     type_,
+    extends,
+    sizeof,
 };
 
 pub const TokenType = enum {
@@ -82,6 +84,31 @@ pub const StructInitializer = struct {
 pub const NewExpr = struct {
     type_: Type,
     initializers: []StructInitializer,
+    method_name: ?[]const u8,
+};
+
+pub const CallExpr = struct {
+    label_prefix: ?[]const u8,
+    callee: *Expression,
+    args: []Expression,
+    type_: ?Type = null,
+
+    pub fn getArgTypes(self: CallExpr, allocator: std.mem.Allocator) anyerror![]Type {
+        var result = std.ArrayList(Type).init(allocator);
+
+        for (self.args) |arg| {
+            switch (arg) {
+                .type_ => |t| {
+                    try result.append(t);
+                },
+                else => {
+                    break;
+                },
+            }
+        }
+
+        return result.items;
+    }
 };
 
 pub const ExpressionType = enum {
@@ -95,6 +122,8 @@ pub const ExpressionType = enum {
     new,
     project,
     as,
+    type_,
+    sizeof,
 };
 
 pub const Expression = union(ExpressionType) {
@@ -106,10 +135,7 @@ pub const Expression = union(ExpressionType) {
         rhs: *Expression,
     },
     block: Block,
-    call: struct {
-        callee: *Expression,
-        args: []Expression,
-    },
+    call: CallExpr,
     if_: struct {
         cond: *Expression,
         then_: Block,
@@ -117,12 +143,14 @@ pub const Expression = union(ExpressionType) {
     },
     index: struct {
         type_: Type,
+        elem_type: Type,
         lhs: *Expression,
         rhs: *Expression,
     },
     new: NewExpr,
     project: struct {
-        struct_: StructData,
+        index: i32,
+        result_type: Type,
         lhs: *Expression,
         rhs: []const u8,
     },
@@ -130,6 +158,73 @@ pub const Expression = union(ExpressionType) {
         lhs: *Expression,
         rhs: Type,
     },
+    type_: Type,
+    sizeof: Type,
+
+    pub fn format(
+        self: Expression,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .var_ => |var_| {
+                try std.fmt.format(writer, "{s}", .{var_});
+            },
+            .literal => |literal| {
+                try std.fmt.format(writer, "{any}", .{literal});
+            },
+            .binop => |binop| {
+                try std.fmt.format(writer, "({any} {any} {any})", .{ binop.lhs.*, binop.op, binop.rhs.* });
+            },
+            .block => |block| {
+                try std.fmt.format(writer, "{{", .{});
+                for (block.statements) |statement| {
+                    try std.fmt.format(writer, "{any}", .{statement});
+                }
+                try std.fmt.format(writer, "}}", .{});
+            },
+            .call => |call| {
+                try std.fmt.format(writer, "{any}(", .{call.callee.*});
+                for (call.args, 0..) |arg, i| {
+                    try std.fmt.format(writer, "{any}", .{arg});
+                    if (i < call.args.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    }
+                }
+                try std.fmt.format(writer, ")", .{});
+            },
+            .if_ => |if_| {
+                try std.fmt.format(writer, "if {any} {any} {any}", .{ if_.cond.*, if_.then_, if_.else_ });
+            },
+            .index => |index| {
+                try std.fmt.format(writer, "{any}[{any}]", .{ index.lhs.*, index.rhs.* });
+            },
+            .new => |new| {
+                try std.fmt.format(writer, "new {any}", .{new.type_});
+                try std.fmt.format(writer, "{{", .{});
+                for (new.initializers, 0..) |init, i| {
+                    try std.fmt.format(writer, ".{s} = {any}", .{ init.field, init.value });
+                    if (i < new.initializers.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    }
+                }
+                try std.fmt.format(writer, "}}", .{});
+            },
+            .project => |project| {
+                try std.fmt.format(writer, "{any}.{s}", .{ project.lhs.*, project.rhs });
+            },
+            .as => |as| {
+                try std.fmt.format(writer, "{any} as {any}", .{ as.lhs.*, as.rhs });
+            },
+            .type_ => |type_| {
+                try std.fmt.format(writer, "type {any}", .{type_});
+            },
+            .sizeof => |sizeof| {
+                try std.fmt.format(writer, "sizeof {any}", .{sizeof});
+            },
+        }
+    }
 };
 
 pub const LiteralType = enum {
@@ -142,6 +237,25 @@ pub const Literal = union(LiteralType) {
     boolean: bool,
     number: u32,
     string: []const u8,
+
+    pub fn format(
+        self: Literal,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .boolean => {
+                try std.fmt.format(writer, "{any}", .{self.boolean});
+            },
+            .number => {
+                try std.fmt.format(writer, "{d}", .{self.number});
+            },
+            .string => {
+                try std.fmt.format(writer, "\"{s}\"", .{self.string});
+            },
+        }
+    }
 };
 
 pub const StatementType = enum {
@@ -180,11 +294,60 @@ pub const Statement = union(StatementType) {
         cond: *Expression,
         body: Block,
     },
+
+    pub fn format(
+        self: Statement,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .let => |let| {
+                try std.fmt.format(writer, "let {s} = {any}; ", .{ let.name, let.value });
+            },
+            .return_ => |return_| {
+                try std.fmt.format(writer, "return {any}; ", .{return_});
+            },
+            .expr => |expr| {
+                try std.fmt.format(writer, "{any}; ", .{expr});
+            },
+            .if_ => |if_| {
+                try std.fmt.format(writer, "if {any} do\n", .{if_.cond});
+                try std.fmt.format(writer, "{any}", .{if_.then_});
+                if (if_.else_) |block| {
+                    try std.fmt.format(writer, "else\n{any}", .{block});
+                }
+                try std.fmt.format(writer, "end", .{});
+            },
+            .assign => |assign| {
+                try std.fmt.format(writer, "{any} = {any}; ", .{ assign.lhs, assign.rhs });
+            },
+            .push => |push| {
+                try std.fmt.format(writer, "{any} << {any}; ", .{ push.lhs, push.rhs });
+            },
+            .while_ => |while_| {
+                try std.fmt.format(writer, "while {any} do\n", .{while_.cond});
+                try std.fmt.format(writer, "{any}", .{while_.body});
+                try std.fmt.format(writer, "end", .{});
+            },
+        }
+    }
 };
 
 pub const Block = struct {
     statements: []Statement,
     expr: ?*Expression,
+
+    pub fn format(
+        self: Block,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        for (self.statements) |statement| {
+            try std.fmt.format(writer, "  {any}\n", .{statement});
+        }
+    }
 };
 
 pub const DeclType = enum {
@@ -195,7 +358,37 @@ pub const DeclType = enum {
 
 pub const FunParam = struct {
     name: []const u8,
-    type_: ?Type,
+    type_: Type,
+};
+
+pub const ExtendField = struct {
+    name: []const u8,
+    type_: Type,
+};
+
+pub const MethodField = struct {
+    name: []const u8,
+    type_params: [][]const u8,
+    params: []FunParam,
+    result_type: Type,
+
+    pub fn format(
+        self: MethodField,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try std.fmt.format(writer, "MethodField {{", .{});
+        try std.fmt.format(writer, "name: {s}, ", .{self.name});
+        try std.fmt.format(writer, "type_params: {s}, ", .{self.type_params});
+        try std.fmt.format(writer, "params: {{", .{});
+        for (self.params) |param| {
+            try std.fmt.format(writer, "{s}: {any}, ", .{ param.name, param.type_ });
+        }
+        try std.fmt.format(writer, "}}, ", .{});
+        try std.fmt.format(writer, "result_type: {any}", .{self.result_type});
+        try std.fmt.format(writer, "}}", .{});
+    }
 };
 
 pub const Decl = union(DeclType) {
@@ -212,12 +405,78 @@ pub const Decl = union(DeclType) {
     type_: struct {
         name: []const u8,
         params: [][]const u8,
-        type_: Type,
+        methods: []Decl,
+        fields: []StructField,
+        extends: []ExtendField,
     },
+
+    pub fn format(
+        self: Decl,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .fun => |fun| {
+                try std.fmt.format(writer, "fun {s}(", .{fun.name});
+                for (fun.params, 0..) |param, i| {
+                    try std.fmt.format(writer, "{s}: {any}", .{ param.name, param.type_ });
+                    if (i < fun.params.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    }
+                }
+                try std.fmt.format(writer, "): {any} do\n", .{fun.result_type});
+                try std.fmt.format(writer, "{any}", .{fun.body});
+                try std.fmt.format(writer, "end\n", .{});
+            },
+            .let => |let| {
+                try std.fmt.format(writer, "let {s} = {any}; ", .{ let.name, let.value });
+            },
+            .type_ => |type_| {
+                try std.fmt.format(writer, "type {s}", .{type_.name});
+                for (type_.params, 0..) |param, i| {
+                    if (i == 0) {
+                        try std.fmt.format(writer, "(", .{});
+                    }
+                    try std.fmt.format(writer, "{s}: type", .{param});
+                    if (i < type_.params.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    } else {
+                        try std.fmt.format(writer, ")", .{});
+                    }
+                }
+                try std.fmt.format(writer, " = struct {{\n", .{});
+                for (type_.fields) |field| {
+                    try std.fmt.format(writer, "{s}: {any},\n", .{ field.name, field.type_ });
+                }
+                for (type_.methods) |method| {
+                    try std.fmt.format(writer, "{any}", .{method});
+                }
+                try std.fmt.format(writer, "\nextends: {{", .{});
+                for (type_.extends) |extend| {
+                    try std.fmt.format(writer, "{s}: {any},\n", .{ extend.name, extend.type_ });
+                }
+                try std.fmt.format(writer, "}}\n", .{});
+                try std.fmt.format(writer, "}}", .{});
+            },
+        }
+    }
 };
 
 pub const Module = struct {
     decls: []Decl,
+    type_defs: TypeDefs,
+
+    pub fn format(
+        self: Module,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        for (self.decls) |decl| {
+            try std.fmt.format(writer, "{any}\n\n", .{decl});
+        }
+    }
 };
 
 pub const AstTypeError = error{
@@ -229,69 +488,18 @@ pub const StructField = struct {
     type_: Type,
 };
 
-pub const StructData = struct {
-    fields: []StructField,
-    methods: []Decl,
+pub const FunType = struct {
+    params: []FunParam,
+    return_type: *Type,
+    context: ?[]const u8,
 
-    pub fn hasField(self: StructData, name: []const u8) bool {
-        for (self.fields) |field| {
-            if (std.mem.eql(u8, field.name, name)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    pub fn getFieldType(self: StructData, name: []const u8) !Type {
-        for (self.fields) |field| {
-            if (std.mem.eql(u8, field.name, name)) {
-                return field.type_;
-            }
-        }
-
-        unreachable;
-    }
-
-    pub fn hasMethod(self: StructData, name: []const u8) bool {
-        for (self.methods) |method| {
-            switch (method) {
-                .fun => |fun| {
-                    if (std.mem.eql(u8, fun.name, name)) {
-                        return true;
-                    }
-                },
-                else => {},
-            }
-        }
-
-        return false;
-    }
-
-    pub fn getMethod(self: StructData, name: []const u8) struct { params: []FunParam, result_type: Type } {
-        for (self.methods) |method| {
-            switch (method) {
-                .fun => |fun| {
-                    if (std.mem.eql(u8, fun.name, name)) {
-                        return .{ .params = fun.params, .result_type = fun.result_type };
-                    }
-                },
-                else => {},
-            }
-        }
-
-        unreachable;
-    }
-
-    pub fn getFieldOffset(self: StructData, name: []const u8) !usize {
-        for (self.fields, 0..) |field, i| {
-            if (std.mem.eql(u8, field.name, name)) {
-                return i;
-            }
-        }
-
-        std.log.err("Field not found: {s} in fields: {any}, methods: {any}\n", .{ name, self.fields.len, self.methods.len });
-        unreachable;
+    pub fn format(
+        self: FunType,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try std.fmt.format(writer, "FunType{{ .params = {any}, .return_type = {any}, .context = {any} }}", .{ self.params, self.return_type.*, self.context });
     }
 };
 
@@ -304,7 +512,8 @@ pub const TypeType = enum {
     struct_,
     ident,
     apply,
-    forall,
+    ptr,
+    type_,
 };
 
 pub const Type = union(TypeType) {
@@ -312,24 +521,66 @@ pub const Type = union(TypeType) {
     bool_: bool,
     byte: bool,
     int: bool,
-    fun: struct {
-        params: []Type,
-        return_type: *Type,
-    },
-    struct_: StructData,
-    ident: struct {
-        name: []const u8,
-        type_: *Type,
-    },
+    fun: FunType,
+    struct_: []StructField,
+    ident: []const u8,
+    // Deprecated
     apply: struct {
         name: []const u8,
         params: []Type,
-        applied: *Type,
     },
-    forall: struct {
-        params: [][]const u8,
+    ptr: struct {
         type_: *Type,
     },
+    type_: bool, // for type parameters
+
+    pub fn format(
+        self: Type,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .unknown => try std.fmt.format(writer, "unknown", .{}),
+            .bool_ => try std.fmt.format(writer, "bool", .{}),
+            .byte => try std.fmt.format(writer, "byte", .{}),
+            .int => try std.fmt.format(writer, "int", .{}),
+            .fun => {
+                try std.fmt.format(writer, "fun(", .{});
+                for (self.fun.params, 0..) |param, i| {
+                    try std.fmt.format(writer, "{s}: {any}", .{ param.name, param.type_ });
+                    if (i < self.fun.params.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    }
+                }
+                try std.fmt.format(writer, ")", .{});
+                try std.fmt.format(writer, ": {any}", .{self.fun.return_type});
+            },
+            .struct_ => |fields| {
+                try std.fmt.format(writer, "struct{{", .{});
+                for (fields, 0..) |field, i| {
+                    try std.fmt.format(writer, "{s}: {any}", .{ field.name, field.type_ });
+                    if (i < fields.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    }
+                }
+                try std.fmt.format(writer, "}}", .{});
+            },
+            .ident => try std.fmt.format(writer, "{s}", .{self.ident}),
+            .apply => |apply| {
+                try std.fmt.format(writer, "{s}(", .{apply.name});
+                for (apply.params, 0..) |param, i| {
+                    try std.fmt.format(writer, "{any}", .{param});
+                    if (i < apply.params.len - 1) {
+                        try std.fmt.format(writer, ", ", .{});
+                    }
+                }
+                try std.fmt.format(writer, ")", .{});
+            },
+            .ptr => try std.fmt.format(writer, "[*]{s}", .{self.ptr.type_}),
+            .type_ => try std.fmt.format(writer, "type", .{}),
+        }
+    }
 
     pub fn size(self: Type) u4 {
         return switch (self) {
@@ -339,139 +590,182 @@ pub const Type = union(TypeType) {
             Type.int => 8,
             Type.fun => unreachable,
             Type.struct_ => 8,
-            Type.ident => unreachable,
-            Type.apply => |apply| {
-                if (std.mem.eql(u8, apply.name, "ptr")) {
-                    return 8;
-                } else {
-                    unreachable;
-                }
-            },
-            Type.forall => unreachable,
+            Type.ident => 8, // FIXME: should be unreachable
+            Type.apply => unreachable,
+            Type.ptr => 8,
+            Type.type_ => unreachable,
         };
     }
 
-    pub fn getIndexType(actual: Type) anyerror!Type {
-        switch (actual) {
+    pub fn getIndexType(self: Type, defs: TypeDefs) anyerror!Type {
+        switch (self) {
             .apply => |apply| {
-                if (std.mem.eql(u8, apply.name, "ptr")) {
-                    return Type{ .int = true };
-                } else if (std.mem.eql(u8, apply.name, "array")) {
+                if (std.mem.eql(u8, apply.name, "array")) {
                     return Type{ .int = true };
                 } else if (std.mem.eql(u8, apply.name, "slice")) {
-                    return Type{ .int = true };
+                    // FIXME: type params for key
+                    const def = defs.get(apply.name).?;
+                    for (def.extends) |extend| {
+                        if (std.mem.eql(u8, extend.name, "key")) {
+                            return extend.type_;
+                        }
+                    }
+
+                    unreachable;
                 } else if (std.mem.eql(u8, apply.name, "vec")) {
                     return Type{ .int = true };
                 } else if (std.mem.eql(u8, apply.name, "map")) {
                     return apply.params[0];
                 } else {
-                    std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
+                    std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                     return error.UnexpectedType;
                 }
             },
+            .ptr => {
+                return .{ .int = true };
+            },
             else => {
-                std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
+                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                 return error.UnexpectedType;
             },
         }
     }
 
-    pub fn getValueType(actual: Type) anyerror!Type {
-        switch (actual) {
+    pub fn getValueType(self: Type, defs: TypeDefs, _: std.mem.Allocator) anyerror!Type {
+        switch (self) {
             .apply => |apply| {
-                if (std.mem.eql(u8, apply.name, "ptr")) {
-                    return apply.params[0];
-                } else if (std.mem.eql(u8, apply.name, "array")) {
+                if (std.mem.eql(u8, apply.name, "array")) {
                     return apply.params[0];
                 } else if (std.mem.eql(u8, apply.name, "slice")) {
-                    return apply.params[0];
+                    const def = defs.get(apply.name).?;
+                    for (def.extends) |extend| {
+                        if (std.mem.eql(u8, extend.name, "value")) {
+                            return extend.type_;
+                        }
+                    }
+
+                    unreachable;
                 } else if (std.mem.eql(u8, apply.name, "vec")) {
                     return apply.params[0];
                 } else if (std.mem.eql(u8, apply.name, "map")) {
                     return apply.params[1];
                 } else {
-                    std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
+                    std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                     return error.UnexpectedType;
                 }
             },
+            .ptr => |ptr| {
+                return ptr.type_.*;
+            },
             else => {
-                std.log.err("Expected array-like data structure, got {any} ({})\n", .{ actual, @src() });
+                std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                 return error.UnexpectedType;
             },
         }
     }
 
-    pub fn getStructData(t: Type) anyerror!StructData {
-        return switch (t) {
-            Type.struct_ => t.struct_,
-            Type.forall => |forall| {
-                return forall.type_.getStructData();
-            },
-            else => error.UnexpectedType,
-        };
-    }
-
-    pub fn applyTypes(self: Type, allocator: std.mem.Allocator, args: []Type) anyerror!Type {
-        return switch (self) {
-            Type.forall => |forall| {
-                if (args.len != forall.params.len) {
-                    std.log.err("Expected {d} arguments, got {d}\n", .{ forall.params.len, args.len });
-                    return error.UnexpectedType;
-                }
-
-                var t = forall.type_.*;
-
-                for (args, 0..) |arg, i| {
-                    t = try t.replace(allocator, forall.params[i], arg);
-                }
-
-                return t;
-            },
-            else => error.UnexpectedType,
-        };
-    }
-
-    fn replace(self: Type, allocator: std.mem.Allocator, name: []const u8, type_: Type) anyerror!Type {
-        return switch (self) {
-            .forall => |forall| {
-                for (forall.params) |param| {
-                    if (std.mem.eql(u8, param, name)) {
-                        return self;
-                    }
-                }
-
-                return self;
-            },
+    pub fn applyAssignments(self: Type, allocator: std.mem.Allocator, assignments: Assignments) anyerror!Type {
+        switch (self) {
             .ident => |ident| {
-                if (std.mem.eql(u8, ident.name, name)) {
+                if (assignments.get(ident)) |type_| {
                     return type_;
                 }
 
                 return self;
             },
-            .struct_ => |data| {
-                var fields = std.ArrayList(StructField).init(allocator);
-                for (data.fields) |field| {
-                    try fields.append(StructField{
-                        .name = field.name,
-                        .type_ = try field.type_.replace(allocator, name, type_),
-                    });
+            .int => return self,
+            .bool_ => return self,
+            .byte => return self,
+            .struct_ => |fields| {
+                var new_fields = std.ArrayList(StructField).init(allocator);
+                for (fields) |field| {
+                    try new_fields.append(StructField{ .name = field.name, .type_ = try field.type_.applyAssignments(allocator, assignments) });
+                }
+                return Type{ .struct_ = new_fields.items };
+            },
+            .ptr => |ptr| {
+                const t = try allocator.create(Type);
+                t.* = try ptr.type_.*.applyAssignments(allocator, assignments);
+
+                return Type{ .ptr = .{ .type_ = t } };
+            },
+            .unknown => return self, // FIXME: should be unreachable
+            .apply => |apply| {
+                var params = std.ArrayList(Type).init(allocator);
+                for (apply.params) |param| {
+                    try params.append(try param.applyAssignments(allocator, assignments));
                 }
 
-                return Type{ .struct_ = .{
-                    .fields = fields.items,
-                    .methods = data.methods,
-                } };
+                return Type{ .apply = .{ .name = apply.name, .params = params.items } };
             },
-            .unknown => unreachable,
-            .bool_ => self,
-            .byte => self,
-            .int => self,
-            .fun => unreachable,
-            .apply => unreachable,
-        };
+            .type_ => return self,
+            else => {
+                std.log.err("Unexpected type, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
+                unreachable;
+            },
+        }
     }
 };
+
+pub const Assignments = std.StringHashMap(Type);
+
+pub const TypeParam = struct {
+    name: []const u8,
+    type_: Type,
+};
+
+pub const GenericCallInfo = struct {
+    name: []const u8,
+    types: []Type,
+
+    pub fn format(
+        self: GenericCallInfo,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try std.fmt.format(writer, "GenericCallInfo{{ .name = {s}, .types = {any} }}", .{ self.name, self.types });
+    }
+};
+
+pub const TypeDef = struct {
+    name: []const u8,
+    params: [][]const u8,
+    fields: []StructField,
+    extends: []ExtendField,
+
+    pub fn hasField(self: TypeDef, name: []const u8) bool {
+        for (self.fields) |field| {
+            if (std.mem.eql(u8, field.name, name)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    pub fn getFieldType(self: TypeDef, name: []const u8) !Type {
+        for (self.fields) |field| {
+            if (std.mem.eql(u8, field.name, name)) {
+                return field.type_;
+            }
+        }
+
+        unreachable;
+    }
+
+    pub fn getFieldOffset(self: TypeDef, name: []const u8) !usize {
+        for (self.fields, 0..) |field, i| {
+            if (std.mem.eql(u8, field.name, name)) {
+                return i;
+            }
+        }
+
+        std.log.err("Field not found: {s} in fields: {any}\n", .{ name, self.fields.len });
+        unreachable;
+    }
+};
+pub const TypeDefs = std.StringHashMap(TypeDef);
 
 pub const ValueError = error{
     UnexpectedType,

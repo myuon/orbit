@@ -18,15 +18,16 @@ pub const VmError = error{
 pub const VmCompiler = struct {
     allocator: std.mem.Allocator,
     ast_arena_allocator: std.heap.ArenaAllocator,
-    compiling_context: []const u8 = "",
     prng: std.Random.Xoshiro256,
     env: std.StringHashMap(i32),
+    env_types: std.StringHashMap(ast.Type),
     env_offset: i32 = 0,
     string_data: std.StringHashMap(i32),
     string_data_offset: usize,
     global_data: std.StringHashMap(i32),
     global_data_offset: usize,
     initialized_statements: std.ArrayList(ast.Statement),
+    type_defs: ?ast.TypeDefs,
 
     pub fn init(allocator: std.mem.Allocator) VmCompiler {
         const prng = std.rand.DefaultPrng.init(blk: {
@@ -40,18 +41,21 @@ pub const VmCompiler = struct {
             .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .prng = prng,
             .env = std.StringHashMap(i32).init(allocator),
+            .env_types = std.StringHashMap(ast.Type).init(allocator),
             .env_offset = 0,
             .string_data = std.StringHashMap(i32).init(allocator),
             .string_data_offset = 0,
             .global_data = std.StringHashMap(i32).init(allocator),
             .global_data_offset = 0,
             .initialized_statements = std.ArrayList(ast.Statement).init(allocator),
+            .type_defs = null,
         };
     }
 
     pub fn deinit(self: *VmCompiler) void {
         self.ast_arena_allocator.deinit();
         self.env.deinit();
+        self.env_types.deinit();
         self.string_data.deinit();
         self.global_data.deinit();
         self.initialized_statements.deinit();
@@ -122,7 +126,7 @@ pub const VmCompiler = struct {
         }
     }
 
-    fn callFunction(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), callee: ast.Expression, args: []ast.Expression) anyerror!void {
+    fn callFunction(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), callee: ast.Expression, call_label: []const u8, args: []ast.Expression) anyerror!void {
         var argCount: usize = 0;
 
         // return value
@@ -131,8 +135,14 @@ pub const VmCompiler = struct {
         // self
         switch (callee) {
             .project => |project| {
-                try self.compileExprFromAst(buffer, project.lhs.*);
-                argCount += 1;
+                switch (project.lhs.*) {
+                    // Skip if calling an associated function
+                    .type_ => {},
+                    else => {
+                        try self.compileExprFromAst(buffer, project.lhs.*);
+                        argCount += 1;
+                    },
+                }
             },
             else => {},
         }
@@ -150,18 +160,7 @@ pub const VmCompiler = struct {
         try buffer.append(ast.Instruction{ .set_bp = true });
 
         // call
-        switch (callee) {
-            .var_ => |name| {
-                try buffer.append(ast.Instruction{ .call = name });
-            },
-            .project => |project| {
-                try buffer.append(ast.Instruction{ .call = project.rhs });
-            },
-            else => {
-                std.log.err("Invalid callee: {any}\n", .{callee});
-                unreachable;
-            },
-        }
+        try buffer.append(ast.Instruction{ .call = call_label });
 
         for (0..argCount) |_| {
             try buffer.append(ast.Instruction{ .pop = true });
@@ -250,7 +249,12 @@ pub const VmCompiler = struct {
                 }
             },
             .call => |call| {
-                try self.callFunction(buffer, call.callee.*, call.args);
+                if (call.label_prefix == null) {
+                    std.log.err("Call label is null: {any}\n", .{call});
+                    unreachable;
+                }
+
+                try self.callFunction(buffer, call.callee.*, call.label_prefix.?, call.args);
             },
             .if_ => |if_| {
                 try self.compileExprFromAst(buffer, if_.cond.*);
@@ -275,47 +279,16 @@ pub const VmCompiler = struct {
             .index => |index| {
                 switch (index.type_) {
                     .apply => |apply| {
-                        if (std.mem.eql(u8, apply.name, "ptr") or std.mem.eql(u8, apply.name, "array")) {
-                            try self.compileLhsExprFromAst(buffer, expr);
-                            try buffer.append(ast.Instruction{ .load = (try index.type_.getValueType()).size() });
-                        } else if (std.mem.eql(u8, apply.name, "slice")) {
-                            const valueType = apply.params[0];
-                            switch (valueType) {
-                                .int => {
-                                    try self.callFunction(buffer, ast.Expression{ .var_ = "get_slice_int" }, @constCast(&[_]ast.Expression{
-                                        index.lhs.*,
-                                        index.rhs.*,
-                                    }));
-                                },
-                                .byte => {
-                                    try self.callFunction(buffer, ast.Expression{ .var_ = "get_slice_byte" }, @constCast(&[_]ast.Expression{
-                                        index.lhs.*,
-                                        index.rhs.*,
-                                    }));
-                                },
-                                else => {
-                                    // Deprecated:
-                                    try self.compileExprFromAst(buffer, index.lhs.*);
-                                    try buffer.append(ast.Instruction{ .load = 8 });
-                                    try self.compileExprFromAst(buffer, index.rhs.*);
-                                    try buffer.append(ast.Instruction{ .push = valueType.size() });
-                                    try buffer.append(ast.Instruction{ .mul = true });
-                                    try buffer.append(ast.Instruction{ .add = true });
-                                    try buffer.append(ast.Instruction{ .load = valueType.size() });
-                                },
-                            }
+                        if (std.mem.eql(u8, apply.name, "array")) {
+                            try self.compileExprFromAst(buffer, index.lhs.*);
+                            try self.compileExprFromAst(buffer, index.rhs.*);
+                            try buffer.append(ast.Instruction{ .push = index.elem_type.size() });
+                            try buffer.append(ast.Instruction{ .mul = true });
+                            try buffer.append(ast.Instruction{ .add = true });
                         } else if (std.mem.eql(u8, apply.name, "vec")) {
-                            switch (apply.params[0]) {
-                                .int => {
-                                    try self.callFunction(buffer, ast.Expression{ .var_ = "get_vec_int" }, @constCast(&[_]ast.Expression{
-                                        index.lhs.*,
-                                        index.rhs.*,
-                                    }));
-                                },
-                                else => {
-                                    unreachable;
-                                },
-                            }
+                            unreachable;
+                        } else if (std.mem.eql(u8, apply.name, "slice")) {
+                            unreachable;
                         } else if (std.mem.eql(u8, apply.name, "map")) {
                             try self.compileExprFromAst(buffer, index.lhs.*);
                             try self.compileExprFromAst(buffer, index.rhs.*);
@@ -325,8 +298,12 @@ pub const VmCompiler = struct {
                             unreachable;
                         }
                     },
+                    .ptr => |ptr| {
+                        try self.compileLhsExprFromAst(buffer, expr);
+                        try buffer.append(ast.Instruction{ .load = ptr.type_.size() });
+                    },
                     else => {
-                        std.log.err("Invalid index type: {any}\n", .{index.type_});
+                        std.log.err("Invalid index type: {any} {any}[{any}]\n", .{ index.type_, index.lhs, index.rhs });
                         unreachable;
                     },
                 }
@@ -336,12 +313,17 @@ pub const VmCompiler = struct {
             },
             .project => |project| {
                 try self.compileLhsExprFromAst(buffer, expr);
-
-                const valueType = try project.struct_.getFieldType(project.rhs);
-                try buffer.append(ast.Instruction{ .load = valueType.size() });
+                try buffer.append(ast.Instruction{ .load = project.result_type.size() });
             },
             .as => |as| {
                 try self.compileExprFromAst(buffer, as.lhs.*);
+            },
+            .type_ => {
+                // TODO: type parameter runtime representation
+                try buffer.append(ast.Instruction{ .push = -1 });
+            },
+            .sizeof => |t| {
+                try buffer.append(ast.Instruction{ .push = t.size() });
             },
         }
     }
@@ -349,16 +331,22 @@ pub const VmCompiler = struct {
     fn compileNewExpr(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), new: ast.NewExpr) anyerror!void {
         switch (new.type_) {
             .struct_ => |struct_| {
-                std.debug.assert(new.initializers.len == struct_.fields.len);
+                std.debug.assert(new.initializers.len == struct_.len);
 
                 // TODO: calculate the size of each field
-                try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, @constCast(&[_]ast.Expression{
-                    .{ .literal = .{ .number = @intCast(struct_.fields.len * 8) } },
+                try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, "allocate_memory", @constCast(&[_]ast.Expression{
+                    .{ .literal = .{ .number = @intCast(struct_.len * 8) } },
                 }));
 
-                var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, struct_.fields.len);
+                var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, struct_.len);
                 for (new.initializers) |sinit| {
-                    const offset = try struct_.getFieldOffset(sinit.field);
+                    var offset: usize = 0;
+                    for (struct_, 0..) |field, i| {
+                        if (std.mem.eql(u8, field.name, sinit.field)) {
+                            offset = i;
+                            break;
+                        }
+                    }
                     fields[offset] = sinit.value;
                 }
 
@@ -371,39 +359,69 @@ pub const VmCompiler = struct {
                 }
             },
             .ident => |ident| {
-                try self.compileNewExpr(buffer, .{
-                    .type_ = ident.type_.*,
-                    .initializers = new.initializers,
-                });
+                const def = self.type_defs.?.get(ident).?;
+
+                std.debug.assert(new.initializers.len == def.fields.len);
+
+                // TODO: calculate the size of each field
+                try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, "allocate_memory", @constCast(&[_]ast.Expression{
+                    .{ .literal = .{ .number = @intCast(def.fields.len * 8) } },
+                }));
+
+                var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, def.fields.len);
+                for (new.initializers) |sinit| {
+                    const offset = try def.getFieldOffset(sinit.field);
+                    fields[offset] = sinit.value;
+                }
+
+                for (fields, 0..) |e, i| {
+                    try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
+                    try buffer.append(ast.Instruction{ .push = @intCast(i * 8) });
+                    try buffer.append(ast.Instruction{ .add = true });
+                    try self.compileExprFromAst(buffer, e);
+                    try buffer.append(ast.Instruction{ .store = 8 });
+                }
             },
             .apply => |apply| {
-                if (std.mem.eql(u8, apply.name, "slice")) {
-                    std.debug.assert(new.initializers.len == 1);
-                    std.debug.assert(std.mem.eql(u8, new.initializers[0].field, "len"));
-
-                    try self.callFunction(buffer, ast.Expression{ .var_ = "new_slice" }, @constCast(&[_]ast.Expression{
-                        .{ .literal = .{ .number = @intCast(apply.params[0].size()) } },
-                        new.initializers[0].value,
-                    }));
-                } else if (std.mem.eql(u8, apply.name, "map")) {
+                if (std.mem.eql(u8, apply.name, "map")) {
                     std.debug.assert(new.initializers.len == 0);
 
                     // TODO: growable capacity
-                    try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, @constCast(&[_]ast.Expression{
+                    try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, "allocate_memory", @constCast(&[_]ast.Expression{
                         .{ .literal = .{ .number = @intCast(128 * @as(usize, apply.params[1].size())) } },
                     }));
-                } else if (std.mem.eql(u8, apply.name, "vec")) {
-                    std.debug.assert(new.initializers.len == 0);
-
-                    try self.callFunction(buffer, ast.Expression{ .var_ = "new_vec" }, @constCast(&[_]ast.Expression{
-                        .{ .literal = .{ .number = @intCast(apply.params[0].size()) } },
-                        .{ .literal = .{ .number = @intCast(128) } },
-                    }));
                 } else {
-                    try self.compileNewExpr(buffer, .{
-                        .type_ = apply.applied.*,
-                        .initializers = new.initializers,
-                    });
+                    if (new.method_name) |method_name| {
+                        var args = std.ArrayList(ast.Expression).init(self.ast_arena_allocator.allocator());
+                        for (new.initializers) |sinit| {
+                            try args.append(sinit.value);
+                        }
+
+                        try self.callFunction(buffer, ast.Expression{ .var_ = method_name }, method_name, args.items);
+                    } else {
+                        const def = self.type_defs.?.get(apply.name).?;
+
+                        std.debug.assert(new.initializers.len == def.fields.len);
+
+                        // TODO: calculate the size of each field
+                        try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, "allocate_memory", @constCast(&[_]ast.Expression{
+                            .{ .literal = .{ .number = @intCast(def.fields.len * 8) } },
+                        }));
+
+                        var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, def.fields.len);
+                        for (new.initializers) |sinit| {
+                            const offset = try def.getFieldOffset(sinit.field);
+                            fields[offset] = sinit.value;
+                        }
+
+                        for (fields, 0..) |e, i| {
+                            try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
+                            try buffer.append(ast.Instruction{ .push = @intCast(i * 8) });
+                            try buffer.append(ast.Instruction{ .add = true });
+                            try self.compileExprFromAst(buffer, e);
+                            try buffer.append(ast.Instruction{ .store = 8 });
+                        }
+                    }
                 }
             },
             else => {
@@ -429,18 +447,35 @@ pub const VmCompiler = struct {
                 }
             },
             .index => |index| {
+                std.debug.assert(index.elem_type != .unknown);
+
                 switch (index.type_) {
                     .apply => |apply| {
-                        if (std.mem.eql(u8, apply.name, "ptr") or std.mem.eql(u8, apply.name, "array")) {
+                        if (std.mem.eql(u8, apply.name, "array")) {
                             try self.compileExprFromAst(buffer, index.lhs.*);
                             try self.compileExprFromAst(buffer, index.rhs.*);
-                            try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
+                            try buffer.append(ast.Instruction{ .push = index.elem_type.size() });
                             try buffer.append(ast.Instruction{ .mul = true });
                             try buffer.append(ast.Instruction{ .add = true });
+                        } else if (std.mem.eql(u8, apply.name, "vec")) {
+                            unreachable;
+                        } else if (std.mem.eql(u8, apply.name, "slice")) {
+                            unreachable;
+                        } else if (std.mem.eql(u8, apply.name, "map")) {
+                            try self.compileExprFromAst(buffer, index.lhs.*);
+                            try self.compileExprFromAst(buffer, index.rhs.*);
+                            try buffer.append(ast.Instruction{ .table_set = true });
                         } else {
                             std.log.err("Invalid index type: {s}({any})\n", .{ apply.name, apply.params });
                             unreachable;
                         }
+                    },
+                    .ptr => |ptr| {
+                        try self.compileExprFromAst(buffer, index.lhs.*);
+                        try self.compileExprFromAst(buffer, index.rhs.*);
+                        try buffer.append(ast.Instruction{ .push = ptr.type_.size() });
+                        try buffer.append(ast.Instruction{ .mul = true });
+                        try buffer.append(ast.Instruction{ .add = true });
                     },
                     else => {
                         std.log.err("Invalid index type: {any}\n", .{index.type_});
@@ -449,8 +484,10 @@ pub const VmCompiler = struct {
                 }
             },
             .project => |project| {
+                std.debug.assert(project.index >= 0);
+
                 try self.compileExprFromAst(buffer, project.lhs.*);
-                try buffer.append(ast.Instruction{ .push = @intCast(try project.struct_.getFieldOffset(project.rhs)) });
+                try buffer.append(ast.Instruction{ .push = project.index });
                 try buffer.append(ast.Instruction{ .push = 8 });
                 try buffer.append(ast.Instruction{ .mul = true });
                 try buffer.append(ast.Instruction{ .add = true });
@@ -469,6 +506,10 @@ pub const VmCompiler = struct {
 
                 const i = self.env_offset;
                 try self.env.put(let.name, i);
+                // 変数の型情報を保存
+                if (let.value == .new) {
+                    try self.env_types.put(let.name, let.value.new.type_);
+                }
                 self.env_offset += 1;
             },
             .return_ => |val| {
@@ -552,38 +593,24 @@ pub const VmCompiler = struct {
                         switch (index.type_) {
                             .apply => |apply| {
                                 if (std.mem.eql(u8, apply.name, "slice")) {
-                                    try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
-                                    try buffer.append(ast.Instruction{ .load = 8 });
-                                    try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);
-                                    try buffer.append(ast.Instruction{ .push = (try index.type_.getValueType()).size() });
-                                    try buffer.append(ast.Instruction{ .mul = true });
-                                    try buffer.append(ast.Instruction{ .add = true });
-                                    try self.compileExprFromAst(buffer, assign.rhs);
-                                    try buffer.append(ast.Instruction{ .store = (try index.type_.getValueType()).size() });
+                                    unreachable;
                                 } else if (std.mem.eql(u8, apply.name, "map")) {
                                     try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
                                     try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);
                                     try self.compileExprFromAst(buffer, assign.rhs);
                                     try buffer.append(ast.Instruction{ .table_set = true });
                                 } else if (std.mem.eql(u8, apply.name, "vec")) {
-                                    switch (apply.params[0]) {
-                                        .int => {
-                                            try self.callFunction(buffer, ast.Expression{ .var_ = "set_vec_int" }, @constCast(&[_]ast.Expression{
-                                                assign.lhs.index.lhs.*,
-                                                assign.lhs.index.rhs.*,
-                                                assign.rhs,
-                                            }));
-                                            try buffer.append(ast.Instruction{ .pop = true });
-                                        },
-                                        else => {
-                                            unreachable;
-                                        },
-                                    }
+                                    unreachable;
                                 } else {
                                     try self.compileLhsExprFromAst(buffer, assign.lhs);
                                     try self.compileExprFromAst(buffer, assign.rhs);
                                     try buffer.append(ast.Instruction{ .store = assign.type_.size() });
                                 }
+                            },
+                            .ptr => |ptr| {
+                                try self.compileLhsExprFromAst(buffer, assign.lhs);
+                                try self.compileExprFromAst(buffer, assign.rhs);
+                                try buffer.append(ast.Instruction{ .store = ptr.type_.size() });
                             },
                             else => {
                                 try self.compileLhsExprFromAst(buffer, assign.lhs);
@@ -601,14 +628,8 @@ pub const VmCompiler = struct {
             },
             .push => |push| {
                 switch (push.type_) {
-                    .apply => |apply| {
-                        std.debug.assert(std.mem.eql(u8, apply.name, "vec"));
-
-                        try self.callFunction(buffer, ast.Expression{ .var_ = "push_vec_int" }, @constCast(&[_]ast.Expression{
-                            push.lhs,
-                            push.rhs,
-                        }));
-                        try buffer.append(ast.Instruction{ .pop = true });
+                    .apply => {
+                        unreachable;
                     },
                     else => {
                         unreachable;
@@ -634,41 +655,45 @@ pub const VmCompiler = struct {
 
     pub fn compileBlock(
         self: *VmCompiler,
-        entrypoint: []const u8,
         body: ast.Block,
     ) anyerror![]ast.Instruction {
-        self.compiling_context = entrypoint;
-
         var buffer = std.ArrayList(ast.Instruction).init(self.ast_arena_allocator.allocator());
         try self.compileBlockFromAst(&buffer, body);
-
-        self.compiling_context = "";
 
         return buffer.items;
     }
 
-    fn compileDecl(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), decl: ast.Decl) anyerror!void {
+    fn compileDecl(
+        self: *VmCompiler,
+        buffer: *std.ArrayList(ast.Instruction),
+        decl: ast.Decl,
+        label_override: ?[]const u8,
+    ) anyerror!void {
         switch (decl) {
             .fun => |f| {
                 self.env_offset = 0;
                 self.env.clearAndFree();
+                self.env_types.clearAndFree();
 
-                try buffer.append(ast.Instruction{ .label = f.name });
+                const label = label_override orelse f.name;
 
-                try self.env.put("return", -@as(i32, @intCast(f.params.len)) - 3);
+                try buffer.append(ast.Instruction{ .label = label });
+
+                var index: i32 = -3;
 
                 // register names in the reverse order
-                for (f.params, 0..) |param, i| {
-                    try self.env.put(param.name, -@as(i32, @intCast(f.params.len - i)) - 2);
+                for (0..f.params.len) |ri| {
+                    const i = f.params.len - ri - 1;
+                    try self.env.put(f.params[i].name, index);
+                    try self.env_types.put(f.params[i].name, f.params[i].type_);
+                    index -= 1;
                 }
+                // register return value
+                try self.env.put("return", index);
 
-                self.compiling_context = f.name;
+                try buffer.appendSlice(try self.compileBlock(f.body));
 
-                try buffer.appendSlice(try self.compileBlock(f.name, f.body));
-
-                self.compiling_context = "";
-
-                const end_of_f = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "end_of_{s}", .{f.name});
+                const end_of_f = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "end_of_{s}", .{label});
                 try buffer.append(ast.Instruction{ .label = end_of_f });
             },
             .let => |let| {
@@ -688,17 +713,49 @@ pub const VmCompiler = struct {
                 }
             },
             .type_ => |t| {
-                const str = try t.type_.getStructData();
-                for (str.methods) |m| {
-                    try self.compileDecl(buffer, m);
+                // Skip generic types
+                if (t.params.len > 0) {
+                    return;
+                }
+
+                for (t.methods) |m| {
+                    try self.compileDecl(buffer, m, null);
                 }
             },
         }
     }
 
     fn compileModule(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), module: ast.Module) anyerror!void {
+        // Compile global variables first
         for (module.decls) |decl| {
-            try self.compileDecl(buffer, decl);
+            switch (decl) {
+                .let => {
+                    try self.compileDecl(buffer, decl, null);
+                },
+                else => {},
+            }
+        }
+        for (module.decls) |decl| {
+            switch (decl) {
+                .let => {},
+                else => {
+                    try self.compileDecl(buffer, decl, null);
+                },
+            }
+        }
+
+        for (module.decls) |decl| {
+            switch (decl) {
+                .fun => {
+                    try self.compileDecl(buffer, decl, null);
+                },
+                .type_ => |type_| {
+                    for (type_.methods) |method| {
+                        try self.compileDecl(buffer, method, null);
+                    }
+                },
+                else => {},
+            }
         }
     }
 
@@ -714,6 +771,7 @@ pub const VmCompiler = struct {
                 .{
                     .return_ = .{
                         .call = .{
+                            .label_prefix = "main",
                             .callee = @constCast(&ast.Expression{ .var_ = entrypoint }),
                             .args = &[_]ast.Expression{},
                         },
@@ -770,6 +828,7 @@ pub const VmCompiler = struct {
 
         self.env_offset = 0;
         self.env.clearAndFree();
+        self.type_defs = module.type_defs;
 
         var initBuffer = std.ArrayList(ast.Instruction).init(self.allocator);
         defer initBuffer.deinit();
@@ -848,7 +907,7 @@ pub const VmCompiler = struct {
                         const rhs = result.pop().push;
                         const lhs = result.pop().get_local_d;
                         try result.append(ast.Instruction{ .add_di = .{ .lhs = lhs, .imm = rhs, .target = null } });
-                    } else if (program[i - 1].is_mul() and program[i - 2].is_get_local_d() and program[i - 3].is_get_local_d() and program[i - 4].is_get_local_d()) {
+                    } else if (program[i - 1].is_mul() and program[i - 2].is_get_local_d() and program[i - 3].is_get_local_d()) {
                         _ = result.pop().mul;
                         const rhs = result.pop().get_local_d;
                         const lhs = result.pop().get_local_d;

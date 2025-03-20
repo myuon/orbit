@@ -93,6 +93,8 @@ pub fn main() !void {
         var enableJit = true;
         var enableOptimizeIr = true;
         var dumpIr = false;
+        var dumpMonoAst = false;
+        var dumpDesugaredAst = false;
         for (argv[2..]) |arg| {
             if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--nojit")) {
                 enableJit = false;
@@ -100,11 +102,21 @@ pub fn main() !void {
                 dumpIr = true;
             } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--noopt")) {
                 enableOptimizeIr = false;
+            } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--dump-mono-ast")) {
+                dumpMonoAst = true;
+            } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--dump-desugared-ast")) {
+                dumpDesugaredAst = true;
             }
         }
 
         if (dumpIr) {
-            c.dump_ir_path = "dumped.ir";
+            c.dump_ir_path = "out/dumped.ir";
+        }
+        if (dumpMonoAst) {
+            c.dump_mono_ast_path = "out/dumped_mono_ast.ast";
+        }
+        if (dumpDesugaredAst) {
+            c.dump_desugared_ast_path = "out/dumped_desugared_ast.ast";
         }
 
         const zone = P.begin(@src(), "main.run");
@@ -118,15 +130,18 @@ pub fn main() !void {
         c.enable_jit = enableJit;
         c.enable_optimize_ir = enableOptimizeIr;
 
-        const result = try c.evalModule(content.items);
+        try c.compile(content.items, true);
 
-        try stdout.print("Result: {any}\n", .{result});
+        try stdout.print("Result: {any}\n", .{c.result});
         try bw.flush();
     } else if (std.mem.eql(u8, command, "dbg")) {
         var breakpoint: i32 = -1;
+        var breakpoint_label: ?[]const u8 = null;
         for (argv[2..], 0..) |arg, k| {
-            if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--breakpoint")) {
+            if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--breakpoint-at")) {
                 breakpoint = try std.fmt.parseInt(i32, argv[k + 3][0..std.mem.len(argv[k + 3])], 10);
+            } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--breakpoint")) {
+                breakpoint_label = argv[k + 3][0..std.mem.len(argv[k + 3])];
             }
         }
 
@@ -135,7 +150,8 @@ pub fn main() !void {
 
         try utils.readFile(allocator, argv[2][0..std.mem.len(argv[2])], &content);
 
-        const prog = try c.compileInIr(content.items);
+        try c.compile(content.items, false);
+        const prog = c.ir.?;
 
         var vmr = runtime.VmRuntime.init(arena_allocator.allocator());
         defer vmr.deinit();
@@ -219,6 +235,15 @@ pub fn main() !void {
                 }
                 if (@as(i32, @intCast(vmr.pc)) == breakpoint) {
                     mode_resume = false;
+                } else if (breakpoint_label != null) {
+                    switch (prog[vmr.pc]) {
+                        .label => |label| {
+                            if (std.mem.eql(u8, label, breakpoint_label.?)) {
+                                mode_resume = false;
+                            }
+                        },
+                        else => {},
+                    }
                 }
             }
 
@@ -260,7 +285,7 @@ pub fn main() !void {
 
             try memory.appendSlice("\nmemory (HEX):\n");
 
-            for (vmr.memory[@as(usize, @intCast(dsp))..], 0..) |v, i| {
+            for (vmr.memory, 0..) |v, i| {
                 const p = try std.fmt.allocPrint(draw_allocator, "{x:0>2} ", .{v});
                 if (v == 0) {
                     try memory.appendSlice(".. ");
@@ -278,8 +303,9 @@ pub fn main() !void {
 
             const k = try std.fmt.allocPrint(draw_allocator,
                 \\pc: {d}, bp: {d}, next: {s}
+                \\stack_traces: {s}
                 \\stack: {s}
-            , .{ vmr.pc, bp, next.items, s });
+            , .{ vmr.pc, bp, next.items, vmr.stack_traces.items, s });
 
             try dbg.set_text("stack", k);
             try dbg.set_text("memory", memory.items);

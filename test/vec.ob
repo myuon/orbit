@@ -1,0 +1,15 @@
+fun main() do
+  let limit = 8;
+  let at = 6;
+
+  let vec = new vec(int) {};
+  let n = 0;
+  while (n < limit) do
+    vec <- n * n;
+    n = n + 1;
+  end
+
+  vec[at] = vec[at] + 10;
+
+  return vec[at];
+end

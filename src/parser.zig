@@ -112,7 +112,12 @@ pub const Parser = struct {
             try decls.append(d);
         }
 
-        return ast.Module{ .decls = decls.items };
+        const type_defs = ast.TypeDefs.init(self.ast_arena_allocator.allocator());
+
+        return ast.Module{
+            .decls = decls.items,
+            .type_defs = type_defs,
+        };
     }
 
     fn decl(self: *Parser) anyerror!ast.Decl {
@@ -164,27 +169,67 @@ pub const Parser = struct {
                             }
 
                             try self.expect(ast.Operator.eq);
-                            const type_value = try self.type_();
-                            try self.expect(ast.Operator.semicolon);
 
-                            if (params.items.len == 0) {
-                                return ast.Decl{ .type_ = .{
-                                    .name = name,
-                                    .params = params.items,
-                                    .type_ = type_value,
-                                } };
+                            try self.expect(ast.Operator.struct_);
+                            try self.expect(ast.Operator.lbrace);
+
+                            var fields = std.ArrayList(ast.StructField).init(self.ast_arena_allocator.allocator());
+                            var methods = std.ArrayList(ast.Decl).init(self.ast_arena_allocator.allocator());
+
+                            while (true) {
+                                if (self.is_next(ast.Operator.rbrace)) {
+                                    break;
+                                }
+
+                                if (self.is_next(ast.Operator.fun)) {
+                                    const method = try self.parseFunDecl();
+                                    try methods.append(method);
+                                    continue;
+                                }
+
+                                const field_name = try self.expect_ident();
+                                try self.expect(ast.Operator.colon);
+                                const field_type = try self.type_();
+
+                                try fields.append(.{ .name = field_name, .type_ = field_type });
+
+                                if (self.is_next(ast.Operator.comma)) {
+                                    try self.expect(ast.Operator.comma);
+                                    continue;
+                                } else {
+                                    break;
+                                }
+                            }
+                            try self.expect(ast.Operator.rbrace);
+
+                            var extends = std.ArrayList(ast.ExtendField).init(self.ast_arena_allocator.allocator());
+                            if (self.is_next(ast.Operator.extends)) {
+                                try self.expect(ast.Operator.extends);
+                                try self.expect(ast.Operator.lbrace);
+                                while (!self.is_next(ast.Operator.rbrace)) {
+                                    try self.expect(ast.Operator.dot);
+                                    const field_name = try self.expect_ident();
+                                    try self.expect(ast.Operator.eq);
+                                    const field_type = try self.type_();
+                                    try extends.append(.{ .name = field_name, .type_ = field_type });
+
+                                    if (self.is_next(ast.Operator.comma)) {
+                                        try self.expect(ast.Operator.comma);
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                try self.expect(ast.Operator.rbrace);
                             }
 
-                            const t = try self.ast_arena_allocator.allocator().create(ast.Type);
-                            t.* = type_value;
+                            try self.expect(ast.Operator.semicolon);
 
                             return ast.Decl{ .type_ = .{
                                 .name = name,
                                 .params = params.items,
-                                .type_ = .{ .forall = .{
-                                    .params = params.items,
-                                    .type_ = t,
-                                } },
+                                .fields = fields.items,
+                                .methods = methods.items,
+                                .extends = extends.items,
                             } };
                         },
                         else => {
@@ -216,7 +261,7 @@ pub const Parser = struct {
             }
 
             const arg = try self.expect_ident();
-            var t: ?ast.Type = null;
+            var t = ast.Type{ .unknown = true };
             if (self.is_next(ast.Operator.colon)) {
                 try self.expect(ast.Operator.colon);
                 t = try self.type_();
@@ -535,6 +580,7 @@ pub const Parser = struct {
                         callee.* = current;
 
                         current = ast.Expression{ .call = .{
+                            .label_prefix = null,
                             .callee = callee,
                             .args = args.items,
                         } };
@@ -556,6 +602,7 @@ pub const Parser = struct {
 
                         current = ast.Expression{ .index = .{
                             .type_ = ast.Type{ .unknown = true },
+                            .elem_type = ast.Type{ .unknown = true },
                             .lhs = lhs,
                             .rhs = rhs,
                         } };
@@ -573,10 +620,8 @@ pub const Parser = struct {
                         const rhs = try self.expect_ident();
 
                         current = ast.Expression{ .project = .{
-                            .struct_ = ast.StructData{
-                                .fields = &[_]ast.StructField{},
-                                .methods = &[_]ast.Decl{},
-                            },
+                            .index = -1,
+                            .result_type = ast.Type{ .unknown = true },
                             .lhs = lhs,
                             .rhs = rhs,
                         } };
@@ -668,6 +713,7 @@ pub const Parser = struct {
                             return ast.Expression{ .new = .{
                                 .type_ = t,
                                 .initializers = initializers.items,
+                                .method_name = null,
                             } };
                         },
                         .lparen => {
@@ -677,6 +723,20 @@ pub const Parser = struct {
                             try self.expect(ast.Operator.rparen);
 
                             return e;
+                        },
+                        .type_ => {
+                            try self.expect(ast.Operator.type_);
+
+                            const t = try self.type_();
+
+                            return ast.Expression{ .type_ = t };
+                        },
+                        .sizeof => {
+                            try self.expect(ast.Operator.sizeof);
+
+                            const t = try self.type_();
+
+                            return ast.Expression{ .sizeof = t };
                         },
                         else => {
                             std.log.err("unexpected token: want lparen but got {any} ({any})\n", .{ token, self.tokens[self.position..] });
@@ -706,8 +766,6 @@ pub const Parser = struct {
                 } else if (std.mem.eql(u8, current, "byte")) {
                     return ast.Type{ .byte = true };
                 } else {
-                    const t = try self.ast_arena_allocator.allocator().create(ast.Type);
-
                     if (self.is_next(ast.Operator.lparen)) {
                         try self.expect(ast.Operator.lparen);
 
@@ -724,62 +782,50 @@ pub const Parser = struct {
                         }
                         try self.expect(ast.Operator.rparen);
 
-                        const applied = try self.ast_arena_allocator.allocator().create(ast.Type);
-                        applied.* = .{ .unknown = true };
-
                         return ast.Type{ .apply = .{
                             .name = current,
                             .params = params.items,
-                            .applied = applied,
                         } };
                     }
 
-                    return ast.Type{ .ident = .{
-                        .name = current,
-                        .type_ = t,
-                    } };
+                    return ast.Type{ .ident = current };
                 }
             },
             .keyword => |keyword| {
                 switch (keyword) {
                     .struct_ => {
                         var fields = std.ArrayList(ast.StructField).init(self.ast_arena_allocator.allocator());
-                        var methods = std.ArrayList(ast.Decl).init(self.ast_arena_allocator.allocator());
 
                         try self.expect(ast.Operator.lbrace);
-
-                        while (true) {
-                            if (self.is_next(ast.Operator.rbrace)) {
-                                break;
-                            }
-
-                            if (self.is_next(ast.Operator.fun)) {
-                                const method = try self.parseFunDecl();
-                                try methods.append(method);
-                                continue;
-                            }
-
-                            const field_name = try self.expect_ident();
+                        while (!self.is_next(ast.Operator.rbrace)) {
+                            const field = try self.expect_ident();
                             try self.expect(ast.Operator.colon);
-                            const field_type = try self.type_();
-
-                            try fields.append(.{ .name = field_name, .type_ = field_type });
+                            const t = try self.type_();
+                            try fields.append(.{ .name = field, .type_ = t });
 
                             if (self.is_next(ast.Operator.comma)) {
                                 try self.expect(ast.Operator.comma);
-                                continue;
                             } else {
                                 break;
                             }
                         }
                         try self.expect(ast.Operator.rbrace);
 
-                        return ast.Type{
-                            .struct_ = ast.StructData{
-                                .fields = fields.items,
-                                .methods = methods.items,
-                            },
-                        };
+                        return ast.Type{ .struct_ = fields.items };
+                    },
+                    .lbracket => {
+                        try self.expect(ast.Operator.star);
+                        try self.expect(ast.Operator.rbracket);
+
+                        const t = try self.type_();
+
+                        const ptr = try self.ast_arena_allocator.allocator().create(ast.Type);
+                        ptr.* = t;
+
+                        return ast.Type{ .ptr = .{ .type_ = ptr } };
+                    },
+                    .type_ => {
+                        return ast.Type{ .type_ = true };
                     },
                     else => {
                         std.log.err("unexpected token: want type but got {any}\n", .{self.tokens[self.position..]});

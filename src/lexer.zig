@@ -167,6 +167,8 @@ pub const Lexer = struct {
             .{ .str = "struct", .operator = ast.Operator.struct_ },
             .{ .str = "as", .operator = ast.Operator.as },
             .{ .str = "type", .operator = ast.Operator.type_ },
+            .{ .str = "extends", .operator = ast.Operator.extends },
+            .{ .str = "sizeof", .operator = ast.Operator.sizeof },
         };
 
         for (keywordTable) |keyword| {
