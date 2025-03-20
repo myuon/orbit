@@ -502,7 +502,7 @@ pub const Typechecker = struct {
                         const args = args_list.items;
 
                         if (fun.params.len != args.len) {
-                            std.log.err("Function {any} expects {d} arguments, got {d}\n", .{ call.callee, fun.params.len, args.len });
+                            std.log.err("Function {any} expects {any} arguments, got {any} ({any})\n", .{ call.callee, fun.params, args, expr });
                             return error.UnexpectedType;
                         }
 
@@ -565,9 +565,7 @@ pub const Typechecker = struct {
                         };
                     },
                     .apply => |apply| {
-                        if (std.mem.eql(u8, apply.name, "vec")) {
-                            return new.type_;
-                        } else if (std.mem.eql(u8, apply.name, "map")) {
+                        if (std.mem.eql(u8, apply.name, "map")) {
                             return new.type_;
                         }
 
@@ -785,6 +783,8 @@ pub const Typechecker = struct {
             };
 
             block.statements[i] = s;
+
+            self.self_object = null;
         }
 
         if (block.expr) |expr| {

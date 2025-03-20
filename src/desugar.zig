@@ -28,7 +28,11 @@ pub const Desugarer = struct {
                     try self.desugarExpr(value);
                 }
             },
-            .type_ => {},
+            .type_ => |*type_| {
+                for (type_.methods) |*method| {
+                    try self.desugarDecl(method);
+                }
+            },
         }
     }
 
@@ -67,66 +71,57 @@ pub const Desugarer = struct {
                         switch (index.type_) {
                             .apply => |apply| {
                                 if (std.mem.eql(u8, apply.name, "vec")) {
-                                    switch (apply.params[0]) {
-                                        .int => {
-                                            const callee = try self.arena_allocator.allocator().create(ast.Expression);
-                                            callee.* = .{
-                                                .var_ = "set_vec_int",
-                                            };
-
-                                            var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
-                                            try args.append(index.lhs.*);
-                                            try args.append(index.rhs.*);
-                                            try args.append(assign.rhs);
-
-                                            statement.* = .{
-                                                .expr = .{
-                                                    .call = .{
-                                                        .callee = callee,
-                                                        .args = args.items,
-                                                        .type_ = null,
-                                                        .label_prefix = "set_vec_int",
-                                                    },
-                                                },
-                                            };
+                                    const callee = try self.arena_allocator.allocator().create(ast.Expression);
+                                    callee.* = .{
+                                        .project = .{
+                                            .index = -1,
+                                            .result_type = apply.params[0],
+                                            .lhs = index.lhs,
+                                            .rhs = "set_v",
                                         },
-                                        else => {
-                                            unreachable;
+                                    };
+
+                                    var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
+                                    try args.append(index.lhs.*);
+                                    try args.append(index.rhs.*);
+                                    try args.append(assign.rhs);
+
+                                    statement.* = .{
+                                        .expr = .{
+                                            .call = .{
+                                                .callee = callee,
+                                                .args = args.items,
+                                                .type_ = .{ .apply = apply },
+                                                .label_prefix = "set_v",
+                                            },
                                         },
-                                    }
+                                    };
                                 } else if (std.mem.eql(u8, apply.name, "slice")) {
-                                    switch (apply.params[0]) {
-                                        .int => {
-                                            const callee = try self.arena_allocator.allocator().create(ast.Expression);
-                                            callee.* = .{
-                                                .project = .{
-                                                    .index = -1,
-                                                    .result_type = apply.params[0],
-                                                    .lhs = index.lhs,
-                                                    .rhs = "set",
-                                                },
-                                            };
-
-                                            var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
-                                            try args.append(index.lhs.*);
-                                            try args.append(index.rhs.*);
-                                            try args.append(assign.rhs);
-
-                                            statement.* = .{
-                                                .expr = .{
-                                                    .call = .{
-                                                        .callee = callee,
-                                                        .args = args.items,
-                                                        .type_ = .{ .apply = apply },
-                                                        .label_prefix = "set",
-                                                    },
-                                                },
-                                            };
+                                    const callee = try self.arena_allocator.allocator().create(ast.Expression);
+                                    callee.* = .{
+                                        .project = .{
+                                            .index = -1,
+                                            .result_type = apply.params[0],
+                                            .lhs = index.lhs,
+                                            .rhs = "set",
                                         },
-                                        else => {
-                                            unreachable;
+                                    };
+
+                                    var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
+                                    try args.append(index.lhs.*);
+                                    try args.append(index.rhs.*);
+                                    try args.append(assign.rhs);
+
+                                    statement.* = .{
+                                        .expr = .{
+                                            .call = .{
+                                                .callee = callee,
+                                                .args = args.items,
+                                                .type_ = .{ .apply = apply },
+                                                .label_prefix = "set",
+                                            },
                                         },
-                                    }
+                                    };
                                 } else {}
                             },
                             else => {},
@@ -142,32 +137,32 @@ pub const Desugarer = struct {
                 switch (push.type_) {
                     .apply => |apply| {
                         if (std.mem.eql(u8, apply.name, "vec")) {
-                            switch (apply.params[0]) {
-                                .int => {
-                                    const callee = try self.arena_allocator.allocator().create(ast.Expression);
-                                    callee.* = .{
-                                        .var_ = "push_vec_int",
-                                    };
+                            const lhs = try self.arena_allocator.allocator().create(ast.Expression);
+                            lhs.* = push.lhs;
 
-                                    var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
-                                    try args.append(push.lhs);
-                                    try args.append(push.rhs);
+                            const callee = try self.arena_allocator.allocator().create(ast.Expression);
+                            callee.* = .{
+                                .project = .{
+                                    .index = -1,
+                                    .result_type = apply.params[0],
+                                    .lhs = lhs,
+                                    .rhs = "push_v",
+                                },
+                            };
 
-                                    statement.* = .{
-                                        .expr = .{
-                                            .call = .{
-                                                .callee = callee,
-                                                .args = args.items,
-                                                .type_ = null,
-                                                .label_prefix = "push_vec_int",
-                                            },
-                                        },
-                                    };
+                            var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
+                            try args.append(push.rhs);
+
+                            statement.* = .{
+                                .expr = .{
+                                    .call = .{
+                                        .callee = callee,
+                                        .args = args.items,
+                                        .type_ = .{ .apply = apply },
+                                        .label_prefix = "push_v",
+                                    },
                                 },
-                                else => {
-                                    unreachable;
-                                },
-                            }
+                            };
                         }
                     },
                     else => {
@@ -210,30 +205,27 @@ pub const Desugarer = struct {
                 switch (index.type_) {
                     .apply => |apply| {
                         if (std.mem.eql(u8, apply.name, "vec")) {
-                            switch (apply.params[0]) {
-                                .int => {
-                                    const callee = try self.arena_allocator.allocator().create(ast.Expression);
-                                    callee.* = .{
-                                        .var_ = "get_vec_int",
-                                    };
-
-                                    var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
-                                    try args.append(index.lhs.*);
-                                    try args.append(index.rhs.*);
-
-                                    expr.* = .{
-                                        .call = .{
-                                            .callee = callee,
-                                            .args = args.items,
-                                            .type_ = null,
-                                            .label_prefix = "get_vec_int",
-                                        },
-                                    };
+                            const callee = try self.arena_allocator.allocator().create(ast.Expression);
+                            callee.* = .{
+                                .project = .{
+                                    .index = -1,
+                                    .result_type = apply.params[0],
+                                    .lhs = index.lhs,
+                                    .rhs = "get_v",
                                 },
-                                else => {
-                                    unreachable;
+                            };
+
+                            var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
+                            try args.append(index.rhs.*);
+
+                            expr.* = .{
+                                .call = .{
+                                    .callee = callee,
+                                    .args = args.items,
+                                    .type_ = .{ .apply = apply },
+                                    .label_prefix = "get_v",
                                 },
-                            }
+                            };
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
                             const callee = try self.arena_allocator.allocator().create(ast.Expression);
                             callee.* = .{
@@ -272,27 +264,9 @@ pub const Desugarer = struct {
                 switch (new_expr.type_) {
                     .apply => |apply| {
                         if (std.mem.eql(u8, apply.name, "vec")) {
-                            const callee = try self.arena_allocator.allocator().create(ast.Expression);
-                            callee.* = .{
-                                .var_ = "new_vec",
-                            };
-
-                            var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
-                            try args.append(.{ .type_ = apply.params[0] });
-                            try args.append(.{ .literal = .{ .number = 128 } });
-
-                            expr.* = .{
-                                .call = .{
-                                    .callee = callee,
-                                    .args = args.items,
-                                    .type_ = null,
-                                    .label_prefix = "new_vec",
-                                },
-                            };
+                            expr.new.method_name = "_new_v";
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
                             expr.new.method_name = "_new";
-
-                            return;
                         } else {
                             return;
                         }

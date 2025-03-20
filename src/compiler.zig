@@ -335,24 +335,24 @@ test "compiler.compileLabel" {
     };
 
     for (cases) |case| {
-        var c = Compiler.init(std.testing.allocator);
-        defer c.deinit();
-
-        try c.compile(case.program, false);
-
-        var labels = std.ArrayList([]const u8).init(std.testing.allocator);
-        defer labels.deinit();
-
-        for (c.ir.?) |inst| {
-            switch (inst) {
-                .label => |label| {
-                    try labels.append(label);
-                },
-                else => {},
-            }
-        }
-
         for (case.expected) |expected| {
+            var c = Compiler.init(std.testing.allocator);
+            defer c.deinit();
+
+            try c.compile(case.program, false);
+
+            var labels = std.ArrayList([]const u8).init(std.testing.allocator);
+            defer labels.deinit();
+
+            for (c.ir.?) |inst| {
+                switch (inst) {
+                    .label => |label| {
+                        try labels.append(label);
+                    },
+                    else => {},
+                }
+            }
+
             var found = false;
             for (labels.items) |label| {
                 if (std.mem.eql(u8, label, expected)) {

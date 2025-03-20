@@ -33,44 +33,46 @@ type slice(T: type) = struct {
   .value = T,
 };
 
-fun new_vec(T: type, capacity: int): struct{ptr: [*]T, len: int, capacity: int} do
-  let vec = new struct{ptr: [*]T, len: int, capacity: int} { .ptr = allocate_memory(sizeof T * capacity) as [*]T, .len = 0, .capacity = capacity };
+type vec(T: type) = struct {
+  ptr: [*]T,
+  len: int,
+  capacity: int,
 
-  return vec;
-end
-
-fun get_vec_int(data: struct{ptr: [*]int, len: int, capacity: int}, index: int) do
-  let ptr = data.ptr;
-  return ptr[index];
-end
-
-fun set_vec_int(data: struct{ptr: [*]int, len: int, capacity: int}, index: int, value: int) do
-  let ptr = data.ptr;
-  ptr[index] = value;
-  return 0;
-end
-
-fun push_vec_int(data: struct{ptr: [*]int, len: int, capacity: int}, value: int): int do
-  if (data.len + 1 < data.capacity) do
-    let ptr = data.ptr;
-    ptr[data.len] = value;
-    data.len = data.len + 1;
-  else
-    let new_data = new_vec(type int, data.capacity * 2) as struct{ptr: [*]int, len: int, capacity: int};
-    new_data.len = data.len;
-
-    let i = 0;
-    while (i < data.len) do
-      set_vec_int(new_data, i, get_vec_int(data, i));
-      i = i + 1;
-    end
-
-    push_vec_int(new_data, value);
-
-    data.ptr = new_data.ptr;
-    data.len = new_data.len;
-    data.capacity = new_data.capacity;
+  fun get_v(self: vec(T), index: int): T do
+    return self.ptr[index];
   end
 
-  return 0;
-end
+  fun set_v(self: vec(T), index: int, value: T) do
+    self.ptr[index] = value;
+  end
+
+  fun _new_v(capacity: int) do
+    let pair = new struct { ptr: [*]T, len: int, capacity: int } { .ptr = allocate_memory(sizeof T * capacity) as [*]T, .len = 0, .capacity = capacity };
+    return pair as vec(T);
+  end
+
+  fun push_v(self: vec(T), value: T): int do
+    if (self.len + 1 < self.capacity) do
+      let ptr = self.ptr;
+      ptr[self.len] = value;
+      self.len = self.len + 1;
+    else
+      let new_data = new vec(T) { .capacity = self.capacity * 2 };
+      new_data.len = self.len;
+  
+      let i = 0;
+      while (i < self.len) do
+        new_data[i] = self[i];
+        i = i + 1;
+      end
+
+      new_data.push_v(value);
+  
+      self.ptr = new_data.ptr;
+      self.len = new_data.len;
+      self.capacity = new_data.capacity;
+    end
+  
+    return 0;
+  end
+};

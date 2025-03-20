@@ -384,8 +384,6 @@ pub const VmCompiler = struct {
                     try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, "allocate_memory", @constCast(&[_]ast.Expression{
                         .{ .literal = .{ .number = @intCast(128 * @as(usize, apply.params[1].size())) } },
                     }));
-                } else if (std.mem.eql(u8, apply.name, "vec")) {
-                    unreachable;
                 } else {
                     if (new.method_name) |method_name| {
                         var args = std.ArrayList(ast.Expression).init(self.ast_arena_allocator.allocator());

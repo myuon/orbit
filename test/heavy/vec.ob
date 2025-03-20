@@ -1,5 +1,5 @@
 fun main() do
-  let vec = new vec(int) {};
+  let vec = new vec(int) {.capacity = 128}; // FIXME: no capacity
   let n = 0;
   while (n < 1000) do
     vec <- n * n;
