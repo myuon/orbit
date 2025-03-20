@@ -60,6 +60,8 @@ pub const Desugarer = struct {
                 }
             },
             .assign => |*assign| {
+                try self.desugarExpr(&assign.rhs);
+
                 switch (assign.lhs) {
                     .index => |index| {
                         switch (index.type_) {
@@ -140,8 +142,43 @@ pub const Desugarer = struct {
                 try self.desugarBlock(&if_.else_);
             },
             .index => |*index| {
-                try self.desugarExpr(index.lhs);
-                try self.desugarExpr(index.rhs);
+                switch (index.type_) {
+                    .apply => |apply| {
+                        if (std.mem.eql(u8, apply.name, "vec")) {
+                            switch (apply.params[0]) {
+                                .int => {
+                                    const callee = try self.arena_allocator.allocator().create(ast.Expression);
+                                    callee.* = .{
+                                        .var_ = "get_vec_int",
+                                    };
+
+                                    var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
+                                    try args.append(index.lhs.*);
+                                    try args.append(index.rhs.*);
+
+                                    expr.* = .{
+                                        .call = .{
+                                            .callee = callee,
+                                            .args = args.items,
+                                            .type_ = null,
+                                            .label_prefix = "get_vec_int",
+                                        },
+                                    };
+                                },
+                                else => {
+                                    unreachable;
+                                },
+                            }
+                        } else {
+                            try self.desugarExpr(index.lhs);
+                            try self.desugarExpr(index.rhs);
+                        }
+                    },
+                    else => {
+                        try self.desugarExpr(index.lhs);
+                        try self.desugarExpr(index.rhs);
+                    },
+                }
             },
             .new => {
                 const new_expr = expr.new;

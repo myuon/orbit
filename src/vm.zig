@@ -280,10 +280,7 @@ pub const VmCompiler = struct {
                             try buffer.append(ast.Instruction{ .mul = true });
                             try buffer.append(ast.Instruction{ .add = true });
                         } else if (std.mem.eql(u8, apply.name, "vec")) {
-                            try self.callFunction(buffer, ast.Expression{ .var_ = "get_vec_int" }, "get_vec_int", @constCast(&[_]ast.Expression{
-                                index.lhs.*,
-                                index.rhs.*,
-                            }));
+                            unreachable;
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
                             const valueType = try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator());
                             switch (valueType) {
@@ -471,10 +468,7 @@ pub const VmCompiler = struct {
                             try buffer.append(ast.Instruction{ .mul = true });
                             try buffer.append(ast.Instruction{ .add = true });
                         } else if (std.mem.eql(u8, apply.name, "vec")) {
-                            try self.callFunction(buffer, ast.Expression{ .var_ = "get_vec_int" }, "get_vec_int", @constCast(&[_]ast.Expression{
-                                index.lhs.*,
-                                index.rhs.*,
-                            }));
+                            unreachable;
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
                             const valueType = try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator());
                             switch (valueType) {
