@@ -4,6 +4,7 @@ const ast = @import("ast.zig");
 const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
 const typecheck = @import("typecheck.zig");
+const desugar = @import("desugar.zig");
 const vm = @import("vm.zig");
 const monomorphization = @import("monomorphization.zig");
 const runtime = @import("runtime.zig");
@@ -27,9 +28,11 @@ pub const Compiler = struct {
     tc: typecheck.Typechecker,
     vmc: vm.VmCompiler,
     mono: monomorphization.Monomorphization,
+    desugar: desugar.Desugarer,
     enable_jit: bool,
     dump_ir_path: ?[]const u8 = null,
     dump_mono_ast_path: ?[]const u8 = null,
+    dump_desugared_ast_path: ?[]const u8 = null,
     enable_optimize_ir: bool = true,
     ir: ?[]ast.Instruction,
     result: ?ast.Value,
@@ -42,6 +45,7 @@ pub const Compiler = struct {
             .tc = typecheck.Typechecker.init(allocator),
             .vmc = vm.VmCompiler.init(allocator),
             .mono = monomorphization.Monomorphization.init(allocator),
+            .desugar = desugar.Desugarer.init(allocator),
             .enable_jit = true,
             .enable_optimize_ir = true,
             .ir = null,
@@ -54,6 +58,7 @@ pub const Compiler = struct {
         self.tc.deinit();
         self.vmc.deinit();
         self.mono.deinit();
+        self.desugar.deinit();
         self.arena_allocator.deinit();
     }
 
@@ -83,6 +88,14 @@ pub const Compiler = struct {
         var module = try p.module();
 
         try self.tc.typecheck(&module);
+
+        try self.desugar.execute(&module);
+        if (self.dump_desugared_ast_path) |path| {
+            const file = try std.fs.cwd().createFile(path, .{});
+            defer file.close();
+
+            try std.fmt.format(file.writer(), "{any}\n", .{module});
+        }
 
         const entrypoint = "main";
 

@@ -94,6 +94,7 @@ pub fn main() !void {
         var enableOptimizeIr = true;
         var dumpIr = false;
         var dumpMonoAst = false;
+        var dumpDesugaredAst = false;
         for (argv[2..]) |arg| {
             if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--nojit")) {
                 enableJit = false;
@@ -103,6 +104,8 @@ pub fn main() !void {
                 enableOptimizeIr = false;
             } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--dump-mono-ast")) {
                 dumpMonoAst = true;
+            } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--dump-desugared-ast")) {
+                dumpDesugaredAst = true;
             }
         }
 
@@ -111,6 +114,9 @@ pub fn main() !void {
         }
         if (dumpMonoAst) {
             c.dump_mono_ast_path = "out/dumped_mono_ast.ast";
+        }
+        if (dumpDesugaredAst) {
+            c.dump_desugared_ast_path = "out/dumped_desugared_ast.ast";
         }
 
         const zone = P.begin(@src(), "main.run");

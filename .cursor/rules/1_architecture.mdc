@@ -6,13 +6,14 @@ alwaysApply: false
 ## Compiler Architecture
 
 All code is written in Zig, placed in the `src` directory.
-コンパイルのフェーズは以下に書かれたLexer〜CodeGeneration to IRの順に進み、Runtime上での実行中に必要に応じてJIT Compilerが呼ばれる。
+コンパイルのフェーズは以下に書かれたLexerからCode Generation to IRの順に進み、Runtime上での実行中に必要に応じてJIT Compilerが呼ばれる。
 ASTに関する情報などは適宜ast.zigを参照すること。
 
 - Compiler entrypoint: `src/compiler.zig`
   - Lexer: `src/lexer.zig`
   - Parser: `src/parser.zig`
   - Type Checker: `src/typecheck.zig`
+  - Desugarer: `src/desugar.zig`
   - Monomorphization: `src/monomorphization.zig`
   - Code Generation to IR: `src/vm.zig`
   - VM runtime: `src/runtime.zig`
