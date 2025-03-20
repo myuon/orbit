@@ -111,6 +111,42 @@ pub const Desugarer = struct {
             .push => |*push| {
                 try self.desugarExpr(&push.lhs);
                 try self.desugarExpr(&push.rhs);
+
+                switch (push.type_) {
+                    .apply => |apply| {
+                        if (std.mem.eql(u8, apply.name, "vec")) {
+                            switch (apply.params[0]) {
+                                .int => {
+                                    const callee = try self.arena_allocator.allocator().create(ast.Expression);
+                                    callee.* = .{
+                                        .var_ = "push_vec_int",
+                                    };
+
+                                    var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
+                                    try args.append(push.lhs);
+                                    try args.append(push.rhs);
+
+                                    statement.* = .{
+                                        .expr = .{
+                                            .call = .{
+                                                .callee = callee,
+                                                .args = args.items,
+                                                .type_ = null,
+                                                .label_prefix = "push_vec_int",
+                                            },
+                                        },
+                                    };
+                                },
+                                else => {
+                                    unreachable;
+                                },
+                            }
+                        }
+                    },
+                    else => {
+                        unreachable;
+                    },
+                }
             },
             .while_ => |*while_| {
                 try self.desugarExpr(while_.cond);

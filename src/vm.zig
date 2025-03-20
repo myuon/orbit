@@ -675,14 +675,8 @@ pub const VmCompiler = struct {
             },
             .push => |push| {
                 switch (push.type_) {
-                    .apply => |apply| {
-                        std.debug.assert(std.mem.eql(u8, apply.name, "vec"));
-
-                        try self.callFunction(buffer, ast.Expression{ .var_ = "push_vec_int" }, "push_vec_int", @constCast(&[_]ast.Expression{
-                            push.lhs,
-                            push.rhs,
-                        }));
-                        try buffer.append(ast.Instruction{ .pop = true });
+                    .apply => {
+                        unreachable;
                     },
                     else => {
                         unreachable;
