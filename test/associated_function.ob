@@ -1,0 +1,11 @@
+type Hoge = struct {
+  a: int,
+
+  fun get_10() do
+    return 10;
+  end
+};
+
+fun main() do
+  return (type Hoge).get_10();
+end

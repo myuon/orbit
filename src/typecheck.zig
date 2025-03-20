@@ -483,8 +483,8 @@ pub const Typechecker = struct {
                         defer args_list.deinit();
 
                         if (self.self_object) |obj| {
-                            // Recover type applications here
                             if (obj.index != -1) {
+                                // Recover type applications here
                                 for (fun.params) |param| {
                                     if (std.mem.eql(u8, param.name, "self")) {
                                         break;
@@ -492,9 +492,9 @@ pub const Typechecker = struct {
 
                                     try args_list.append(.{ .type_ = .{ .unknown = true } });
                                 }
-                            }
 
-                            try args_list.append(obj.expr);
+                                try args_list.append(obj.expr);
+                            }
 
                             expr.call.type_ = obj.type_;
                         }
@@ -641,12 +641,28 @@ pub const Typechecker = struct {
                         def = d;
                     },
                     .type_ => {
-                        var d = self.type_defs.?.get(lhs.type_.apply.name) orelse {
-                            std.log.err("Type not found: {s}\n", .{lhs.type_.apply.name});
+                        // Case: associated functions
+                        var symbol: []const u8 = undefined;
+                        var params = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
+                        switch (lhs.type_) {
+                            .ident => |ident| {
+                                symbol = ident;
+                            },
+                            .apply => |apply| {
+                                symbol = apply.name;
+                                try params.appendSlice(apply.params);
+                            },
+                            else => {
+                                unreachable;
+                            },
+                        }
+
+                        var d = self.type_defs.?.get(symbol) orelse {
+                            std.log.err("Type not found: {s}\n", .{symbol});
                             return error.VariableNotFound;
                         };
 
-                        d = try self.applyTypeDef(d, lhs.type_.apply.params);
+                        d = try self.applyTypeDef(d, params.items);
 
                         def = d;
                         lhs_type = lhs.type_;
@@ -857,12 +873,6 @@ pub const Typechecker = struct {
                 }
 
                 var params = std.ArrayList(ast.FunParam).init(self.arena_allocator.allocator());
-                for (self.type_params_context) |param| {
-                    try params.append(.{
-                        .name = param,
-                        .type_ = .{ .type_ = true },
-                    });
-                }
                 for (fun.params) |param| {
                     try params.append(.{
                         .name = param.name,

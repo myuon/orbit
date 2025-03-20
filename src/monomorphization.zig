@@ -256,8 +256,25 @@ pub const Monomorphization = struct {
                 };
             },
             .type_ => |t| {
+                const r = try t.applyAssignments(self.arena_allocator.allocator(), self.assignments);
+                switch (r) {
+                    .ident => |ident| {
+                        try self.stack.append(.{
+                            .symbol = ident,
+                            .args = &[_]ast.Type{},
+                        });
+                    },
+                    .apply => |apply| {
+                        try self.stack.append(.{
+                            .symbol = apply.name,
+                            .args = apply.params,
+                        });
+                    },
+                    else => {},
+                }
+
                 return ast.Expression{
-                    .type_ = try t.applyAssignments(self.arena_allocator.allocator(), self.assignments),
+                    .type_ = r,
                 };
             },
             .sizeof => |t| {

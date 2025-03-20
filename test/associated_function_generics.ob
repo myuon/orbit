@@ -1,0 +1,11 @@
+type Hoge(T: type) = struct {
+  a: T,
+
+  fun identity(A: type, value: A): A do
+    return value;
+  end
+};
+
+fun main() do
+  return (type Hoge(byte)).identity(type int, 10);
+end
