@@ -16,11 +16,11 @@ type slice(T: type) = struct {
   ptr: [*]T,
   len: int,
 
-  fun get(self: slice(T), index: int): T do
+  fun _get(self: slice(T), index: int): T do
     return self.ptr[index];
   end
 
-  fun set(self: slice(T), index: int, value: T) do
+  fun _set(self: slice(T), index: int, value: T) do
     self.ptr[index] = value;
     return 0;
   end
@@ -39,31 +39,31 @@ type vec(T: type) = struct {
   len: int,
   capacity: int,
 
-  fun get_v(self: vec(T), index: int): T do
+  fun _get(self: vec(T), index: int): T do
     return self.ptr[index];
   end
 
-  fun set_v(self: vec(T), index: int, value: T) do
+  fun _set(self: vec(T), index: int, value: T) do
     self.ptr[index] = value;
     return 0;
   end
 
-  fun _new_with_capacity(capacity: int): vec(T) do
+  fun new_with_capacity(capacity: int): vec(T) do
     let pair = new struct { ptr: [*]T, len: int, capacity: int } { .ptr = allocate_memory(sizeof T * capacity) as [*]T, .len = 0, .capacity = 128 };
     return pair as vec(T);
   end
 
   fun _new() do
-    return (type vec(T))._new_with_capacity(128) as vec(T);
+    return (type vec(T)).new_with_capacity(128) as vec(T);
   end
 
-  fun push_v(self: vec(T), value: T): int do
+  fun _push(self: vec(T), value: T): int do
     if (self.len + 1 < self.capacity) do
       let ptr = self.ptr;
       ptr[self.len] = value;
       self.len = self.len + 1;
     else
-      let new_data = (type vec(T))._new_with_capacity(self.capacity * 2) as vec(T); // FIXME: should work without cast
+      let new_data = (type vec(T)).new_with_capacity(self.capacity * 2) as vec(T); // FIXME: should work without cast
       new_data.len = self.len;
   
       let i = 0;
@@ -72,7 +72,7 @@ type vec(T: type) = struct {
         i = i + 1;
       end
 
-      new_data.push_v(value);
+      new_data._push(value);
   
       self.ptr = new_data.ptr;
       self.len = new_data.len;

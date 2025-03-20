@@ -77,7 +77,7 @@ pub const Desugarer = struct {
                                             .index = -1,
                                             .result_type = apply.params[0],
                                             .lhs = index.lhs,
-                                            .rhs = "set_v",
+                                            .rhs = "_set",
                                         },
                                     };
 
@@ -92,7 +92,7 @@ pub const Desugarer = struct {
                                                 .callee = callee,
                                                 .args = args.items,
                                                 .type_ = .{ .apply = apply },
-                                                .label_prefix = "set_v",
+                                                .label_prefix = "_set",
                                             },
                                         },
                                     };
@@ -103,7 +103,7 @@ pub const Desugarer = struct {
                                             .index = -1,
                                             .result_type = apply.params[0],
                                             .lhs = index.lhs,
-                                            .rhs = "set",
+                                            .rhs = "_set",
                                         },
                                     };
 
@@ -118,7 +118,7 @@ pub const Desugarer = struct {
                                                 .callee = callee,
                                                 .args = args.items,
                                                 .type_ = .{ .apply = apply },
-                                                .label_prefix = "set",
+                                                .label_prefix = "_set",
                                             },
                                         },
                                     };
@@ -146,7 +146,7 @@ pub const Desugarer = struct {
                                     .index = -1,
                                     .result_type = apply.params[0],
                                     .lhs = lhs,
-                                    .rhs = "push_v",
+                                    .rhs = "_push",
                                 },
                             };
 
@@ -159,7 +159,7 @@ pub const Desugarer = struct {
                                         .callee = callee,
                                         .args = args.items,
                                         .type_ = .{ .apply = apply },
-                                        .label_prefix = "push_v",
+                                        .label_prefix = "_push",
                                     },
                                 },
                             };
@@ -211,7 +211,7 @@ pub const Desugarer = struct {
                                     .index = -1,
                                     .result_type = apply.params[0],
                                     .lhs = index.lhs,
-                                    .rhs = "get_v",
+                                    .rhs = "_get",
                                 },
                             };
 
@@ -223,7 +223,7 @@ pub const Desugarer = struct {
                                     .callee = callee,
                                     .args = args.items,
                                     .type_ = .{ .apply = apply },
-                                    .label_prefix = "get_v",
+                                    .label_prefix = "_get",
                                 },
                             };
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
@@ -233,7 +233,7 @@ pub const Desugarer = struct {
                                     .index = -1,
                                     .result_type = apply.params[0],
                                     .lhs = index.lhs,
-                                    .rhs = "get",
+                                    .rhs = "_get",
                                 },
                             };
 
@@ -245,7 +245,7 @@ pub const Desugarer = struct {
                                     .callee = callee,
                                     .args = args.items,
                                     .type_ = .{ .apply = apply },
-                                    .label_prefix = "get",
+                                    .label_prefix = "_get",
                                 },
                             };
                         } else {
