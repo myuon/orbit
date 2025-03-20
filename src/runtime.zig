@@ -330,7 +330,11 @@ pub const VmRuntime = struct {
                     return ControlFlow.Terminated;
                 } else {
                     self.pc = @intCast(p + 5);
-                    _ = self.stack_traces.pop();
+                    if (self.stack_traces.items.len > 0) {
+                        _ = self.stack_traces.pop();
+                    } else {
+                        std.log.warn("Stack traces is empty", .{});
+                    }
                 }
             },
             .jump => |label| {

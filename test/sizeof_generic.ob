@@ -1,0 +1,13 @@
+type Container(A: type) = struct {
+  value: A,
+
+  fun get_size(self: Container(A)) do
+    return sizeof A;
+  end
+};
+
+fun main() do
+  let c = new Container(int) { .value = 10 };
+
+  return c.get_size();
+end 

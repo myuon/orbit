@@ -62,8 +62,10 @@ fun push_vec_int(data: struct{ptr: [*]int, len: int, capacity: int}, value: int)
     ptr[data.len] = value;
     data.len = data.len + 1;
   else
-    let new_data_byte = new vec(T) { .capacity = data.capacity * 2 };
+    let new_data_byte = new_vec(sizeof int, data.capacity * 2);
     let new_data = new_data_byte as struct{ptr: [*]int, len: int, capacity: int};
+    new_data.len = data.len;
+
     let i = 0;
     while (i < data.len) do
       set_vec_int(new_data, i, get_vec_int(data, i));
