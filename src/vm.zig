@@ -470,30 +470,7 @@ pub const VmCompiler = struct {
                         } else if (std.mem.eql(u8, apply.name, "vec")) {
                             unreachable;
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
-                            const valueType = try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator());
-                            switch (valueType) {
-                                .int => {
-                                    try self.callFunction(buffer, ast.Expression{ .var_ = "get_slice_int" }, "get_slice_int", @constCast(&[_]ast.Expression{
-                                        index.lhs.*,
-                                        index.rhs.*,
-                                    }));
-                                },
-                                .byte => {
-                                    try self.callFunction(buffer, ast.Expression{ .var_ = "get_slice_byte" }, "get_slice_byte", @constCast(&[_]ast.Expression{
-                                        index.lhs.*,
-                                        index.rhs.*,
-                                    }));
-                                },
-                                else => {
-                                    try self.compileExprFromAst(buffer, index.lhs.*);
-                                    try buffer.append(ast.Instruction{ .load = 8 });
-                                    try self.compileExprFromAst(buffer, index.rhs.*);
-                                    try buffer.append(ast.Instruction{ .push = valueType.size() });
-                                    try buffer.append(ast.Instruction{ .mul = true });
-                                    try buffer.append(ast.Instruction{ .add = true });
-                                    try buffer.append(ast.Instruction{ .load = valueType.size() });
-                                },
-                            }
+                            unreachable;
                         } else if (std.mem.eql(u8, apply.name, "map")) {
                             try self.compileExprFromAst(buffer, index.lhs.*);
                             try self.compileExprFromAst(buffer, index.rhs.*);
@@ -626,28 +603,14 @@ pub const VmCompiler = struct {
                         switch (index.type_) {
                             .apply => |apply| {
                                 if (std.mem.eql(u8, apply.name, "slice")) {
-                                    try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
-                                    try buffer.append(ast.Instruction{ .load = 8 });
-                                    try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);
-                                    try buffer.append(ast.Instruction{ .push = index.elem_type.size() });
-                                    try buffer.append(ast.Instruction{ .mul = true });
-                                    try buffer.append(ast.Instruction{ .add = true });
-                                    try self.compileExprFromAst(buffer, assign.rhs);
-                                    try buffer.append(ast.Instruction{ .store = index.elem_type.size() });
+                                    unreachable;
                                 } else if (std.mem.eql(u8, apply.name, "map")) {
                                     try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
                                     try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);
                                     try self.compileExprFromAst(buffer, assign.rhs);
                                     try buffer.append(ast.Instruction{ .table_set = true });
                                 } else if (std.mem.eql(u8, apply.name, "vec")) {
-                                    switch (apply.params[0]) {
-                                        .int => {
-                                            unreachable;
-                                        },
-                                        else => {
-                                            unreachable;
-                                        },
-                                    }
+                                    unreachable;
                                 } else {
                                     try self.compileLhsExprFromAst(buffer, assign.lhs);
                                     try self.compileExprFromAst(buffer, assign.rhs);

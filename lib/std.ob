@@ -40,6 +40,18 @@ fun get_slice_byte(data: slice(byte), index: int): byte do
   return ptr[index];
 end
 
+fun set_slice_int(data: slice(int), index: int, value: int) do
+  let ptr = data.ptr;
+  ptr[index] = value;
+  return 0;
+end
+
+fun set_slice_byte(data: slice(byte), index: int, value: byte) do
+  let ptr = data.ptr;
+  ptr[index] = value;
+  return 0;
+end
+
 fun new_vec(T: type, capacity: int): struct{ptr: [*]T, len: int, capacity: int} do
   let vec = new struct{ptr: [*]T, len: int, capacity: int} { .ptr = allocate_memory(sizeof T * capacity) as [*]T, .len = 0, .capacity = capacity };
 
