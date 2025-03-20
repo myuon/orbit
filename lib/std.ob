@@ -63,7 +63,7 @@ type vec(T: type) = struct {
       ptr[self.len] = value;
       self.len = self.len + 1;
     else
-      let new_data: vec(T) = (type vec(T)).new_with_capacity(self.capacity * 2);
+      let new_data = (type vec(T)).new_with_capacity(self.capacity * 2);
       new_data.len = self.len;
   
       let i = 0;
