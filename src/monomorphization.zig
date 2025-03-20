@@ -93,7 +93,6 @@ pub const Monomorphization = struct {
                             try std.fmt.format(label.writer(), "{s}_", .{t});
                         },
                         .type_ => {
-                            // FIXME: just show type itself
                             const s = callee.project.lhs.type_;
                             try std.fmt.format(label.writer(), "{s}_", .{s});
                         },
