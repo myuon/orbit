@@ -41,6 +41,7 @@ pub const VmRuntime = struct {
     allocator: std.mem.Allocator,
     arena_allocator: std.heap.ArenaAllocator,
     memory: []u8,
+    stack_traces: std.ArrayList([]const u8),
 
     pub fn init(allocator: std.mem.Allocator) VmRuntime {
         const size = 1024 * 1024;
@@ -62,6 +63,7 @@ pub const VmRuntime = struct {
             .allocator = allocator,
             .arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .memory = memory,
+            .stack_traces = std.ArrayList([]const u8).init(allocator),
         };
     }
 
@@ -73,6 +75,7 @@ pub const VmRuntime = struct {
         self.hot_spot_labels.deinit();
         self.jit_cache_ptr.deinit();
         self.jit_vtable.deinit();
+        self.stack_traces.deinit();
         self.arena_allocator.deinit();
     }
 
@@ -327,6 +330,7 @@ pub const VmRuntime = struct {
                     return ControlFlow.Terminated;
                 } else {
                     self.pc = @intCast(p + 5);
+                    _ = self.stack_traces.pop();
                 }
             },
             .jump => |label| {
@@ -516,6 +520,7 @@ pub const VmRuntime = struct {
                 }
 
                 self.pc = (try VmRuntime.find_label(program, label)).?;
+                try self.stack_traces.append(label);
             },
             .call_vtable => {
                 unreachable;

@@ -297,8 +297,9 @@ pub fn main() !void {
 
             const k = try std.fmt.allocPrint(draw_allocator,
                 \\pc: {d}, bp: {d}, next: {s}
+                \\stack_traces: {s}
                 \\stack: {s}
-            , .{ vmr.pc, bp, next.items, s });
+            , .{ vmr.pc, bp, next.items, vmr.stack_traces.items, s });
 
             try dbg.set_text("stack", k);
             try dbg.set_text("memory", memory.items);
