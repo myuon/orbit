@@ -379,24 +379,11 @@ pub const VmCompiler = struct {
 
                         std.debug.assert(new.initializers.len == def.fields.len);
 
-                        // TODO: calculate the size of each field
-                        try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, "allocate_memory", @constCast(&[_]ast.Expression{
-                            .{ .literal = .{ .number = @intCast(def.fields.len * 8) } },
-                        }));
-
-                        var fields = try self.ast_arena_allocator.allocator().alloc(ast.Expression, def.fields.len);
-                        for (new.initializers) |sinit| {
-                            const offset = try def.getFieldOffset(sinit.field);
-                            fields[offset] = sinit.value;
-                        }
-
-                        for (fields, 0..) |e, i| {
-                            try buffer.append(ast.Instruction{ .get_local_d = self.env_offset });
-                            try buffer.append(ast.Instruction{ .push = @intCast(i * 8) });
-                            try buffer.append(ast.Instruction{ .add = true });
-                            try self.compileExprFromAst(buffer, e);
-                            try buffer.append(ast.Instruction{ .store = 8 });
-                        }
+                        try self.compileNewExpr(buffer, ast.NewExpr{
+                            .initializers = new.initializers,
+                            .type_ = .{ .struct_ = def.fields },
+                            .method_name = null,
+                        });
                     }
                 }
             },
