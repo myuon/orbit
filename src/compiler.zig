@@ -772,3 +772,58 @@ test "compiler.evalModule" {
         }
     }
 }
+
+test "compiler.evalFiles" {
+    const test_dir = "test";
+    var dir = try std.fs.cwd().openDir(test_dir, .{ .iterate = true });
+    defer dir.close();
+
+    var dir_iterator = dir.iterate();
+    while (try dir_iterator.next()) |entry| {
+        if (!std.mem.endsWith(u8, entry.name, ".ob")) continue;
+
+        const base_name = entry.name[0 .. entry.name.len - 3];
+        const stdout_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/{s}.stdout", .{ test_dir, base_name });
+        defer std.testing.allocator.free(stdout_path);
+
+        const stdout_file = try std.fs.cwd().openFile(stdout_path, .{});
+        defer stdout_file.close();
+
+        const expected = try stdout_file.reader().readAllAlloc(std.testing.allocator, 1024);
+        defer std.testing.allocator.free(expected);
+
+        const program_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/{s}", .{ test_dir, entry.name });
+        defer std.testing.allocator.free(program_path);
+
+        const program = try std.fs.cwd().readFileAlloc(std.testing.allocator, program_path, 1024);
+        defer std.testing.allocator.free(program);
+
+        var c = Compiler.init(std.testing.allocator);
+        defer c.deinit();
+
+        try c.compile(program, true);
+
+        const actual = try std.fmt.allocPrint(std.testing.allocator, "{d}", .{c.result.?.i64_});
+        defer std.testing.allocator.free(actual);
+
+        var expected_trimmed = std.ArrayList(u8).init(std.testing.allocator);
+        defer expected_trimmed.deinit();
+
+        var actual_trimmed = std.ArrayList(u8).init(std.testing.allocator);
+        defer actual_trimmed.deinit();
+
+        for (expected) |char| {
+            if (char != '\n') {
+                try expected_trimmed.append(char);
+            }
+        }
+
+        for (actual) |char| {
+            if (char != '\n') {
+                try actual_trimmed.append(char);
+            }
+        }
+
+        try std.testing.expectEqualStrings(expected_trimmed.items, actual_trimmed.items);
+    }
+}
