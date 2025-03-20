@@ -239,7 +239,24 @@ pub const Desugarer = struct {
                                 },
                             };
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
-                            return;
+                            const callee = try self.arena_allocator.allocator().create(ast.Expression);
+                            callee.* = .{
+                                .var_ = "new_slice",
+                            };
+
+                            var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
+                            try args.append(.{ .sizeof = apply.params[0] });
+                            std.debug.assert(std.mem.eql(u8, new_expr.initializers[1].field, "len"));
+                            try args.append(new_expr.initializers[1].value);
+
+                            expr.* = .{
+                                .call = .{
+                                    .callee = callee,
+                                    .args = args.items,
+                                    .type_ = null,
+                                    .label_prefix = "new_slice",
+                                },
+                            };
                         } else {
                             return;
                         }
