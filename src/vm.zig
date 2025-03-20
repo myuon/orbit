@@ -411,13 +411,7 @@ pub const VmCompiler = struct {
                         .{ .literal = .{ .number = @intCast(128 * @as(usize, apply.params[1].size())) } },
                     }));
                 } else if (std.mem.eql(u8, apply.name, "vec")) {
-                    std.debug.assert(new.initializers.len == 0);
-
-                    try self.callFunction(buffer, ast.Expression{ .var_ = "new_vec" }, "new_vec", @constCast(&[_]ast.Expression{
-                        .{ .literal = .{ .number = @intCast(apply.params[0].size()) } },
-                        .{ .literal = .{ .number = @intCast(128) } },
-                    }));
-                    return;
+                    unreachable;
                 } else {
                     const def = self.type_defs.?.get(apply.name).?;
 

@@ -477,7 +477,6 @@ pub const Monomorphization = struct {
 
         // Implicitly called builtin symbols
         try self.stack.append(.{ .symbol = "push_vec_int", .args = &[_]ast.Type{} });
-        try self.stack.append(.{ .symbol = "new_vec", .args = &[_]ast.Type{} });
         try self.stack.append(.{ .symbol = "allocate_memory", .args = &[_]ast.Type{} });
         try self.stack.append(.{ .symbol = "hp", .args = &[_]ast.Type{} });
 

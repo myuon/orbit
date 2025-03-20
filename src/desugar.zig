@@ -131,6 +131,9 @@ pub const Desugarer = struct {
                     .struct_ => {
                         return;
                     },
+                    .ident => {
+                        return;
+                    },
                     else => {
                         std.log.err("Unexpected type in new expression: {any}", .{new_expr.type_});
                         return error.UnexpectedType;
