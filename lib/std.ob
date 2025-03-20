@@ -33,12 +33,6 @@ type slice(T: type) = struct {
   .value = T,
 };
 
-fun new_slice(T: type, len: int): slice(T) do
-  let pair = new struct { ptr: [*]T, len: int } { .ptr = allocate_memory(sizeof T * len), .len = len };
-
-  return pair as slice(T);
-end
-
 fun new_vec(T: type, capacity: int): struct{ptr: [*]T, len: int, capacity: int} do
   let vec = new struct{ptr: [*]T, len: int, capacity: int} { .ptr = allocate_memory(sizeof T * capacity) as [*]T, .len = 0, .capacity = capacity };
 
