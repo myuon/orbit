@@ -53,7 +53,7 @@ type vec(T: type) = struct {
     return pair as vec(T);
   end
 
-  fun _new_v() do
+  fun _new() do
     return (type vec(T))._new_with_capacity(128) as vec(T);
   end
 

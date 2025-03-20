@@ -672,7 +672,21 @@ pub const Typechecker = struct {
 
                     return try def.getFieldType(field);
                 } else {
-                    const method_type = self.env.get(field).?;
+                    var key = std.ArrayList(u8).init(self.arena_allocator.allocator());
+                    try key.appendSlice(field);
+
+                    switch (lhs_type) {
+                        .apply => |apply| {
+                            try key.appendSlice("_");
+                            try key.appendSlice(apply.name);
+                        },
+                        .ident => |ident| {
+                            try key.appendSlice("_");
+                            try key.appendSlice(ident);
+                        },
+                        else => {},
+                    }
+                    const method_type = self.env.get(key.items).?;
 
                     var self_index: i32 = -1; // if -1, then the method is static
                     for (method_type.fun.params, 0..) |param, i| {
@@ -827,7 +841,15 @@ pub const Typechecker = struct {
                 const return_type = try self.arena_allocator.allocator().create(ast.Type);
                 return_type.* = fun.result_type;
 
-                if (self.env.contains(fun.name)) {
+                var keyArray = std.ArrayList(u8).init(self.arena_allocator.allocator());
+                try keyArray.appendSlice(fun.name);
+                if (self.context) |ctx| {
+                    try keyArray.appendSlice("_");
+                    try keyArray.appendSlice(ctx);
+                }
+                const key = keyArray.items;
+
+                if (self.env.contains(key)) {
                     std.log.err("Function {s} already defined\n", .{fun.name});
                     unreachable;
                 }
@@ -846,7 +868,7 @@ pub const Typechecker = struct {
                     });
                 }
 
-                try self.env.put(fun.name, ast.Type{ .fun = .{
+                try self.env.put(key, ast.Type{ .fun = .{
                     .params = params.items,
                     .return_type = return_type,
                     .context = self.context,
@@ -866,7 +888,7 @@ pub const Typechecker = struct {
                     .return_type = return_type,
                     .context = self.context,
                 } };
-                try self.env.put(fun.name, t);
+                try self.env.put(key, t);
 
                 self.return_type = null;
             },

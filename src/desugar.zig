@@ -264,7 +264,7 @@ pub const Desugarer = struct {
                 switch (new_expr.type_) {
                     .apply => |apply| {
                         if (std.mem.eql(u8, apply.name, "vec")) {
-                            expr.new.method_name = "_new_v";
+                            expr.new.method_name = "_new";
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
                             expr.new.method_name = "_new";
                         } else {
