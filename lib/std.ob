@@ -40,8 +40,9 @@ fun get_slice_byte(data: slice(byte), index: int): byte do
   return ptr[index];
 end
 
-fun new_vec(size: int, capacity: int): struct{ptr: [*]byte, len: int, capacity: int} do
-  let vec = new struct{ptr: [*]byte, len: int, capacity: int} { .ptr = allocate_memory(size * capacity), .len = 0, .capacity = capacity };
+fun new_vec(T: type, capacity: int): struct{ptr: [*]T, len: int, capacity: int} do
+  let vec = new struct{ptr: [*]T, len: int, capacity: int} { .ptr = allocate_memory(sizeof T * capacity) as [*]T, .len = 0, .capacity = capacity };
+
   return vec;
 end
 
@@ -62,8 +63,7 @@ fun push_vec_int(data: struct{ptr: [*]int, len: int, capacity: int}, value: int)
     ptr[data.len] = value;
     data.len = data.len + 1;
   else
-    let new_data_byte = new_vec(sizeof int, data.capacity * 2);
-    let new_data = new_data_byte as struct{ptr: [*]int, len: int, capacity: int};
+    let new_data = new_vec(type int, data.capacity * 2) as struct{ptr: [*]int, len: int, capacity: int};
     new_data.len = data.len;
 
     let i = 0;
