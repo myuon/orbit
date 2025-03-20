@@ -288,13 +288,13 @@ pub const VmCompiler = struct {
                             const valueType = try index.type_.getValueType(self.type_defs.?, self.ast_arena_allocator.allocator());
                             switch (valueType) {
                                 .int => {
-                                    try self.callFunction(buffer, ast.Expression{ .var_ = "get_slice_int" }, "get_slice_int", @constCast(&[_]ast.Expression{
+                                    try self.callFunction(buffer, ast.Expression{ .var_ = "slice_int_get" }, "slice_int_get", @constCast(&[_]ast.Expression{
                                         index.lhs.*,
                                         index.rhs.*,
                                     }));
                                 },
                                 .byte => {
-                                    try self.callFunction(buffer, ast.Expression{ .var_ = "get_slice_byte" }, "get_slice_byte", @constCast(&[_]ast.Expression{
+                                    try self.callFunction(buffer, ast.Expression{ .var_ = "slice_byte_get" }, "slice_byte_get", @constCast(&[_]ast.Expression{
                                         index.lhs.*,
                                         index.rhs.*,
                                     }));

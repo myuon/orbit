@@ -1,5 +1,5 @@
 fun main() do
-  let s = new slice(int) { .ptr = allocate_memory(10 * 8), .len = 10 };
+  let s = new slice(int) { .ptr = allocate_memory(10 * 8) as [*]int, .len = 10 };
   let n = 0;
   while (n < 10) do
     if (n == 0) do

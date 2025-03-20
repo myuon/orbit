@@ -15,12 +15,16 @@ end
 type slice(T: type) = struct {
   ptr: [*]T,
   len: int,
+
+  fun get(self: slice(T), index: int): T do
+    return self.ptr[index];
+  end
 } extends {
   .key = int,
   .value = T,
 };
 
-fun new_slice(size: int, len: int) do
+fun new_slice(size: int, len: int): slice(byte) do
   let pair = new slice(byte) { .ptr = allocate_memory(size * len), .len = len };
 
   return pair;
