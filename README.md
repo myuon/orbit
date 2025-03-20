@@ -106,6 +106,7 @@ return p.sum();  // 41
 ### Generic Types
 
 ```orbit
+// Generic struct
 type Pair(A: type, B: type) = struct {
   first: A,
   second: B,
@@ -116,8 +117,26 @@ type Pair(A: type, B: type) = struct {
   end
 };
 
-let p = new Pair(type int, type [*]byte) { .first = 1, .second = "hello" };
-p.set_first(3);
+// Generic functions
+fun get_first(A: type, B: type, a: A, b: B): A do
+  return a;
+end
+
+fun get_second(A: type, B: type, a: A, b: B): B do
+  return b;
+end
+
+fun main() do
+  // Using generic struct
+  let p = new Pair(type int, type [*]byte) { .first = 1, .second = "hello" };
+  p.set_first(3);
+
+  // Using generic functions
+  let a = get_first(type int, type [*]byte, 1, "Hello, ");
+  let b = get_second(type [*]byte, type int, "World!", 3);
+
+  return a + b;  // 4
+end
 ```
 
 ### Global Variables
