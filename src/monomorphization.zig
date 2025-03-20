@@ -275,6 +275,7 @@ pub const Monomorphization = struct {
                     .let = .{
                         .name = let_stmt.name,
                         .value = try self.monomorphExpression(target, let_stmt.value),
+                        .type_ = let_stmt.type_,
                     },
                 };
             },

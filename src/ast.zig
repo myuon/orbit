@@ -272,6 +272,7 @@ pub const Statement = union(StatementType) {
     let: struct {
         name: []const u8,
         value: Expression,
+        type_: Type,
     },
     return_: Expression,
     expr: Expression,

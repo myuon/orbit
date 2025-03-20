@@ -350,10 +350,17 @@ pub const Parser = struct {
                         .let => {
                             try self.expect(ast.Operator.let);
                             const name = try self.expect_ident();
+
+                            var t = ast.Type{ .unknown = true };
+                            if (self.is_next(ast.Operator.colon)) {
+                                try self.expect(ast.Operator.colon);
+                                t = try self.type_();
+                            }
+
                             try self.expect(ast.Operator.eq);
                             const value = try self.expr();
 
-                            return ast.Statement{ .let = .{ .name = name, .value = value } };
+                            return ast.Statement{ .let = .{ .name = name, .value = value, .type_ = t } };
                         },
                         .return_ => {
                             try self.expect(ast.Operator.return_);

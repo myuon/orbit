@@ -740,7 +740,9 @@ pub const Typechecker = struct {
                     std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ stmt.let.value, err, @src().file, @src().line });
                     return err;
                 };
-                try self.env.put(let.name, t);
+                const r = try self.assertType(let.type_, t);
+
+                try self.env.put(let.name, r);
             },
             .return_ => {
                 const t = try self.typecheckExpr(&stmt.return_);
