@@ -19,6 +19,10 @@ type slice(T: type) = struct {
   fun get(self: slice(T), index: int): T do
     return self.ptr[index];
   end
+
+  fun set(self: slice(T), index: int, value: T) do
+    self.ptr[index] = value;
+  end
 } extends {
   .key = int,
   .value = T,
@@ -28,28 +32,6 @@ fun new_slice(T: type, len: int): slice(T) do
   let pair = new struct { ptr: [*]T, len: int } { .ptr = allocate_memory(sizeof T * len), .len = len };
 
   return pair as slice(T);
-end
-
-fun get_slice_int(data: slice(int), index: int): int do
-  let ptr = data.ptr;
-  return ptr[index];
-end
-
-fun get_slice_byte(data: slice(byte), index: int): byte do
-  let ptr = data.ptr;
-  return ptr[index];
-end
-
-fun set_slice_int(data: slice(int), index: int, value: int) do
-  let ptr = data.ptr;
-  ptr[index] = value;
-  return 0;
-end
-
-fun set_slice_byte(data: slice(byte), index: int, value: byte) do
-  let ptr = data.ptr;
-  ptr[index] = value;
-  return 0;
 end
 
 fun new_vec(T: type, capacity: int): struct{ptr: [*]T, len: int, capacity: int} do

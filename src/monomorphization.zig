@@ -457,8 +457,6 @@ pub const Monomorphization = struct {
                 continue;
             } else if (std.mem.eql(u8, target.symbol, "vec")) {
                 continue;
-            } else if (std.mem.eql(u8, target.symbol, "slice")) {
-                continue;
             } else if (std.mem.eql(u8, target.symbol, "array")) {
                 continue;
             }

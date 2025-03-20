@@ -99,7 +99,12 @@ pub const Desugarer = struct {
                                         .int => {
                                             const callee = try self.arena_allocator.allocator().create(ast.Expression);
                                             callee.* = .{
-                                                .var_ = "set_slice_int",
+                                                .project = .{
+                                                    .index = -1,
+                                                    .result_type = apply.params[0],
+                                                    .lhs = index.lhs,
+                                                    .rhs = "set",
+                                                },
                                             };
 
                                             var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
@@ -112,8 +117,8 @@ pub const Desugarer = struct {
                                                     .call = .{
                                                         .callee = callee,
                                                         .args = args.items,
-                                                        .type_ = null,
-                                                        .label_prefix = "set_slice_int",
+                                                        .type_ = .{ .apply = apply },
+                                                        .label_prefix = "set",
                                                     },
                                                 },
                                             };
@@ -200,6 +205,8 @@ pub const Desugarer = struct {
                 try self.desugarBlock(&if_.else_);
             },
             .index => |*index| {
+                try self.desugarExpr(index.rhs);
+
                 switch (index.type_) {
                     .apply => |apply| {
                         if (std.mem.eql(u8, apply.name, "vec")) {
@@ -228,49 +235,27 @@ pub const Desugarer = struct {
                                 },
                             }
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
-                            switch (apply.params[0]) {
-                                .int => {
-                                    const callee = try self.arena_allocator.allocator().create(ast.Expression);
-                                    callee.* = .{
-                                        .var_ = "get_slice_int",
-                                    };
-
-                                    var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
-                                    try args.append(index.lhs.*);
-                                    try args.append(index.rhs.*);
-
-                                    expr.* = .{
-                                        .call = .{
-                                            .callee = callee,
-                                            .args = args.items,
-                                            .type_ = null,
-                                            .label_prefix = "get_slice_int",
-                                        },
-                                    };
+                            const callee = try self.arena_allocator.allocator().create(ast.Expression);
+                            callee.* = .{
+                                .project = .{
+                                    .index = -1,
+                                    .result_type = apply.params[0],
+                                    .lhs = index.lhs,
+                                    .rhs = "get",
                                 },
-                                .byte => {
-                                    const callee = try self.arena_allocator.allocator().create(ast.Expression);
-                                    callee.* = .{
-                                        .var_ = "get_slice_byte",
-                                    };
+                            };
 
-                                    var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
-                                    try args.append(index.lhs.*);
-                                    try args.append(index.rhs.*);
+                            var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
+                            try args.append(index.rhs.*);
 
-                                    expr.* = .{
-                                        .call = .{
-                                            .callee = callee,
-                                            .args = args.items,
-                                            .type_ = null,
-                                            .label_prefix = "get_slice_byte",
-                                        },
-                                    };
+                            expr.* = .{
+                                .call = .{
+                                    .callee = callee,
+                                    .args = args.items,
+                                    .type_ = .{ .apply = apply },
+                                    .label_prefix = "get",
                                 },
-                                else => {
-                                    unreachable;
-                                },
-                            }
+                            };
                         } else {
                             try self.desugarExpr(index.lhs);
                             try self.desugarExpr(index.rhs);
@@ -305,24 +290,7 @@ pub const Desugarer = struct {
                                 },
                             };
                         } else if (std.mem.eql(u8, apply.name, "slice")) {
-                            const callee = try self.arena_allocator.allocator().create(ast.Expression);
-                            callee.* = .{
-                                .var_ = "new_slice",
-                            };
-
-                            var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
-                            try args.append(.{ .type_ = apply.params[0] });
-                            std.debug.assert(std.mem.eql(u8, new_expr.initializers[1].field, "len"));
-                            try args.append(new_expr.initializers[1].value);
-
-                            expr.* = .{
-                                .call = .{
-                                    .callee = callee,
-                                    .args = args.items,
-                                    .type_ = null,
-                                    .label_prefix = "new_slice",
-                                },
-                            };
+                            return;
                         } else {
                             return;
                         }
