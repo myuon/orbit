@@ -415,7 +415,7 @@ pub const VmCompiler = struct {
 
                     try self.callFunction(buffer, ast.Expression{ .var_ = "new_vec" }, "new_vec", @constCast(&[_]ast.Expression{
                         .{ .literal = .{ .number = @intCast(apply.params[0].size()) } },
-                        .{ .literal = .{ .number = @intCast(4) } },
+                        .{ .literal = .{ .number = @intCast(128) } },
                     }));
                     return;
                 } else {
