@@ -648,12 +648,7 @@ pub const VmCompiler = struct {
                                 } else if (std.mem.eql(u8, apply.name, "vec")) {
                                     switch (apply.params[0]) {
                                         .int => {
-                                            try self.callFunction(buffer, ast.Expression{ .var_ = "set_vec_int" }, "set_vec_int", @constCast(&[_]ast.Expression{
-                                                assign.lhs.index.lhs.*,
-                                                assign.lhs.index.rhs.*,
-                                                assign.rhs,
-                                            }));
-                                            try buffer.append(ast.Instruction{ .pop = true });
+                                            unreachable;
                                         },
                                         else => {
                                             unreachable;

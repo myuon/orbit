@@ -60,8 +60,51 @@ pub const Desugarer = struct {
                 }
             },
             .assign => |*assign| {
-                try self.desugarExpr(&assign.lhs);
-                try self.desugarExpr(&assign.rhs);
+                switch (assign.lhs) {
+                    .index => |index| {
+                        switch (index.type_) {
+                            .apply => |apply| {
+                                if (std.mem.eql(u8, apply.name, "vec")) {
+                                    switch (apply.params[0]) {
+                                        .int => {
+                                            const callee = try self.arena_allocator.allocator().create(ast.Expression);
+                                            callee.* = .{
+                                                .var_ = "set_vec_int",
+                                            };
+
+                                            var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
+                                            try args.append(index.lhs.*);
+                                            try args.append(index.rhs.*);
+                                            try args.append(assign.rhs);
+
+                                            statement.* = .{
+                                                .expr = .{
+                                                    .call = .{
+                                                        .callee = callee,
+                                                        .args = args.items,
+                                                        .type_ = null,
+                                                        .label_prefix = "set_vec_int",
+                                                    },
+                                                },
+                                            };
+                                        },
+                                        else => {
+                                            unreachable;
+                                        },
+                                    }
+                                } else {
+                                    try self.desugarExpr(&assign.rhs);
+                                }
+                            },
+                            else => {
+                                try self.desugarExpr(&assign.rhs);
+                            },
+                        }
+                    },
+                    else => {
+                        try self.desugarExpr(&assign.rhs);
+                    },
+                }
             },
             .push => |*push| {
                 try self.desugarExpr(&push.lhs);
