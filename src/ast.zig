@@ -620,9 +620,7 @@ pub const Type = union(TypeType) {
     pub fn getIndexType(self: Type, defs: TypeDefs) anyerror!Type {
         switch (self) {
             .ident => |ident| {
-                if (std.mem.eql(u8, ident.name, "array")) {
-                    return Type{ .int = true };
-                } else if (std.mem.eql(u8, ident.name, "slice")) {
+                if (std.mem.eql(u8, ident.name, "slice")) {
                     // FIXME: type params for key
                     const def = defs.get(ident.name).?;
                     for (def.extends) |extend| {

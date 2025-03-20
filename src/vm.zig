@@ -279,13 +279,7 @@ pub const VmCompiler = struct {
             .index => |index| {
                 switch (index.type_) {
                     .ident => |ident| {
-                        if (std.mem.eql(u8, ident.name, "array")) {
-                            try self.compileExprFromAst(buffer, index.lhs.*);
-                            try self.compileExprFromAst(buffer, index.rhs.*);
-                            try buffer.append(ast.Instruction{ .push = index.elem_type.size() });
-                            try buffer.append(ast.Instruction{ .mul = true });
-                            try buffer.append(ast.Instruction{ .add = true });
-                        } else if (std.mem.eql(u8, ident.name, "vec")) {
+                        if (std.mem.eql(u8, ident.name, "vec")) {
                             unreachable;
                         } else if (std.mem.eql(u8, ident.name, "slice")) {
                             unreachable;
@@ -414,13 +408,7 @@ pub const VmCompiler = struct {
 
                 switch (index.type_) {
                     .ident => |ident| {
-                        if (std.mem.eql(u8, ident.name, "array")) {
-                            try self.compileExprFromAst(buffer, index.lhs.*);
-                            try self.compileExprFromAst(buffer, index.rhs.*);
-                            try buffer.append(ast.Instruction{ .push = index.elem_type.size() });
-                            try buffer.append(ast.Instruction{ .mul = true });
-                            try buffer.append(ast.Instruction{ .add = true });
-                        } else if (std.mem.eql(u8, ident.name, "vec")) {
+                        if (std.mem.eql(u8, ident.name, "vec")) {
                             unreachable;
                         } else if (std.mem.eql(u8, ident.name, "slice")) {
                             unreachable;

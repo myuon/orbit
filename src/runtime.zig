@@ -18,12 +18,6 @@ const MapEntry = struct {
     value: ast.Value,
 };
 
-const VecData = struct {
-    array_ptr: usize,
-    len: usize,
-    capacity: usize,
-};
-
 pub const VmRuntimeError = error{
     LabelNotFound,
     AssertionFailed,

@@ -503,8 +503,6 @@ pub const Monomorphization = struct {
 
             if (std.mem.eql(u8, target.symbol, "map")) {
                 continue;
-            } else if (std.mem.eql(u8, target.symbol, "array")) {
-                continue;
             }
 
             try decls.append(try self.monomorphDeclInModule(target, module.*));

@@ -151,9 +151,7 @@ pub const Typechecker = struct {
     fn getValueType(self: *Typechecker, type_: ast.Type) anyerror!ast.Type {
         switch (type_) {
             .ident => |ident| {
-                if (std.mem.eql(u8, ident.name, "array")) {
-                    return ident.params[0];
-                } else if (std.mem.eql(u8, ident.name, "slice")) {
+                if (std.mem.eql(u8, ident.name, "slice")) {
                     var def = self.type_defs.?.get(ident.name).?;
                     def = try self.applyTypeDef(def, ident.params);
 
