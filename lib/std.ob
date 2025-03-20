@@ -71,6 +71,10 @@ fun push_vec_int(data: struct{ptr: [*]int, len: int, capacity: int}, value: int)
     end
 
     push_vec_int(new_data, value);
+
+    data.ptr = new_data.ptr;
+    data.len = new_data.len;
+    data.capacity = new_data.capacity;
   end
 
   return 0;

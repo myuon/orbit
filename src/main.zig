@@ -130,9 +130,12 @@ pub fn main() !void {
         try bw.flush();
     } else if (std.mem.eql(u8, command, "dbg")) {
         var breakpoint: i32 = -1;
+        var breakpoint_label: ?[]const u8 = null;
         for (argv[2..], 0..) |arg, k| {
-            if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--breakpoint")) {
+            if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--breakpoint-at")) {
                 breakpoint = try std.fmt.parseInt(i32, argv[k + 3][0..std.mem.len(argv[k + 3])], 10);
+            } else if (std.mem.eql(u8, arg[0..std.mem.len(arg)], "--breakpoint")) {
+                breakpoint_label = argv[k + 3][0..std.mem.len(argv[k + 3])];
             }
         }
 
@@ -226,6 +229,15 @@ pub fn main() !void {
                 }
                 if (@as(i32, @intCast(vmr.pc)) == breakpoint) {
                     mode_resume = false;
+                } else if (breakpoint_label != null) {
+                    switch (prog[vmr.pc]) {
+                        .label => |label| {
+                            if (std.mem.eql(u8, label, breakpoint_label.?)) {
+                                mode_resume = false;
+                            }
+                        },
+                        else => {},
+                    }
                 }
             }
 

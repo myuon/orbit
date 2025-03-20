@@ -1,15 +1,12 @@
 fun main() do
-  let limit = 8;
-  let at = 6;
-
   let vec = new vec(int) {};
   let n = 0;
-  while (n < limit) do
+  while (n < 1000) do
     vec <- n * n;
     n = n + 1;
   end
 
-  vec[at] = vec[at] + 10;
+  vec[777] = vec[777] + 10;
 
-  return vec[at];
+  return vec[777];
 end
