@@ -607,7 +607,7 @@ pub const Typechecker = struct {
             },
             .project => |project| {
                 const lhs = project.lhs;
-                const lhs_type = try self.typecheckExpr(lhs);
+                var lhs_type = try self.typecheckExpr(lhs);
 
                 var def: ast.TypeDef = undefined;
                 switch (lhs_type) {
@@ -649,6 +649,7 @@ pub const Typechecker = struct {
                         d = try self.applyTypeDef(d, lhs.type_.apply.params);
 
                         def = d;
+                        lhs_type = lhs.type_;
                     },
                     else => {
                         const j = try std.json.stringifyAlloc(self.arena_allocator.allocator(), lhs_type, .{});
@@ -752,6 +753,13 @@ pub const Typechecker = struct {
                     std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ stmt.assign.lhs, err, @src().file, @src().line });
                     return err;
                 };
+                switch (lhs_type) {
+                    .type_ => {
+                        std.log.err("stmt: {any}, lhs_type: {any}\n", .{ stmt.*, lhs_type });
+                        unreachable;
+                    },
+                    else => {},
+                }
 
                 const rhs_type = self.typecheckExpr(&stmt.assign.rhs) catch |err| {
                     std.log.err("Error in expression {any}: {}\n   {s}:{}", .{ stmt.assign.rhs, err, @src().file, @src().line });

@@ -77,11 +77,15 @@ pub const Monomorphization = struct {
                     .label_prefix = null,
                     .callee = callee,
                     .args = new_args.items,
+                    .type_ = null,
                 };
+                if (call.type_) |t| {
+                    new_call.type_ = try t.applyAssignments(self.arena_allocator.allocator(), self.assignments);
+                }
 
                 var label = std.ArrayList(u8).init(self.arena_allocator.allocator());
-                if (call.type_) |t| {
-                    switch (try t.applyAssignments(self.arena_allocator.allocator(), self.assignments)) {
+                if (new_call.type_) |t| {
+                    switch (t) {
                         .ident => |ident| {
                             try std.fmt.format(label.writer(), "{s}_", .{ident});
                         },

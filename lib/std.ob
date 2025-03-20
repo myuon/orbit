@@ -48,7 +48,7 @@ type vec(T: type) = struct {
     return 0;
   end
 
-  fun _new_with_capacity(capacity: int) do
+  fun _new_with_capacity(capacity: int): vec(T) do
     let pair = new struct { ptr: [*]T, len: int, capacity: int } { .ptr = allocate_memory(sizeof T * capacity) as [*]T, .len = 0, .capacity = 128 };
     return pair as vec(T);
   end
@@ -63,7 +63,7 @@ type vec(T: type) = struct {
       ptr[self.len] = value;
       self.len = self.len + 1;
     else
-      let new_data = (type vec(T))._new_with_capacity(self.capacity * 2);
+      let new_data = (type vec(T))._new_with_capacity(self.capacity * 2) as vec(T); // FIXME: should work without cast
       new_data.len = self.len;
   
       let i = 0;

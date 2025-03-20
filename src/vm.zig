@@ -135,8 +135,14 @@ pub const VmCompiler = struct {
         // self
         switch (callee) {
             .project => |project| {
-                try self.compileExprFromAst(buffer, project.lhs.*);
-                argCount += 1;
+                switch (project.lhs.*) {
+                    // Skip if calling an associated function
+                    .type_ => {},
+                    else => {
+                        try self.compileExprFromAst(buffer, project.lhs.*);
+                        argCount += 1;
+                    },
+                }
             },
             else => {},
         }
