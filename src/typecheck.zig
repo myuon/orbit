@@ -484,12 +484,14 @@ pub const Typechecker = struct {
 
                         if (self.self_object) |obj| {
                             // Recover type applications here
-                            for (fun.params) |param| {
-                                if (std.mem.eql(u8, param.name, "self")) {
-                                    break;
-                                }
+                            if (obj.index != -1) {
+                                for (fun.params) |param| {
+                                    if (std.mem.eql(u8, param.name, "self")) {
+                                        break;
+                                    }
 
-                                try args_list.append(.{ .type_ = .{ .unknown = true } });
+                                    try args_list.append(.{ .type_ = .{ .unknown = true } });
+                                }
                             }
 
                             try args_list.append(obj.expr);
@@ -638,6 +640,16 @@ pub const Typechecker = struct {
 
                         def = d;
                     },
+                    .type_ => {
+                        var d = self.type_defs.?.get(lhs.type_.apply.name) orelse {
+                            std.log.err("Type not found: {s}\n", .{lhs.type_.apply.name});
+                            return error.VariableNotFound;
+                        };
+
+                        d = try self.applyTypeDef(d, lhs.type_.apply.params);
+
+                        def = d;
+                    },
                     else => {
                         const j = try std.json.stringifyAlloc(self.arena_allocator.allocator(), lhs_type, .{});
                         std.log.err("Expected struct, got {s}\n", .{j});
@@ -661,15 +673,13 @@ pub const Typechecker = struct {
                 } else {
                     const method_type = self.env.get(field).?;
 
-                    var self_index: i32 = -1;
+                    var self_index: i32 = -1; // if -1, then the method is static
                     for (method_type.fun.params, 0..) |param, i| {
                         if (std.mem.eql(u8, param.name, "self")) {
                             self_index = @intCast(i);
                             break;
                         }
                     }
-
-                    std.debug.assert(self_index != -1);
 
                     self.self_object = .{ .index = self_index, .expr = lhs.*, .type_ = lhs_type };
 

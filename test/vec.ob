@@ -2,7 +2,7 @@ fun main() do
   let limit = 8;
   let at = 6;
 
-  let vec = new vec(int) {.capacity = 128}; // FIXME: no capacity
+  let vec = new vec(int) {};
   let n = 0;
   while (n < limit) do
     vec <- n * n;

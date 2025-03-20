@@ -427,7 +427,7 @@ pub const Decl = union(DeclType) {
                 }
                 try std.fmt.format(writer, "): {any} do\n", .{fun.result_type});
                 try std.fmt.format(writer, "{any}", .{fun.body});
-                try std.fmt.format(writer, "end", .{});
+                try std.fmt.format(writer, "end\n", .{});
             },
             .let => |let| {
                 try std.fmt.format(writer, "let {s} = {any}; ", .{ let.name, let.value });

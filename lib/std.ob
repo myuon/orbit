@@ -22,6 +22,7 @@ type slice(T: type) = struct {
 
   fun set(self: slice(T), index: int, value: T) do
     self.ptr[index] = value;
+    return 0;
   end
 
   fun _new(len: int) do
@@ -44,11 +45,16 @@ type vec(T: type) = struct {
 
   fun set_v(self: vec(T), index: int, value: T) do
     self.ptr[index] = value;
+    return 0;
   end
 
-  fun _new_v(capacity: int) do
-    let pair = new struct { ptr: [*]T, len: int, capacity: int } { .ptr = allocate_memory(sizeof T * capacity) as [*]T, .len = 0, .capacity = capacity };
+  fun _new_with_capacity(capacity: int) do
+    let pair = new struct { ptr: [*]T, len: int, capacity: int } { .ptr = allocate_memory(sizeof T * capacity) as [*]T, .len = 0, .capacity = 128 };
     return pair as vec(T);
+  end
+
+  fun _new_v() do
+    return (type vec(T))._new_with_capacity(128) as vec(T);
   end
 
   fun push_v(self: vec(T), value: T): int do
@@ -57,7 +63,7 @@ type vec(T: type) = struct {
       ptr[self.len] = value;
       self.len = self.len + 1;
     else
-      let new_data = new vec(T) { .capacity = self.capacity * 2 };
+      let new_data = (type vec(T))._new_with_capacity(self.capacity * 2);
       new_data.len = self.len;
   
       let i = 0;

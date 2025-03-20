@@ -81,7 +81,7 @@ pub const Monomorphization = struct {
 
                 var label = std.ArrayList(u8).init(self.arena_allocator.allocator());
                 if (call.type_) |t| {
-                    switch (t) {
+                    switch (try t.applyAssignments(self.arena_allocator.allocator(), self.assignments)) {
                         .ident => |ident| {
                             try std.fmt.format(label.writer(), "{s}_", .{ident});
                         },
@@ -92,15 +92,25 @@ pub const Monomorphization = struct {
                             }
                             try std.fmt.format(label.writer(), "_", .{});
                         },
-                        else => {},
+                        .type_ => {
+                            // FIXME: just show type itself
+                            const s = callee.project.lhs.type_;
+                            try std.fmt.format(label.writer(), "{s}", .{s.apply.name});
+                            for (s.apply.params) |param| {
+                                try std.fmt.format(label.writer(), "_{any}", .{param});
+                            }
+                            try std.fmt.format(label.writer(), "_", .{});
+                        },
+                        else => {
+                            std.log.err("Unexpected call type: {any}\n", .{t});
+                            unreachable;
+                        },
                     }
                 }
                 try label.appendSlice(call.label_prefix.?);
 
                 switch (call.callee.*) {
                     .var_ => |v| {
-                        self.assignments.clearAndFree();
-
                         const argTypes = try new_call.getArgTypes(self.arena_allocator.allocator());
 
                         try self.stack.append(.{
@@ -211,7 +221,7 @@ pub const Monomorphization = struct {
 
                 return ast.Expression{
                     .new = .{
-                        .type_ = new_expr.type_,
+                        .type_ = try new_expr.type_.applyAssignments(self.arena_allocator.allocator(), self.assignments),
                         .initializers = new_initializers.items,
                         .method_name = null,
                     },
@@ -224,7 +234,7 @@ pub const Monomorphization = struct {
                 return ast.Expression{
                     .project = .{
                         .index = project.index,
-                        .result_type = project.result_type,
+                        .result_type = try project.result_type.applyAssignments(self.arena_allocator.allocator(), self.assignments),
                         .lhs = lhs,
                         .rhs = project.rhs,
                     },
@@ -237,7 +247,7 @@ pub const Monomorphization = struct {
                 return ast.Expression{
                     .as = .{
                         .lhs = lhs,
-                        .rhs = as_expr.rhs,
+                        .rhs = try as_expr.rhs.applyAssignments(self.arena_allocator.allocator(), self.assignments),
                     },
                 };
             },
