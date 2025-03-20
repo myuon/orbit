@@ -86,24 +86,16 @@ pub const Monomorphization = struct {
                 var label = std.ArrayList(u8).init(self.arena_allocator.allocator());
                 if (new_call.type_) |t| {
                     switch (t) {
-                        .ident => |ident| {
-                            try std.fmt.format(label.writer(), "{s}_", .{ident});
+                        .ident => {
+                            try std.fmt.format(label.writer(), "{s}_", .{t});
                         },
-                        .apply => |apply| {
-                            try std.fmt.format(label.writer(), "{s}", .{apply.name});
-                            for (apply.params) |param| {
-                                try std.fmt.format(label.writer(), "_{any}", .{param});
-                            }
-                            try std.fmt.format(label.writer(), "_", .{});
+                        .apply => {
+                            try std.fmt.format(label.writer(), "{s}_", .{t});
                         },
                         .type_ => {
                             // FIXME: just show type itself
                             const s = callee.project.lhs.type_;
-                            try std.fmt.format(label.writer(), "{s}", .{s.apply.name});
-                            for (s.apply.params) |param| {
-                                try std.fmt.format(label.writer(), "_{any}", .{param});
-                            }
-                            try std.fmt.format(label.writer(), "_", .{});
+                            try std.fmt.format(label.writer(), "{s}_", .{s});
                         },
                         else => {
                             std.log.err("Unexpected call type: {any}\n", .{t});
@@ -122,8 +114,16 @@ pub const Monomorphization = struct {
                             .args = argTypes,
                         });
 
-                        for (argTypes) |t| {
-                            try std.fmt.format(label.writer(), "_{any}", .{t});
+                        // Hacky way to generate a label like `func(int, [*]byte)`
+                        if (argTypes.len > 0) {
+                            try std.fmt.format(label.writer(), "(", .{});
+                            for (argTypes, 0..) |t, i| {
+                                try std.fmt.format(label.writer(), "{any}", .{t});
+                                if (i < argTypes.len - 1) {
+                                    try std.fmt.format(label.writer(), ", ", .{});
+                                }
+                            }
+                            try std.fmt.format(label.writer(), ")", .{});
                         }
                     },
                     else => {},
@@ -190,19 +190,7 @@ pub const Monomorphization = struct {
 
                 if (new_expr.method_name) |method_name| {
                     var label = std.ArrayList(u8).init(self.arena_allocator.allocator());
-                    switch (new_expr.type_) {
-                        .ident => |ident| {
-                            try std.fmt.format(label.writer(), "{s}_", .{ident});
-                        },
-                        .apply => |apply| {
-                            try std.fmt.format(label.writer(), "{s}", .{apply.name});
-                            for (apply.params) |param| {
-                                try std.fmt.format(label.writer(), "_{any}", .{param});
-                            }
-                            try std.fmt.format(label.writer(), "_", .{});
-                        },
-                        else => {},
-                    }
+                    try std.fmt.format(label.writer(), "{s}_", .{new_expr.type_});
                     try label.appendSlice(method_name);
 
                     const callee = try self.arena_allocator.allocator().create(ast.Expression);
@@ -393,9 +381,13 @@ pub const Monomorphization = struct {
                     }
 
                     var name = std.ArrayList(u8).init(self.arena_allocator.allocator());
-                    try name.appendSlice(fun.name);
-                    for (target.args) |arg| {
-                        try std.fmt.format(name.writer(), "_{s}", .{try arg.applyAssignments(self.arena_allocator.allocator(), self.assignments)});
+                    if (target.args.len > 0) {
+                        try std.fmt.format(name.writer(), "{s}", .{ast.Type{ .apply = .{
+                            .name = fun.name,
+                            .params = target.args,
+                        } }});
+                    } else {
+                        try name.appendSlice(fun.name);
                     }
 
                     var params = std.ArrayList(ast.FunParam).init(self.arena_allocator.allocator());
@@ -454,9 +446,13 @@ pub const Monomorphization = struct {
                     }
 
                     var name = std.ArrayList(u8).init(self.arena_allocator.allocator());
-                    try name.appendSlice(type_.name);
-                    for (0..type_.params.len) |i| {
-                        try std.fmt.format(name.writer(), "_{s}", .{target.args[i]});
+                    if (target.args.len > 0) {
+                        try std.fmt.format(name.writer(), "{s}", .{ast.Type{ .apply = .{
+                            .name = type_.name,
+                            .params = target.args,
+                        } }});
+                    } else {
+                        try name.appendSlice(type_.name);
                     }
 
                     var fields = std.ArrayList(ast.StructField).init(self.arena_allocator.allocator());

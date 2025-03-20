@@ -299,7 +299,7 @@ test "compiler.compileLabel" {
             \\  get_first(type [*]int, type int, 1, 2);
             \\end
             ,
-            .expected = @constCast(&[_][]const u8{ "get_first_int_[*]byte", "get_first_[*]int_int" }),
+            .expected = @constCast(&[_][]const u8{ "get_first(int, [*]byte)", "get_first([*]int, int)" }),
         },
         .{
             .program =
@@ -312,7 +312,7 @@ test "compiler.compileLabel" {
             \\  generic(type [*]byte);
             \\end
             ,
-            .expected = @constCast(&[_][]const u8{ "generic_int", "generic_[*]byte" }),
+            .expected = @constCast(&[_][]const u8{ "generic(int)", "generic([*]byte)" }),
         },
         .{
             .program =
@@ -330,7 +330,7 @@ test "compiler.compileLabel" {
             \\  p.set_first(3);
             \\end
             ,
-            .expected = @constCast(&[_][]const u8{"Pair_int_[*]byte_set_first"}),
+            .expected = @constCast(&[_][]const u8{"Pair(int, [*]byte)_set_first"}),
         },
     };
 
