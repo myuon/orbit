@@ -245,7 +245,7 @@ pub const Desugarer = struct {
                             };
 
                             var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
-                            try args.append(.{ .sizeof = apply.params[0] });
+                            try args.append(.{ .type_ = apply.params[0] });
                             std.debug.assert(std.mem.eql(u8, new_expr.initializers[1].field, "len"));
                             try args.append(new_expr.initializers[1].value);
 

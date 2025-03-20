@@ -24,10 +24,10 @@ type slice(T: type) = struct {
   .value = T,
 };
 
-fun new_slice(size: int, len: int): slice(byte) do
-  let pair = new struct { ptr: [*]byte, len: int } { .ptr = allocate_memory(size * len), .len = len };
+fun new_slice(T: type, len: int): slice(T) do
+  let pair = new struct { ptr: [*]T, len: int } { .ptr = allocate_memory(sizeof T * len), .len = len };
 
-  return pair as slice(byte);
+  return pair as slice(T);
 end
 
 fun get_slice_int(data: slice(int), index: int): int do
