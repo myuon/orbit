@@ -1,5 +1,5 @@
 fun calc() do
-  let n = 50;
+  let n = 5000;
   let sum = 0;
 
   let i = 1;

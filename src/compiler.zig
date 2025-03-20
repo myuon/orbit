@@ -798,32 +798,80 @@ test "compiler.evalFiles" {
         const program = try std.fs.cwd().readFileAlloc(std.testing.allocator, program_path, 1024);
         defer std.testing.allocator.free(program);
 
-        var c = Compiler.init(std.testing.allocator);
-        defer c.deinit();
+        // test/heavyディレクトリのファイルはenable_jit=trueの場合のみテストする
+        const is_heavy = std.mem.startsWith(u8, entry.name, "heavy/");
+        if (is_heavy) {
+            // 重いテストはJITのみ実行
+            var c = Compiler.init(std.testing.allocator);
+            defer c.deinit();
 
-        try c.compile(program, true);
+            c.enable_jit = true;
+            try c.compile(program, true);
 
-        const actual = try std.fmt.allocPrint(std.testing.allocator, "{d}", .{c.result.?.i64_});
-        defer std.testing.allocator.free(actual);
+            const actual = try std.fmt.allocPrint(std.testing.allocator, "{d}", .{c.result.?.i64_});
+            defer std.testing.allocator.free(actual);
 
-        var expected_trimmed = std.ArrayList(u8).init(std.testing.allocator);
-        defer expected_trimmed.deinit();
+            var expected_trimmed = std.ArrayList(u8).init(std.testing.allocator);
+            defer expected_trimmed.deinit();
 
-        var actual_trimmed = std.ArrayList(u8).init(std.testing.allocator);
-        defer actual_trimmed.deinit();
+            var actual_trimmed = std.ArrayList(u8).init(std.testing.allocator);
+            defer actual_trimmed.deinit();
 
-        for (expected) |char| {
-            if (char != '\n') {
-                try expected_trimmed.append(char);
+            for (expected) |char| {
+                if (char != '\n' and char != '\r') {
+                    try expected_trimmed.append(char);
+                }
+            }
+
+            for (actual) |char| {
+                if (char != '\n' and char != '\r') {
+                    try actual_trimmed.append(char);
+                }
+            }
+
+            const expected_str = std.mem.trim(u8, expected_trimmed.items, " \t\n\r");
+            const actual_str = std.mem.trim(u8, actual_trimmed.items, " \t\n\r");
+
+            if (!std.mem.eql(u8, expected_str, actual_str)) {
+                std.debug.panic("Unexpected output\n--enable_jit:{}\n==INPUT==\n{s}\nExpected: {s}\nGot: {s}\n", .{ true, program, expected_str, actual_str });
+            }
+        } else {
+            // 通常のテストはJITありなしの両方で実行
+            for ([_]bool{ false, true }) |flag| {
+                var c = Compiler.init(std.testing.allocator);
+                defer c.deinit();
+
+                c.enable_jit = flag;
+                try c.compile(program, true);
+
+                const actual = try std.fmt.allocPrint(std.testing.allocator, "{d}", .{c.result.?.i64_});
+                defer std.testing.allocator.free(actual);
+
+                var expected_trimmed = std.ArrayList(u8).init(std.testing.allocator);
+                defer expected_trimmed.deinit();
+
+                var actual_trimmed = std.ArrayList(u8).init(std.testing.allocator);
+                defer actual_trimmed.deinit();
+
+                for (expected) |char| {
+                    if (char != '\n' and char != '\r') {
+                        try expected_trimmed.append(char);
+                    }
+                }
+
+                for (actual) |char| {
+                    if (char != '\n' and char != '\r') {
+                        try actual_trimmed.append(char);
+                    }
+                }
+
+                const expected_str = std.mem.trim(u8, expected_trimmed.items, " \t\n\r");
+                const actual_str = std.mem.trim(u8, actual_trimmed.items, " \t\n\r");
+
+                if (!std.mem.eql(u8, expected_str, actual_str)) {
+                    std.debug.panic("Unexpected output\n--enable_jit:{}\n==INPUT==\n{s}\nExpected: {s}\nGot: {s}\n", .{ flag, program, expected_str, actual_str });
+                }
             }
         }
-
-        for (actual) |char| {
-            if (char != '\n') {
-                try actual_trimmed.append(char);
-            }
-        }
-
-        try std.testing.expectEqualStrings(expected_trimmed.items, actual_trimmed.items);
     }
 }
