@@ -1,5 +1,6 @@
 const std = @import("std");
 const ast = @import("ast.zig");
+const utils = @import("utils.zig");
 
 pub const ParserError = error{
     UnexpectedEos,
@@ -7,11 +8,11 @@ pub const ParserError = error{
 };
 
 pub const Parser = struct {
-    tokens: []ast.Positioned(ast.Token),
+    tokens: []utils.Positioned(ast.Token),
     position: usize,
     ast_arena_allocator: std.heap.ArenaAllocator,
 
-    pub fn init(allocator: std.mem.Allocator, tokens: []ast.Positioned(ast.Token)) Parser {
+    pub fn init(allocator: std.mem.Allocator, tokens: []utils.Positioned(ast.Token)) Parser {
         return Parser{
             .tokens = tokens,
             .position = 0,
@@ -898,12 +899,12 @@ test "parser" {
         },
     };
 
-    var posTokens = std.ArrayList(ast.Positioned(ast.Token)).init(std.testing.allocator);
+    var posTokens = std.ArrayList(utils.Positioned(ast.Token)).init(std.testing.allocator);
     defer posTokens.deinit();
 
     for (cases) |case| {
         for (case.tokens) |token| {
-            try posTokens.append(ast.Positioned(ast.Token){ .position = 0, .data = token });
+            try posTokens.append(utils.Positioned(ast.Token){ .position = 0, .data = token });
         }
     }
 

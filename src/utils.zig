@@ -30,3 +30,10 @@ pub fn readFile(allocator: std.mem.Allocator, path: []const u8, content: *std.Ar
         try content.appendSlice("\n");
     }
 }
+
+pub fn Positioned(comptime T: type) type {
+    return struct {
+        position: usize,
+        data: T,
+    };
+}

@@ -76,13 +76,6 @@ pub const Token = union(TokenType) {
     }
 };
 
-pub fn Positioned(comptime T: type) type {
-    return struct {
-        position: usize,
-        data: T,
-    };
-}
-
 pub const StructInitializer = struct {
     field: []const u8,
     value: Expression,
