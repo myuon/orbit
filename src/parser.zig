@@ -1,5 +1,6 @@
 const std = @import("std");
 const ast = @import("ast.zig");
+const utils = @import("utils.zig");
 
 pub const ParserError = error{
     UnexpectedEos,
@@ -7,11 +8,11 @@ pub const ParserError = error{
 };
 
 pub const Parser = struct {
-    tokens: []ast.Token,
+    tokens: []utils.Positioned(ast.Token),
     position: usize,
     ast_arena_allocator: std.heap.ArenaAllocator,
 
-    pub fn init(allocator: std.mem.Allocator, tokens: []ast.Token) Parser {
+    pub fn init(allocator: std.mem.Allocator, tokens: []utils.Positioned(ast.Token)) Parser {
         return Parser{
             .tokens = tokens,
             .position = 0,
@@ -29,7 +30,7 @@ pub const Parser = struct {
 
     fn peek(self: *Parser) ?ast.Token {
         if (self.can_peek()) {
-            return self.tokens[self.position];
+            return self.tokens[self.position].data;
         } else {
             return null;
         }
@@ -898,8 +899,17 @@ test "parser" {
         },
     };
 
+    var posTokens = std.ArrayList(utils.Positioned(ast.Token)).init(std.testing.allocator);
+    defer posTokens.deinit();
+
     for (cases) |case| {
-        var parser = Parser.init(std.testing.allocator, case.tokens);
+        for (case.tokens) |token| {
+            try posTokens.append(utils.Positioned(ast.Token){ .position = 0, .data = token });
+        }
+    }
+
+    for (cases) |case| {
+        var parser = Parser.init(std.testing.allocator, posTokens.items);
         defer parser.deinit();
 
         const expr = parser.expr();
