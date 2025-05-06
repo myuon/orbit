@@ -1,0 +1,7 @@
+fun main() do
+  let map = new map([*]byte, int) {};
+  map["hello"] = 10;
+  map["world"] = 20;
+
+  return map["hello"] + map["world"];
+end
