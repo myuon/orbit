@@ -473,3 +473,38 @@ test "compiler.evalFiles" {
         }
     }
 }
+
+test "compiler.lexerErrors" {
+    const cases = comptime [_]struct {
+        program: []const u8,
+        position: usize,
+        message: []const u8,
+    }{
+        .{
+            .program = "let x = 1;\nlet y = @;\n",
+            .position = 20,
+            .message = "UnexpectedToken",
+        },
+        .{
+            .program = "let x = \"unclosed string\n",
+            .position = 25,
+            .message = "UnexpectedToken",
+        },
+    };
+
+    for (cases) |case| {
+        var l = lexer.Lexer.init(std.testing.allocator, case.program);
+        defer l.deinit();
+
+        _ = l.run() catch |err| {
+            const error_msg = @errorName(err);
+            try std.testing.expectEqualStrings(case.message, error_msg);
+            try std.testing.expectEqual(case.position, l.position);
+            continue;
+        };
+        std.testing.expect(false) catch |err| {
+            std.log.err("Expected error {s} not found in {s}\n", .{ case.message, case.program });
+            return err;
+        };
+    }
+}

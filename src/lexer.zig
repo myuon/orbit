@@ -219,13 +219,15 @@ pub const Lexer = struct {
         return false;
     }
 
-    pub fn run(self: *Lexer) anyerror!std.ArrayList(ast.Token) {
+    pub fn run(self: *Lexer) anyerror!std.ArrayList(ast.Positioned(ast.Token)) {
         const zone = P.begin(@src(), "Lexer.run");
         defer zone.end();
 
-        var tokens = std.ArrayList(ast.Token).init(self.ast_arena_allocator.allocator());
+        var tokens = std.ArrayList(ast.Positioned(ast.Token)).init(self.ast_arena_allocator.allocator());
 
         while (self.position < self.source.len) {
+            const start_pos = self.position;
+
             if (self.consume_spaces() > 0) {
                 continue;
             }
@@ -235,27 +237,42 @@ pub const Lexer = struct {
             }
 
             if (self.consume_token()) |token| {
-                try tokens.append(token);
+                try tokens.append(ast.Positioned(ast.Token){
+                    .position = start_pos,
+                    .data = token,
+                });
                 continue;
             }
 
             if (self.consume_hex_number()) |number| {
-                try tokens.append(ast.Token{ .number = number });
+                try tokens.append(ast.Positioned(ast.Token){
+                    .position = start_pos,
+                    .data = ast.Token{ .number = number },
+                });
                 continue;
             }
 
             if (self.consume_number()) |number| {
-                try tokens.append(ast.Token{ .number = number });
+                try tokens.append(ast.Positioned(ast.Token){
+                    .position = start_pos,
+                    .data = ast.Token{ .number = number },
+                });
                 continue;
             }
 
             if (self.consume_ident()) |ident| {
-                try tokens.append(ast.Token{ .ident = ident });
+                try tokens.append(ast.Positioned(ast.Token){
+                    .position = start_pos,
+                    .data = ast.Token{ .ident = ident },
+                });
                 continue;
             }
 
             if (self.consume_string()) |string| {
-                try tokens.append(ast.Token{ .string = string });
+                try tokens.append(ast.Positioned(ast.Token){
+                    .position = start_pos,
+                    .data = ast.Token{ .string = string },
+                });
                 continue;
             }
 
@@ -273,15 +290,30 @@ test {
 
     const result = try lexer.run();
 
-    var expected = std.ArrayList(ast.Token).init(std.testing.allocator);
+    var expected = std.ArrayList(ast.Positioned(ast.Token)).init(std.testing.allocator);
     defer expected.deinit();
-    try expected.append(ast.Token{ .number = 1 });
-    try expected.append(ast.Token{ .keyword = ast.Operator.plus });
-    try expected.append(ast.Token{ .number = 20 });
-    try expected.append(ast.Token{ .keyword = ast.Operator.star });
-    try expected.append(ast.Token{ .number = 300 });
+    try expected.append(ast.Positioned(ast.Token){
+        .position = 0,
+        .data = ast.Token{ .number = 1 },
+    });
+    try expected.append(ast.Positioned(ast.Token){
+        .position = 2,
+        .data = ast.Token{ .keyword = ast.Operator.plus },
+    });
+    try expected.append(ast.Positioned(ast.Token){
+        .position = 4,
+        .data = ast.Token{ .number = 20 },
+    });
+    try expected.append(ast.Positioned(ast.Token){
+        .position = 7,
+        .data = ast.Token{ .keyword = ast.Operator.star },
+    });
+    try expected.append(ast.Positioned(ast.Token){
+        .position = 9,
+        .data = ast.Token{ .number = 300 },
+    });
 
-    try std.testing.expectEqualSlices(ast.Token, expected.items, result.items);
+    try std.testing.expectEqualSlices(ast.Positioned(ast.Token), expected.items, result.items);
 }
 
 test {
@@ -290,13 +322,28 @@ test {
 
     const result = try lexer.run();
 
-    var expected = std.ArrayList(ast.Token).init(std.testing.allocator);
+    var expected = std.ArrayList(ast.Positioned(ast.Token)).init(std.testing.allocator);
     defer expected.deinit();
-    try expected.append(ast.Token{ .keyword = ast.Operator.let });
-    try expected.append(ast.Token{ .ident = "k" });
-    try expected.append(ast.Token{ .keyword = ast.Operator.eq });
-    try expected.append(ast.Token{ .string = "hello" });
-    try expected.append(ast.Token{ .keyword = ast.Operator.semicolon });
+    try expected.append(ast.Positioned(ast.Token){
+        .position = 0,
+        .data = ast.Token{ .keyword = ast.Operator.let },
+    });
+    try expected.append(ast.Positioned(ast.Token){
+        .position = 4,
+        .data = ast.Token{ .ident = "k" },
+    });
+    try expected.append(ast.Positioned(ast.Token){
+        .position = 6,
+        .data = ast.Token{ .keyword = ast.Operator.eq },
+    });
+    try expected.append(ast.Positioned(ast.Token){
+        .position = 8,
+        .data = ast.Token{ .string = "hello" },
+    });
+    try expected.append(ast.Positioned(ast.Token){
+        .position = 15,
+        .data = ast.Token{ .keyword = ast.Operator.semicolon },
+    });
 
     try std.testing.expectEqual(result.items.len, expected.items.len);
     try std.testing.expectEqualDeep(expected.items, result.items);
