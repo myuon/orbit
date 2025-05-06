@@ -82,3 +82,31 @@ type vec(T: type) = struct {
     return 0;
   end
 };
+
+type hashmap(V: type) = struct {
+  ptr: [*]byte,
+  capacity: int,
+
+  fun new_with_capacity(capacity: int): hashmap(V) do
+    let pair = new struct { ptr: [*]byte, capacity: int } { .ptr = allocate_memory(sizeof V * capacity) as [*]byte, .capacity = 128 };
+    return pair as hashmap(V);
+  end
+
+  fun _new(): hashmap(V) do
+    return (type hashmap(V)).new_with_capacity(128);
+  end
+
+  fun hash_key(key: [*]byte): uint do
+    let hash = 2166136261 as uint;
+
+    let i = 0;
+    while (i < len) do
+      hash = hash ^ (key[i] as uint);
+      hash = hash * (16777619 as uint);
+      i = i + 1;
+    end
+
+    return hash;
+  end
+};
+

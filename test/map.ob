@@ -1,5 +1,5 @@
 fun main() do
-  let map = new map([*]byte, int) {};
+  let map = new hashmap(int) {};
   map["hello"] = 10;
   map["world"] = 20;
 

@@ -516,6 +516,7 @@ pub const Parser = struct {
             @constCast(&[_]ParseOperator{
                 .{ .op = .star },
                 .{ .op = .percent },
+                .{ .op = .caret },
             }),
             @constCast(&[_]ParseOperator{
                 .{ .project = true },
@@ -769,6 +770,8 @@ pub const Parser = struct {
             .ident => |current| {
                 if (std.mem.eql(u8, current, "int")) {
                     return ast.Type{ .int = true };
+                } else if (std.mem.eql(u8, current, "uint")) {
+                    return ast.Type{ .uint = true };
                 } else if (std.mem.eql(u8, current, "bool")) {
                     return ast.Type{ .bool_ = true };
                 } else if (std.mem.eql(u8, current, "byte")) {

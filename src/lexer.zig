@@ -143,6 +143,7 @@ pub const Lexer = struct {
             .{ .str = "{", .operator = ast.Operator.lbrace },
             .{ .str = "}", .operator = ast.Operator.rbrace },
             .{ .str = "%", .operator = ast.Operator.percent },
+            .{ .str = "^", .operator = ast.Operator.caret },
         };
 
         for (tokenTable) |token| {

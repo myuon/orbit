@@ -145,7 +145,7 @@
           ]
         },
         {
-          "match": "\\b(int|string|bool|float)\\b",
+          "match": "\\b(int|uint|byte|string|bool|float)\\b",
           "name": "support.type.primitive.orbit"
         }
       ]

@@ -62,6 +62,7 @@ pub const Typechecker = struct {
             .bool_ => type_,
             .byte => type_,
             .int => type_,
+            .uint => type_,
             .fun => unreachable,
             .ident => |ident| {
                 var params = std.ArrayList(ast.Type).init(self.arena_allocator.allocator());
@@ -216,6 +217,15 @@ pub const Typechecker = struct {
                     .int => {},
                     else => {
                         std.log.err("Expected int, got {any}\n", .{actual});
+                        return TypecheckerError.UnexpectedType;
+                    },
+                }
+            },
+            .uint => {
+                switch (actual) {
+                    .uint => {},
+                    else => {
+                        std.log.err("Expected uint, got {any}\n", .{actual});
                         return TypecheckerError.UnexpectedType;
                     },
                 }
@@ -424,9 +434,16 @@ pub const Typechecker = struct {
 
                         return ast.Type{ .bool_ = true };
                     },
-                    .plus, .minus, .star, .percent => {
-                        _ = try self.assertType(lhs, rhs);
-                        _ = try self.assertType(lhs, ast.Type{ .int = true });
+                    .plus, .minus, .star, .percent, .caret => {
+                        const r = try self.assertType(lhs, rhs);
+                        switch (r) {
+                            .int => {},
+                            .uint => {},
+                            else => {
+                                std.log.err("Expected int, got {any}\n", .{r});
+                                return TypecheckerError.UnexpectedType;
+                            },
+                        }
 
                         return lhs;
                     },

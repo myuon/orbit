@@ -21,6 +21,7 @@ pub const Operator = enum {
     minus,
     star,
     percent,
+    caret,
     push,
     let,
     do,
@@ -533,6 +534,7 @@ pub const TypeType = enum {
     bool_,
     byte,
     int,
+    uint,
     fun,
     struct_,
     ident,
@@ -545,6 +547,7 @@ pub const Type = union(TypeType) {
     bool_: bool,
     byte: bool,
     int: bool,
+    uint: bool,
     fun: FunType,
     struct_: []StructField,
     ident: IdentType,
@@ -564,6 +567,7 @@ pub const Type = union(TypeType) {
             .bool_ => try std.fmt.format(writer, "bool", .{}),
             .byte => try std.fmt.format(writer, "byte", .{}),
             .int => try std.fmt.format(writer, "int", .{}),
+            .uint => try std.fmt.format(writer, "uint", .{}),
             .fun => {
                 try std.fmt.format(writer, "fun(", .{});
                 for (self.fun.params, 0..) |param, i| {
@@ -609,6 +613,7 @@ pub const Type = union(TypeType) {
             Type.bool_ => 1,
             Type.byte => 1,
             Type.int => 8,
+            Type.uint => 8,
             Type.fun => unreachable,
             Type.struct_ => 8,
             Type.ident => 8, // FIXME: should be unreachable
