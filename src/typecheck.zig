@@ -652,12 +652,17 @@ pub const Typechecker = struct {
                         return TypecheckerError.UnexpectedType;
                     },
                     .ident => |ident| {
-                        var d: ast.TypeDef = self.type_defs.?.get(ident.name) orelse {
-                            std.log.err("Function not found: {s}\n   {s}:{d}", .{ ident.name, @src().file, @src().line });
-                            return error.VariableNotFound;
-                        };
-
-                        d = try self.applyTypeDef(d, ident.params);
+                        var d: ast.TypeDef = undefined;
+                        if (std.mem.eql(u8, ident.name, "string")) {
+                            d = self.type_defs.?.get("slice").?;
+                            d = try self.applyTypeDef(d, @constCast(&[_]ast.Type{.{ .byte = true }}));
+                        } else {
+                            d = self.type_defs.?.get(ident.name) orelse {
+                                std.log.err("Function not found: {s}\n   {s}:{d}", .{ ident.name, @src().file, @src().line });
+                                return error.VariableNotFound;
+                            };
+                            d = try self.applyTypeDef(d, ident.params);
+                        }
 
                         def = d;
                     },

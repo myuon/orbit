@@ -873,6 +873,7 @@ pub const InstructionType = enum {
     set_cip,
     table_set,
     table_get,
+    xor,
 };
 
 pub const Instruction = union(InstructionType) {
@@ -928,7 +929,7 @@ pub const Instruction = union(InstructionType) {
     set_cip: usize, // For tracing JIT
     table_set: bool, // For hashmap
     table_get: bool, // For hashmap
-
+    xor: bool,
     pub fn format(
         self: Instruction,
         comptime _: []const u8,
@@ -1057,6 +1058,9 @@ pub const Instruction = union(InstructionType) {
             },
             Instruction.call_vtable => {
                 try std.fmt.format(writer, "call_vtable #{d}", .{self.call_vtable});
+            },
+            Instruction.xor => {
+                try std.fmt.format(writer, "xor", .{});
             },
         }
     }

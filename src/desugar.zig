@@ -122,6 +122,32 @@ pub const Desugarer = struct {
                                             },
                                         },
                                     };
+                                } else if (std.mem.eql(u8, ident.name, "hashmap")) {
+                                    const callee = try self.arena_allocator.allocator().create(ast.Expression);
+                                    callee.* = .{
+                                        .project = .{
+                                            .index = -1,
+                                            .result_type = ident.params[0],
+                                            .lhs = index.lhs,
+                                            .rhs = "_set",
+                                        },
+                                    };
+
+                                    var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
+                                    try args.append(index.lhs.*);
+                                    try args.append(index.rhs.*);
+                                    try args.append(assign.rhs);
+
+                                    statement.* = .{
+                                        .expr = .{
+                                            .call = .{
+                                                .callee = callee,
+                                                .args = args.items,
+                                                .type_ = .{ .ident = ident },
+                                                .label_prefix = "_set",
+                                            },
+                                        },
+                                    };
                                 } else {}
                             },
                             else => {},
@@ -248,6 +274,39 @@ pub const Desugarer = struct {
                                     .label_prefix = "_get",
                                 },
                             };
+                        } else if (std.mem.eql(u8, ident.name, "hashmap")) {
+                            const callee = try self.arena_allocator.allocator().create(ast.Expression);
+                            callee.* = .{
+                                .project = .{
+                                    .index = -1,
+                                    .result_type = ident.params[0],
+                                    .lhs = index.lhs,
+                                    .rhs = "_get",
+                                },
+                            };
+
+                            var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
+                            try args.append(index.rhs.*);
+
+                            expr.* = .{
+                                .call = .{
+                                    .callee = callee,
+                                    .args = args.items,
+                                    .type_ = .{ .ident = ident },
+                                    .label_prefix = "_get",
+                                },
+                            };
+                        } else if (std.mem.eql(u8, ident.name, "string")) {
+                            expr.* = .{
+                                .index = .{
+                                    .type_ = .{ .ident = .{ .name = "slice", .params = @constCast(&[_]ast.Type{.{ .byte = true }}) } },
+                                    .elem_type = .{ .byte = true },
+                                    .lhs = index.lhs,
+                                    .rhs = index.rhs,
+                                },
+                            };
+
+                            try self.desugarExpr(expr);
                         } else {
                             try self.desugarExpr(index.lhs);
                             try self.desugarExpr(index.rhs);
@@ -266,6 +325,8 @@ pub const Desugarer = struct {
                         if (std.mem.eql(u8, ident.name, "vec")) {
                             expr.new.method_name = "_new";
                         } else if (std.mem.eql(u8, ident.name, "slice")) {
+                            expr.new.method_name = "_new";
+                        } else if (std.mem.eql(u8, ident.name, "hashmap")) {
                             expr.new.method_name = "_new";
                         } else {
                             return;

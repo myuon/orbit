@@ -187,7 +187,7 @@ pub const VmCompiler = struct {
                         try buffer.append(ast.Instruction{ .push = 0 });
                     },
                     .number => |n| {
-                        try buffer.append(ast.Instruction{ .push = @intCast(n) });
+                        try buffer.append(ast.Instruction{ .push = @bitCast(@as(u32, @intCast(@as(u64, @intCast(n))))) });
                     },
                     .boolean => |b| {
                         if (b) {
@@ -215,41 +215,76 @@ pub const VmCompiler = struct {
                 }
             },
             .binop => |binop| {
-                try self.compileExprFromAst(buffer, binop.lhs.*);
-                try self.compileExprFromAst(buffer, binop.rhs.*);
+                if (binop.op.data == .oror) {
+                    const label_oror_entry = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "oror_entry_{d}", .{self.prng.random().int(u32)});
+                    const label_oror_else = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "oror_else_{d}", .{self.prng.random().int(u32)});
+                    const label_oror_end = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "oror_end_{d}", .{self.prng.random().int(u32)});
 
-                switch (binop.op.data) {
-                    .plus => {
-                        try buffer.append(ast.Instruction{ .add = true });
-                    },
-                    .minus => {
-                        try buffer.append(ast.Instruction{ .sub = true });
-                    },
-                    .star => {
-                        try buffer.append(ast.Instruction{ .mul = true });
-                    },
-                    .eqeq => {
-                        try buffer.append(ast.Instruction{ .eq = true });
-                    },
-                    .percent => {
-                        try buffer.append(ast.Instruction{ .mod = true });
-                    },
-                    .langle => {
-                        try buffer.append(ast.Instruction{ .lt = true });
-                    },
-                    .lte => {
-                        try buffer.append(ast.Instruction{ .lte = true });
-                    },
-                    .rangle => {
-                        try buffer.append(ast.Instruction{ .gt = true });
-                    },
-                    .gte => {
-                        try buffer.append(ast.Instruction{ .gte = true });
-                    },
-                    else => {
-                        std.log.info("op: {}\n", .{binop.op.data});
-                        unreachable;
-                    },
+                    try buffer.append(ast.Instruction{ .label = label_oror_entry });
+                    try self.compileExprFromAst(buffer, binop.lhs.*);
+                    try buffer.append(ast.Instruction{ .jump_ifzero = label_oror_else });
+                    try buffer.append(ast.Instruction{ .push = 1 });
+                    try buffer.append(ast.Instruction{ .jump = label_oror_end });
+
+                    try buffer.append(ast.Instruction{ .label = label_oror_else });
+                    try self.compileExprFromAst(buffer, binop.rhs.*);
+
+                    try buffer.append(ast.Instruction{ .label = label_oror_end });
+                } else if (binop.op.data == .andand) {
+                    const label_andand_entry = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "andand_entry_{d}", .{self.prng.random().int(u32)});
+                    const label_andand_else = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "andand_else_{d}", .{self.prng.random().int(u32)});
+                    const label_andand_end = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "andand_end_{d}", .{self.prng.random().int(u32)});
+
+                    try buffer.append(ast.Instruction{ .label = label_andand_entry });
+                    try self.compileExprFromAst(buffer, binop.lhs.*);
+                    try buffer.append(ast.Instruction{ .jump_ifzero = label_andand_else });
+                    try self.compileExprFromAst(buffer, binop.rhs.*);
+                    try buffer.append(ast.Instruction{ .jump = label_andand_end });
+
+                    try buffer.append(ast.Instruction{ .label = label_andand_else });
+                    try buffer.append(ast.Instruction{ .push = 0 });
+
+                    try buffer.append(ast.Instruction{ .label = label_andand_end });
+                } else {
+                    try self.compileExprFromAst(buffer, binop.lhs.*);
+                    try self.compileExprFromAst(buffer, binop.rhs.*);
+
+                    switch (binop.op.data) {
+                        .plus => {
+                            try buffer.append(ast.Instruction{ .add = true });
+                        },
+                        .minus => {
+                            try buffer.append(ast.Instruction{ .sub = true });
+                        },
+                        .star => {
+                            try buffer.append(ast.Instruction{ .mul = true });
+                        },
+                        .eqeq => {
+                            try buffer.append(ast.Instruction{ .eq = true });
+                        },
+                        .percent => {
+                            try buffer.append(ast.Instruction{ .mod = true });
+                        },
+                        .langle => {
+                            try buffer.append(ast.Instruction{ .lt = true });
+                        },
+                        .lte => {
+                            try buffer.append(ast.Instruction{ .lte = true });
+                        },
+                        .rangle => {
+                            try buffer.append(ast.Instruction{ .gt = true });
+                        },
+                        .gte => {
+                            try buffer.append(ast.Instruction{ .gte = true });
+                        },
+                        .caret => {
+                            try buffer.append(ast.Instruction{ .xor = true });
+                        },
+                        else => {
+                            std.log.info("op: {}\n", .{binop.op.data});
+                            unreachable;
+                        },
+                    }
                 }
             },
             .call => |call| {

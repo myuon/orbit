@@ -88,6 +88,11 @@ type entry(K: type, V: type) = struct {
   value: V,
 };
 
+type optional(T: type) = struct {
+  is_some: bool,
+  value: T,
+};
+
 type hashmap(V: type) = struct {
   ptr: [*]entry(string, V),
   len: int,
@@ -110,7 +115,7 @@ type hashmap(V: type) = struct {
     let hash = 2166136261 as uint;
 
     let i = 0;
-    while (i < len) do
+    while (i < key.len) do
       hash = hash ^ (key[i] as uint);
       hash = hash * (16777619 as uint);
       i = i + 1;
@@ -133,5 +138,20 @@ type hashmap(V: type) = struct {
     end
 
     return -1;
+  end
+
+  fun _get(self: hashmap(V), key: string): optional(V) do
+    if (self.len == 0) do
+      return new optional(V) { .is_some = false, .value = nil };
+    end
+
+    let index = self.find_entry(key);
+
+    if (index == -1) do
+      return new optional(V) { .is_some = false, .value = nil };
+    end
+
+    let entry = self.ptr[index];
+    return new optional(V) { .is_some = true, .value = entry.value };
   end
 };

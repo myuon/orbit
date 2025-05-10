@@ -681,6 +681,12 @@ pub const VmRuntime = struct {
                 try stack.append(data.entry.?.value.i64_);
                 self.pc += 1;
             },
+            .xor => {
+                const rhs = stack.pop();
+                const lhs = stack.pop();
+                try stack.append(lhs ^ rhs);
+                self.pc += 1;
+            },
         }
 
         return ControlFlow.Continue;
