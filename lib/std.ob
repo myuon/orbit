@@ -83,12 +83,22 @@ type vec(T: type) = struct {
   end
 };
 
+type entry(K: type, V: type) = struct {
+  key: [*]K,
+  value: V,
+};
+
 type hashmap(V: type) = struct {
-  ptr: [*]byte,
+  ptr: [*]entry(string, V),
+  len: int,
   capacity: int,
 
   fun new_with_capacity(capacity: int): hashmap(V) do
-    let pair = new struct { ptr: [*]byte, capacity: int } { .ptr = allocate_memory(sizeof V * capacity) as [*]byte, .capacity = 128 };
+    let pair = new struct { ptr: [*]entry(string, V), len: int, capacity: int } {
+      .ptr = allocate_memory(sizeof entry(string, V) * capacity) as [*]entry(string, V),
+      .len = 0,
+      .capacity = capacity,
+    };
     return pair as hashmap(V);
   end
 
@@ -96,7 +106,7 @@ type hashmap(V: type) = struct {
     return (type hashmap(V)).new_with_capacity(128);
   end
 
-  fun hash_key(key: [*]byte): uint do
+  fun hash_key(key: string): uint do
     let hash = 2166136261 as uint;
 
     let i = 0;
@@ -108,5 +118,20 @@ type hashmap(V: type) = struct {
 
     return hash;
   end
-};
 
+  fun find_entry(self: hashmap(V), key: string): int do
+    let index = self.hash_key(key) % self.capacity;
+
+    while (true) do
+      let entry = self.ptr[index];
+
+      if (entry.key == key || entry.key == nil) do
+        return index;
+      end
+
+      index = (index + 1) % self.capacity;
+    end
+
+    return -1;
+  end
+};

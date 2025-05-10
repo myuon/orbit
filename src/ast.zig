@@ -23,6 +23,8 @@ pub const Operator = enum {
     percent,
     caret,
     push,
+    oror,
+    andand,
     let,
     do,
     end,
@@ -236,7 +238,7 @@ pub const LiteralType = enum {
 
 pub const Literal = union(LiteralType) {
     boolean: bool,
-    number: u32,
+    number: i64,
     string: []const u8,
 
     pub fn format(
@@ -639,6 +641,8 @@ pub const Type = union(TypeType) {
                     return Type{ .int = true };
                 } else if (std.mem.eql(u8, ident.name, "map")) {
                     return ident.params[0];
+                } else if (std.mem.eql(u8, ident.name, "string")) {
+                    return Type{ .byte = true };
                 } else {
                     std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                     return error.UnexpectedType;

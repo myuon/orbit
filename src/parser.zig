@@ -90,7 +90,7 @@ pub const Parser = struct {
         }
     }
 
-    fn expect_number(self: *Parser) ParserError!u64 {
+    fn expect_number(self: *Parser) ParserError!i64 {
         if (self.peek()) |token| {
             switch (token) {
                 .number => |n| {
@@ -512,6 +512,8 @@ pub const Parser = struct {
             @constCast(&[_]ParseOperator{
                 .{ .op = .plus },
                 .{ .op = .minus },
+                .{ .op = .oror },
+                .{ .op = .andand },
             }),
             @constCast(&[_]ParseOperator{
                 .{ .op = .star },
@@ -746,6 +748,13 @@ pub const Parser = struct {
                             const t = try self.type_();
 
                             return ast.Expression{ .sizeof = t };
+                        },
+                        .minus => {
+                            try self.expect(ast.Operator.minus);
+
+                            const n = try self.expect_number();
+
+                            return ast.Expression{ .literal = ast.Literal{ .number = -n } };
                         },
                         else => {
                             std.log.err("unexpected token: want lparen but got {any} ({any})\n", .{ token, self.tokens[self.position..] });

@@ -133,6 +133,8 @@ pub const Lexer = struct {
             .{ .str = "<=", .operator = ast.Operator.lte },
             .{ .str = ">=", .operator = ast.Operator.gte },
             .{ .str = "<-", .operator = ast.Operator.push },
+            .{ .str = "||", .operator = ast.Operator.oror },
+            .{ .str = "&&", .operator = ast.Operator.andand },
             .{ .str = "=", .operator = ast.Operator.eq },
             .{ .str = "(", .operator = ast.Operator.lparen },
             .{ .str = ")", .operator = ast.Operator.rparen },

@@ -167,6 +167,8 @@ pub const Typechecker = struct {
                     return ident.params[0];
                 } else if (std.mem.eql(u8, ident.name, "map")) {
                     return ident.params[1];
+                } else if (std.mem.eql(u8, ident.name, "string")) {
+                    return ast.Type{ .byte = true };
                 } else {
                     std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ type_, @src().file, @src().line });
                     return error.UnexpectedType;
@@ -425,8 +427,14 @@ pub const Typechecker = struct {
                 }
             },
             .binop => |binop| {
-                const lhs = try self.typecheckExpr(binop.lhs);
-                const rhs = try self.typecheckExpr(binop.rhs);
+                const lhs = self.typecheckExpr(binop.lhs) catch |err| {
+                    std.log.err("Error in left-hand side of {any}: {}\n   {s}:{}", .{ binop, err, @src().file, @src().line });
+                    return err;
+                };
+                const rhs = self.typecheckExpr(binop.rhs) catch |err| {
+                    std.log.err("Error in right-hand side of {any}: {}\n   {s}:{}", .{ binop, err, @src().file, @src().line });
+                    return err;
+                };
 
                 switch (binop.op) {
                     .eqeq, .langle, .lte, .rangle, .gte => {
