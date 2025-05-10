@@ -501,6 +501,10 @@ pub const Parser = struct {
     fn operators(self: *Parser) anyerror!ast.Expression {
         const table = @constCast(&[_][]ParseOperator{
             @constCast(&[_]ParseOperator{
+                .{ .op = .oror },
+                .{ .op = .andand },
+            }),
+            @constCast(&[_]ParseOperator{
                 .{ .op = .eqeq },
             }),
             @constCast(&[_]ParseOperator{
@@ -512,8 +516,6 @@ pub const Parser = struct {
             @constCast(&[_]ParseOperator{
                 .{ .op = .plus },
                 .{ .op = .minus },
-                .{ .op = .oror },
-                .{ .op = .andand },
             }),
             @constCast(&[_]ParseOperator{
                 .{ .op = .star },
@@ -557,7 +559,7 @@ pub const Parser = struct {
                         rhs.* = try self.operatorN(table, n + 1);
 
                         current = ast.Expression{ .binop = .{
-                            .op = op,
+                            .op = utils.Positioned(ast.Operator){ .position = self.position, .data = op },
                             .lhs = lhs,
                             .rhs = rhs,
                         } };
@@ -765,7 +767,11 @@ pub const Parser = struct {
                 .ident => |ident| {
                     _ = try self.expect_ident();
 
-                    return ast.Expression{ .var_ = ident };
+                    if (std.mem.eql(u8, ident, "nil")) {
+                        return ast.Expression{ .literal = ast.Literal{ .nil = true } };
+                    }
+
+                    return ast.Expression{ .var_ = utils.Positioned([]const u8){ .position = self.position, .data = ident } };
                 },
             }
         }
@@ -777,7 +783,9 @@ pub const Parser = struct {
         const token = self.consume().?;
         switch (token) {
             .ident => |current| {
-                if (std.mem.eql(u8, current, "int")) {
+                if (std.mem.eql(u8, current, "nil")) {
+                    return ast.Type{ .nil = true };
+                } else if (std.mem.eql(u8, current, "int")) {
                     return ast.Type{ .int = true };
                 } else if (std.mem.eql(u8, current, "uint")) {
                     return ast.Type{ .uint = true };
@@ -883,16 +891,16 @@ test "parser" {
             }),
             .expected = ast.Expression{
                 .binop = .{
-                    .op = ast.Operator.plus,
+                    .op = utils.Positioned(ast.Operator){ .position = 7, .data = ast.Operator.plus },
                     .lhs = @constCast(&ast.Expression{
                         .binop = .{
-                            .op = ast.Operator.plus,
+                            .op = utils.Positioned(ast.Operator){ .position = 5, .data = ast.Operator.plus },
                             .lhs = @constCast(&ast.Expression{
                                 .literal = ast.Literal{ .number = 1 },
                             }),
                             .rhs = @constCast(&ast.Expression{
                                 .binop = .{
-                                    .op = ast.Operator.star,
+                                    .op = utils.Positioned(ast.Operator){ .position = 5, .data = ast.Operator.star },
                                     .lhs = @constCast(&ast.Expression{
                                         .literal = ast.Literal{ .number = 2 },
                                     }),

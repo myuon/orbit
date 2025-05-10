@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("ast.zig");
 const jit = @import("jit.zig");
 const P = @import("profiler");
+const utils = @import("utils.zig");
 
 pub const data_section_ptr: i64 = 8;
 pub const global_section_ptr: i64 = 16;
@@ -170,18 +171,21 @@ pub const VmCompiler = struct {
     fn compileExprFromAst(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), expr: ast.Expression) anyerror!void {
         switch (expr) {
             .var_ => |v| {
-                if (self.env.get(v)) |k| {
+                if (self.env.get(v.data)) |k| {
                     try buffer.append(ast.Instruction{ .get_local_d = k });
-                } else if (self.global_data.contains(v)) {
+                } else if (self.global_data.contains(v.data)) {
                     try self.compileLhsExprFromAst(buffer, expr);
                     try buffer.append(ast.Instruction{ .load = 8 });
                 } else {
-                    std.log.err("Variable not found: {s}\n", .{v});
+                    std.log.err("Variable not found: {s}\n", .{v.data});
                     return error.VariableNotFound;
                 }
             },
             .literal => |lit| {
                 switch (lit) {
+                    .nil => {
+                        try buffer.append(ast.Instruction{ .push = 0 });
+                    },
                     .number => |n| {
                         try buffer.append(ast.Instruction{ .push = @intCast(n) });
                     },
@@ -214,7 +218,7 @@ pub const VmCompiler = struct {
                 try self.compileExprFromAst(buffer, binop.lhs.*);
                 try self.compileExprFromAst(buffer, binop.rhs.*);
 
-                switch (binop.op) {
+                switch (binop.op.data) {
                     .plus => {
                         try buffer.append(ast.Instruction{ .add = true });
                     },
@@ -243,7 +247,7 @@ pub const VmCompiler = struct {
                         try buffer.append(ast.Instruction{ .gte = true });
                     },
                     else => {
-                        std.log.info("op: {}\n", .{binop.op});
+                        std.log.info("op: {}\n", .{binop.op.data});
                         unreachable;
                     },
                 }
@@ -328,7 +332,7 @@ pub const VmCompiler = struct {
                 std.debug.assert(new.initializers.len == struct_.len);
 
                 // TODO: calculate the size of each field
-                try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, "allocate_memory", @constCast(&[_]ast.Expression{
+                try self.callFunction(buffer, ast.Expression{ .var_ = utils.Positioned([]const u8){ .position = 0, .data = "allocate_memory" } }, "allocate_memory", @constCast(&[_]ast.Expression{
                     .{ .literal = .{ .number = @intCast(struct_.len * 8) } },
                 }));
 
@@ -357,7 +361,7 @@ pub const VmCompiler = struct {
                     std.debug.assert(new.initializers.len == 0);
 
                     // TODO: growable capacity
-                    try self.callFunction(buffer, ast.Expression{ .var_ = "allocate_memory" }, "allocate_memory", @constCast(&[_]ast.Expression{
+                    try self.callFunction(buffer, ast.Expression{ .var_ = utils.Positioned([]const u8){ .position = 0, .data = "allocate_memory" } }, "allocate_memory", @constCast(&[_]ast.Expression{
                         .{ .literal = .{ .number = @intCast(128 * @as(usize, ident.params[1].size())) } },
                     }));
                 } else {
@@ -367,7 +371,7 @@ pub const VmCompiler = struct {
                             try args.append(sinit.value);
                         }
 
-                        try self.callFunction(buffer, ast.Expression{ .var_ = method_name }, method_name, args.items);
+                        try self.callFunction(buffer, ast.Expression{ .var_ = utils.Positioned([]const u8){ .position = 0, .data = method_name } }, method_name, args.items);
                     } else {
                         const def = self.type_defs.?.get(ident.name).?;
 
@@ -391,15 +395,15 @@ pub const VmCompiler = struct {
     fn compileLhsExprFromAst(self: *VmCompiler, buffer: *std.ArrayList(ast.Instruction), expr: ast.Expression) anyerror!void {
         switch (expr) {
             .var_ => |name| {
-                if (self.env.get(name)) |k| {
+                if (self.env.get(name.data)) |k| {
                     try buffer.append(ast.Instruction{ .set_local_d = k });
-                } else if (self.global_data.get(name)) |k| {
+                } else if (self.global_data.get(name.data)) |k| {
                     try buffer.append(ast.Instruction{ .push = global_section_ptr });
                     try buffer.append(ast.Instruction{ .load = 8 });
                     try buffer.append(ast.Instruction{ .push = @intCast(k * 8) });
                     try buffer.append(ast.Instruction{ .add = true });
                 } else {
-                    std.log.err("Variable not found: {s}\n", .{name});
+                    std.log.err("Variable not found: {s}\n", .{name.data});
                     return error.VariableNotFound;
                 }
             },
@@ -528,15 +532,15 @@ pub const VmCompiler = struct {
             .assign => |assign| {
                 switch (assign.lhs) {
                     .var_ => |name| {
-                        if (self.env.get(name)) |k| {
+                        if (self.env.get(name.data)) |k| {
                             try self.compileExprFromAst(buffer, assign.rhs);
                             try buffer.append(ast.Instruction{ .set_local_d = k });
-                        } else if (self.global_data.contains(name)) {
+                        } else if (self.global_data.contains(name.data)) {
                             try self.compileLhsExprFromAst(buffer, assign.lhs);
                             try self.compileExprFromAst(buffer, assign.rhs);
                             try buffer.append(ast.Instruction{ .store = 8 });
                         } else {
-                            std.log.err("Variable not found: {s}\n", .{name});
+                            std.log.err("Variable not found: {s}\n", .{name.data});
                             return error.VariableNotFound;
                         }
                     },
@@ -650,7 +654,7 @@ pub const VmCompiler = struct {
                         .assign = .{
                             // FIXME: other types
                             .type_ = .{ .int = true },
-                            .lhs = .{ .var_ = let.name },
+                            .lhs = .{ .var_ = utils.Positioned([]const u8){ .position = 0, .data = let.name } },
                             .rhs = value,
                         },
                     });
@@ -716,7 +720,7 @@ pub const VmCompiler = struct {
                     .return_ = .{
                         .call = .{
                             .label_prefix = "main",
-                            .callee = @constCast(&ast.Expression{ .var_ = entrypoint }),
+                            .callee = @constCast(&ast.Expression{ .var_ = utils.Positioned([]const u8){ .position = 0, .data = entrypoint } }),
                             .args = &[_]ast.Expression{},
                         },
                     },

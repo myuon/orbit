@@ -1,5 +1,6 @@
 const std = @import("std");
 const ast = @import("ast.zig");
+const utils = @import("utils.zig");
 
 const MonomorphizationTarget = struct {
     symbol: []const u8,
@@ -106,7 +107,7 @@ pub const Monomorphization = struct {
                         const argTypes = try new_call.getArgTypes(self.arena_allocator.allocator());
 
                         try self.stack.append(.{
-                            .symbol = v,
+                            .symbol = v.data,
                             .args = argTypes,
                         });
 
@@ -184,7 +185,7 @@ pub const Monomorphization = struct {
                     try label.appendSlice(method_name);
 
                     const callee = try self.arena_allocator.allocator().create(ast.Expression);
-                    callee.* = ast.Expression{ .var_ = label.items };
+                    callee.* = ast.Expression{ .var_ = utils.Positioned([]const u8){ .position = 0, .data = label.items } };
 
                     var args = std.ArrayList(ast.Expression).init(self.arena_allocator.allocator());
                     for (new_initializers.items) |inite| {

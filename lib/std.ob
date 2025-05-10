@@ -120,12 +120,12 @@ type hashmap(V: type) = struct {
   end
 
   fun find_entry(self: hashmap(V), key: string): int do
-    let index = self.hash_key(key) % self.capacity;
+    let index = (self.hash_key(key) as int) % self.capacity;
 
     while (true) do
       let entry = self.ptr[index];
 
-      if (entry.key == key || entry.key == nil) do
+      if (entry.key == nil || entry.key[0] == key) do
         return index;
       end
 

@@ -226,8 +226,8 @@ test "compiler.parseStatement" {
             ,
             .expr = ast.Statement{ .if_ = .{
                 .cond = @constCast(&ast.Expression{ .binop = .{
-                    .op = ast.Operator.eqeq,
-                    .lhs = @constCast(&ast.Expression{ .var_ = "x" }),
+                    .op = utils.Positioned(ast.Operator){ .position = 5, .data = ast.Operator.eqeq },
+                    .lhs = @constCast(&ast.Expression{ .var_ = utils.Positioned([]const u8){ .position = 0, .data = "x" } }),
                     .rhs = @constCast(&ast.Expression{ .literal = ast.Literal{ .number = 1 } }),
                 } }),
                 .then_ = .{
@@ -249,8 +249,8 @@ test "compiler.parseStatement" {
             ,
             .expr = ast.Statement{ .if_ = .{
                 .cond = @constCast(&ast.Expression{ .binop = .{
-                    .op = ast.Operator.eqeq,
-                    .lhs = @constCast(&ast.Expression{ .var_ = "x" }),
+                    .op = utils.Positioned(ast.Operator){ .position = 0, .data = ast.Operator.eqeq },
+                    .lhs = @constCast(&ast.Expression{ .var_ = utils.Positioned([]const u8){ .position = 0, .data = "x" } }),
                     .rhs = @constCast(&ast.Expression{ .literal = ast.Literal{ .number = 1 } }),
                 } }),
                 .then_ = .{

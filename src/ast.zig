@@ -1,4 +1,5 @@
 const std = @import("std");
+const utils = @import("utils.zig");
 
 pub const Operator = enum {
     eqeq,
@@ -130,10 +131,10 @@ pub const ExpressionType = enum {
 };
 
 pub const Expression = union(ExpressionType) {
-    var_: []const u8,
+    var_: utils.Positioned([]const u8),
     literal: Literal,
     binop: struct {
-        op: Operator,
+        op: utils.Positioned(Operator),
         lhs: *Expression,
         rhs: *Expression,
     },
@@ -172,13 +173,13 @@ pub const Expression = union(ExpressionType) {
     ) !void {
         switch (self) {
             .var_ => |var_| {
-                try std.fmt.format(writer, "{s}", .{var_});
+                try std.fmt.format(writer, "{s}", .{var_.data});
             },
             .literal => |literal| {
                 try std.fmt.format(writer, "{any}", .{literal});
             },
             .binop => |binop| {
-                try std.fmt.format(writer, "({any} {any} {any})", .{ binop.lhs.*, binop.op, binop.rhs.* });
+                try std.fmt.format(writer, "({any} {any} {any})", .{ binop.lhs.*, binop.op.data, binop.rhs.* });
             },
             .block => |block| {
                 try std.fmt.format(writer, "{{", .{});
@@ -231,12 +232,14 @@ pub const Expression = union(ExpressionType) {
 };
 
 pub const LiteralType = enum {
+    nil,
     boolean,
     number,
     string,
 };
 
 pub const Literal = union(LiteralType) {
+    nil: bool,
     boolean: bool,
     number: i64,
     string: []const u8,
@@ -248,6 +251,9 @@ pub const Literal = union(LiteralType) {
         writer: anytype,
     ) !void {
         switch (self) {
+            .nil => {
+                try std.fmt.format(writer, "nil", .{});
+            },
             .boolean => {
                 try std.fmt.format(writer, "{any}", .{self.boolean});
             },
@@ -533,6 +539,7 @@ pub const IdentType = struct {
 
 pub const TypeType = enum {
     unknown,
+    nil,
     bool_,
     byte,
     int,
@@ -546,6 +553,7 @@ pub const TypeType = enum {
 
 pub const Type = union(TypeType) {
     unknown: bool,
+    nil: bool,
     bool_: bool,
     byte: bool,
     int: bool,
@@ -566,6 +574,7 @@ pub const Type = union(TypeType) {
     ) !void {
         switch (self) {
             .unknown => try std.fmt.format(writer, "unknown", .{}),
+            .nil => try std.fmt.format(writer, "nil", .{}),
             .bool_ => try std.fmt.format(writer, "bool", .{}),
             .byte => try std.fmt.format(writer, "byte", .{}),
             .int => try std.fmt.format(writer, "int", .{}),
@@ -612,6 +621,7 @@ pub const Type = union(TypeType) {
     pub fn size(self: Type) u4 {
         return switch (self) {
             Type.unknown => unreachable,
+            Type.nil => unreachable,
             Type.bool_ => 1,
             Type.byte => 1,
             Type.int => 8,
@@ -642,7 +652,9 @@ pub const Type = union(TypeType) {
                 } else if (std.mem.eql(u8, ident.name, "map")) {
                     return ident.params[0];
                 } else if (std.mem.eql(u8, ident.name, "string")) {
-                    return Type{ .byte = true };
+                    return Type{ .int = true };
+                } else if (std.mem.eql(u8, ident.name, "hashmap")) {
+                    return Type{ .ident = .{ .name = "string", .params = &[_]Type{} } };
                 } else {
                     std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ self, @src().file, @src().line });
                     return error.UnexpectedType;
@@ -706,6 +718,7 @@ pub const Type = union(TypeType) {
                 return Type{ .ident = .{ .name = ident.name, .params = params.items } };
             },
             .int => return self,
+            .uint => return self,
             .bool_ => return self,
             .byte => return self,
             .struct_ => |fields| {

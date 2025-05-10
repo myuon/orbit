@@ -47,6 +47,7 @@ pub const Typechecker = struct {
 
     fn replace(self: *Typechecker, type_: ast.Type, name: []const u8, replacement: ast.Type, context: ?[]const u8) anyerror!ast.Type {
         return switch (type_) {
+            .nil => type_,
             .struct_ => |data| {
                 var fields = std.ArrayList(ast.StructField).init(self.arena_allocator.allocator());
                 for (data) |field| {
@@ -169,6 +170,8 @@ pub const Typechecker = struct {
                     return ident.params[1];
                 } else if (std.mem.eql(u8, ident.name, "string")) {
                     return ast.Type{ .byte = true };
+                } else if (std.mem.eql(u8, ident.name, "hashmap")) {
+                    return ident.params[0];
                 } else {
                     std.log.err("Expected array-like data structure, got {any} ({s}:{})\n", .{ type_, @src().file, @src().line });
                     return error.UnexpectedType;
@@ -196,6 +199,18 @@ pub const Typechecker = struct {
         }
 
         switch (expect) {
+            .nil => {
+                switch (actual) {
+                    .nil => {},
+                    .ptr => {
+                        return expect;
+                    },
+                    else => {
+                        std.log.err("Expected nil, got {any}\n", .{actual});
+                        return TypecheckerError.UnexpectedType;
+                    },
+                }
+            },
             .bool_ => {
                 switch (actual) {
                     .bool_ => {},
@@ -313,6 +328,9 @@ pub const Typechecker = struct {
 
                         return ast.Type{ .ptr = .{ .type_ = t } };
                     },
+                    .nil => {
+                        return expect;
+                    },
                     else => {
                         std.log.err("Expected {any}, got {any} ({s}:{d})", .{ expect, actual, @src().file, @src().line });
                         return TypecheckerError.UnexpectedType;
@@ -405,13 +423,16 @@ pub const Typechecker = struct {
     fn typecheckExpr(self: *Typechecker, expr: *ast.Expression) anyerror!ast.Type {
         switch (expr.*) {
             .var_ => |var_| {
-                return self.env.get(var_) orelse {
-                    std.log.err("Variable not found: {s}\n", .{var_});
+                return self.env.get(var_.data) orelse {
+                    std.log.err("Variable not found: {s}\n", .{var_.data});
                     return error.VariableNotFound;
                 };
             },
             .literal => |lit| {
                 switch (lit) {
+                    .nil => {
+                        return ast.Type{ .nil = true };
+                    },
                     .number => {
                         return ast.Type{ .int = true };
                     },
@@ -436,7 +457,7 @@ pub const Typechecker = struct {
                     return err;
                 };
 
-                switch (binop.op) {
+                switch (binop.op.data) {
                     .eqeq, .langle, .lte, .rangle, .gte => {
                         _ = try self.assertType(lhs, rhs);
 
@@ -455,7 +476,14 @@ pub const Typechecker = struct {
 
                         return lhs;
                     },
+                    .oror, .andand => {
+                        const r = try self.assertType(lhs, rhs);
+                        _ = try self.assertType(ast.Type{ .bool_ = true }, r);
+
+                        return ast.Type{ .bool_ = true };
+                    },
                     else => {
+                        std.log.err("Expected int, got {any}\n", .{binop.op.data});
                         unreachable;
                     },
                 }
@@ -469,7 +497,7 @@ pub const Typechecker = struct {
                 var name: []const u8 = undefined;
                 switch (call.callee.*) {
                     .var_ => |ident| {
-                        name = ident;
+                        name = ident.data;
                     },
                     .project => |project| {
                         name = project.rhs;
