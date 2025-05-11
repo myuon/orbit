@@ -64,6 +64,7 @@ pub const Desugarer = struct {
                 }
             },
             .assign => |*assign| {
+                try Desugarer.desugarType(&assign.type_);
                 try self.desugarExpr(&assign.rhs);
 
                 switch (assign.lhs) {
@@ -157,6 +158,7 @@ pub const Desugarer = struct {
                 }
             },
             .push => |*push| {
+                try Desugarer.desugarType(&push.type_);
                 try self.desugarExpr(&push.lhs);
                 try self.desugarExpr(&push.rhs);
 
@@ -226,6 +228,8 @@ pub const Desugarer = struct {
                 try self.desugarBlock(&if_.else_);
             },
             .index => |*index| {
+                try Desugarer.desugarType(&index.type_);
+                try Desugarer.desugarType(&index.elem_type);
                 try self.desugarExpr(index.rhs);
 
                 switch (index.type_) {
@@ -296,17 +300,6 @@ pub const Desugarer = struct {
                                     .label_prefix = "_get",
                                 },
                             };
-                        } else if (std.mem.eql(u8, ident.name, "string")) {
-                            expr.* = .{
-                                .index = .{
-                                    .type_ = .{ .ident = .{ .name = "slice", .params = @constCast(&[_]ast.Type{.{ .byte = true }}) } },
-                                    .elem_type = .{ .byte = true },
-                                    .lhs = index.lhs,
-                                    .rhs = index.rhs,
-                                },
-                            };
-
-                            try self.desugarExpr(expr);
                         } else {
                             try self.desugarExpr(index.lhs);
                             try self.desugarExpr(index.rhs);
@@ -349,6 +342,21 @@ pub const Desugarer = struct {
             },
             .type_ => {},
             .sizeof => {},
+        }
+    }
+
+    fn desugarType(type_: *ast.Type) anyerror!void {
+        switch (type_.*) {
+            .ident => |ident| {
+                if (std.mem.eql(u8, ident.name, "string")) {
+                    type_.ident = .{ .name = "slice", .params = @constCast(&[_]ast.Type{.{ .byte = true }}) };
+                }
+
+                for (0..ident.params.len) |i| {
+                    try Desugarer.desugarType(&type_.ident.params[i]);
+                }
+            },
+            else => {},
         }
     }
 

@@ -140,27 +140,22 @@ type hashmap(V: type) = struct {
     return -1;
   end
 
-  fun _get(self: hashmap(V), key: string): optional(V) do
+  fun _get(self: hashmap(V), key: string): V do
     if (self.len == 0) do
-      return new optional(V) { .is_some = false, .value = nil };
+      return nil as V;
     end
 
     let index = self.find_entry(key);
 
     if (index == -1) do
-      return new optional(V) { .is_some = false, .value = nil };
+      return nil as V;
     end
 
     let entry = self.ptr[index];
-    return new optional(V) { .is_some = true, .value = entry.value };
+    return entry.value;
   end
 
   fun _set(self: hashmap(V), key: string, value: V) do
-    if (self.len == 0) do
-      // error
-      return nil;
-    end
-
     let index = self.find_entry(key);
 
     if (index == -1) do

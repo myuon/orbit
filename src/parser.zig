@@ -289,6 +289,7 @@ pub const Parser = struct {
         const body = try self.block(null);
         self.expect(ast.Operator.end) catch |err| {
             std.log.err("Error: {any} (next: {any})\n    {s}:{}", .{ err, self.peek(), @src().file, @src().line });
+            try self.error_stack.append(self.peek().?);
             return error.UnexpectedToken;
         };
 

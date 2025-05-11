@@ -153,8 +153,8 @@ pub const Monomorphization = struct {
 
                 return ast.Expression{
                     .index = .{
-                        .type_ = index.type_,
-                        .elem_type = index.elem_type,
+                        .type_ = try index.type_.applyAssignments(self.arena_allocator.allocator(), self.assignments),
+                        .elem_type = try index.elem_type.applyAssignments(self.arena_allocator.allocator(), self.assignments),
                         .lhs = lhs,
                         .rhs = rhs,
                     },
@@ -299,7 +299,7 @@ pub const Monomorphization = struct {
             .assign => |assign| {
                 return ast.Statement{
                     .assign = .{
-                        .type_ = assign.type_,
+                        .type_ = try assign.type_.applyAssignments(self.arena_allocator.allocator(), self.assignments),
                         .lhs = try self.monomorphExpression(target, assign.lhs),
                         .rhs = try self.monomorphExpression(target, assign.rhs),
                     },
@@ -308,7 +308,7 @@ pub const Monomorphization = struct {
             .push => |push| {
                 return ast.Statement{
                     .push = .{
-                        .type_ = push.type_,
+                        .type_ = try push.type_.applyAssignments(self.arena_allocator.allocator(), self.assignments),
                         .lhs = try self.monomorphExpression(target, push.lhs),
                         .rhs = try self.monomorphExpression(target, push.rhs),
                     },
@@ -521,6 +521,7 @@ pub const Monomorphization = struct {
         // Implicitly called builtin symbols
         try self.stack.append(.{ .symbol = "allocate_memory", .args = &[_]ast.Type{} });
         try self.stack.append(.{ .symbol = "hp", .args = &[_]ast.Type{} });
+        try self.stack.append(.{ .symbol = "slice", .args = @constCast(&[_]ast.Type{.{ .byte = true }}) });
 
         try self.monomorph(module);
     }
