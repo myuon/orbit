@@ -154,4 +154,28 @@ type hashmap(V: type) = struct {
     let entry = self.ptr[index];
     return new optional(V) { .is_some = true, .value = entry.value };
   end
+
+  fun _set(self: hashmap(V), key: string, value: V) do
+    if (self.len == 0) do
+      // error
+      return nil;
+    end
+
+    let index = self.find_entry(key);
+
+    if (index == -1) do
+      // error
+      return nil;
+    end
+
+    let entry = self.ptr[index];
+    if (entry.key == nil) do
+      self.len = self.len + 1;
+    end
+
+    entry.key[0] = key;
+    entry.value = value;
+
+    return nil;
+  end
 };

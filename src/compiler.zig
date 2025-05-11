@@ -85,7 +85,27 @@ pub const Compiler = struct {
         var p = parser.Parser.init(self.allocator, tokens.items);
         defer p.deinit();
 
-        var module = try p.module();
+        var module = p.module() catch |err| {
+            std.log.err("[Parser] Error: {any}\n", .{err});
+
+            for (p.error_stack.items) |token| {
+                const pos = token.position;
+
+                var line: usize = 1;
+                var col: usize = 1;
+                for (input[0..pos]) |c| {
+                    if (c == '\n') {
+                        line += 1;
+                        col = 1;
+                    } else {
+                        col += 1;
+                    }
+                }
+
+                std.log.err("at line:{d}, col:{d}\n", .{ line, col });
+            }
+            return;
+        };
 
         try self.tc.typecheck(&module);
 

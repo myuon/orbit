@@ -11,12 +11,14 @@ pub const Parser = struct {
     tokens: []utils.Positioned(ast.Token),
     position: usize,
     ast_arena_allocator: std.heap.ArenaAllocator,
+    error_stack: std.ArrayList(utils.Positioned(ast.Token)),
 
     pub fn init(allocator: std.mem.Allocator, tokens: []utils.Positioned(ast.Token)) Parser {
         return Parser{
             .tokens = tokens,
             .position = 0,
             .ast_arena_allocator = std.heap.ArenaAllocator.init(allocator),
+            .error_stack = std.ArrayList(utils.Positioned(ast.Token)).init(allocator),
         };
     }
 
@@ -28,15 +30,15 @@ pub const Parser = struct {
         return self.position < self.tokens.len;
     }
 
-    fn peek(self: *Parser) ?ast.Token {
+    fn peek(self: *Parser) ?utils.Positioned(ast.Token) {
         if (self.can_peek()) {
-            return self.tokens[self.position].data;
+            return self.tokens[self.position];
         } else {
             return null;
         }
     }
 
-    fn consume(self: *Parser) ?ast.Token {
+    fn consume(self: *Parser) ?utils.Positioned(ast.Token) {
         if (self.peek()) |token| {
             self.position += 1;
             return token;
@@ -47,7 +49,7 @@ pub const Parser = struct {
 
     fn is_next(self: *Parser, keyword: ast.Operator) bool {
         if (self.peek()) |token| {
-            switch (token) {
+            switch (token.data) {
                 .keyword => |op| {
                     if (op == keyword) {
                         return true;
@@ -75,7 +77,7 @@ pub const Parser = struct {
 
     fn expect_ident(self: *Parser) ParserError![]const u8 {
         if (self.peek()) |token| {
-            switch (token) {
+            switch (token.data) {
                 .ident => |ident| {
                     _ = self.consume();
                     return ident;
@@ -92,7 +94,7 @@ pub const Parser = struct {
 
     fn expect_number(self: *Parser) ParserError!i64 {
         if (self.peek()) |token| {
-            switch (token) {
+            switch (token.data) {
                 .number => |n| {
                     _ = self.consume();
                     return n;
@@ -123,7 +125,7 @@ pub const Parser = struct {
 
     fn decl(self: *Parser) anyerror!ast.Decl {
         if (self.peek()) |token| {
-            switch (token) {
+            switch (token.data) {
                 .keyword => |op| {
                     switch (op) {
                         .fun => {
@@ -345,7 +347,7 @@ pub const Parser = struct {
 
     pub fn statement(self: *Parser) anyerror!ast.Statement {
         if (self.peek()) |token| {
-            switch (token) {
+            switch (token.data) {
                 .keyword => |op| {
                     switch (op) {
                         .let => {
@@ -462,7 +464,7 @@ pub const Parser = struct {
 
     pub fn expr(self: *Parser) anyerror!ast.Expression {
         if (self.peek()) |token| {
-            switch (token) {
+            switch (token.data) {
                 .keyword => |op| {
                     switch (op) {
                         .do => {
@@ -669,7 +671,7 @@ pub const Parser = struct {
 
     fn operatorBase(self: *Parser) anyerror!ast.Expression {
         if (self.peek()) |token| {
-            switch (token) {
+            switch (token.data) {
                 .number => |n| {
                     _ = try self.expect_number();
 
@@ -760,7 +762,9 @@ pub const Parser = struct {
                         },
                         else => {
                             std.log.err("unexpected token: want lparen but got {any} ({any})\n", .{ token, self.tokens[self.position..] });
-                            unreachable;
+                            try self.error_stack.append(token);
+
+                            return error.UnexpectedToken;
                         },
                     }
                 },
@@ -781,7 +785,7 @@ pub const Parser = struct {
 
     fn type_(self: *Parser) anyerror!ast.Type {
         const token = self.consume().?;
-        switch (token) {
+        switch (token.data) {
             .ident => |current| {
                 if (std.mem.eql(u8, current, "nil")) {
                     return ast.Type{ .nil = true };

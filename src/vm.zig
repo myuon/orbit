@@ -187,7 +187,11 @@ pub const VmCompiler = struct {
                         try buffer.append(ast.Instruction{ .push = 0 });
                     },
                     .number => |n| {
-                        try buffer.append(ast.Instruction{ .push = @bitCast(@as(u32, @intCast(@as(u64, @intCast(n))))) });
+                        if (n >= 0) {
+                            try buffer.append(ast.Instruction{ .push = @bitCast(@as(u32, @intCast(@as(u64, @intCast(n))))) });
+                        } else {
+                            try buffer.append(ast.Instruction{ .push = @bitCast(@as(u32, @intCast(@as(u64, @intCast(-n))))) });
+                        }
                     },
                     .boolean => |b| {
                         if (b) {
