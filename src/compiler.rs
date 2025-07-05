@@ -1,4 +1,4 @@
-use crate::ast::{Stmt, TokenType};
+use crate::ast::Program;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::runtime::{Runtime, Value};
@@ -20,15 +20,8 @@ impl Compiler {
     /// Compile and execute Orbit source code, returning the last value
     pub fn execute(&mut self, code: &str) -> Result<Option<Value>> {
         let tokens = self.tokenize(code)?;
-        let statements = self.parse(tokens)?;
-        self.evaluate(statements)
-    }
-
-    /// Compile and execute Orbit source code, collecting all output values
-    pub fn execute_with_output(&mut self, code: &str) -> Result<Vec<Value>> {
-        let tokens = self.tokenize(code)?;
-        let statements = self.parse(tokens)?;
-        self.evaluate_all(statements)
+        let program = self.parse(tokens)?;
+        self.runtime.execute_program(&program)
     }
 
     /// Tokenize the source code
@@ -37,43 +30,12 @@ impl Compiler {
         lexer.tokenize()
     }
 
-    /// Parse tokens into statements
-    fn parse(&self, tokens: Vec<crate::ast::Token>) -> Result<Vec<Stmt>> {
+    /// Parse tokens into a program
+    fn parse(&self, tokens: Vec<crate::ast::Token>) -> Result<Program> {
         let mut parser = Parser::new(tokens);
-        let mut statements = Vec::new();
-
-        while !matches!(parser.current_token().token_type, TokenType::Eof) {
-            statements.push(parser.parse_stmt()?);
-        }
-
-        Ok(statements)
+        parser.parse_program()
     }
 
-    /// Evaluate statements and return the last value
-    fn evaluate(&mut self, statements: Vec<Stmt>) -> Result<Option<Value>> {
-        let mut last_value = None;
-
-        for stmt in statements {
-            if let Some(value) = self.runtime.execute_stmt(&stmt)? {
-                last_value = Some(value);
-            }
-        }
-
-        Ok(last_value)
-    }
-
-    /// Evaluate statements and collect all output values
-    fn evaluate_all(&mut self, statements: Vec<Stmt>) -> Result<Vec<Value>> {
-        let mut outputs = Vec::new();
-
-        for stmt in statements {
-            if let Some(value) = self.runtime.execute_stmt(&stmt)? {
-                outputs.push(value);
-            }
-        }
-
-        Ok(outputs)
-    }
 
     /// Get a mutable reference to the runtime for direct manipulation
     pub fn runtime_mut(&mut self) -> &mut Runtime {
@@ -87,11 +49,6 @@ pub fn execute_code(code: &str) -> Result<Option<Value>> {
     compiler.execute(code)
 }
 
-/// Execute Orbit source code and collect all output values
-pub fn execute_code_with_output(code: &str) -> Result<Vec<Value>> {
-    let mut compiler = Compiler::new();
-    compiler.execute_with_output(code)
-}
 
 /// Execute Orbit source code from a file and return the result
 pub fn execute_file(filename: &str) -> Result<Option<Value>> {

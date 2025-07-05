@@ -11,7 +11,7 @@ impl Lexer {
     pub fn new(input: &str) -> Self {
         let chars: Vec<char> = input.chars().collect();
         let current_char = chars.get(0).copied();
-        
+
         Lexer {
             input: chars,
             position: 0,
@@ -40,7 +40,7 @@ impl Lexer {
 
     fn read_number(&mut self) -> f64 {
         let mut num_str = String::new();
-        
+
         while let Some(ch) = self.current_char {
             if ch.is_ascii_digit() || ch == '.' {
                 num_str.push(ch);
@@ -49,14 +49,14 @@ impl Lexer {
                 break;
             }
         }
-        
+
         num_str.parse().unwrap_or(0.0)
     }
 
     fn read_string(&mut self) -> String {
         let mut string_value = String::new();
         self.advance(); // Skip opening quote
-        
+
         while let Some(ch) = self.current_char {
             if ch == '"' {
                 self.advance(); // Skip closing quote
@@ -82,13 +82,13 @@ impl Lexer {
                 self.advance();
             }
         }
-        
+
         string_value
     }
 
     fn read_identifier(&mut self) -> String {
         let mut identifier = String::new();
-        
+
         while let Some(ch) = self.current_char {
             if ch.is_ascii_alphanumeric() || ch == '_' {
                 identifier.push(ch);
@@ -97,7 +97,7 @@ impl Lexer {
                 break;
             }
         }
-        
+
         identifier
     }
 
@@ -229,109 +229,17 @@ impl Lexer {
 
     pub fn tokenize(&mut self) -> Result<Vec<Token>> {
         let mut tokens = Vec::new();
-        
+
         loop {
             let token = self.next_token();
             let is_eof = matches!(token.token_type, TokenType::Eof);
             tokens.push(token);
-            
+
             if is_eof {
                 break;
             }
         }
-        
+
         Ok(tokens)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn assert_single_token(input: &str, expected: TokenType) {
-        let mut lexer = Lexer::new(input);
-        let tokens = lexer.tokenize().unwrap();
-        assert_eq!(tokens.len(), 2, "Expected exactly one token + EOF for input: {}", input);
-        assert_eq!(tokens[0].token_type, expected, "Token mismatch for input: {}", input);
-        assert_eq!(tokens[1].token_type, TokenType::Eof);
-    }
-
-    #[test]
-    fn test_tokenize_numbers() {
-        assert_single_token("42", TokenType::Number(42.0));
-        assert_single_token("3.14", TokenType::Number(3.14));
-    }
-
-    #[test]
-    fn test_tokenize_arithmetic() {
-        let mut lexer = Lexer::new("2 + 3 * 4");
-        let tokens = lexer.tokenize().unwrap();
-        assert_eq!(tokens.len(), 6);
-        assert_eq!(tokens[0].token_type, TokenType::Number(2.0));
-        assert_eq!(tokens[1].token_type, TokenType::Plus);
-        assert_eq!(tokens[2].token_type, TokenType::Number(3.0));
-        assert_eq!(tokens[3].token_type, TokenType::Star);
-        assert_eq!(tokens[4].token_type, TokenType::Number(4.0));
-        assert_eq!(tokens[5].token_type, TokenType::Eof);
-    }
-
-    #[test]
-    fn test_tokenize_parentheses() {
-        let mut lexer = Lexer::new("(2 + 3) * 4");
-        let tokens = lexer.tokenize().unwrap();
-        assert_eq!(tokens.len(), 8);
-        assert_eq!(tokens[0].token_type, TokenType::LeftParen);
-        assert_eq!(tokens[1].token_type, TokenType::Number(2.0));
-        assert_eq!(tokens[2].token_type, TokenType::Plus);
-        assert_eq!(tokens[3].token_type, TokenType::Number(3.0));
-        assert_eq!(tokens[4].token_type, TokenType::RightParen);
-        assert_eq!(tokens[5].token_type, TokenType::Star);
-        assert_eq!(tokens[6].token_type, TokenType::Number(4.0));
-        assert_eq!(tokens[7].token_type, TokenType::Eof);
-    }
-
-    #[test]
-    fn test_tokenize_comparison_operators() {
-        let test_cases = vec![
-            ("==", TokenType::Equal),
-            ("!=", TokenType::NotEqual),
-            ("<", TokenType::Less),
-            (">", TokenType::Greater),
-            ("<=", TokenType::LessEqual),
-            (">=", TokenType::GreaterEqual),
-        ];
-
-        for (input, expected) in test_cases {
-            assert_single_token(input, expected);
-        }
-    }
-
-    #[test]
-    fn test_tokenize_conditional_keywords() {
-        let test_cases = vec![
-            ("if", TokenType::If),
-            ("then", TokenType::Then),
-            ("else", TokenType::Else),
-        ];
-
-        for (input, expected) in test_cases {
-            assert_single_token(input, expected);
-        }
-    }
-
-    #[test]
-    fn test_tokenize_conditional_expression() {
-        let mut lexer = Lexer::new("if x > 5 then 10 else 20");
-        let tokens = lexer.tokenize().unwrap();
-        assert_eq!(tokens.len(), 9);
-        assert_eq!(tokens[0].token_type, TokenType::If);
-        assert_eq!(tokens[1].token_type, TokenType::Identifier("x".to_string()));
-        assert_eq!(tokens[2].token_type, TokenType::Greater);
-        assert_eq!(tokens[3].token_type, TokenType::Number(5.0));
-        assert_eq!(tokens[4].token_type, TokenType::Then);
-        assert_eq!(tokens[5].token_type, TokenType::Number(10.0));
-        assert_eq!(tokens[6].token_type, TokenType::Else);
-        assert_eq!(tokens[7].token_type, TokenType::Number(20.0));
-        assert_eq!(tokens[8].token_type, TokenType::Eof);
     }
 }

@@ -2,4 +2,6 @@ fun add(x, y) do
   return x + y
 end
 
-add(2, 3)
+fun main() do
+  return add(2, 3)
+end

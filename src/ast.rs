@@ -89,6 +89,27 @@ impl FunParam {
     }
 }
 
+// Top-level program structure
+#[derive(Debug, Clone, PartialEq)]
+pub struct Program {
+    pub declarations: Vec<Decl>,
+}
+
+// Top-level declarations
+#[derive(Debug, Clone, PartialEq)]
+pub enum Decl {
+    Function(Function),
+}
+
+// Function declaration with body
+#[derive(Debug, Clone, PartialEq)]
+pub struct Function {
+    pub name: String,
+    pub params: Vec<FunParam>,
+    pub body: Vec<Stmt>,
+    pub return_expr: Option<Box<Expr>>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Let {
@@ -96,12 +117,6 @@ pub enum Stmt {
         value: Expr,
     },
     Expression(Expr),
-    Fun {
-        name: String,
-        params: Vec<FunParam>,
-        body: Vec<Stmt>,
-        return_expr: Option<Box<Expr>>,
-    },
     Return(Expr),
     If {
         condition: Expr,
@@ -143,6 +158,34 @@ impl Expr {
     }
 }
 
+impl Program {
+    pub fn new(declarations: Vec<Decl>) -> Self {
+        Program { declarations }
+    }
+}
+
+impl Decl {
+    pub fn function(name: String, params: Vec<FunParam>, body: Vec<Stmt>, return_expr: Option<Expr>) -> Self {
+        Decl::Function(Function {
+            name,
+            params,
+            body,
+            return_expr: return_expr.map(Box::new),
+        })
+    }
+}
+
+impl Function {
+    pub fn new(name: String, params: Vec<FunParam>, body: Vec<Stmt>, return_expr: Option<Expr>) -> Self {
+        Function {
+            name,
+            params,
+            body,
+            return_expr: return_expr.map(Box::new),
+        }
+    }
+}
+
 impl Stmt {
     pub fn let_stmt(name: String, value: Expr) -> Self {
         Stmt::Let { name, value }
@@ -150,15 +193,6 @@ impl Stmt {
 
     pub fn expression(expr: Expr) -> Self {
         Stmt::Expression(expr)
-    }
-
-    pub fn fun_stmt(name: String, params: Vec<FunParam>, body: Vec<Stmt>, return_expr: Option<Expr>) -> Self {
-        Stmt::Fun {
-            name,
-            params,
-            body,
-            return_expr: return_expr.map(Box::new),
-        }
     }
 
     pub fn return_stmt(expr: Expr) -> Self {

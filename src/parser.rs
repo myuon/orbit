@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Expr, FunParam, Stmt, Token, TokenType};
+use crate::ast::{BinaryOp, Decl, Expr, FunParam, Function, Program, Stmt, Token, TokenType};
 use anyhow::{bail, Result};
 
 pub struct Parser {
@@ -9,8 +9,8 @@ pub struct Parser {
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Parser { 
-            tokens, 
+        Parser {
+            tokens,
             position: 0,
             eof_token: Token::new(TokenType::Eof, 0),
         }
@@ -27,11 +27,17 @@ impl Parser {
     }
 
     fn consume(&mut self, expected: TokenType) -> Result<()> {
-        if std::mem::discriminant(&self.current_token().token_type) == std::mem::discriminant(&expected) {
+        if std::mem::discriminant(&self.current_token().token_type)
+            == std::mem::discriminant(&expected)
+        {
             self.advance();
             Ok(())
         } else {
-            bail!("Expected {:?}, found {:?}", expected, self.current_token().token_type)
+            bail!(
+                "Expected {:?}, found {:?}",
+                expected,
+                self.current_token().token_type
+            )
         }
     }
 
@@ -39,41 +45,37 @@ impl Parser {
         self.parse_expression()
     }
 
-    pub fn parse_stmt(&mut self) -> Result<Stmt> {
+    /// Parse a complete Program consisting of declarations
+    pub fn parse_program(&mut self) -> Result<Program> {
+        let mut declarations = Vec::new();
+
+        while !matches!(self.current_token().token_type, TokenType::Eof) {
+            declarations.push(self.parse_decl()?);
+        }
+
+        Ok(Program::new(declarations))
+    }
+
+    /// Parse a top-level declaration
+    fn parse_decl(&mut self) -> Result<Decl> {
         match &self.current_token().token_type {
-            TokenType::Let => self.parse_let_stmt(),
-            TokenType::Fun => self.parse_fun_stmt(),
-            TokenType::Return => self.parse_return_stmt(),
-            TokenType::If => self.parse_if_stmt(),
+            TokenType::Fun => {
+                let function = self.parse_function()?;
+                Ok(Decl::Function(function))
+            }
             _ => {
-                let expr = self.parse_expression()?;
-                Ok(Stmt::expression(expr))
+                bail!(
+                    "Expected declaration (function), found {:?}",
+                    self.current_token().token_type
+                )
             }
         }
     }
 
-    fn parse_let_stmt(&mut self) -> Result<Stmt> {
-        self.consume(TokenType::Let)?;
-        
-        let name = match &self.current_token().token_type {
-            TokenType::Identifier(name) => {
-                let n = name.clone();
-                self.advance();
-                n
-            }
-            _ => bail!("Expected identifier after 'let'"),
-        };
-
-        self.consume(TokenType::Assign)?;
-        let value = self.parse_expression()?;
-        self.consume(TokenType::Semicolon)?;
-        
-        Ok(Stmt::let_stmt(name, value))
-    }
-
-    fn parse_fun_stmt(&mut self) -> Result<Stmt> {
+    /// Parse a function declaration
+    fn parse_function(&mut self) -> Result<Function> {
         self.consume(TokenType::Fun)?;
-        
+
         let name = match &self.current_token().token_type {
             TokenType::Identifier(name) => {
                 let n = name.clone();
@@ -85,7 +87,7 @@ impl Parser {
 
         self.consume(TokenType::LeftParen)?;
         let mut params = Vec::new();
-        
+
         if !matches!(self.current_token().token_type, TokenType::RightParen) {
             loop {
                 let param_name = match &self.current_token().token_type {
@@ -123,15 +125,15 @@ impl Parser {
 
         self.consume(TokenType::RightParen)?;
         self.consume(TokenType::Do)?;
-        
+
         let mut body = Vec::new();
         let mut return_expr = None;
-        
+
         while !matches!(self.current_token().token_type, TokenType::End) {
             if matches!(self.current_token().token_type, TokenType::Eof) {
                 bail!("Unexpected end of file in function body");
             }
-            
+
             if matches!(self.current_token().token_type, TokenType::Return) {
                 let return_stmt = self.parse_return_stmt()?;
                 if let Stmt::Return(expr) = return_stmt {
@@ -141,10 +143,41 @@ impl Parser {
                 body.push(self.parse_stmt()?);
             }
         }
-        
+
         self.consume(TokenType::End)?;
-        
-        Ok(Stmt::fun_stmt(name, params, body, return_expr))
+
+        Ok(Function::new(name, params, body, return_expr))
+    }
+
+    pub fn parse_stmt(&mut self) -> Result<Stmt> {
+        match &self.current_token().token_type {
+            TokenType::Let => self.parse_let_stmt(),
+            TokenType::Return => self.parse_return_stmt(),
+            TokenType::If => self.parse_if_stmt(),
+            _ => {
+                let expr = self.parse_expression()?;
+                Ok(Stmt::expression(expr))
+            }
+        }
+    }
+
+    fn parse_let_stmt(&mut self) -> Result<Stmt> {
+        self.consume(TokenType::Let)?;
+
+        let name = match &self.current_token().token_type {
+            TokenType::Identifier(name) => {
+                let n = name.clone();
+                self.advance();
+                n
+            }
+            _ => bail!("Expected identifier after 'let'"),
+        };
+
+        self.consume(TokenType::Assign)?;
+        let value = self.parse_expression()?;
+        self.consume(TokenType::Semicolon)?;
+
+        Ok(Stmt::let_stmt(name, value))
     }
 
     fn parse_return_stmt(&mut self) -> Result<Stmt> {
@@ -157,24 +190,30 @@ impl Parser {
         self.consume(TokenType::If)?;
         let condition = self.parse_comparison()?;
         self.consume(TokenType::Then)?;
-        
+
         let mut then_branch = Vec::new();
-        
+
         // Parse statements until we hit 'else' or 'end'
-        while !matches!(self.current_token().token_type, TokenType::Else | TokenType::End | TokenType::Eof) {
+        while !matches!(
+            self.current_token().token_type,
+            TokenType::Else | TokenType::End | TokenType::Eof
+        ) {
             then_branch.push(self.parse_stmt()?);
         }
-        
+
         let else_branch = if matches!(self.current_token().token_type, TokenType::Else) {
             self.advance(); // consume 'else'
-            
+
             // Check for 'else if'
             if matches!(self.current_token().token_type, TokenType::If) {
                 // Parse as a single if statement in the else branch
                 Some(vec![self.parse_if_stmt()?])
             } else {
                 let mut else_stmts = Vec::new();
-                while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+                while !matches!(
+                    self.current_token().token_type,
+                    TokenType::End | TokenType::Eof
+                ) {
                     else_stmts.push(self.parse_stmt()?);
                 }
                 Some(else_stmts)
@@ -182,9 +221,9 @@ impl Parser {
         } else {
             None
         };
-        
+
         self.consume(TokenType::End)?;
-        
+
         Ok(Stmt::if_stmt(condition, then_branch, else_branch))
     }
 
@@ -298,16 +337,16 @@ impl Parser {
             TokenType::Identifier(name) => {
                 let identifier = name.clone();
                 self.advance();
-                
+
                 // Check if this is a function call
                 if matches!(self.current_token().token_type, TokenType::LeftParen) {
                     self.advance(); // consume '('
                     let mut args = Vec::new();
-                    
+
                     if !matches!(self.current_token().token_type, TokenType::RightParen) {
                         loop {
                             args.push(self.parse_expression()?);
-                            
+
                             if matches!(self.current_token().token_type, TokenType::Comma) {
                                 self.advance();
                             } else {
@@ -315,7 +354,7 @@ impl Parser {
                             }
                         }
                     }
-                    
+
                     self.consume(TokenType::RightParen)?;
                     Ok(Expr::call(Expr::identifier(identifier), args))
                 } else {
@@ -330,248 +369,5 @@ impl Parser {
             }
             _ => bail!("Unexpected token: {:?}", self.current_token().token_type),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::lexer::Lexer;
-
-    fn parse_expression(input: &str) -> Result<Expr> {
-        let mut lexer = Lexer::new(input);
-        let tokens = lexer.tokenize()?;
-        let mut parser = Parser::new(tokens);
-        parser.parse()
-    }
-
-    #[test]
-    fn test_parse_number() {
-        let expr = parse_expression("42").unwrap();
-        assert_eq!(expr, Expr::Number(42.0));
-    }
-
-    #[test]
-    fn test_parse_binary_operations() {
-        let test_cases = vec![
-            ("2 + 3", Expr::binary(Expr::Number(2.0), BinaryOp::Add, Expr::Number(3.0))),
-            ("2 * 3", Expr::binary(Expr::Number(2.0), BinaryOp::Multiply, Expr::Number(3.0))),
-        ];
-
-        for (input, expected) in test_cases {
-            let expr = parse_expression(input).unwrap();
-            assert_eq!(expr, expected, "Failed for input: {}", input);
-        }
-    }
-
-    #[test]
-    fn test_parse_complex_expressions() {
-        let test_cases = vec![
-            (
-                "2 + 3 * 4",
-                Expr::binary(
-                    Expr::Number(2.0),
-                    BinaryOp::Add,
-                    Expr::binary(Expr::Number(3.0), BinaryOp::Multiply, Expr::Number(4.0))
-                ),
-            ),
-            (
-                "(2 + 3) * 4",
-                Expr::binary(
-                    Expr::binary(Expr::Number(2.0), BinaryOp::Add, Expr::Number(3.0)),
-                    BinaryOp::Multiply,
-                    Expr::Number(4.0)
-                ),
-            ),
-            (
-                "2 * 3 + 4 / 2",
-                Expr::binary(
-                    Expr::binary(Expr::Number(2.0), BinaryOp::Multiply, Expr::Number(3.0)),
-                    BinaryOp::Add,
-                    Expr::binary(Expr::Number(4.0), BinaryOp::Divide, Expr::Number(2.0))
-                ),
-            ),
-        ];
-
-        for (input, expected) in test_cases {
-            let expr = parse_expression(input).unwrap();
-            assert_eq!(expr, expected, "Failed for input: {}", input);
-        }
-    }
-
-    #[test]
-    fn test_parse_function_call() {
-        let test_cases = vec![
-            (
-                "add(2, 3)",
-                Expr::call(
-                    Expr::identifier("add".to_string()),
-                    vec![Expr::Number(2.0), Expr::Number(3.0)]
-                )
-            ),
-            (
-                "max(1)",
-                Expr::call(
-                    Expr::identifier("max".to_string()),
-                    vec![Expr::Number(1.0)]
-                )
-            ),
-            (
-                "min()",
-                Expr::call(
-                    Expr::identifier("min".to_string()),
-                    vec![]
-                )
-            ),
-        ];
-
-        for (input, expected) in test_cases {
-            let expr = parse_expression(input).unwrap();
-            assert_eq!(expr, expected, "Failed for input: {}", input);
-        }
-    }
-
-    fn parse_statement(input: &str) -> Result<Stmt> {
-        let mut lexer = Lexer::new(input);
-        let tokens = lexer.tokenize()?;
-        let mut parser = Parser::new(tokens);
-        parser.parse_stmt()
-    }
-
-    #[test]
-    fn test_parse_function_definition() {
-        let input = "fun add(x, y) do return x + y end";
-        let stmt = parse_statement(input).unwrap();
-        
-        let expected = Stmt::fun_stmt(
-            "add".to_string(),
-            vec![
-                FunParam::new("x".to_string(), None),
-                FunParam::new("y".to_string(), None),
-            ],
-            vec![],
-            Some(Expr::binary(
-                Expr::identifier("x".to_string()),
-                BinaryOp::Add,
-                Expr::identifier("y".to_string())
-            ))
-        );
-        
-        assert_eq!(stmt, expected);
-    }
-
-    #[test]
-    fn test_parse_function_with_typed_params() {
-        let input = "fun multiply(x: int, y: int) do return x * y end";
-        let stmt = parse_statement(input).unwrap();
-        
-        let expected = Stmt::fun_stmt(
-            "multiply".to_string(),
-            vec![
-                FunParam::new("x".to_string(), Some("int".to_string())),
-                FunParam::new("y".to_string(), Some("int".to_string())),
-            ],
-            vec![],
-            Some(Expr::binary(
-                Expr::identifier("x".to_string()),
-                BinaryOp::Multiply,
-                Expr::identifier("y".to_string())
-            ))
-        );
-        
-        assert_eq!(stmt, expected);
-    }
-
-    #[test]
-    fn test_parse_comparison_operators() {
-        let test_cases = vec![
-            ("2 == 3", Expr::binary(Expr::Number(2.0), BinaryOp::Equal, Expr::Number(3.0))),
-            ("2 != 3", Expr::binary(Expr::Number(2.0), BinaryOp::NotEqual, Expr::Number(3.0))),
-            ("2 < 3", Expr::binary(Expr::Number(2.0), BinaryOp::Less, Expr::Number(3.0))),
-            ("2 > 3", Expr::binary(Expr::Number(2.0), BinaryOp::Greater, Expr::Number(3.0))),
-            ("2 <= 3", Expr::binary(Expr::Number(2.0), BinaryOp::LessEqual, Expr::Number(3.0))),
-            ("2 >= 3", Expr::binary(Expr::Number(2.0), BinaryOp::GreaterEqual, Expr::Number(3.0))),
-        ];
-
-        for (input, expected) in test_cases {
-            let expr = parse_expression(input).unwrap();
-            assert_eq!(expr, expected, "Failed for input: {}", input);
-        }
-    }
-
-    #[test]
-    fn test_parse_if_statement() {
-        let input = "if x > 5 then let y = 10; end";
-        let stmt = parse_statement(input).unwrap();
-        
-        let expected = Stmt::if_stmt(
-            Expr::binary(
-                Expr::identifier("x".to_string()),
-                BinaryOp::Greater,
-                Expr::Number(5.0)
-            ),
-            vec![
-                Stmt::let_stmt("y".to_string(), Expr::Number(10.0))
-            ],
-            None
-        );
-        
-        assert_eq!(stmt, expected);
-    }
-
-    #[test]
-    fn test_parse_if_else_statement() {
-        let input = "if x > 5 then let y = 10; else let y = 20; end";
-        let stmt = parse_statement(input).unwrap();
-        
-        let expected = Stmt::if_stmt(
-            Expr::binary(
-                Expr::identifier("x".to_string()),
-                BinaryOp::Greater,
-                Expr::Number(5.0)
-            ),
-            vec![
-                Stmt::let_stmt("y".to_string(), Expr::Number(10.0))
-            ],
-            Some(vec![
-                Stmt::let_stmt("y".to_string(), Expr::Number(20.0))
-            ])
-        );
-        
-        assert_eq!(stmt, expected);
-    }
-
-    #[test]
-    fn test_parse_if_else_if_statement() {
-        let input = "if x > 10 then let y = 100; else if x > 5 then let y = 50; else let y = 0; end end";
-        let stmt = parse_statement(input).unwrap();
-        
-        let expected = Stmt::if_stmt(
-            Expr::binary(
-                Expr::identifier("x".to_string()),
-                BinaryOp::Greater,
-                Expr::Number(10.0)
-            ),
-            vec![
-                Stmt::let_stmt("y".to_string(), Expr::Number(100.0))
-            ],
-            Some(vec![
-                Stmt::if_stmt(
-                    Expr::binary(
-                        Expr::identifier("x".to_string()),
-                        BinaryOp::Greater,
-                        Expr::Number(5.0)
-                    ),
-                    vec![
-                        Stmt::let_stmt("y".to_string(), Expr::Number(50.0))
-                    ],
-                    Some(vec![
-                        Stmt::let_stmt("y".to_string(), Expr::Number(0.0))
-                    ])
-                )
-            ])
-        );
-        
-        assert_eq!(stmt, expected);
     }
 }

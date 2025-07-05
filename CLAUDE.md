@@ -9,8 +9,8 @@ Orbit is a statically typed programming language with JIT compilation for AArch6
 ## Commands for Claude Code
 
 - `cargo check --message-format=short` - Check the project for compilation errors (preferred for development)
-- `cargo test` - Run unit tests (ALWAYS run after making changes)
-- `cargo test test_orbit_files` - Run integration tests with .ob files
+- `cargo test --message-format=short` - Run unit tests (ALWAYS run after making changes)
+- `cargo test test_orbit_files --message-format=short` - Run integration tests with .ob files
 - `cargo run <file.ob>` - Execute an Orbit source file
 
 ## Project Architecture
@@ -74,6 +74,7 @@ The language supports:
 ### Testing
 
 **Integration Tests**: The Rust implementation includes integration tests in the `tests/testcase/` directory:
+
 - `.ob` files contain Orbit source code to execute
 - `.stdout` files contain expected output
 - Run with `cargo test test_orbit_files`
@@ -81,6 +82,7 @@ The language supports:
 - Tests verify end-to-end functionality of the compiler and runtime
 
 **Unit Tests**: Comprehensive unit tests are embedded in each module:
+
 - Lexer tests verify token generation
 - Parser tests verify AST construction
 - Runtime tests verify expression evaluation and function execution

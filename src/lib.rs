@@ -5,7 +5,7 @@ pub mod parser;
 pub mod runtime;
 
 // Re-export commonly used items
-pub use compiler::{execute_code, execute_code_with_output, execute_file, Compiler};
+pub use compiler::{execute_code, execute_file, Compiler};
 pub use runtime::{Runtime, Value};
 
 use anyhow::Result;
