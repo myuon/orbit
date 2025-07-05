@@ -31,7 +31,7 @@ pub enum Instruction {
     SetLocal(i32),
 
     // Function calls
-    Call(usize),
+    Call(String),
     Ret,
 
     // Frame management
@@ -39,6 +39,9 @@ pub enum Instruction {
     SetBP,
     GetSP,
     SetSP,
+
+    // Labels
+    Label(String),
 
     // No operation
     Nop,
@@ -63,12 +66,13 @@ impl fmt::Display for Instruction {
             Instruction::JumpIfZero(addr) => write!(f, "jump_if_zero {}", addr),
             Instruction::GetLocal(offset) => write!(f, "get_local {}", offset),
             Instruction::SetLocal(offset) => write!(f, "set_local {}", offset),
-            Instruction::Call(addr) => write!(f, "call {}", addr),
+            Instruction::Call(func_name) => write!(f, "call {}", func_name),
             Instruction::Ret => write!(f, "ret"),
             Instruction::GetBP => write!(f, "get_bp"),
             Instruction::SetBP => write!(f, "set_bp"),
             Instruction::GetSP => write!(f, "get_sp"),
             Instruction::SetSP => write!(f, "set_sp"),
+            Instruction::Label(name) => write!(f, "{}:", name),
             Instruction::Nop => write!(f, "nop"),
         }
     }
@@ -113,6 +117,9 @@ impl VM {
     }
 
     pub fn execute(&mut self) -> Result<i32, String> {
+        // Initialize BP to point to the start of the stack
+        self.bp = 0;
+
         while self.pc < self.program.len() {
             let instruction = &self.program[self.pc];
 
@@ -131,6 +138,10 @@ impl VM {
             }
 
             match instruction {
+                Instruction::Label(_) => {
+                    // Labels are just markers, no action needed
+                }
+
                 Instruction::Push(value) => {
                     self.stack.push(*value);
                 }
@@ -309,7 +320,7 @@ impl VM {
                     self.stack[index] = value;
                 }
 
-                Instruction::Call(addr) => {
+                Instruction::Call(func_name) => {
                     // Function calling convention:
                     // 1. Arguments are already on stack
                     // 2. Push return address (PC + 1)
@@ -317,11 +328,26 @@ impl VM {
                     // 4. Set new BP to current SP
                     // 5. Jump to function
 
-                    self.stack.push((self.pc + 1) as i32); // Return address
-                    self.stack.push(self.bp as i32); // Old BP
-                    self.bp = self.stack.len(); // New BP
-                    self.pc = *addr;
-                    continue;
+                    // Find function address by name
+                    let mut target_addr = None;
+                    for (i, inst) in self.program.iter().enumerate() {
+                        if let Instruction::Label(label_name) = inst {
+                            if label_name == func_name {
+                                target_addr = Some(i + 1); // Jump to instruction after label
+                                break;
+                            }
+                        }
+                    }
+
+                    if let Some(addr) = target_addr {
+                        self.stack.push((self.pc + 1) as i32); // Return address
+                        self.stack.push(self.bp as i32); // Old BP
+                        self.bp = self.stack.len(); // New BP points to after return address and old BP
+                        self.pc = addr;
+                        continue;
+                    } else {
+                        return Err(format!("Function not found: {}", func_name));
+                    }
                 }
 
                 Instruction::Ret => {
@@ -449,14 +475,14 @@ impl VMCompiler {
 
         // Add instructions with line numbers
         for (i, instruction) in self.instructions.iter().enumerate() {
-            // Add function labels
-            for (name, &addr) in &self.function_addresses {
-                if addr == i {
+            match instruction {
+                Instruction::Label(name) => {
                     output.push_str(&format!("\n{}:\n", name));
                 }
+                _ => {
+                    output.push_str(&format!("{:4}: {}\n", i, instruction));
+                }
             }
-
-            output.push_str(&format!("{:4}: {}\n", i, instruction));
         }
 
         output
@@ -485,12 +511,16 @@ impl VMCompiler {
             }
         }
 
-        // 2. 関数を定義順にコンパイル
+        // 2. プログラムの先頭に call main; ret を挿入
         self.instructions.clear();
         self.function_addresses.clear();
         self.local_vars.clear();
         self.local_offset = 0;
+        self.instructions
+            .push(Instruction::Call("main".to_string()));
+        self.instructions.push(Instruction::Ret);
 
+        // 3. 関数を定義順にコンパイル
         for func in &functions {
             let func_addr = self.compile_function(func);
             self.function_addresses.insert(func.name.clone(), func_addr);
@@ -503,6 +533,10 @@ impl VMCompiler {
     pub fn compile_function(&mut self, func: &Function) -> usize {
         let func_start = self.instructions.len();
 
+        // Add function label
+        self.instructions
+            .push(Instruction::Label(func.name.clone()));
+
         // Function prologue - reserve space for local variables
         // (This is simplified - in a real implementation we'd analyze the function first)
         self.local_offset = 0;
@@ -510,8 +544,9 @@ impl VMCompiler {
 
         // Map parameters to stack positions (negative offsets from BP)
         // Stack layout: [arg0] [arg1] [return_addr] [old_bp] <- BP points here
+        // Parameters are accessed with negative offsets from BP
         for (i, param) in func.params.iter().enumerate() {
-            let param_offset = -2 - (func.params.len() as i32) + (i as i32); // Parameters are before return_addr and old_bp
+            let param_offset = -(i as i32 + 3); // -3 for first param, -4 for second, etc.
             self.local_vars.insert(param.name.clone(), param_offset);
         }
 
@@ -632,7 +667,7 @@ impl VMCompiler {
                 // Get function address
                 if let Expr::Identifier(func_name) = callee.as_ref() {
                     if let Some(&addr) = self.function_addresses.get(func_name) {
-                        self.instructions.push(Instruction::Call(addr));
+                        self.instructions.push(Instruction::Call(func_name.clone()));
 
                         // Note: arguments will be cleaned up by the Call instruction implementation
                         // The return value will be left on the stack
@@ -939,6 +974,10 @@ mod tests {
         let mut compiler = VMCompiler::new();
         let instructions = compiler.compile_program(&program);
 
+        // Print IR for debugging
+        println!("Generated IR:");
+        println!("{}", compiler.dump_ir());
+
         let mut vm = VM::new();
         vm.load_program(instructions);
         let result = vm.execute().unwrap();
@@ -989,9 +1028,9 @@ mod tests {
         let mut compiler = VMCompiler::new();
         let instructions = compiler.compile_program(&program);
 
-        for inst in &instructions {
-            println!("{}", inst);
-        }
+        // Print IR for debugging
+        println!("Generated IR:");
+        println!("{}", compiler.dump_ir());
 
         let mut vm = VM::new();
         vm.load_program(instructions);
