@@ -608,6 +608,83 @@ impl VMCompiler {
                 }
             }
 
+            Stmt::While { condition, body } => {
+                // While loop structure:
+                // loop_start:
+                //   condition
+                //   jump_if_zero loop_end
+                //   body
+                //   jump loop_start
+                // loop_end:
+
+                let loop_start = self.instructions.len();
+
+                // Compile condition
+                self.compile_expression(condition);
+
+                // Jump to end if condition is false
+                let jump_to_end = self.instructions.len();
+                self.instructions.push(Instruction::JumpIfZero(0)); // Placeholder
+
+                // Compile body
+                for stmt in body {
+                    self.compile_statement(stmt);
+                }
+
+                // Jump back to start
+                self.instructions.push(Instruction::Jump(loop_start));
+
+                // Set the jump target for the end
+                let loop_end = self.instructions.len();
+                self.instructions[jump_to_end] = Instruction::JumpIfZero(loop_end);
+            }
+
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                // If statement structure:
+                //   condition
+                //   jump_if_zero else_branch
+                //   then_branch
+                //   jump end
+                // else_branch:
+                //   else_branch (if exists)
+                // end:
+
+                // Compile condition
+                self.compile_expression(condition);
+
+                // Jump to else if condition is false
+                let jump_to_else = self.instructions.len();
+                self.instructions.push(Instruction::JumpIfZero(0)); // Placeholder
+
+                // Compile then branch
+                for stmt in then_branch {
+                    self.compile_statement(stmt);
+                }
+
+                // Jump to end (skip else branch)
+                let jump_to_end = self.instructions.len();
+                self.instructions.push(Instruction::Jump(0)); // Placeholder
+
+                // Set jump target for else branch
+                let else_start = self.instructions.len();
+                self.instructions[jump_to_else] = Instruction::JumpIfZero(else_start);
+
+                // Compile else branch if it exists
+                if let Some(else_branch) = else_branch {
+                    for stmt in else_branch {
+                        self.compile_statement(stmt);
+                    }
+                }
+
+                // Set jump target for end
+                let end = self.instructions.len();
+                self.instructions[jump_to_end] = Instruction::Jump(end);
+            }
+
             // TODO: Implement other statement types
             _ => {
                 // For now, just ignore unsupported statements
@@ -666,7 +743,7 @@ impl VMCompiler {
 
                 // Get function address
                 if let Expr::Identifier(func_name) = callee.as_ref() {
-                    if let Some(&addr) = self.function_addresses.get(func_name) {
+                    if let Some(&_addr) = self.function_addresses.get(func_name) {
                         self.instructions.push(Instruction::Call(func_name.clone()));
 
                         // Note: arguments will be cleaned up by the Call instruction implementation
