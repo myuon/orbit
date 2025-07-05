@@ -110,7 +110,10 @@ impl Lexer {
                 Some(ch) if ch.is_ascii_digit() => {
                     let pos = self.position;
                     let num = self.read_number();
-                    return Token::new(TokenType::Number(num), pos);
+                    return Token {
+                        token_type: TokenType::Number(num),
+                        position: pos,
+                    };
                 }
                 Some(ch) if ch.is_ascii_alphabetic() || ch == '_' => {
                     let pos = self.position;
@@ -129,73 +132,115 @@ impl Lexer {
                         "while" => TokenType::While,
                         _ => TokenType::Identifier(identifier),
                     };
-                    return Token::new(token_type, pos);
+                    return Token {
+                        token_type,
+                        position: pos,
+                    };
                 }
                 Some('"') => {
                     let pos = self.position;
                     let string_value = self.read_string();
-                    return Token::new(TokenType::String(string_value), pos);
+                    return Token {
+                        token_type: TokenType::String(string_value),
+                        position: pos,
+                    };
                 }
                 Some('+') => {
                     let pos = self.position;
                     self.advance();
-                    return Token::new(TokenType::Plus, pos);
+                    return Token {
+                        token_type: TokenType::Plus,
+                        position: pos,
+                    };
                 }
                 Some('-') => {
                     let pos = self.position;
                     self.advance();
-                    return Token::new(TokenType::Minus, pos);
+                    return Token {
+                        token_type: TokenType::Minus,
+                        position: pos,
+                    };
                 }
                 Some('*') => {
                     let pos = self.position;
                     self.advance();
-                    return Token::new(TokenType::Star, pos);
+                    return Token {
+                        token_type: TokenType::Star,
+                        position: pos,
+                    };
                 }
                 Some('/') => {
                     let pos = self.position;
                     self.advance();
-                    return Token::new(TokenType::Slash, pos);
+                    return Token {
+                        token_type: TokenType::Slash,
+                        position: pos,
+                    };
                 }
                 Some('=') => {
                     let pos = self.position;
                     self.advance();
                     if let Some('=') = self.current_char {
                         self.advance();
-                        return Token::new(TokenType::Equal, pos);
+                        return Token {
+                            token_type: TokenType::Equal,
+                            position: pos,
+                        };
                     }
-                    return Token::new(TokenType::Assign, pos);
+                    return Token {
+                        token_type: TokenType::Assign,
+                        position: pos,
+                    };
                 }
                 Some(';') => {
                     let pos = self.position;
                     self.advance();
-                    return Token::new(TokenType::Semicolon, pos);
+                    return Token {
+                        token_type: TokenType::Semicolon,
+                        position: pos,
+                    };
                 }
                 Some('(') => {
                     let pos = self.position;
                     self.advance();
-                    return Token::new(TokenType::LeftParen, pos);
+                    return Token {
+                        token_type: TokenType::LeftParen,
+                        position: pos,
+                    };
                 }
                 Some(')') => {
                     let pos = self.position;
                     self.advance();
-                    return Token::new(TokenType::RightParen, pos);
+                    return Token {
+                        token_type: TokenType::RightParen,
+                        position: pos,
+                    };
                 }
                 Some(',') => {
                     let pos = self.position;
                     self.advance();
-                    return Token::new(TokenType::Comma, pos);
+                    return Token {
+                        token_type: TokenType::Comma,
+                        position: pos,
+                    };
                 }
                 Some(':') => {
                     let pos = self.position;
                     self.advance();
-                    return Token::new(TokenType::Colon, pos);
+                    return Token {
+                        token_type: TokenType::Colon,
+                        position: pos,
+                    };
                 }
                 Some('!') => {
                     let pos = self.position;
                     self.advance();
                     if let Some('=') = self.current_char {
                         self.advance();
-                        return Token::new(TokenType::NotEqual, pos);
+                        return Token {
+                            token_type: TokenType::NotEqual,
+                            position: pos,
+                        };
                     }
                     // Handle unexpected '!' character
                     continue;
@@ -205,21 +250,36 @@ impl Lexer {
                     self.advance();
                     if let Some('=') = self.current_char {
                         self.advance();
-                        return Token::new(TokenType::LessEqual, pos);
+                        return Token {
+                            token_type: TokenType::LessEqual,
+                            position: pos,
+                        };
                     }
-                    return Token::new(TokenType::Less, pos);
+                    return Token {
+                        token_type: TokenType::Less,
+                        position: pos,
+                    };
                 }
                 Some('>') => {
                     let pos = self.position;
                     self.advance();
                     if let Some('=') = self.current_char {
                         self.advance();
-                        return Token::new(TokenType::GreaterEqual, pos);
+                        return Token {
+                            token_type: TokenType::GreaterEqual,
+                            position: pos,
+                        };
                     }
-                    return Token::new(TokenType::Greater, pos);
+                    return Token {
+                        token_type: TokenType::Greater,
+                        position: pos,
+                    };
                 }
                 None => {
-                    return Token::new(TokenType::Eof, self.position);
+                    return Token {
+                        token_type: TokenType::Eof,
+                        position: self.position,
+                    };
                 }
                 Some(_) => {
                     self.advance();

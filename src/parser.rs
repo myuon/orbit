@@ -12,7 +12,10 @@ impl Parser {
         Parser {
             tokens,
             position: 0,
-            eof_token: Token::new(TokenType::Eof, 0),
+            eof_token: Token {
+                token_type: TokenType::Eof,
+                position: 0,
+            },
         }
     }
 
@@ -53,7 +56,7 @@ impl Parser {
             declarations.push(self.parse_decl()?);
         }
 
-        Ok(Program::new(declarations))
+        Ok(Program { declarations })
     }
 
     /// Parse a top-level declaration
@@ -113,7 +116,10 @@ impl Parser {
                     None
                 };
 
-                params.push(FunParam::new(param_name, type_name));
+                params.push(FunParam {
+                    name: param_name,
+                    type_name,
+                });
 
                 if matches!(self.current_token().token_type, TokenType::Comma) {
                     self.advance();
@@ -146,7 +152,12 @@ impl Parser {
 
         self.consume(TokenType::End)?;
 
-        Ok(Function::new(name, params, body, return_expr))
+        Ok(Function {
+            name,
+            params,
+            body,
+            return_expr: return_expr.map(Box::new),
+        })
     }
 
     pub fn parse_stmt(&mut self) -> Result<Stmt> {
@@ -162,16 +173,16 @@ impl Parser {
                         self.parse_assign_stmt()
                     } else {
                         let expr = self.parse_expression()?;
-                        Ok(Stmt::expression(expr))
+                        Ok(Stmt::Expression(expr))
                     }
                 } else {
                     let expr = self.parse_expression()?;
-                    Ok(Stmt::expression(expr))
+                    Ok(Stmt::Expression(expr))
                 }
             }
             _ => {
                 let expr = self.parse_expression()?;
-                Ok(Stmt::expression(expr))
+                Ok(Stmt::Expression(expr))
             }
         }
     }
@@ -192,14 +203,14 @@ impl Parser {
         let value = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
 
-        Ok(Stmt::let_stmt(name, value))
+        Ok(Stmt::Let { name, value })
     }
 
     fn parse_return_stmt(&mut self) -> Result<Stmt> {
         self.consume(TokenType::Return)?;
         let expr = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
-        Ok(Stmt::return_stmt(expr))
+        Ok(Stmt::Return(expr))
     }
 
     fn parse_if_stmt(&mut self) -> Result<Stmt> {
@@ -240,7 +251,11 @@ impl Parser {
 
         self.consume(TokenType::End)?;
 
-        Ok(Stmt::if_stmt(condition, then_branch, else_branch))
+        Ok(Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+        })
     }
 
     fn parse_while_stmt(&mut self) -> Result<Stmt> {
@@ -258,7 +273,7 @@ impl Parser {
 
         self.consume(TokenType::End)?;
 
-        Ok(Stmt::while_stmt(condition, body))
+        Ok(Stmt::While { condition, body })
     }
 
     fn parse_assign_stmt(&mut self) -> Result<Stmt> {
@@ -275,7 +290,7 @@ impl Parser {
         let value = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
 
-        Ok(Stmt::assign_stmt(name, value))
+        Ok(Stmt::Assign { name, value })
     }
 
     fn parse_expression(&mut self) -> Result<Expr> {
@@ -315,7 +330,11 @@ impl Parser {
                 {
                     self.advance();
                     let right = operand_parser(self)?;
-                    left = Expr::binary(left, *binary_op, right);
+                    left = Expr::Binary {
+                        left: Box::new(left),
+                        op: *binary_op,
+                        right: Box::new(right),
+                    };
                     found = true;
                     break;
                 }
@@ -353,17 +372,17 @@ impl Parser {
             TokenType::Number(value) => {
                 let num = *value;
                 self.advance();
-                Ok(Expr::number(num))
+                Ok(Expr::Number(num))
             }
             TokenType::Boolean(value) => {
                 let bool_val = *value;
                 self.advance();
-                Ok(Expr::boolean(bool_val))
+                Ok(Expr::Boolean(bool_val))
             }
             TokenType::String(value) => {
                 let string_val = value.clone();
                 self.advance();
-                Ok(Expr::string(string_val))
+                Ok(Expr::String(string_val))
             }
             TokenType::Identifier(name) => {
                 let identifier = name.clone();
@@ -387,9 +406,12 @@ impl Parser {
                     }
 
                     self.consume(TokenType::RightParen)?;
-                    Ok(Expr::call(Expr::identifier(identifier), args))
+                    Ok(Expr::Call {
+                        callee: Box::new(Expr::Identifier(identifier)),
+                        args,
+                    })
                 } else {
-                    Ok(Expr::identifier(identifier))
+                    Ok(Expr::Identifier(identifier))
                 }
             }
             TokenType::LeftParen => {

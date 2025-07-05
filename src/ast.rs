@@ -41,14 +41,6 @@ pub struct Token {
     pub position: usize,
 }
 
-impl Token {
-    pub fn new(token_type: TokenType, position: usize) -> Self {
-        Token {
-            token_type,
-            position,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinaryOp {
@@ -88,11 +80,6 @@ pub struct FunParam {
     pub type_name: Option<String>,
 }
 
-impl FunParam {
-    pub fn new(name: String, type_name: Option<String>) -> Self {
-        FunParam { name, type_name }
-    }
-}
 
 // Top-level program structure
 #[derive(Debug, Clone, PartialEq)]
@@ -138,113 +125,3 @@ pub enum Stmt {
     },
 }
 
-impl Expr {
-    pub fn number(value: f64) -> Self {
-        Expr::Number(value)
-    }
-
-    pub fn boolean(value: bool) -> Self {
-        Expr::Boolean(value)
-    }
-
-    pub fn string(value: String) -> Self {
-        Expr::String(value)
-    }
-
-    pub fn identifier(name: String) -> Self {
-        Expr::Identifier(name)
-    }
-
-    pub fn binary(left: Expr, op: BinaryOp, right: Expr) -> Self {
-        Expr::Binary {
-            left: Box::new(left),
-            op,
-            right: Box::new(right),
-        }
-    }
-
-    pub fn call(callee: Expr, args: Vec<Expr>) -> Self {
-        Expr::Call {
-            callee: Box::new(callee),
-            args,
-        }
-    }
-}
-
-impl Program {
-    pub fn new(declarations: Vec<Decl>) -> Self {
-        Program { declarations }
-    }
-}
-
-impl Decl {
-    pub fn function(
-        name: String,
-        params: Vec<FunParam>,
-        body: Vec<Stmt>,
-        return_expr: Option<Expr>,
-    ) -> Self {
-        Decl::Function(Function {
-            name,
-            params,
-            body,
-            return_expr: return_expr.map(Box::new),
-        })
-    }
-}
-
-impl Function {
-    pub fn new(
-        name: String,
-        params: Vec<FunParam>,
-        body: Vec<Stmt>,
-        return_expr: Option<Expr>,
-    ) -> Self {
-        Function {
-            name,
-            params,
-            body,
-            return_expr: return_expr.map(Box::new),
-        }
-    }
-}
-
-impl Stmt {
-    /// Create a variable binding statement (let)
-    pub fn let_stmt(name: String, value: Expr) -> Self {
-        Stmt::Let { name, value }
-    }
-
-    /// Create a variable assignment statement
-    pub fn assign_stmt(name: String, value: Expr) -> Self {
-        Stmt::Assign { name, value }
-    }
-
-    /// Create an expression statement
-    pub fn expression(expr: Expr) -> Self {
-        Stmt::Expression(expr)
-    }
-
-    /// Create a return statement
-    pub fn return_stmt(expr: Expr) -> Self {
-        Stmt::Return(expr)
-    }
-
-    /// Create a conditional statement
-    pub fn if_stmt(
-        condition: Expr,
-        then_branch: Vec<Stmt>,
-        else_branch: Option<Vec<Stmt>>,
-    ) -> Self {
-        Stmt::If {
-            condition,
-            then_branch,
-            else_branch,
-        }
-    }
-
-    /// Create a while loop statement
-    pub fn while_stmt(condition: Expr, body: Vec<Stmt>) -> Self {
-        Stmt::While { condition, body }
-    }
-}
