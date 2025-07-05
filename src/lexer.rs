@@ -123,6 +123,9 @@ impl Lexer {
                         "do" => TokenType::Do,
                         "end" => TokenType::End,
                         "return" => TokenType::Return,
+                        "if" => TokenType::If,
+                        "then" => TokenType::Then,
+                        "else" => TokenType::Else,
                         _ => TokenType::Identifier(identifier),
                     };
                     return Token::new(token_type, pos);
@@ -155,6 +158,10 @@ impl Lexer {
                 Some('=') => {
                     let pos = self.position;
                     self.advance();
+                    if let Some('=') = self.current_char {
+                        self.advance();
+                        return Token::new(TokenType::Equal, pos);
+                    }
                     return Token::new(TokenType::Assign, pos);
                 }
                 Some(';') => {
@@ -181,6 +188,34 @@ impl Lexer {
                     let pos = self.position;
                     self.advance();
                     return Token::new(TokenType::Colon, pos);
+                }
+                Some('!') => {
+                    let pos = self.position;
+                    self.advance();
+                    if let Some('=') = self.current_char {
+                        self.advance();
+                        return Token::new(TokenType::NotEqual, pos);
+                    }
+                    // Handle unexpected '!' character
+                    continue;
+                }
+                Some('<') => {
+                    let pos = self.position;
+                    self.advance();
+                    if let Some('=') = self.current_char {
+                        self.advance();
+                        return Token::new(TokenType::LessEqual, pos);
+                    }
+                    return Token::new(TokenType::Less, pos);
+                }
+                Some('>') => {
+                    let pos = self.position;
+                    self.advance();
+                    if let Some('=') = self.current_char {
+                        self.advance();
+                        return Token::new(TokenType::GreaterEqual, pos);
+                    }
+                    return Token::new(TokenType::Greater, pos);
                 }
                 None => {
                     return Token::new(TokenType::Eof, self.position);
@@ -253,5 +288,50 @@ mod tests {
         assert_eq!(tokens[5].token_type, TokenType::Star);
         assert_eq!(tokens[6].token_type, TokenType::Number(4.0));
         assert_eq!(tokens[7].token_type, TokenType::Eof);
+    }
+
+    #[test]
+    fn test_tokenize_comparison_operators() {
+        let test_cases = vec![
+            ("==", TokenType::Equal),
+            ("!=", TokenType::NotEqual),
+            ("<", TokenType::Less),
+            (">", TokenType::Greater),
+            ("<=", TokenType::LessEqual),
+            (">=", TokenType::GreaterEqual),
+        ];
+
+        for (input, expected) in test_cases {
+            assert_single_token(input, expected);
+        }
+    }
+
+    #[test]
+    fn test_tokenize_conditional_keywords() {
+        let test_cases = vec![
+            ("if", TokenType::If),
+            ("then", TokenType::Then),
+            ("else", TokenType::Else),
+        ];
+
+        for (input, expected) in test_cases {
+            assert_single_token(input, expected);
+        }
+    }
+
+    #[test]
+    fn test_tokenize_conditional_expression() {
+        let mut lexer = Lexer::new("if x > 5 then 10 else 20");
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens.len(), 9);
+        assert_eq!(tokens[0].token_type, TokenType::If);
+        assert_eq!(tokens[1].token_type, TokenType::Identifier("x".to_string()));
+        assert_eq!(tokens[2].token_type, TokenType::Greater);
+        assert_eq!(tokens[3].token_type, TokenType::Number(5.0));
+        assert_eq!(tokens[4].token_type, TokenType::Then);
+        assert_eq!(tokens[5].token_type, TokenType::Number(10.0));
+        assert_eq!(tokens[6].token_type, TokenType::Else);
+        assert_eq!(tokens[7].token_type, TokenType::Number(20.0));
+        assert_eq!(tokens[8].token_type, TokenType::Eof);
     }
 }

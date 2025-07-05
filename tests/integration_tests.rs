@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use orbit::execute_code;
+use orbit::execute_code_with_output;
 
 #[test]
 fn test_orbit_files() {
@@ -53,12 +53,14 @@ fn run_single_test(test_file: &Path) {
         .unwrap_or_else(|e| panic!("Failed to read test file {}: {}", test_file.display(), e));
     
     // Execute the orbit code directly using the library
-    let result = execute_code(&test_content);
+    let result = execute_code_with_output(&test_content);
     
     // Check if execution was successful
     let actual_output = match result {
-        Ok(Some(value)) => value.to_string(),
-        Ok(None) => String::new(),
+        Ok(values) => values.iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join("\n"),
         Err(e) => panic!(
             "Test {} failed with error: {}",
             test_name,

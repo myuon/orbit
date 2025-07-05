@@ -1,0 +1,10 @@
+fun max(a, b) do
+  if a > b then
+    return a
+  else
+    return b
+  end
+end
+
+max(10, 20)
+max(50, 30)

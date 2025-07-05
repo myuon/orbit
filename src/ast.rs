@@ -13,6 +13,17 @@ pub enum TokenType {
     Slash,
     LeftParen,
     RightParen,
+    // Comparison operators
+    Equal,
+    NotEqual,
+    Less,
+    Greater,
+    LessEqual,
+    GreaterEqual,
+    // Conditional keywords
+    If,
+    Then,
+    Else,
     Fun,
     Do,
     End,
@@ -40,6 +51,13 @@ pub enum BinaryOp {
     Subtract,
     Multiply,
     Divide,
+    // Comparison operators
+    Equal,
+    NotEqual,
+    Less,
+    Greater,
+    LessEqual,
+    GreaterEqual,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,6 +103,11 @@ pub enum Stmt {
         return_expr: Option<Box<Expr>>,
     },
     Return(Expr),
+    If {
+        condition: Expr,
+        then_branch: Vec<Stmt>,
+        else_branch: Option<Vec<Stmt>>,
+    },
 }
 
 impl Expr {
@@ -140,5 +163,13 @@ impl Stmt {
 
     pub fn return_stmt(expr: Expr) -> Self {
         Stmt::Return(expr)
+    }
+
+    pub fn if_stmt(condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>>) -> Self {
+        Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+        }
     }
 }

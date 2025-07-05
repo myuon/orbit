@@ -44,6 +44,7 @@ impl Parser {
             TokenType::Let => self.parse_let_stmt(),
             TokenType::Fun => self.parse_fun_stmt(),
             TokenType::Return => self.parse_return_stmt(),
+            TokenType::If => self.parse_if_stmt(),
             _ => {
                 let expr = self.parse_expression()?;
                 Ok(Stmt::expression(expr))
@@ -152,8 +153,85 @@ impl Parser {
         Ok(Stmt::return_stmt(expr))
     }
 
+    fn parse_if_stmt(&mut self) -> Result<Stmt> {
+        self.consume(TokenType::If)?;
+        let condition = self.parse_comparison()?;
+        self.consume(TokenType::Then)?;
+        
+        let mut then_branch = Vec::new();
+        
+        // Parse statements until we hit 'else' or 'end'
+        while !matches!(self.current_token().token_type, TokenType::Else | TokenType::End | TokenType::Eof) {
+            then_branch.push(self.parse_stmt()?);
+        }
+        
+        let else_branch = if matches!(self.current_token().token_type, TokenType::Else) {
+            self.advance(); // consume 'else'
+            
+            // Check for 'else if'
+            if matches!(self.current_token().token_type, TokenType::If) {
+                // Parse as a single if statement in the else branch
+                Some(vec![self.parse_if_stmt()?])
+            } else {
+                let mut else_stmts = Vec::new();
+                while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+                    else_stmts.push(self.parse_stmt()?);
+                }
+                Some(else_stmts)
+            }
+        } else {
+            None
+        };
+        
+        self.consume(TokenType::End)?;
+        
+        Ok(Stmt::if_stmt(condition, then_branch, else_branch))
+    }
+
     fn parse_expression(&mut self) -> Result<Expr> {
-        self.parse_term()
+        self.parse_comparison()
+    }
+
+    fn parse_comparison(&mut self) -> Result<Expr> {
+        let mut left = self.parse_term()?;
+
+        loop {
+            match &self.current_token().token_type {
+                TokenType::Equal => {
+                    self.advance();
+                    let right = self.parse_term()?;
+                    left = Expr::binary(left, BinaryOp::Equal, right);
+                }
+                TokenType::NotEqual => {
+                    self.advance();
+                    let right = self.parse_term()?;
+                    left = Expr::binary(left, BinaryOp::NotEqual, right);
+                }
+                TokenType::Less => {
+                    self.advance();
+                    let right = self.parse_term()?;
+                    left = Expr::binary(left, BinaryOp::Less, right);
+                }
+                TokenType::Greater => {
+                    self.advance();
+                    let right = self.parse_term()?;
+                    left = Expr::binary(left, BinaryOp::Greater, right);
+                }
+                TokenType::LessEqual => {
+                    self.advance();
+                    let right = self.parse_term()?;
+                    left = Expr::binary(left, BinaryOp::LessEqual, right);
+                }
+                TokenType::GreaterEqual => {
+                    self.advance();
+                    let right = self.parse_term()?;
+                    left = Expr::binary(left, BinaryOp::GreaterEqual, right);
+                }
+                _ => break,
+            }
+        }
+
+        Ok(left)
     }
 
     fn parse_term(&mut self) -> Result<Expr> {
@@ -399,6 +477,99 @@ mod tests {
                 BinaryOp::Multiply,
                 Expr::identifier("y".to_string())
             ))
+        );
+        
+        assert_eq!(stmt, expected);
+    }
+
+    #[test]
+    fn test_parse_comparison_operators() {
+        let test_cases = vec![
+            ("2 == 3", Expr::binary(Expr::Number(2.0), BinaryOp::Equal, Expr::Number(3.0))),
+            ("2 != 3", Expr::binary(Expr::Number(2.0), BinaryOp::NotEqual, Expr::Number(3.0))),
+            ("2 < 3", Expr::binary(Expr::Number(2.0), BinaryOp::Less, Expr::Number(3.0))),
+            ("2 > 3", Expr::binary(Expr::Number(2.0), BinaryOp::Greater, Expr::Number(3.0))),
+            ("2 <= 3", Expr::binary(Expr::Number(2.0), BinaryOp::LessEqual, Expr::Number(3.0))),
+            ("2 >= 3", Expr::binary(Expr::Number(2.0), BinaryOp::GreaterEqual, Expr::Number(3.0))),
+        ];
+
+        for (input, expected) in test_cases {
+            let expr = parse_expression(input).unwrap();
+            assert_eq!(expr, expected, "Failed for input: {}", input);
+        }
+    }
+
+    #[test]
+    fn test_parse_if_statement() {
+        let input = "if x > 5 then let y = 10; end";
+        let stmt = parse_statement(input).unwrap();
+        
+        let expected = Stmt::if_stmt(
+            Expr::binary(
+                Expr::identifier("x".to_string()),
+                BinaryOp::Greater,
+                Expr::Number(5.0)
+            ),
+            vec![
+                Stmt::let_stmt("y".to_string(), Expr::Number(10.0))
+            ],
+            None
+        );
+        
+        assert_eq!(stmt, expected);
+    }
+
+    #[test]
+    fn test_parse_if_else_statement() {
+        let input = "if x > 5 then let y = 10; else let y = 20; end";
+        let stmt = parse_statement(input).unwrap();
+        
+        let expected = Stmt::if_stmt(
+            Expr::binary(
+                Expr::identifier("x".to_string()),
+                BinaryOp::Greater,
+                Expr::Number(5.0)
+            ),
+            vec![
+                Stmt::let_stmt("y".to_string(), Expr::Number(10.0))
+            ],
+            Some(vec![
+                Stmt::let_stmt("y".to_string(), Expr::Number(20.0))
+            ])
+        );
+        
+        assert_eq!(stmt, expected);
+    }
+
+    #[test]
+    fn test_parse_if_else_if_statement() {
+        let input = "if x > 10 then let y = 100; else if x > 5 then let y = 50; else let y = 0; end end";
+        let stmt = parse_statement(input).unwrap();
+        
+        let expected = Stmt::if_stmt(
+            Expr::binary(
+                Expr::identifier("x".to_string()),
+                BinaryOp::Greater,
+                Expr::Number(10.0)
+            ),
+            vec![
+                Stmt::let_stmt("y".to_string(), Expr::Number(100.0))
+            ],
+            Some(vec![
+                Stmt::if_stmt(
+                    Expr::binary(
+                        Expr::identifier("x".to_string()),
+                        BinaryOp::Greater,
+                        Expr::Number(5.0)
+                    ),
+                    vec![
+                        Stmt::let_stmt("y".to_string(), Expr::Number(50.0))
+                    ],
+                    Some(vec![
+                        Stmt::let_stmt("y".to_string(), Expr::Number(0.0))
+                    ])
+                )
+            ])
         );
         
         assert_eq!(stmt, expected);

@@ -31,6 +31,28 @@ pub fn execute_code(code: &str) -> Result<Option<Value>> {
     Ok(last_value)
 }
 
+/// Execute Orbit source code and collect all output values
+pub fn execute_code_with_output(code: &str) -> Result<Vec<Value>> {
+    let mut runtime = Runtime::new();
+    let mut outputs = Vec::new();
+    
+    // Try to parse the entire code as a sequence of statements first
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize()?;
+    let mut parser = Parser::new(tokens);
+    
+    // Parse and execute statements until we reach EOF
+    while !matches!(parser.current_token().token_type, TokenType::Eof) {
+        let stmt = parser.parse_stmt()?;
+        let result = runtime.execute_stmt(&stmt)?;
+        if let Some(value) = result {
+            outputs.push(value);
+        }
+    }
+    
+    Ok(outputs)
+}
+
 /// Execute Orbit source code from a file and return the result
 pub fn execute_file(filename: &str) -> Result<Option<Value>> {
     let content = std::fs::read_to_string(filename)

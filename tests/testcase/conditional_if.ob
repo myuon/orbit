@@ -1,0 +1,7 @@
+let x = 10;
+
+if x > 5 then
+  100
+else
+  200
+end

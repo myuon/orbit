@@ -68,18 +68,23 @@ impl Runtime {
                 
                 match (&left_val, &right_val) {
                     (Value::Number(l), Value::Number(r)) => {
-                        let result = match op {
-                            BinaryOp::Add => l + r,
-                            BinaryOp::Subtract => l - r,
-                            BinaryOp::Multiply => l * r,
+                        match op {
+                            BinaryOp::Add => Ok(Value::Number(l + r)),
+                            BinaryOp::Subtract => Ok(Value::Number(l - r)),
+                            BinaryOp::Multiply => Ok(Value::Number(l * r)),
                             BinaryOp::Divide => {
                                 if *r == 0.0 {
                                     bail!("Division by zero");
                                 }
-                                l / r
+                                Ok(Value::Number(l / r))
                             }
-                        };
-                        Ok(Value::Number(result))
+                            BinaryOp::Equal => Ok(Value::Boolean(l == r)),
+                            BinaryOp::NotEqual => Ok(Value::Boolean(l != r)),
+                            BinaryOp::Less => Ok(Value::Boolean(l < r)),
+                            BinaryOp::Greater => Ok(Value::Boolean(l > r)),
+                            BinaryOp::LessEqual => Ok(Value::Boolean(l <= r)),
+                            BinaryOp::GreaterEqual => Ok(Value::Boolean(l >= r)),
+                        }
                     }
                     (Value::String(l), Value::String(r)) => {
                         match op {
@@ -161,6 +166,31 @@ impl Runtime {
             Stmt::Return(expr) => {
                 let val = self.evaluate(expr)?;
                 Ok(Some(val))
+            }
+            Stmt::If { condition, then_branch, else_branch } => {
+                let condition_val = self.evaluate(condition)?;
+                
+                match condition_val {
+                    Value::Boolean(true) => {
+                        let mut last_value = None;
+                        for stmt in then_branch {
+                            last_value = self.execute_stmt(stmt)?;
+                        }
+                        Ok(last_value)
+                    }
+                    Value::Boolean(false) => {
+                        if let Some(else_stmts) = else_branch {
+                            let mut last_value = None;
+                            for stmt in else_stmts {
+                                last_value = self.execute_stmt(stmt)?;
+                            }
+                            Ok(last_value)
+                        } else {
+                            Ok(None)
+                        }
+                    }
+                    _ => bail!("Condition must evaluate to a boolean value"),
+                }
             }
         }
     }
@@ -335,5 +365,114 @@ mod tests {
         
         let result = runtime.evaluate(&nested_call).unwrap();
         assert_eq!(result, Value::Number(7.0)); // double(3) = 6, add_one(6) = 7
+    }
+
+    #[test]
+    fn test_evaluate_comparison_operators() {
+        let test_cases = vec![
+            (2.0, BinaryOp::Equal, 2.0, Value::Boolean(true)),
+            (2.0, BinaryOp::Equal, 3.0, Value::Boolean(false)),
+            (2.0, BinaryOp::NotEqual, 3.0, Value::Boolean(true)),
+            (2.0, BinaryOp::Less, 3.0, Value::Boolean(true)),
+            (3.0, BinaryOp::Less, 2.0, Value::Boolean(false)),
+            (2.0, BinaryOp::Greater, 3.0, Value::Boolean(false)),
+            (3.0, BinaryOp::Greater, 2.0, Value::Boolean(true)),
+            (2.0, BinaryOp::LessEqual, 2.0, Value::Boolean(true)),
+            (2.0, BinaryOp::LessEqual, 3.0, Value::Boolean(true)),
+            (3.0, BinaryOp::LessEqual, 2.0, Value::Boolean(false)),
+            (2.0, BinaryOp::GreaterEqual, 2.0, Value::Boolean(true)),
+            (3.0, BinaryOp::GreaterEqual, 2.0, Value::Boolean(true)),
+            (2.0, BinaryOp::GreaterEqual, 3.0, Value::Boolean(false)),
+        ];
+
+        let mut runtime = Runtime::new();
+        for (left, op, right, expected) in test_cases {
+            let expr = Expr::binary(Expr::Number(left), op, Expr::Number(right));
+            let result = runtime.evaluate(&expr).unwrap();
+            assert_eq!(result, expected, "Failed for {} {:?} {}", left, op, right);
+        }
+    }
+
+    #[test]
+    fn test_if_statement() {
+        let mut runtime = Runtime::new();
+        
+        // Set up variable x = 10
+        runtime.execute_stmt(&Stmt::let_stmt("x".to_string(), Expr::Number(10.0))).unwrap();
+        
+        // if x > 5 then let y = 100; end
+        let if_stmt = Stmt::if_stmt(
+            Expr::binary(
+                Expr::identifier("x".to_string()),
+                BinaryOp::Greater,
+                Expr::Number(5.0)
+            ),
+            vec![Stmt::let_stmt("y".to_string(), Expr::Number(100.0))],
+            None
+        );
+        
+        runtime.execute_stmt(&if_stmt).unwrap();
+        
+        // Check that y was set to 100
+        let y_value = runtime.evaluate(&Expr::identifier("y".to_string())).unwrap();
+        assert_eq!(y_value, Value::Number(100.0));
+    }
+
+    #[test]
+    fn test_if_else_statement() {
+        let mut runtime = Runtime::new();
+        
+        // Test true condition
+        runtime.execute_stmt(&Stmt::let_stmt("x".to_string(), Expr::Number(10.0))).unwrap();
+        
+        let if_else_stmt = Stmt::if_stmt(
+            Expr::binary(
+                Expr::identifier("x".to_string()),
+                BinaryOp::Greater,
+                Expr::Number(15.0)
+            ),
+            vec![Stmt::let_stmt("result".to_string(), Expr::Number(1.0))],
+            Some(vec![Stmt::let_stmt("result".to_string(), Expr::Number(2.0))])
+        );
+        
+        runtime.execute_stmt(&if_else_stmt).unwrap();
+        
+        // x is 10, which is not greater than 15, so result should be 2
+        let result = runtime.evaluate(&Expr::identifier("result".to_string())).unwrap();
+        assert_eq!(result, Value::Number(2.0));
+    }
+
+    #[test]
+    fn test_nested_if_statements() {
+        let mut runtime = Runtime::new();
+        
+        runtime.execute_stmt(&Stmt::let_stmt("x".to_string(), Expr::Number(7.0))).unwrap();
+        
+        // if x > 10 then let result = 100; else if x > 5 then let result = 50; else let result = 0; end end
+        let nested_if = Stmt::if_stmt(
+            Expr::binary(
+                Expr::identifier("x".to_string()),
+                BinaryOp::Greater,
+                Expr::Number(10.0)
+            ),
+            vec![Stmt::let_stmt("result".to_string(), Expr::Number(100.0))],
+            Some(vec![
+                Stmt::if_stmt(
+                    Expr::binary(
+                        Expr::identifier("x".to_string()),
+                        BinaryOp::Greater,
+                        Expr::Number(5.0)
+                    ),
+                    vec![Stmt::let_stmt("result".to_string(), Expr::Number(50.0))],
+                    Some(vec![Stmt::let_stmt("result".to_string(), Expr::Number(0.0))])
+                )
+            ])
+        );
+        
+        runtime.execute_stmt(&nested_if).unwrap();
+        
+        // x is 7, which is greater than 5 but not greater than 10, so result should be 50
+        let result = runtime.evaluate(&Expr::identifier("result".to_string())).unwrap();
+        assert_eq!(result, Value::Number(50.0));
     }
 }
