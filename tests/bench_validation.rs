@@ -106,7 +106,7 @@ fn test_benchmark_performance_and_correctness() {
         // Run benchmark 3 times and measure each execution
         let mut durations = Vec::new();
         let mut actual_result = 0i64;
-        
+
         for run in 1..=3 {
             let start = Instant::now();
             let output = Command::new("./target/release/orbit")
@@ -120,7 +120,8 @@ fn test_benchmark_performance_and_correctness() {
             assert!(
                 output.status.success(),
                 "Benchmark {} (run {}) failed: {}",
-                filename, run,
+                filename,
+                run,
                 String::from_utf8_lossy(&output.stderr)
             );
 
@@ -128,7 +129,8 @@ fn test_benchmark_performance_and_correctness() {
             assert!(
                 duration < Duration::from_secs(5),
                 "Benchmark {} (run {}) took {:.2}s, exceeding 5 second limit",
-                filename, run,
+                filename,
+                run,
                 duration.as_secs_f64()
             );
 
@@ -138,14 +140,17 @@ fn test_benchmark_performance_and_correctness() {
                 "Failed to parse result '{}' for {} (run {})",
                 result_str, filename, run
             ));
-            
+
             if run == 1 {
                 actual_result = run_result;
             } else {
-                assert_eq!(actual_result, run_result, 
-                          "Result inconsistency in {} between runs", filename);
+                assert_eq!(
+                    actual_result, run_result,
+                    "Result inconsistency in {} between runs",
+                    filename
+                );
             }
-            
+
             println!("  Run {}: {:.2}s", run, duration.as_secs_f64());
         }
 

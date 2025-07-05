@@ -1,4 +1,5 @@
 use crate::ast::{BinaryOp, Decl, Expr, Function, Program, Stmt};
+use crate::runtime::Value;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -45,6 +46,12 @@ pub enum Instruction {
 
     // No operation
     Nop,
+
+    // Vector operations
+    VectorNew,
+    VectorPush,
+    VectorIndex,
+    VectorSet,
 }
 
 impl fmt::Display for Instruction {
@@ -74,18 +81,23 @@ impl fmt::Display for Instruction {
             Instruction::SetSP => write!(f, "set_sp"),
             Instruction::Label(name) => write!(f, "{}:", name),
             Instruction::Nop => write!(f, "nop"),
+            Instruction::VectorNew => write!(f, "vector_new"),
+            Instruction::VectorPush => write!(f, "vector_push"),
+            Instruction::VectorIndex => write!(f, "vector_index"),
+            Instruction::VectorSet => write!(f, "vector_set"),
         }
     }
 }
 
 #[derive(Debug)]
 pub struct VM {
-    stack: Vec<i32>,
+    stack: Vec<Value>,
     pc: usize, // program counter
     bp: usize, // base pointer for stack frame
     sp: usize, // stack pointer
     program: Vec<Instruction>,
-    pub print_stacks: bool, // whether to print stack state during execution
+    pub print_stacks: bool,   // whether to print stack state during execution
+    vectors: Vec<Vec<Value>>, // vector storage
 }
 
 impl VM {
@@ -97,6 +109,7 @@ impl VM {
             sp: 0,
             program: Vec::new(),
             print_stacks: false,
+            vectors: Vec::new(),
         }
     }
 
@@ -108,6 +121,7 @@ impl VM {
             sp: 0,
             program: Vec::new(),
             print_stacks,
+            vectors: Vec::new(),
         }
     }
 
@@ -143,7 +157,7 @@ impl VM {
                 }
 
                 Instruction::Push(value) => {
-                    self.stack.push(*value);
+                    self.stack.push(Value::Number(*value as f64));
                 }
 
                 Instruction::Pop => {
@@ -159,7 +173,12 @@ impl VM {
                     }
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    self.stack.push(a + b);
+                    match (a, b) {
+                        (Value::Number(a), Value::Number(b)) => {
+                            self.stack.push(Value::Number(a + b));
+                        }
+                        _ => return Err("Add operation requires numbers".to_string()),
+                    }
                 }
 
                 Instruction::Sub => {
@@ -168,7 +187,12 @@ impl VM {
                     }
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    self.stack.push(a - b);
+                    match (a, b) {
+                        (Value::Number(a), Value::Number(b)) => {
+                            self.stack.push(Value::Number(a - b));
+                        }
+                        _ => return Err("Subtract operation requires numbers".to_string()),
+                    }
                 }
 
                 Instruction::Mul => {
@@ -177,7 +201,12 @@ impl VM {
                     }
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    self.stack.push(a * b);
+                    match (a, b) {
+                        (Value::Number(a), Value::Number(b)) => {
+                            self.stack.push(Value::Number(a * b));
+                        }
+                        _ => return Err("Multiply operation requires numbers".to_string()),
+                    }
                 }
 
                 Instruction::Div => {
@@ -186,10 +215,15 @@ impl VM {
                     }
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    if b == 0 {
-                        return Err("Division by zero".to_string());
+                    match (a, b) {
+                        (Value::Number(a), Value::Number(b)) => {
+                            if b == 0.0 {
+                                return Err("Division by zero".to_string());
+                            }
+                            self.stack.push(Value::Number(a / b));
+                        }
+                        _ => return Err("Divide operation requires numbers".to_string()),
                     }
-                    self.stack.push(a / b);
                 }
 
                 Instruction::Mod => {
@@ -198,10 +232,15 @@ impl VM {
                     }
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    if b == 0 {
-                        return Err("Modulo by zero".to_string());
+                    match (a, b) {
+                        (Value::Number(a), Value::Number(b)) => {
+                            if b == 0.0 {
+                                return Err("Modulo by zero".to_string());
+                            }
+                            self.stack.push(Value::Number(a % b));
+                        }
+                        _ => return Err("Modulo operation requires numbers".to_string()),
                     }
-                    self.stack.push(a % b);
                 }
 
                 Instruction::Eq => {
@@ -210,7 +249,7 @@ impl VM {
                     }
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    self.stack.push(if a == b { 1 } else { 0 });
+                    self.stack.push(Value::Boolean(a == b));
                 }
 
                 Instruction::Lt => {
@@ -219,7 +258,12 @@ impl VM {
                     }
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    self.stack.push(if a < b { 1 } else { 0 });
+                    match (a, b) {
+                        (Value::Number(a), Value::Number(b)) => {
+                            self.stack.push(Value::Boolean(a < b));
+                        }
+                        _ => return Err("Less than operation requires numbers".to_string()),
+                    }
                 }
 
                 Instruction::Lte => {
@@ -228,7 +272,14 @@ impl VM {
                     }
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    self.stack.push(if a <= b { 1 } else { 0 });
+                    match (a, b) {
+                        (Value::Number(a), Value::Number(b)) => {
+                            self.stack.push(Value::Boolean(a <= b));
+                        }
+                        _ => {
+                            return Err("Less than or equal operation requires numbers".to_string())
+                        }
+                    }
                 }
 
                 Instruction::Gt => {
@@ -237,7 +288,12 @@ impl VM {
                     }
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    self.stack.push(if a > b { 1 } else { 0 });
+                    match (a, b) {
+                        (Value::Number(a), Value::Number(b)) => {
+                            self.stack.push(Value::Boolean(a > b));
+                        }
+                        _ => return Err("Greater than operation requires numbers".to_string()),
+                    }
                 }
 
                 Instruction::Gte => {
@@ -246,7 +302,16 @@ impl VM {
                     }
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    self.stack.push(if a >= b { 1 } else { 0 });
+                    match (a, b) {
+                        (Value::Number(a), Value::Number(b)) => {
+                            self.stack.push(Value::Boolean(a >= b));
+                        }
+                        _ => {
+                            return Err(
+                                "Greater than or equal operation requires numbers".to_string()
+                            )
+                        }
+                    }
                 }
 
                 Instruction::Jump(addr) => {
@@ -259,7 +324,12 @@ impl VM {
                         return Err("Stack underflow for JumpIfZero".to_string());
                     }
                     let value = self.stack.pop().unwrap();
-                    if value == 0 {
+                    let should_jump = match value {
+                        Value::Number(n) => n == 0.0,
+                        Value::Boolean(b) => !b,
+                        _ => false,
+                    };
+                    if should_jump {
                         self.pc = *addr;
                         continue;
                     }
@@ -288,7 +358,7 @@ impl VM {
                             self.stack.len()
                         ));
                     }
-                    self.stack.push(self.stack[index]);
+                    self.stack.push(self.stack[index].clone());
                 }
 
                 Instruction::SetLocal(offset) => {
@@ -314,7 +384,7 @@ impl VM {
 
                     // Extend stack if needed for positive offsets
                     while self.stack.len() <= index {
-                        self.stack.push(0);
+                        self.stack.push(Value::Number(0.0));
                     }
 
                     self.stack[index] = value;
@@ -340,8 +410,8 @@ impl VM {
                     }
 
                     if let Some(addr) = target_addr {
-                        self.stack.push((self.pc + 1) as i32); // Return address
-                        self.stack.push(self.bp as i32); // Old BP
+                        self.stack.push(Value::Number((self.pc + 1) as f64)); // Return address
+                        self.stack.push(Value::Number(self.bp as f64)); // Old BP
                         self.bp = self.stack.len(); // New BP points to after return address and old BP
                         self.pc = addr;
                         continue;
@@ -362,14 +432,20 @@ impl VM {
 
                     // Get return value from top of stack
                     let return_value = if self.stack.len() > self.bp {
-                        self.stack.pop().unwrap_or(0)
+                        self.stack.pop().unwrap_or(Value::Number(0.0))
                     } else {
-                        0
+                        Value::Number(0.0)
                     };
 
                     // Get old BP and return address from stack frame
-                    let old_bp = self.stack[self.bp - 1] as usize;
-                    let return_addr = self.stack[self.bp - 2] as usize;
+                    let old_bp = match self.stack[self.bp - 1] {
+                        Value::Number(n) => n as usize,
+                        _ => return Err("Invalid BP value in stack frame".to_string()),
+                    };
+                    let return_addr = match self.stack[self.bp - 2] {
+                        Value::Number(n) => n as usize,
+                        _ => return Err("Invalid return address in stack frame".to_string()),
+                    };
 
                     // Restore stack to before function call (but keep arguments for now)
                     self.stack.truncate(self.bp - 2);
@@ -384,36 +460,126 @@ impl VM {
                 }
 
                 Instruction::GetBP => {
-                    self.stack.push(self.bp as i32);
+                    self.stack.push(Value::Number(self.bp as f64));
                 }
 
                 Instruction::SetBP => {
                     if self.stack.is_empty() {
                         return Err("Stack underflow for SetBP".to_string());
                     }
-                    self.bp = self.stack.pop().unwrap() as usize;
+                    let value = self.stack.pop().unwrap();
+                    match value {
+                        Value::Number(n) => {
+                            self.bp = n as usize;
+                        }
+                        _ => return Err("SetBP requires a number".to_string()),
+                    }
                 }
 
                 Instruction::GetSP => {
-                    self.stack.push(self.stack.len() as i32);
+                    self.stack.push(Value::Number(self.stack.len() as f64));
                 }
 
                 Instruction::SetSP => {
                     if self.stack.is_empty() {
                         return Err("Stack underflow for SetSP".to_string());
                     }
-                    let new_sp = self.stack.pop().unwrap() as usize;
-                    if new_sp > self.stack.len() {
-                        // Extend stack
-                        self.stack.resize(new_sp, 0);
-                    } else {
-                        // Truncate stack
-                        self.stack.truncate(new_sp);
+                    let value = self.stack.pop().unwrap();
+                    match value {
+                        Value::Number(n) => {
+                            let new_sp = n as usize;
+                            if new_sp > self.stack.len() {
+                                // Extend stack
+                                self.stack.resize(new_sp, Value::Number(0.0));
+                            } else {
+                                // Truncate stack
+                                self.stack.truncate(new_sp);
+                            }
+                        }
+                        _ => return Err("SetSP requires a number".to_string()),
                     }
                 }
 
                 Instruction::Nop => {
                     // Do nothing
+                }
+
+                Instruction::VectorNew => {
+                    // Create a new empty vector and push its index
+                    let vector_index = self.vectors.len();
+                    self.vectors.push(Vec::new());
+                    self.stack.push(Value::Number(vector_index as f64));
+                }
+
+                Instruction::VectorPush => {
+                    // Stack: [value] [vector_index]
+                    if self.stack.len() < 2 {
+                        return Err("Stack underflow for VectorPush".to_string());
+                    }
+                    let vector_index_value = self.stack.pop().unwrap();
+                    let value = self.stack.pop().unwrap();
+                    match vector_index_value {
+                        Value::Number(vector_index) => {
+                            let vector_index = vector_index as usize;
+                            if vector_index >= self.vectors.len() {
+                                return Err(format!("Invalid vector index: {}", vector_index));
+                            }
+                            self.vectors[vector_index].push(value);
+                        }
+                        _ => {
+                            return Err("VectorPush requires a number for vector index".to_string())
+                        }
+                    }
+                }
+
+                Instruction::VectorIndex => {
+                    // Stack: [vector_index] [element_index]
+                    if self.stack.len() < 2 {
+                        return Err("Stack underflow for VectorIndex".to_string());
+                    }
+                    let element_index_value = self.stack.pop().unwrap();
+                    let vector_index_value = self.stack.pop().unwrap();
+                    match (vector_index_value, element_index_value) {
+                        (Value::Number(vector_index), Value::Number(element_index)) => {
+                            let vector_index = vector_index as usize;
+                            let element_index = element_index as usize;
+                            if vector_index >= self.vectors.len() {
+                                return Err(format!("Invalid vector index: {}", vector_index));
+                            }
+                            if element_index >= self.vectors[vector_index].len() {
+                                return Err(format!("Invalid element index: {}", element_index));
+                            }
+                            let value = self.vectors[vector_index][element_index].clone();
+                            self.stack.push(value);
+                        }
+                        _ => {
+                            return Err("VectorIndex requires numbers for both indices".to_string())
+                        }
+                    }
+                }
+
+                Instruction::VectorSet => {
+                    // Stack: [value] [element_index] [vector_index]
+                    if self.stack.len() < 3 {
+                        return Err("Stack underflow for VectorSet".to_string());
+                    }
+                    let vector_index_value = self.stack.pop().unwrap();
+                    let element_index_value = self.stack.pop().unwrap();
+                    let value = self.stack.pop().unwrap();
+                    match (vector_index_value, element_index_value) {
+                        (Value::Number(vector_index), Value::Number(element_index)) => {
+                            let vector_index = vector_index as usize;
+                            let element_index = element_index as usize;
+                            if vector_index >= self.vectors.len() {
+                                return Err(format!("Invalid vector index: {}", vector_index));
+                            }
+                            if element_index >= self.vectors[vector_index].len() {
+                                return Err(format!("Invalid element index: {}", element_index));
+                            }
+                            self.vectors[vector_index][element_index] = value;
+                        }
+                        _ => return Err("VectorSet requires numbers for both indices".to_string()),
+                    }
                 }
             }
 
@@ -424,7 +590,12 @@ impl VM {
         if self.stack.is_empty() {
             Ok(0)
         } else {
-            Ok(self.stack.pop().unwrap())
+            let value = self.stack.pop().unwrap();
+            match value {
+                Value::Number(n) => Ok(n as i32),
+                Value::Boolean(b) => Ok(if b { 1 } else { 0 }),
+                _ => Ok(0),
+            }
         }
     }
 
@@ -685,6 +856,35 @@ impl VMCompiler {
                 self.instructions[jump_to_end] = Instruction::Jump(end);
             }
 
+            Stmt::VectorPush { vector, value } => {
+                // vector: 変数名, value: 式
+                // valueをpushし、vector変数の位置をpushし、VectorPush命令
+                self.compile_expression(value);
+                if let Some(&offset) = self.local_vars.get(vector) {
+                    self.instructions.push(Instruction::GetLocal(offset));
+                } else {
+                    panic!("Undefined vector variable: {}", vector);
+                }
+                self.instructions.push(Instruction::VectorPush);
+            }
+
+            Stmt::VectorAssign {
+                vector,
+                index,
+                value,
+            } => {
+                // vector[index] = value
+                // value, index, vectorの順でpushし、VectorSet命令
+                self.compile_expression(value);
+                self.compile_expression(index);
+                if let Some(&offset) = self.local_vars.get(vector) {
+                    self.instructions.push(Instruction::GetLocal(offset));
+                } else {
+                    panic!("Undefined vector variable: {}", vector);
+                }
+                self.instructions.push(Instruction::VectorSet);
+            }
+
             // TODO: Implement other statement types
             _ => {
                 // For now, just ignore unsupported statements
@@ -754,6 +954,18 @@ impl VMCompiler {
                 } else {
                     panic!("Function calls with complex callees not supported yet");
                 }
+            }
+
+            Expr::VectorNew { .. } => {
+                // 現状型情報は無視し、空ベクターをpush
+                self.instructions.push(Instruction::VectorNew);
+            }
+
+            Expr::VectorIndex { vector, index } => {
+                // vector, indexの順でpushし、VectorIndex命令
+                self.compile_expression(vector);
+                self.compile_expression(index);
+                self.instructions.push(Instruction::VectorIndex);
             }
 
             // TODO: Implement other expression types
@@ -1113,5 +1325,25 @@ mod tests {
         vm.load_program(instructions);
         let result = vm.execute().unwrap();
         assert_eq!(result, 5);
+    }
+
+    #[test]
+    fn dump_ir_for_vector_program() {
+        use crate::lexer::Lexer;
+        use crate::parser::Parser;
+        use crate::vm::VMCompiler;
+        use std::fs;
+
+        let path = "tests/testcase/program/vector_program.ob";
+        let ir_path = "vector_program.ir";
+        let code = fs::read_to_string(path).expect("failed to read vector_program.ob");
+        let mut lexer = Lexer::new(&code);
+        let tokens = lexer.tokenize().expect("tokenize failed");
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().expect("parse_program failed");
+        let mut compiler = VMCompiler::new();
+        compiler.compile_program(&program);
+        compiler.dump_ir_to_file(ir_path).expect("dump_ir failed");
+        println!("IR dumped to {}", ir_path);
     }
 }
