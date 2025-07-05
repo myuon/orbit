@@ -1,0 +1,40 @@
+
+running 1 test
+test test_benchmark_performance_and_correctness ... ok
+
+successes:
+
+---- test_benchmark_performance_and_correctness stdout ----
+  Run 1: 0.28s
+  Run 2: 0.05s
+  Run 3: 0.05s
+✅ heavy_arithmetic.ob MATCH: 2666686666700000
+  ⏱️  heavy_arithmetic.ob avg: 0.13s, max: 0.28s (all under 5s)
+  Run 1: 2.07s
+  Run 2: 2.10s
+  Run 3: 2.07s
+✅ fibonacci_recursive.ob MATCH: 514229
+  ⏱️  fibonacci_recursive.ob avg: 2.08s, max: 2.10s (all under 5s)
+  Run 1: 0.03s
+  Run 2: 0.03s
+  Run 3: 0.02s
+✅ ackermann_function.ob MATCH: 125
+  ⏱️  ackermann_function.ob avg: 0.03s, max: 0.03s (all under 5s)
+  Run 1: 1.76s
+  Run 2: 1.76s
+  Run 3: 1.75s
+✅ vector_heavy_ops.ob MATCH: 224985000
+  ⏱️  vector_heavy_ops.ob avg: 1.76s, max: 1.76s (all under 5s)
+  Run 1: 1.74s
+  Run 2: 1.83s
+  Run 3: 1.73s
+✅ vector_push_intensive.ob MATCH: 337477500
+  ⏱️  vector_push_intensive.ob avg: 1.77s, max: 1.83s (all under 5s)
+All benchmarks passed performance and correctness tests!
+
+
+successes:
+    test_benchmark_performance_and_correctness
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.32s
+
