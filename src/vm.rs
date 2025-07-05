@@ -339,13 +339,13 @@ impl VM {
                     let index = if *offset < 0 {
                         // Negative offset: access parameters (before BP)
                         let abs_offset = (-offset) as usize;
-                        if self.bp < abs_offset {
+                        if self.bp + 1 < abs_offset {
                             return Err(format!(
                                 "Parameter access out of bounds: BP={}, offset={}",
                                 self.bp, offset
                             ));
                         }
-                        self.bp - abs_offset
+                        self.bp + 1 - abs_offset
                     } else {
                         // Positive offset: access local variables (after BP)
                         self.bp + (*offset as usize)
@@ -370,13 +370,13 @@ impl VM {
                     let index = if *offset < 0 {
                         // Negative offset: access parameters (before BP)
                         let abs_offset = (-offset) as usize;
-                        if self.bp < abs_offset {
+                        if self.bp + 1 < abs_offset {
                             return Err(format!(
                                 "Parameter access out of bounds: BP={}, offset={}",
                                 self.bp, offset
                             ));
                         }
-                        self.bp - abs_offset
+                        self.bp + 1 - abs_offset
                     } else {
                         // Positive offset: access local variables (after BP)
                         self.bp + (*offset as usize)
@@ -395,7 +395,7 @@ impl VM {
                     // 1. Arguments are already on stack
                     // 2. Push return address (PC + 1)
                     // 3. Push old BP
-                    // 4. Set new BP to current SP
+                    // 4. Set new BP to (stack.len() - 2)
                     // 5. Jump to function
 
                     // Find function address by name
@@ -412,7 +412,8 @@ impl VM {
                     if let Some(addr) = target_addr {
                         self.stack.push(Value::Number((self.pc + 1) as f64)); // Return address
                         self.stack.push(Value::Number(self.bp as f64)); // Old BP
-                        self.bp = self.stack.len(); // New BP points to after return address and old BP
+                                                                        // BPは[引数...][return_addr][old_bp]のold_bpを指す
+                        self.bp = self.stack.len() - 1;
                         self.pc = addr;
                         continue;
                     } else {
@@ -421,34 +422,43 @@ impl VM {
                 }
 
                 Instruction::Ret => {
-                    // Function return convention:
-                    // Stack layout at function entry:
-                    // [args...] [return_addr] [old_bp] [locals...] [return_value]
+                    // 関数リターン時のスタックレイアウト:
+                    // [args...] [return_addr] [old_bp] <- BP
                     //                         ^BP
 
-                    if self.bp < 2 || self.stack.len() < self.bp {
+                    if self.bp < 1 || self.stack.len() < self.bp + 1 {
                         return Err("Stack underflow in function return".to_string());
                     }
 
                     // Get return value from top of stack
-                    let return_value = if self.stack.len() > self.bp {
+                    let return_value = if self.stack.len() > self.bp + 1 {
                         self.stack.pop().unwrap_or(Value::Number(0.0))
                     } else {
                         Value::Number(0.0)
                     };
 
                     // Get old BP and return address from stack frame
-                    let old_bp = match self.stack[self.bp - 1] {
+                    let old_bp = match self.stack[self.bp] {
                         Value::Number(n) => n as usize,
                         _ => return Err("Invalid BP value in stack frame".to_string()),
                     };
-                    let return_addr = match self.stack[self.bp - 2] {
+                    let return_addr = match self.stack[self.bp - 1] {
                         Value::Number(n) => n as usize,
                         _ => return Err("Invalid return address in stack frame".to_string()),
                     };
 
+                    // Check if this is main function return (return address is 1)
+                    if return_addr == 1 {
+                        // Main function returned, exit VM and return the value
+                        match return_value {
+                            Value::Number(n) => return Ok(n as i32),
+                            Value::Boolean(b) => return Ok(if b { 1 } else { 0 }),
+                            _ => return Ok(0),
+                        }
+                    }
+
                     // Restore stack to before function call (but keep arguments for now)
-                    self.stack.truncate(self.bp - 2);
+                    self.stack.truncate(self.bp - 1);
                     self.bp = old_bp;
 
                     // Push return value back onto stack
@@ -691,10 +701,46 @@ impl VMCompiler {
             .push(Instruction::Call("main".to_string()));
         self.instructions.push(Instruction::Ret);
 
-        // 3. 関数を定義順にコンパイル
+        // 3. すべての関数のラベルを先に配置してアドレスを収集
         for func in &functions {
-            let func_addr = self.compile_function(func);
+            let func_addr = self.instructions.len();
             self.function_addresses.insert(func.name.clone(), func_addr);
+            self.instructions
+                .push(Instruction::Label(func.name.clone()));
+        }
+
+        // 4. 各関数の本体をコンパイル
+        for func in &functions {
+            // 関数のローカル変数環境をリセット
+            self.local_offset = 0;
+            self.local_vars.clear();
+
+            // Map parameters to stack positions (negative offsets from BP)
+            // Stack layout: [arg0] [return_addr] [old_bp] <- BP points here
+            // Parameters are accessed with negative offsets from BP
+            for (i, param) in func.params.iter().enumerate() {
+                let param_offset = -(i as i32 + 2); // -2 for first param, -3 for second, etc.
+                self.local_vars.insert(param.name.clone(), param_offset);
+            }
+
+            // 関数本体をコンパイル
+            for stmt in &func.body {
+                self.compile_statement(stmt);
+            }
+
+            // 戻り式をコンパイル
+            if let Some(return_expr) = &func.return_expr {
+                self.compile_expression(return_expr);
+            } else {
+                self.instructions.push(Instruction::Push(0));
+            }
+
+            // 関数エピローグ
+            if func.name == "main" {
+                // main関数は特別扱い
+            } else {
+                self.instructions.push(Instruction::Ret);
+            }
         }
 
         self.instructions.clone()
@@ -714,10 +760,10 @@ impl VMCompiler {
         self.local_vars.clear();
 
         // Map parameters to stack positions (negative offsets from BP)
-        // Stack layout: [arg0] [arg1] [return_addr] [old_bp] <- BP points here
+        // Stack layout: [arg0] [return_addr] [old_bp] <- BP points here
         // Parameters are accessed with negative offsets from BP
         for (i, param) in func.params.iter().enumerate() {
-            let param_offset = -(i as i32 + 3); // -3 for first param, -4 for second, etc.
+            let param_offset = -(i as i32 + 2); // -2 for first param, -3 for second, etc.
             self.local_vars.insert(param.name.clone(), param_offset);
         }
 
