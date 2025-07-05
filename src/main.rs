@@ -82,7 +82,7 @@ fn execute_code(code: &str) -> Result<()> {
     Ok(())
 }
 
-fn execute_expression(input: &str, runtime: &Runtime) -> Result<runtime::Value> {
+fn execute_expression(input: &str, runtime: &mut Runtime) -> Result<runtime::Value> {
     let mut lexer = Lexer::new(input);
     let tokens = lexer.tokenize()?;
     
@@ -118,9 +118,9 @@ mod tests {
             ("3.14 * 2", runtime::Value::Number(6.28)),
         ];
 
-        let runtime = Runtime::new();
+        let mut runtime = Runtime::new();
         for (input, expected) in test_cases {
-            let result = execute_expression(input, &runtime).unwrap();
+            let result = execute_expression(input, &mut runtime).unwrap();
             assert_eq!(result, expected, "Failed for input: {}", input);
         }
     }
@@ -132,9 +132,9 @@ mod tests {
             ("false", runtime::Value::Boolean(false)),
         ];
 
-        let runtime = Runtime::new();
+        let mut runtime = Runtime::new();
         for (input, expected) in test_cases {
-            let result = execute_expression(input, &runtime).unwrap();
+            let result = execute_expression(input, &mut runtime).unwrap();
             assert_eq!(result, expected, "Failed for input: {}", input);
         }
     }
@@ -149,9 +149,9 @@ mod tests {
             ("\"He said \\\"Hello\\\"\"", runtime::Value::String("He said \"Hello\"".to_string())),
         ];
 
-        let runtime = Runtime::new();
+        let mut runtime = Runtime::new();
         for (input, expected) in test_cases {
-            let result = execute_expression(input, &runtime).unwrap();
+            let result = execute_expression(input, &mut runtime).unwrap();
             assert_eq!(result, expected, "Failed for input: {}", input);
         }
     }

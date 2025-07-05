@@ -13,6 +13,12 @@ pub enum TokenType {
     Slash,
     LeftParen,
     RightParen,
+    Fun,
+    Do,
+    End,
+    Return,
+    Comma,
+    Colon,
     Eof,
 }
 
@@ -47,6 +53,22 @@ pub enum Expr {
         op: BinaryOp,
         right: Box<Expr>,
     },
+    Call {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunParam {
+    pub name: String,
+    pub type_name: Option<String>,
+}
+
+impl FunParam {
+    pub fn new(name: String, type_name: Option<String>) -> Self {
+        FunParam { name, type_name }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +78,13 @@ pub enum Stmt {
         value: Expr,
     },
     Expression(Expr),
+    Fun {
+        name: String,
+        params: Vec<FunParam>,
+        body: Vec<Stmt>,
+        return_expr: Option<Box<Expr>>,
+    },
+    Return(Expr),
 }
 
 impl Expr {
@@ -82,6 +111,13 @@ impl Expr {
             right: Box::new(right),
         }
     }
+
+    pub fn call(callee: Expr, args: Vec<Expr>) -> Self {
+        Expr::Call {
+            callee: Box::new(callee),
+            args,
+        }
+    }
 }
 
 impl Stmt {
@@ -91,5 +127,18 @@ impl Stmt {
 
     pub fn expression(expr: Expr) -> Self {
         Stmt::Expression(expr)
+    }
+
+    pub fn fun_stmt(name: String, params: Vec<FunParam>, body: Vec<Stmt>, return_expr: Option<Expr>) -> Self {
+        Stmt::Fun {
+            name,
+            params,
+            body,
+            return_expr: return_expr.map(Box::new),
+        }
+    }
+
+    pub fn return_stmt(expr: Expr) -> Self {
+        Stmt::Return(expr)
     }
 }

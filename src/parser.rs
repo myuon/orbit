@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Expr, Stmt, Token, TokenType};
+use crate::ast::{BinaryOp, Expr, FunParam, Stmt, Token, TokenType};
 use anyhow::{bail, Result};
 
 pub struct Parser {
@@ -42,6 +42,8 @@ impl Parser {
     pub fn parse_stmt(&mut self) -> Result<Stmt> {
         match &self.current_token().token_type {
             TokenType::Let => self.parse_let_stmt(),
+            TokenType::Fun => self.parse_fun_stmt(),
+            TokenType::Return => self.parse_return_stmt(),
             _ => {
                 let expr = self.parse_expression()?;
                 Ok(Stmt::expression(expr))
@@ -66,6 +68,88 @@ impl Parser {
         self.consume(TokenType::Semicolon)?;
         
         Ok(Stmt::let_stmt(name, value))
+    }
+
+    fn parse_fun_stmt(&mut self) -> Result<Stmt> {
+        self.consume(TokenType::Fun)?;
+        
+        let name = match &self.current_token().token_type {
+            TokenType::Identifier(name) => {
+                let n = name.clone();
+                self.advance();
+                n
+            }
+            _ => bail!("Expected function name after 'fun'"),
+        };
+
+        self.consume(TokenType::LeftParen)?;
+        let mut params = Vec::new();
+        
+        if !matches!(self.current_token().token_type, TokenType::RightParen) {
+            loop {
+                let param_name = match &self.current_token().token_type {
+                    TokenType::Identifier(name) => {
+                        let n = name.clone();
+                        self.advance();
+                        n
+                    }
+                    _ => bail!("Expected parameter name"),
+                };
+
+                let type_name = if matches!(self.current_token().token_type, TokenType::Colon) {
+                    self.advance();
+                    match &self.current_token().token_type {
+                        TokenType::Identifier(type_name) => {
+                            let t = type_name.clone();
+                            self.advance();
+                            Some(t)
+                        }
+                        _ => bail!("Expected type name after ':'"),
+                    }
+                } else {
+                    None
+                };
+
+                params.push(FunParam::new(param_name, type_name));
+
+                if matches!(self.current_token().token_type, TokenType::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        self.consume(TokenType::RightParen)?;
+        self.consume(TokenType::Do)?;
+        
+        let mut body = Vec::new();
+        let mut return_expr = None;
+        
+        while !matches!(self.current_token().token_type, TokenType::End) {
+            if matches!(self.current_token().token_type, TokenType::Eof) {
+                bail!("Unexpected end of file in function body");
+            }
+            
+            if matches!(self.current_token().token_type, TokenType::Return) {
+                let return_stmt = self.parse_return_stmt()?;
+                if let Stmt::Return(expr) = return_stmt {
+                    return_expr = Some(expr);
+                }
+            } else {
+                body.push(self.parse_stmt()?);
+            }
+        }
+        
+        self.consume(TokenType::End)?;
+        
+        Ok(Stmt::fun_stmt(name, params, body, return_expr))
+    }
+
+    fn parse_return_stmt(&mut self) -> Result<Stmt> {
+        self.consume(TokenType::Return)?;
+        let expr = self.parse_expression()?;
+        Ok(Stmt::return_stmt(expr))
     }
 
     fn parse_expression(&mut self) -> Result<Expr> {
@@ -136,7 +220,29 @@ impl Parser {
             TokenType::Identifier(name) => {
                 let identifier = name.clone();
                 self.advance();
-                Ok(Expr::identifier(identifier))
+                
+                // Check if this is a function call
+                if matches!(self.current_token().token_type, TokenType::LeftParen) {
+                    self.advance(); // consume '('
+                    let mut args = Vec::new();
+                    
+                    if !matches!(self.current_token().token_type, TokenType::RightParen) {
+                        loop {
+                            args.push(self.parse_expression()?);
+                            
+                            if matches!(self.current_token().token_type, TokenType::Comma) {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    
+                    self.consume(TokenType::RightParen)?;
+                    Ok(Expr::call(Expr::identifier(identifier), args))
+                } else {
+                    Ok(Expr::identifier(identifier))
+                }
             }
             TokenType::LeftParen => {
                 self.advance();
@@ -213,5 +319,88 @@ mod tests {
             let expr = parse_expression(input).unwrap();
             assert_eq!(expr, expected, "Failed for input: {}", input);
         }
+    }
+
+    #[test]
+    fn test_parse_function_call() {
+        let test_cases = vec![
+            (
+                "add(2, 3)",
+                Expr::call(
+                    Expr::identifier("add".to_string()),
+                    vec![Expr::Number(2.0), Expr::Number(3.0)]
+                )
+            ),
+            (
+                "max(1)",
+                Expr::call(
+                    Expr::identifier("max".to_string()),
+                    vec![Expr::Number(1.0)]
+                )
+            ),
+            (
+                "min()",
+                Expr::call(
+                    Expr::identifier("min".to_string()),
+                    vec![]
+                )
+            ),
+        ];
+
+        for (input, expected) in test_cases {
+            let expr = parse_expression(input).unwrap();
+            assert_eq!(expr, expected, "Failed for input: {}", input);
+        }
+    }
+
+    fn parse_statement(input: &str) -> Result<Stmt> {
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize()?;
+        let mut parser = Parser::new(tokens);
+        parser.parse_stmt()
+    }
+
+    #[test]
+    fn test_parse_function_definition() {
+        let input = "fun add(x, y) do return x + y end";
+        let stmt = parse_statement(input).unwrap();
+        
+        let expected = Stmt::fun_stmt(
+            "add".to_string(),
+            vec![
+                FunParam::new("x".to_string(), None),
+                FunParam::new("y".to_string(), None),
+            ],
+            vec![],
+            Some(Expr::binary(
+                Expr::identifier("x".to_string()),
+                BinaryOp::Add,
+                Expr::identifier("y".to_string())
+            ))
+        );
+        
+        assert_eq!(stmt, expected);
+    }
+
+    #[test]
+    fn test_parse_function_with_typed_params() {
+        let input = "fun multiply(x: int, y: int) do return x * y end";
+        let stmt = parse_statement(input).unwrap();
+        
+        let expected = Stmt::fun_stmt(
+            "multiply".to_string(),
+            vec![
+                FunParam::new("x".to_string(), Some("int".to_string())),
+                FunParam::new("y".to_string(), Some("int".to_string())),
+            ],
+            vec![],
+            Some(Expr::binary(
+                Expr::identifier("x".to_string()),
+                BinaryOp::Multiply,
+                Expr::identifier("y".to_string())
+            ))
+        );
+        
+        assert_eq!(stmt, expected);
     }
 }

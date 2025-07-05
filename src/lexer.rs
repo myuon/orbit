@@ -119,6 +119,10 @@ impl Lexer {
                         "true" => TokenType::Boolean(true),
                         "false" => TokenType::Boolean(false),
                         "let" => TokenType::Let,
+                        "fun" => TokenType::Fun,
+                        "do" => TokenType::Do,
+                        "end" => TokenType::End,
+                        "return" => TokenType::Return,
                         _ => TokenType::Identifier(identifier),
                     };
                     return Token::new(token_type, pos);
@@ -167,6 +171,16 @@ impl Lexer {
                     let pos = self.position;
                     self.advance();
                     return Token::new(TokenType::RightParen, pos);
+                }
+                Some(',') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token::new(TokenType::Comma, pos);
+                }
+                Some(':') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token::new(TokenType::Colon, pos);
                 }
                 None => {
                     return Token::new(TokenType::Eof, self.position);
