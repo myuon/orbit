@@ -5,3 +5,8 @@ debug/
 scratch.ob
 profile.json
 out/
+
+
+# Added by cargo
+
+/target

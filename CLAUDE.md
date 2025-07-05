@@ -4,37 +4,54 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Orbit is a statically typed programming language with JIT compilation for AArch64. The compiler is built in Zig and implements a complete toolchain from lexing to native code generation.
+Orbit is a statically typed programming language with JIT compilation for AArch64. The compiler is currently being migrated from Zig to Rust. The original Zig implementation is preserved in `zig_refs/` directory for reference.
 
 ## Build Commands
 
-- `zig build` - Build the project (creates both library and executable)
-- `zig build run` - Build and run the orbit executable
-- `zig build test` - Run unit tests for both library and executable (ALWAYS run after making changes)
-- `zig build run -- <args>` - Run with arguments (e.g., `zig build run -- hello_world.ob`)
+- `cargo build` - Build the project
+- `cargo run` - Build and run the orbit executable
+- `cargo test` - Run unit tests (ALWAYS run after making changes)
+- `cargo run -- <args>` - Run with arguments (e.g., `cargo run -- hello_world.ob`)
 
 ## Project Architecture
+
+### Current Migration Status
+
+**🚧 MIGRATION IN PROGRESS**: The project is being migrated from Zig to Rust
+- **Reference Code**: Original Zig implementation is in `zig_refs/`
+- **Target Code**: New Rust implementation is in `src/`
+- **Specifications**: Complete language specification is in `spec/`
+- **Migration Plan**: Detailed plan is in `TASK.md`
 
 ### Core Compiler Pipeline
 
 The compiler follows a traditional multi-stage pipeline:
 
-1. **Lexing** (`lexer.zig`) - Tokenizes source code
-2. **Parsing** (`parser.zig`) - Builds AST from tokens
-3. **Type Checking** (`typecheck.zig`) - Validates types and semantics
-4. **Desugaring** (`desugar.zig`) - Simplifies complex constructs
-5. **Monomorphization** (`monomorphization.zig`) - Instantiates generic types
-6. **Compilation** (`compiler.zig`) - Orchestrates the pipeline and generates IR
-7. **Execution** - Either VM execution (`vm.zig`) or JIT compilation (`jit.zig`)
+1. **Lexing** (`src/lexer.rs`) - Tokenizes source code
+2. **Parsing** (`src/parser.rs`) - Builds AST from tokens
+3. **Type Checking** (`src/typecheck.rs`) - Validates types and semantics
+4. **Desugaring** (`src/desugar.rs`) - Simplifies complex constructs
+5. **Monomorphization** (`src/monomorphization.rs`) - Instantiates generic types
+6. **Compilation** (`src/compiler.rs`) - Orchestrates the pipeline and generates IR
+7. **Execution** - Either VM execution (`src/vm.rs`) or JIT compilation (`src/jit.rs`)
 
 ### Key Files
 
-- `src/main.zig` - Entry point with TUI and debugging features
-- `src/compiler.zig` - Main compiler orchestration with compilation stages
-- `src/ast.zig` - AST definitions and instruction set
-- `src/runtime.zig` - Runtime system for built-in functions
-- `src/jit.zig` - JIT compiler for AArch64 native code generation
-- `src/vm.zig` - Stack-based virtual machine for interpretation
+**Current Rust Implementation:**
+- `src/main.rs` - Entry point (currently basic stub)
+- `src/compiler.rs` - Main compiler orchestration (to be implemented)
+- `src/ast.rs` - AST definitions and instruction set (to be implemented)
+- `src/runtime.rs` - Runtime system for built-in functions (to be implemented)
+- `src/jit.rs` - JIT compiler for AArch64 native code generation (to be implemented)
+- `src/vm.rs` - Stack-based virtual machine for interpretation (to be implemented)
+
+**Reference Zig Implementation:**
+- `zig_refs/src/main.zig` - Entry point with TUI and debugging features
+- `zig_refs/src/compiler.zig` - Main compiler orchestration with compilation stages
+- `zig_refs/src/ast.zig` - AST definitions and instruction set
+- `zig_refs/src/runtime.zig` - Runtime system for built-in functions
+- `zig_refs/src/jit.zig` - JIT compiler for AArch64 native code generation
+- `zig_refs/src/vm.zig` - Stack-based virtual machine for interpretation
 
 ### Language Features
 
@@ -50,22 +67,40 @@ The language supports:
 
 ### Testing
 
-Test files are in `test/` directory with `.ob` extension for Orbit source files and `.stdout` files for expected output. Heavy performance tests are in `test/heavy/`.
+Test files are in `zig_refs/test/` directory with `.ob` extension for Orbit source files and `.stdout` files for expected output. Heavy performance tests are in `zig_refs/test/heavy/`.
 
 ### VS Code Extension
 
-The `orbit-mode/` directory contains a VS Code extension with syntax highlighting and language support for Orbit files.
+The `zig_refs/orbit-mode/` directory contains a VS Code extension with syntax highlighting and language support for Orbit files.
 
 ## Development Notes
 
 - The compiler can dump intermediate representations using command-line flags
 - JIT compilation can be enabled/disabled via compiler flags
-- The project uses an arena allocator for memory management during compilation
-- Profiling support is available via the profiler.zig dependency
+- The project uses Rust's ownership system for memory management
+- Migration should maintain feature parity with the original Zig implementation
 
 ## Development Guidelines
 
-- **Testing**: Always run `zig build test` after making changes to ensure all tests pass
+- **Testing**: Always run `cargo test` after making changes to ensure all tests pass
+- **Migration**: Refer to `TASK.md` for the structured migration plan
+- **Reference**: Use the Zig code in `zig_refs/` as reference for implementation
+- **Specifications**: Use the language specification in `spec/` for authoritative language definition
 - **Comments**: Add comments to explain "why" something is done, not "what" is being done, especially for non-standard implementations
 - **Git Commits**: Use Conventional Commit format (e.g., `feat: add new feature`, `fix(parser): resolve parsing issue`)
 - **Language**: All source code, comments, and commit messages should be in English
+
+## Migration Priority
+
+Follow the implementation phases outlined in `TASK.md`:
+
+1. **Phase 1**: AST definitions, lexer, basic parser
+2. **Phase 2**: Type checker, desugaring, monomorphization, compiler integration
+3. **Phase 3**: Virtual machine, runtime system, JIT compiler
+4. **Phase 4**: TUI debugger, test suite migration, VS Code extension verification
+
+## Testing Strategy
+
+- Port all test cases from `zig_refs/test/` to verify functionality
+- Ensure all `.ob` files produce the expected output in their corresponding `.stdout` files
+- Maintain performance characteristics of the original implementation
