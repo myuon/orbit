@@ -1,0 +1,30 @@
+// Heavy vector operations benchmark
+// Creates large vector and performs many operations
+fun main() do
+  let myVec = new vec(int) {};
+  let size = 10000;
+  let i = 0;
+  
+  // Fill vector with values
+  while i < size do
+    myVec <- i;
+    i = i + 1;
+  end
+  
+  // Modify all elements
+  i = 0;
+  while i < size do
+    myVec[i] = myVec[i] * 2;
+    i = i + 1;
+  end
+  
+  // Sum all elements
+  let sum = 0;
+  i = 0;
+  while i < size do
+    sum = sum + myVec[i];
+    i = i + 1;
+  end
+  
+  return sum;
+end

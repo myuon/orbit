@@ -174,6 +174,18 @@ impl Lexer {
                 Some('/') => {
                     let pos = self.position;
                     self.advance();
+                    // Check for comment
+                    if let Some('/') = self.current_char {
+                        // Skip comment to end of line
+                        while let Some(ch) = self.current_char {
+                            if ch == '\n' {
+                                self.advance();
+                                break;
+                            }
+                            self.advance();
+                        }
+                        continue; // Skip to next token
+                    }
                     return Token {
                         token_type: TokenType::Slash,
                         position: pos,

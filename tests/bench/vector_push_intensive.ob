@@ -1,0 +1,25 @@
+// Vector push intensive benchmark
+// Tests vector dynamic growth performance
+fun main() do
+  let myVec1 = new vec(int) {};
+  let myVec2 = new vec(int) {};
+  let count = 10000;
+  let i = 0;
+  
+  // Push many elements to both vectors
+  while i < count do
+    myVec1 <- i;
+    myVec2 <- (i * 2);
+    i = i + 1;
+  end
+  
+  // Cross-reference and sum
+  let sum = 0;
+  i = 0;
+  while i < count do
+    sum = sum + myVec1[i] + myVec2[i];
+    i = i + 1;
+  end
+  
+  return sum;
+end
