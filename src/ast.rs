@@ -24,6 +24,8 @@ pub enum TokenType {
     If,
     Then,
     Else,
+    // Loop keywords
+    While,
     Fun,
     Do,
     End,
@@ -126,6 +128,14 @@ pub enum Stmt {
         then_branch: Vec<Stmt>,
         else_branch: Option<Vec<Stmt>>,
     },
+    While {
+        condition: Expr,
+        body: Vec<Stmt>,
+    },
+    Assign {
+        name: String,
+        value: Expr,
+    },
 }
 
 impl Expr {
@@ -222,5 +232,13 @@ impl Stmt {
             then_branch,
             else_branch,
         }
+    }
+
+    pub fn while_stmt(condition: Expr, body: Vec<Stmt>) -> Self {
+        Stmt::While { condition, body }
+    }
+
+    pub fn assign_stmt(name: String, value: Expr) -> Self {
+        Stmt::Assign { name, value }
     }
 }

@@ -154,6 +154,21 @@ impl Parser {
             TokenType::Let => self.parse_let_stmt(),
             TokenType::Return => self.parse_return_stmt(),
             TokenType::If => self.parse_if_stmt(),
+            TokenType::While => self.parse_while_stmt(),
+            TokenType::Identifier(_) => {
+                // Look ahead to see if this is an assignment
+                if self.position + 1 < self.tokens.len() {
+                    if let TokenType::Assign = self.tokens[self.position + 1].token_type {
+                        self.parse_assign_stmt()
+                    } else {
+                        let expr = self.parse_expression()?;
+                        Ok(Stmt::expression(expr))
+                    }
+                } else {
+                    let expr = self.parse_expression()?;
+                    Ok(Stmt::expression(expr))
+                }
+            }
             _ => {
                 let expr = self.parse_expression()?;
                 Ok(Stmt::expression(expr))
@@ -225,6 +240,45 @@ impl Parser {
         self.consume(TokenType::End)?;
 
         Ok(Stmt::if_stmt(condition, then_branch, else_branch))
+    }
+
+    fn parse_while_stmt(&mut self) -> Result<Stmt> {
+        self.consume(TokenType::While)?;
+        let condition = self.parse_comparison()?;
+        self.consume(TokenType::Do)?;
+
+        let mut body = Vec::new();
+        while !matches!(
+            self.current_token().token_type,
+            TokenType::End | TokenType::Eof
+        ) {
+            body.push(self.parse_stmt()?);
+        }
+
+        self.consume(TokenType::End)?;
+
+        Ok(Stmt::while_stmt(condition, body))
+    }
+
+    fn parse_assign_stmt(&mut self) -> Result<Stmt> {
+        let name = match &self.current_token().token_type {
+            TokenType::Identifier(name) => {
+                let n = name.clone();
+                self.advance();
+                n
+            }
+            _ => bail!("Expected identifier in assignment"),
+        };
+
+        self.consume(TokenType::Assign)?;
+        let value = self.parse_expression()?;
+        
+        // Consume semicolon if present (for statement context)
+        if matches!(self.current_token().token_type, TokenType::Semicolon) {
+            self.advance();
+        }
+
+        Ok(Stmt::assign_stmt(name, value))
     }
 
     fn parse_expression(&mut self) -> Result<Expr> {

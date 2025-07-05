@@ -254,6 +254,42 @@ impl Runtime {
                     _ => bail!("Condition must evaluate to a boolean value"),
                 }
             }
+            Stmt::While { condition, body } => {
+                let mut last_value = None;
+                loop {
+                    let condition_val = self.evaluate(condition)?;
+                    
+                    match condition_val {
+                        Value::Boolean(true) => {
+                            for stmt in body {
+                                last_value = self.execute_stmt(stmt)?;
+                            }
+                        }
+                        Value::Boolean(false) => break,
+                        _ => bail!("While condition must evaluate to a boolean value"),
+                    }
+                }
+                Ok(last_value)
+            }
+            Stmt::Assign { name, value } => {
+                let val = self.evaluate(value)?;
+                
+                // Check if variable exists in local scope first
+                if let Some(locals) = self.call_stack.last_mut() {
+                    if locals.contains_key(name) {
+                        locals.insert(name.clone(), val);
+                        return Ok(None);
+                    }
+                }
+                
+                // Then check global scope
+                if self.variables.contains_key(name) {
+                    self.variables.insert(name.clone(), val);
+                    Ok(None)
+                } else {
+                    bail!("Cannot assign to undefined variable: {}", name)
+                }
+            }
         }
     }
 }
