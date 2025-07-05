@@ -1,6 +1,8 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     Number(f64),
+    Boolean(bool),
+    String(String),
     Plus,
     Minus,
     Star,
@@ -33,6 +35,8 @@ pub enum BinaryOp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Number(f64),
+    Boolean(bool),
+    String(String),
     Binary {
         left: Box<Expr>,
         op: BinaryOp,
@@ -43,6 +47,14 @@ pub enum Expr {
 impl Expr {
     pub fn number(value: f64) -> Self {
         Expr::Number(value)
+    }
+
+    pub fn boolean(value: bool) -> Self {
+        Expr::Boolean(value)
+    }
+
+    pub fn string(value: String) -> Self {
+        Expr::String(value)
     }
 
     pub fn binary(left: Expr, op: BinaryOp, right: Expr) -> Self {

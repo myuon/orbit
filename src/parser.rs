@@ -93,6 +93,16 @@ impl Parser {
                 self.advance();
                 Ok(Expr::number(num))
             }
+            TokenType::Boolean(value) => {
+                let bool_val = *value;
+                self.advance();
+                Ok(Expr::boolean(bool_val))
+            }
+            TokenType::String(value) => {
+                let string_val = value.clone();
+                self.advance();
+                Ok(Expr::string(string_val))
+            }
             TokenType::LeftParen => {
                 self.advance();
                 let expr = self.parse_expression()?;

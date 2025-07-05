@@ -52,6 +52,54 @@ impl Lexer {
         num_str.parse().unwrap_or(0.0)
     }
 
+    fn read_string(&mut self) -> String {
+        let mut string_value = String::new();
+        self.advance(); // Skip opening quote
+        
+        while let Some(ch) = self.current_char {
+            if ch == '"' {
+                self.advance(); // Skip closing quote
+                break;
+            } else if ch == '\\' {
+                self.advance();
+                if let Some(escaped) = self.current_char {
+                    match escaped {
+                        'n' => string_value.push('\n'),
+                        't' => string_value.push('\t'),
+                        'r' => string_value.push('\r'),
+                        '\\' => string_value.push('\\'),
+                        '"' => string_value.push('"'),
+                        _ => {
+                            string_value.push('\\');
+                            string_value.push(escaped);
+                        }
+                    }
+                    self.advance();
+                }
+            } else {
+                string_value.push(ch);
+                self.advance();
+            }
+        }
+        
+        string_value
+    }
+
+    fn read_identifier(&mut self) -> String {
+        let mut identifier = String::new();
+        
+        while let Some(ch) = self.current_char {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                identifier.push(ch);
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        
+        identifier
+    }
+
     pub fn next_token(&mut self) -> Token {
         loop {
             match self.current_char {
@@ -62,6 +110,24 @@ impl Lexer {
                     let pos = self.position;
                     let num = self.read_number();
                     return Token::new(TokenType::Number(num), pos);
+                }
+                Some(ch) if ch.is_ascii_alphabetic() || ch == '_' => {
+                    let pos = self.position;
+                    let identifier = self.read_identifier();
+                    let token_type = match identifier.as_str() {
+                        "true" => TokenType::Boolean(true),
+                        "false" => TokenType::Boolean(false),
+                        _ => {
+                            // For now, we don't have other identifiers, so skip
+                            continue;
+                        }
+                    };
+                    return Token::new(token_type, pos);
+                }
+                Some('"') => {
+                    let pos = self.position;
+                    let string_value = self.read_string();
+                    return Token::new(TokenType::String(string_value), pos);
                 }
                 Some('+') => {
                     let pos = self.position;

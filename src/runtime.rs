@@ -3,12 +3,29 @@ use crate::ast::{BinaryOp, Expr};
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Number(f64),
+    Boolean(bool),
+    String(String),
 }
 
 impl Value {
     pub fn as_number(&self) -> f64 {
         match self {
             Value::Number(n) => *n,
+            _ => 0.0,
+        }
+    }
+
+    pub fn as_boolean(&self) -> bool {
+        match self {
+            Value::Boolean(b) => *b,
+            _ => false,
+        }
+    }
+
+    pub fn as_string(&self) -> String {
+        match self {
+            Value::String(s) => s.clone(),
+            _ => String::new(),
         }
     }
 }
@@ -23,6 +40,8 @@ impl std::fmt::Display for Value {
                     write!(f, "{}", n)
                 }
             }
+            Value::Boolean(b) => write!(f, "{}", b),
+            Value::String(s) => write!(f, "{}", s),
         }
     }
 }
@@ -37,26 +56,35 @@ impl Runtime {
     pub fn evaluate(&self, expr: &Expr) -> Result<Value, String> {
         match expr {
             Expr::Number(value) => Ok(Value::Number(*value)),
+            Expr::Boolean(value) => Ok(Value::Boolean(*value)),
+            Expr::String(value) => Ok(Value::String(value.clone())),
             Expr::Binary { left, op, right } => {
                 let left_val = self.evaluate(left)?;
                 let right_val = self.evaluate(right)?;
                 
-                let left_num = left_val.as_number();
-                let right_num = right_val.as_number();
-                
-                let result = match op {
-                    BinaryOp::Add => left_num + right_num,
-                    BinaryOp::Subtract => left_num - right_num,
-                    BinaryOp::Multiply => left_num * right_num,
-                    BinaryOp::Divide => {
-                        if right_num == 0.0 {
-                            return Err("Division by zero".to_string());
-                        }
-                        left_num / right_num
+                match (&left_val, &right_val) {
+                    (Value::Number(l), Value::Number(r)) => {
+                        let result = match op {
+                            BinaryOp::Add => l + r,
+                            BinaryOp::Subtract => l - r,
+                            BinaryOp::Multiply => l * r,
+                            BinaryOp::Divide => {
+                                if *r == 0.0 {
+                                    return Err("Division by zero".to_string());
+                                }
+                                l / r
+                            }
+                        };
+                        Ok(Value::Number(result))
                     }
-                };
-                
-                Ok(Value::Number(result))
+                    (Value::String(l), Value::String(r)) => {
+                        match op {
+                            BinaryOp::Add => Ok(Value::String(format!("{}{}", l, r))),
+                            _ => Err(format!("Unsupported operation {:?} for strings", op)),
+                        }
+                    }
+                    _ => Err(format!("Type mismatch in binary operation: {:?} {:?} {:?}", left_val, op, right_val)),
+                }
             }
         }
     }
