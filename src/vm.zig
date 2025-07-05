@@ -284,9 +284,11 @@ pub const VmCompiler = struct {
                         } else if (std.mem.eql(u8, ident.name, "slice")) {
                             unreachable;
                         } else if (std.mem.eql(u8, ident.name, "map")) {
-                            try self.compileExprFromAst(buffer, index.lhs.*);
-                            try self.compileExprFromAst(buffer, index.rhs.*);
-                            try buffer.append(ast.Instruction{ .table_get = true });
+                            // Generate method call to _get
+                            const param0_str = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "{}", .{ident.params[0]});
+                            const param1_str = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "{}", .{ident.params[1]});
+                            const get_label = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "map({s}, {s})__get", .{ param0_str, param1_str });
+                            try self.callFunction(buffer, ast.Expression{ .project = .{ .index = -1, .result_type = ident.params[1], .lhs = index.lhs, .rhs = "_get" } }, get_label, @constCast(&[_]ast.Expression{index.rhs.*}));
                         } else {
                             std.log.err("Invalid index type: {any}\n", .{index.type_});
                             unreachable;
@@ -413,9 +415,9 @@ pub const VmCompiler = struct {
                         } else if (std.mem.eql(u8, ident.name, "slice")) {
                             unreachable;
                         } else if (std.mem.eql(u8, ident.name, "map")) {
-                            try self.compileExprFromAst(buffer, index.lhs.*);
-                            try self.compileExprFromAst(buffer, index.rhs.*);
-                            try buffer.append(ast.Instruction{ .table_set = true });
+                            // This should not be reached for map assignments
+                            std.log.err("Unexpected map assignment in compileLhsExprFromAst\n", .{});
+                            unreachable;
                         } else {
                             std.log.err("Invalid index type: {s}({any})\n", .{ ident.name, ident.params });
                             unreachable;
@@ -546,10 +548,11 @@ pub const VmCompiler = struct {
                                 if (std.mem.eql(u8, ident.name, "slice")) {
                                     unreachable;
                                 } else if (std.mem.eql(u8, ident.name, "map")) {
-                                    try self.compileExprFromAst(buffer, assign.lhs.index.lhs.*);
-                                    try self.compileExprFromAst(buffer, assign.lhs.index.rhs.*);
-                                    try self.compileExprFromAst(buffer, assign.rhs);
-                                    try buffer.append(ast.Instruction{ .table_set = true });
+                                    // Generate method call to _set
+                                    const param0_str = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "{}", .{ident.params[0]});
+                                    const param1_str = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "{}", .{ident.params[1]});
+                                    const set_label = try std.fmt.allocPrint(self.ast_arena_allocator.allocator(), "map({s}, {s})__set", .{ param0_str, param1_str });
+                                    try self.callFunction(buffer, ast.Expression{ .project = .{ .index = -1, .result_type = .{ .int = true }, .lhs = assign.lhs.index.lhs, .rhs = "_set" } }, set_label, @constCast(&[_]ast.Expression{ assign.lhs.index.rhs.*, assign.rhs }));
                                 } else if (std.mem.eql(u8, ident.name, "vec")) {
                                     unreachable;
                                 } else {
