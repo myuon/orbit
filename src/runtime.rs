@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Decl, Expr, FunParam, Function, Program, Stmt};
+use crate::ast::{BinaryOp, Expr, FunParam, Program, Stmt};
 use crate::vm::{self, VMCompiler, VM};
 use anyhow::{bail, Result};
 use std::collections::HashMap;

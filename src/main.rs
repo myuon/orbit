@@ -1,7 +1,6 @@
 use std::env;
 use std::process;
 
-use orbit::execute_file;
 
 #[derive(Debug)]
 struct Config {

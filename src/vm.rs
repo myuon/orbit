@@ -921,7 +921,7 @@ mod tests {
 
     #[test]
     fn test_vm_simple_function() {
-        use crate::ast::{Decl, FunParam, Function, Program};
+        use crate::ast::{Decl, Function, Program};
 
         // Create main function: fun main() do return 42; end
         let main_func = Function {
