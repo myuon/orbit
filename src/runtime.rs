@@ -7,29 +7,6 @@ pub enum Value {
     String(String),
 }
 
-impl Value {
-    pub fn as_number(&self) -> f64 {
-        match self {
-            Value::Number(n) => *n,
-            _ => 0.0,
-        }
-    }
-
-    pub fn as_boolean(&self) -> bool {
-        match self {
-            Value::Boolean(b) => *b,
-            _ => false,
-        }
-    }
-
-    pub fn as_string(&self) -> String {
-        match self {
-            Value::String(s) => s.clone(),
-            _ => String::new(),
-        }
-    }
-}
-
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
