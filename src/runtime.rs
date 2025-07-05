@@ -82,35 +82,20 @@ mod tests {
     }
 
     #[test]
-    fn test_evaluate_addition() {
-        let runtime = Runtime::new();
-        let expr = Expr::binary(Expr::Number(2.0), BinaryOp::Add, Expr::Number(3.0));
-        let result = runtime.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Number(5.0));
-    }
+    fn test_evaluate_binary_operations() {
+        let test_cases = vec![
+            (2.0, BinaryOp::Add, 3.0, Value::Number(5.0)),
+            (5.0, BinaryOp::Subtract, 3.0, Value::Number(2.0)),
+            (2.0, BinaryOp::Multiply, 3.0, Value::Number(6.0)),
+            (6.0, BinaryOp::Divide, 2.0, Value::Number(3.0)),
+        ];
 
-    #[test]
-    fn test_evaluate_subtraction() {
         let runtime = Runtime::new();
-        let expr = Expr::binary(Expr::Number(5.0), BinaryOp::Subtract, Expr::Number(3.0));
-        let result = runtime.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Number(2.0));
-    }
-
-    #[test]
-    fn test_evaluate_multiplication() {
-        let runtime = Runtime::new();
-        let expr = Expr::binary(Expr::Number(2.0), BinaryOp::Multiply, Expr::Number(3.0));
-        let result = runtime.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Number(6.0));
-    }
-
-    #[test]
-    fn test_evaluate_division() {
-        let runtime = Runtime::new();
-        let expr = Expr::binary(Expr::Number(6.0), BinaryOp::Divide, Expr::Number(2.0));
-        let result = runtime.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Number(3.0));
+        for (left, op, right, expected) in test_cases {
+            let expr = Expr::binary(Expr::Number(left), op, Expr::Number(right));
+            let result = runtime.evaluate(&expr).unwrap();
+            assert_eq!(result, expected, "Failed for {} {:?} {}", left, op, right);
+        }
     }
 
     #[test]
@@ -123,28 +108,25 @@ mod tests {
     }
 
     #[test]
-    fn test_evaluate_complex_expression() {
+    fn test_evaluate_complex_expressions() {
         let runtime = Runtime::new();
+        
         // 2 + 3 * 4 = 2 + 12 = 14
-        let expr = Expr::binary(
+        let expr1 = Expr::binary(
             Expr::Number(2.0),
             BinaryOp::Add,
             Expr::binary(Expr::Number(3.0), BinaryOp::Multiply, Expr::Number(4.0))
         );
-        let result = runtime.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Number(14.0));
-    }
+        let result1 = runtime.evaluate(&expr1).unwrap();
+        assert_eq!(result1, Value::Number(14.0));
 
-    #[test]
-    fn test_evaluate_parentheses() {
-        let runtime = Runtime::new();
         // (2 + 3) * 4 = 5 * 4 = 20
-        let expr = Expr::binary(
+        let expr2 = Expr::binary(
             Expr::binary(Expr::Number(2.0), BinaryOp::Add, Expr::Number(3.0)),
             BinaryOp::Multiply,
             Expr::Number(4.0)
         );
-        let result = runtime.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Number(20.0));
+        let result2 = runtime.evaluate(&expr2).unwrap();
+        assert_eq!(result2, Value::Number(20.0));
     }
 }

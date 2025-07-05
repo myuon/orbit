@@ -191,22 +191,18 @@ impl Lexer {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_tokenize_number() {
-        let mut lexer = Lexer::new("42");
+    fn assert_single_token(input: &str, expected: TokenType) {
+        let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize().unwrap();
-        assert_eq!(tokens.len(), 2);
-        assert_eq!(tokens[0].token_type, TokenType::Number(42.0));
+        assert_eq!(tokens.len(), 2, "Expected exactly one token + EOF for input: {}", input);
+        assert_eq!(tokens[0].token_type, expected, "Token mismatch for input: {}", input);
         assert_eq!(tokens[1].token_type, TokenType::Eof);
     }
 
     #[test]
-    fn test_tokenize_float() {
-        let mut lexer = Lexer::new("3.14");
-        let tokens = lexer.tokenize().unwrap();
-        assert_eq!(tokens.len(), 2);
-        assert_eq!(tokens[0].token_type, TokenType::Number(3.14));
-        assert_eq!(tokens[1].token_type, TokenType::Eof);
+    fn test_tokenize_numbers() {
+        assert_single_token("42", TokenType::Number(42.0));
+        assert_single_token("3.14", TokenType::Number(3.14));
     }
 
     #[test]

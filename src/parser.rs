@@ -134,47 +134,50 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_addition() {
-        let expr = parse_expression("2 + 3").unwrap();
-        assert_eq!(expr, Expr::binary(Expr::Number(2.0), BinaryOp::Add, Expr::Number(3.0)));
+    fn test_parse_binary_operations() {
+        let test_cases = vec![
+            ("2 + 3", Expr::binary(Expr::Number(2.0), BinaryOp::Add, Expr::Number(3.0))),
+            ("2 * 3", Expr::binary(Expr::Number(2.0), BinaryOp::Multiply, Expr::Number(3.0))),
+        ];
+
+        for (input, expected) in test_cases {
+            let expr = parse_expression(input).unwrap();
+            assert_eq!(expr, expected, "Failed for input: {}", input);
+        }
     }
 
     #[test]
-    fn test_parse_multiplication() {
-        let expr = parse_expression("2 * 3").unwrap();
-        assert_eq!(expr, Expr::binary(Expr::Number(2.0), BinaryOp::Multiply, Expr::Number(3.0)));
-    }
+    fn test_parse_complex_expressions() {
+        let test_cases = vec![
+            (
+                "2 + 3 * 4",
+                Expr::binary(
+                    Expr::Number(2.0),
+                    BinaryOp::Add,
+                    Expr::binary(Expr::Number(3.0), BinaryOp::Multiply, Expr::Number(4.0))
+                ),
+            ),
+            (
+                "(2 + 3) * 4",
+                Expr::binary(
+                    Expr::binary(Expr::Number(2.0), BinaryOp::Add, Expr::Number(3.0)),
+                    BinaryOp::Multiply,
+                    Expr::Number(4.0)
+                ),
+            ),
+            (
+                "2 * 3 + 4 / 2",
+                Expr::binary(
+                    Expr::binary(Expr::Number(2.0), BinaryOp::Multiply, Expr::Number(3.0)),
+                    BinaryOp::Add,
+                    Expr::binary(Expr::Number(4.0), BinaryOp::Divide, Expr::Number(2.0))
+                ),
+            ),
+        ];
 
-    #[test]
-    fn test_parse_precedence() {
-        let expr = parse_expression("2 + 3 * 4").unwrap();
-        let expected = Expr::binary(
-            Expr::Number(2.0),
-            BinaryOp::Add,
-            Expr::binary(Expr::Number(3.0), BinaryOp::Multiply, Expr::Number(4.0))
-        );
-        assert_eq!(expr, expected);
-    }
-
-    #[test]
-    fn test_parse_parentheses() {
-        let expr = parse_expression("(2 + 3) * 4").unwrap();
-        let expected = Expr::binary(
-            Expr::binary(Expr::Number(2.0), BinaryOp::Add, Expr::Number(3.0)),
-            BinaryOp::Multiply,
-            Expr::Number(4.0)
-        );
-        assert_eq!(expr, expected);
-    }
-
-    #[test]
-    fn test_parse_complex_expression() {
-        let expr = parse_expression("2 * 3 + 4 / 2").unwrap();
-        let expected = Expr::binary(
-            Expr::binary(Expr::Number(2.0), BinaryOp::Multiply, Expr::Number(3.0)),
-            BinaryOp::Add,
-            Expr::binary(Expr::Number(4.0), BinaryOp::Divide, Expr::Number(2.0))
-        );
-        assert_eq!(expr, expected);
+        for (input, expected) in test_cases {
+            let expr = parse_expression(input).unwrap();
+            assert_eq!(expr, expected, "Failed for input: {}", input);
+        }
     }
 }

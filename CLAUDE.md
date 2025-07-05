@@ -87,6 +87,8 @@ The `zig_refs/orbit-mode/` directory contains a VS Code extension with syntax hi
 
 - **Code Check**: Use `cargo check` for quick compilation checks during development
 - **Testing**: Always run `cargo test` after making changes to ensure all tests pass
+- **Test Style**: Use table-driven testing for unit tests whenever possible to reduce duplication and improve maintainability
+- **Code Duplication**: Use `similarity-rs src/` to detect code duplication and guide refactoring efforts
 - **Migration**: Refer to `TASK.md` for the structured migration plan
 - **Reference**: Use the Zig code in `zig_refs/` as reference for implementation
 - **Specifications**: Use the language specification in `spec/` for authoritative language definition
@@ -108,3 +110,36 @@ Follow the implementation phases outlined in `TASK.md`:
 - Port all test cases from `zig_refs/test/` to verify functionality
 - Ensure all `.ob` files produce the expected output in their corresponding `.stdout` files
 - Maintain performance characteristics of the original implementation
+
+### Writing Tests
+
+**Table-Driven Testing**: Prefer table-driven testing to reduce code duplication and improve test coverage:
+
+```rust
+#[test]
+fn test_arithmetic_operations() {
+    let test_cases = vec![
+        ("2 + 3", Value::Number(5.0)),
+        ("4 * 5", Value::Number(20.0)),
+        ("10 / 2", Value::Number(5.0)),
+    ];
+
+    let runtime = Runtime::new();
+    for (input, expected) in test_cases {
+        let result = execute_expression(input, &runtime).unwrap();
+        assert_eq!(result, expected, "Failed for input: {}", input);
+    }
+}
+```
+
+**Refactoring Guide**: Use similarity-rs to identify code duplication:
+
+```bash
+# Detect code duplication in the source directory
+similarity-rs
+
+# Use the output to guide refactoring efforts:
+# - 100% similarity indicates exact duplicates that should be consolidated
+# - High similarity (>90%) suggests opportunities for helper functions
+# - Group related test cases into table-driven tests
+```
