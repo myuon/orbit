@@ -26,6 +26,14 @@ pub enum TokenType {
     Else,
     // Loop keywords
     While,
+    // Vector keywords
+    New,
+    Vec,
+    Push, // <-
+    LeftBracket, // [
+    RightBracket, // ]
+    LeftBrace, // {
+    RightBrace, // }
     Fun,
     Do,
     End,
@@ -71,6 +79,14 @@ pub enum Expr {
     Call {
         callee: Box<Expr>,
         args: Vec<Expr>,
+    },
+    VectorNew {
+        element_type: String,
+        initial_values: Vec<Expr>,
+    },
+    VectorIndex {
+        vector: Box<Expr>,
+        index: Box<Expr>,
     },
 }
 
@@ -121,6 +137,15 @@ pub enum Stmt {
     },
     Assign {
         name: String,
+        value: Expr,
+    },
+    VectorPush {
+        vector: String,
+        value: Expr,
+    },
+    VectorAssign {
+        vector: String,
+        index: Expr,
         value: Expr,
     },
 }

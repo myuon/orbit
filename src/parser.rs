@@ -167,13 +167,19 @@ impl Parser {
             TokenType::If => self.parse_if_stmt(),
             TokenType::While => self.parse_while_stmt(),
             TokenType::Identifier(_) => {
-                // Look ahead to see if this is an assignment
+                // Look ahead to see if this is an assignment, vector push, or vector assign
                 if self.position + 1 < self.tokens.len() {
-                    if let TokenType::Assign = self.tokens[self.position + 1].token_type {
-                        self.parse_assign_stmt()
-                    } else {
-                        let expr = self.parse_expression()?;
-                        Ok(Stmt::Expression(expr))
+                    match &self.tokens[self.position + 1].token_type {
+                        TokenType::Assign => self.parse_assign_stmt(),
+                        TokenType::Push => self.parse_vector_push_stmt(),
+                        TokenType::LeftBracket => {
+                            // Could be vector[index] = value
+                            self.parse_vector_assign_or_expr()
+                        }
+                        _ => {
+                            let expr = self.parse_expression()?;
+                            Ok(Stmt::Expression(expr))
+                        }
                     }
                 } else {
                     let expr = self.parse_expression()?;
@@ -196,7 +202,7 @@ impl Parser {
                 self.advance();
                 n
             }
-            _ => bail!("Expected identifier after 'let'"),
+            _ => bail!("Expected variable name after 'let'"),
         };
 
         self.consume(TokenType::Assign)?;
@@ -291,6 +297,70 @@ impl Parser {
         self.consume(TokenType::Semicolon)?;
 
         Ok(Stmt::Assign { name, value })
+    }
+
+    fn parse_vector_push_stmt(&mut self) -> Result<Stmt> {
+        let vector = match &self.current_token().token_type {
+            TokenType::Identifier(name) => {
+                let n = name.clone();
+                self.advance();
+                n
+            }
+            _ => bail!("Expected vector name in push statement"),
+        };
+
+        self.consume(TokenType::Push)?; // consume '<-'
+        let value = self.parse_expression()?;
+        self.consume(TokenType::Semicolon)?;
+
+        Ok(Stmt::VectorPush { vector, value })
+    }
+
+    fn parse_vector_assign_or_expr(&mut self) -> Result<Stmt> {
+        // We need to check if this is vector[index] = value or just a complex expression
+        // Let's parse it as an expression first and check if it's followed by assignment
+        
+        // Save the current position in case we need to backtrack
+        let saved_position = self.position;
+        
+        // Try to parse vector[index] assignment
+        if let Ok(vector_name) = self.try_parse_simple_vector_assignment() {
+            return Ok(vector_name);
+        }
+        
+        // Reset position and parse as a regular expression
+        self.position = saved_position;
+        let expr = self.parse_expression()?;
+        Ok(Stmt::Expression(expr))
+    }
+    
+    fn try_parse_simple_vector_assignment(&mut self) -> Result<Stmt> {
+        let vector = match &self.current_token().token_type {
+            TokenType::Identifier(name) => {
+                let n = name.clone();
+                self.advance();
+                n
+            }
+            _ => bail!("Expected vector name"),
+        };
+
+        self.consume(TokenType::LeftBracket)?; // consume '['
+        let index = self.parse_expression()?;
+        self.consume(TokenType::RightBracket)?; // consume ']'
+
+        // Check if this is an assignment
+        if matches!(self.current_token().token_type, TokenType::Assign) {
+            self.advance(); // consume '='
+            let value = self.parse_expression()?;
+            self.consume(TokenType::Semicolon)?;
+            Ok(Stmt::VectorAssign {
+                vector,
+                index,
+                value,
+            })
+        } else {
+            bail!("Not a vector assignment")
+        }
     }
 
     fn parse_expression(&mut self) -> Result<Expr> {
@@ -406,13 +476,73 @@ impl Parser {
                     }
 
                     self.consume(TokenType::RightParen)?;
-                    Ok(Expr::Call {
+                    let mut expr = Expr::Call {
                         callee: Box::new(Expr::Identifier(identifier)),
                         args,
+                    };
+
+                    // Check for vector indexing
+                    if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                        self.advance(); // consume '['
+                        let index = self.parse_expression()?;
+                        self.consume(TokenType::RightBracket)?;
+                        expr = Expr::VectorIndex {
+                            vector: Box::new(expr),
+                            index: Box::new(index),
+                        };
+                    }
+
+                    Ok(expr)
+                } else if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                    // Vector indexing
+                    self.advance(); // consume '['
+                    let index = self.parse_expression()?;
+                    self.consume(TokenType::RightBracket)?;
+                    Ok(Expr::VectorIndex {
+                        vector: Box::new(Expr::Identifier(identifier)),
+                        index: Box::new(index),
                     })
                 } else {
                     Ok(Expr::Identifier(identifier))
                 }
+            }
+            TokenType::New => {
+                self.advance(); // consume 'new'
+                self.consume(TokenType::Vec)?; // consume 'vec'
+                self.consume(TokenType::LeftParen)?; // consume '('
+                
+                // Get the element type
+                let element_type = match &self.current_token().token_type {
+                    TokenType::Identifier(type_name) => {
+                        let t = type_name.clone();
+                        self.advance();
+                        t
+                    }
+                    _ => bail!("Expected type name in vector constructor"),
+                };
+                
+                self.consume(TokenType::RightParen)?; // consume ')'
+                self.consume(TokenType::LeftBrace)?; // consume '{'
+                
+                // Parse initial values (if any)
+                let mut initial_values = Vec::new();
+                if !matches!(self.current_token().token_type, TokenType::RightBrace) {
+                    loop {
+                        initial_values.push(self.parse_expression()?);
+                        
+                        if matches!(self.current_token().token_type, TokenType::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                
+                self.consume(TokenType::RightBrace)?; // consume '}'
+                Ok(Expr::VectorNew {
+                    element_type,
+                    initial_values,
+                })
             }
             TokenType::LeftParen => {
                 self.advance();

@@ -130,6 +130,8 @@ impl Lexer {
                         "then" => TokenType::Then,
                         "else" => TokenType::Else,
                         "while" => TokenType::While,
+                        "new" => TokenType::New,
+                        "vec" => TokenType::Vec,
                         _ => TokenType::Identifier(identifier),
                     };
                     return Token {
@@ -216,6 +218,38 @@ impl Lexer {
                         position: pos,
                     };
                 }
+                Some('[') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::LeftBracket,
+                        position: pos,
+                    };
+                }
+                Some(']') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::RightBracket,
+                        position: pos,
+                    };
+                }
+                Some('{') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::LeftBrace,
+                        position: pos,
+                    };
+                }
+                Some('}') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::RightBrace,
+                        position: pos,
+                    };
+                }
                 Some(',') => {
                     let pos = self.position;
                     self.advance();
@@ -252,6 +286,12 @@ impl Lexer {
                         self.advance();
                         return Token {
                             token_type: TokenType::LessEqual,
+                            position: pos,
+                        };
+                    } else if let Some('-') = self.current_char {
+                        self.advance();
+                        return Token {
+                            token_type: TokenType::Push,
                             position: pos,
                         };
                     }

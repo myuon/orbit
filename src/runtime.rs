@@ -12,6 +12,10 @@ pub enum Value {
         body: Vec<Stmt>,
         return_expr: Option<Box<Expr>>,
     },
+    Vector {
+        element_type: String,
+        elements: Vec<Value>,
+    },
 }
 
 impl std::fmt::Display for Value {
@@ -27,6 +31,17 @@ impl std::fmt::Display for Value {
             Value::Boolean(b) => write!(f, "{}", b),
             Value::String(s) => write!(f, "{}", s),
             Value::Function { .. } => write!(f, "<function>"),
+            Value::Vector { elements, .. } => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", elem)?;
+                }
+                write!(f, "]")
+            }
+        
         }
     }
 }
@@ -203,6 +218,38 @@ impl Runtime {
                     _ => bail!("Cannot call non-function value: {:?}", function),
                 }
             }
+            Expr::VectorNew {
+                element_type,
+                initial_values,
+            } => {
+                let mut elements = Vec::new();
+                for value_expr in initial_values {
+                    elements.push(self.evaluate(value_expr)?);
+                }
+                Ok(Value::Vector {
+                    element_type: element_type.clone(),
+                    elements,
+                })
+            }
+            Expr::VectorIndex { vector, index } => {
+                let vector_value = self.evaluate(vector)?;
+                let index_value = self.evaluate(index)?;
+
+                match (&vector_value, &index_value) {
+                    (Value::Vector { elements, .. }, Value::Number(idx)) => {
+                        let idx = *idx as usize;
+                        if idx < elements.len() {
+                            Ok(elements[idx].clone())
+                        } else {
+                            bail!("Vector index {} out of bounds (length: {})", idx, elements.len())
+                        }
+                    }
+                    (Value::Vector { .. }, _) => {
+                        bail!("Vector index must be a number")
+                    }
+                    _ => bail!("Cannot index non-vector value: {:?}", vector_value),
+                }
+            }
         }
     }
 
@@ -288,6 +335,82 @@ impl Runtime {
                     Ok(None)
                 } else {
                     bail!("Cannot assign to undefined variable: {}", name)
+                }
+            }
+            Stmt::VectorPush { vector, value } => {
+                let val = self.evaluate(value)?;
+                
+                // Find the vector variable and push to it
+                if let Some(locals) = self.call_stack.last_mut() {
+                    if let Some(vector_value) = locals.get_mut(vector) {
+                        match vector_value {
+                            Value::Vector { elements, .. } => {
+                                elements.push(val);
+                                return Ok(None);
+                            }
+                            _ => bail!("Cannot push to non-vector value: {}", vector),
+                        }
+                    }
+                }
+                
+                // Check global scope
+                if let Some(vector_value) = self.variables.get_mut(vector) {
+                    match vector_value {
+                        Value::Vector { elements, .. } => {
+                            elements.push(val);
+                            Ok(None)
+                        }
+                        _ => bail!("Cannot push to non-vector value: {}", vector),
+                    }
+                } else {
+                    bail!("Undefined vector: {}", vector)
+                }
+            }
+            Stmt::VectorAssign {
+                vector,
+                index,
+                value,
+            } => {
+                let idx_val = self.evaluate(index)?;
+                let new_val = self.evaluate(value)?;
+                
+                let idx = match idx_val {
+                    Value::Number(n) => n as usize,
+                    _ => bail!("Vector index must be a number"),
+                };
+                
+                // Find the vector variable and update element
+                if let Some(locals) = self.call_stack.last_mut() {
+                    if let Some(vector_value) = locals.get_mut(vector) {
+                        match vector_value {
+                            Value::Vector { elements, .. } => {
+                                if idx < elements.len() {
+                                    elements[idx] = new_val;
+                                    return Ok(None);
+                                } else {
+                                    bail!("Vector index {} out of bounds (length: {})", idx, elements.len());
+                                }
+                            }
+                            _ => bail!("Cannot index non-vector value: {}", vector),
+                        }
+                    }
+                }
+                
+                // Check global scope
+                if let Some(vector_value) = self.variables.get_mut(vector) {
+                    match vector_value {
+                        Value::Vector { elements, .. } => {
+                            if idx < elements.len() {
+                                elements[idx] = new_val;
+                                Ok(None)
+                            } else {
+                                bail!("Vector index {} out of bounds (length: {})", idx, elements.len());
+                            }
+                        }
+                        _ => bail!("Cannot index non-vector value: {}", vector),
+                    }
+                } else {
+                    bail!("Undefined vector: {}", vector)
                 }
             }
         }

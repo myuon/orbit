@@ -1,0 +1,7 @@
+fun main() do
+  let myVec = new vec(int) {};
+  myVec <- 1;
+  myVec <- 2;
+  myVec[0] = 10;
+  return myVec[0] + myVec[1];
+end
