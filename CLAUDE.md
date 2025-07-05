@@ -6,19 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Orbit is a statically typed programming language with JIT compilation for AArch64. The compiler is currently being migrated from Zig to Rust. The original Zig implementation is preserved in `zig_refs/` directory for reference.
 
-## Build Commands
+## Commands for Claude Code
 
-- `cargo check` - Check the project for compilation errors (preferred for development)
-- `cargo build` - Build the project
-- `cargo run` - Build and run the orbit executable
+- `cargo check --message-format=short` - Check the project for compilation errors (preferred for development)
 - `cargo test` - Run unit tests (ALWAYS run after making changes)
-- `cargo run -- <args>` - Run with arguments (e.g., `cargo run -- hello_world.ob`)
 
 ## Project Architecture
 
 ### Current Migration Status
 
 **🚧 MIGRATION IN PROGRESS**: The project is being migrated from Zig to Rust
+
 - **Reference Code**: Original Zig implementation is in `zig_refs/`
 - **Target Code**: New Rust implementation is in `src/`
 - **Specifications**: Complete language specification is in `spec/`
@@ -39,6 +37,7 @@ The compiler follows a traditional multi-stage pipeline:
 ### Key Files
 
 **Current Rust Implementation:**
+
 - `src/main.rs` - Entry point with REPL and file execution modes
 - `src/ast.rs` - AST definitions and token types for arithmetic expressions
 - `src/lexer.rs` - Tokenizer for numbers and arithmetic operators
@@ -49,6 +48,7 @@ The compiler follows a traditional multi-stage pipeline:
 - `src/vm.rs` - Stack-based virtual machine for interpretation (to be implemented)
 
 **Reference Zig Implementation:**
+
 - `zig_refs/src/main.zig` - Entry point with TUI and debugging features
 - `zig_refs/src/compiler.zig` - Main compiler orchestration with compilation stages
 - `zig_refs/src/ast.zig` - AST definitions and instruction set

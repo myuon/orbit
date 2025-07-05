@@ -1,4 +1,5 @@
 use crate::ast::{BinaryOp, Expr};
+use anyhow::{bail, Result};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -30,7 +31,7 @@ impl Runtime {
         Runtime
     }
 
-    pub fn evaluate(&self, expr: &Expr) -> Result<Value, String> {
+    pub fn evaluate(&self, expr: &Expr) -> Result<Value> {
         match expr {
             Expr::Number(value) => Ok(Value::Number(*value)),
             Expr::Boolean(value) => Ok(Value::Boolean(*value)),
@@ -47,7 +48,7 @@ impl Runtime {
                             BinaryOp::Multiply => l * r,
                             BinaryOp::Divide => {
                                 if *r == 0.0 {
-                                    return Err("Division by zero".to_string());
+                                    bail!("Division by zero");
                                 }
                                 l / r
                             }
@@ -57,10 +58,10 @@ impl Runtime {
                     (Value::String(l), Value::String(r)) => {
                         match op {
                             BinaryOp::Add => Ok(Value::String(format!("{}{}", l, r))),
-                            _ => Err(format!("Unsupported operation {:?} for strings", op)),
+                            _ => bail!("Unsupported operation {:?} for strings", op),
                         }
                     }
-                    _ => Err(format!("Type mismatch in binary operation: {:?} {:?} {:?}", left_val, op, right_val)),
+                    _ => bail!("Type mismatch in binary operation: {:?} {:?} {:?}", left_val, op, right_val),
                 }
             }
         }
@@ -118,7 +119,7 @@ mod tests {
         let expr = Expr::binary(Expr::Number(6.0), BinaryOp::Divide, Expr::Number(0.0));
         let result = runtime.evaluate(&expr);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Division by zero");
+        assert!(result.unwrap_err().to_string().contains("Division by zero"));
     }
 
     #[test]

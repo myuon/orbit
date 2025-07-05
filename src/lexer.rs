@@ -1,4 +1,5 @@
 use crate::ast::{Token, TokenType};
+use anyhow::Result;
 
 pub struct Lexer {
     input: Vec<char>,
@@ -169,7 +170,7 @@ impl Lexer {
         }
     }
 
-    pub fn tokenize(&mut self) -> Vec<Token> {
+    pub fn tokenize(&mut self) -> Result<Vec<Token>> {
         let mut tokens = Vec::new();
         
         loop {
@@ -182,7 +183,7 @@ impl Lexer {
             }
         }
         
-        tokens
+        Ok(tokens)
     }
 }
 
@@ -193,7 +194,7 @@ mod tests {
     #[test]
     fn test_tokenize_number() {
         let mut lexer = Lexer::new("42");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens.len(), 2);
         assert_eq!(tokens[0].token_type, TokenType::Number(42.0));
         assert_eq!(tokens[1].token_type, TokenType::Eof);
@@ -202,7 +203,7 @@ mod tests {
     #[test]
     fn test_tokenize_float() {
         let mut lexer = Lexer::new("3.14");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens.len(), 2);
         assert_eq!(tokens[0].token_type, TokenType::Number(3.14));
         assert_eq!(tokens[1].token_type, TokenType::Eof);
@@ -211,7 +212,7 @@ mod tests {
     #[test]
     fn test_tokenize_arithmetic() {
         let mut lexer = Lexer::new("2 + 3 * 4");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens.len(), 6);
         assert_eq!(tokens[0].token_type, TokenType::Number(2.0));
         assert_eq!(tokens[1].token_type, TokenType::Plus);
@@ -224,7 +225,7 @@ mod tests {
     #[test]
     fn test_tokenize_parentheses() {
         let mut lexer = Lexer::new("(2 + 3) * 4");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens.len(), 8);
         assert_eq!(tokens[0].token_type, TokenType::LeftParen);
         assert_eq!(tokens[1].token_type, TokenType::Number(2.0));

@@ -1,4 +1,5 @@
 use crate::ast::{BinaryOp, Expr, Token, TokenType};
+use anyhow::{bail, Result};
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -25,24 +26,24 @@ impl Parser {
         }
     }
 
-    fn consume(&mut self, expected: TokenType) -> Result<(), String> {
+    fn consume(&mut self, expected: TokenType) -> Result<()> {
         if std::mem::discriminant(&self.current_token().token_type) == std::mem::discriminant(&expected) {
             self.advance();
             Ok(())
         } else {
-            Err(format!("Expected {:?}, found {:?}", expected, self.current_token().token_type))
+            bail!("Expected {:?}, found {:?}", expected, self.current_token().token_type)
         }
     }
 
-    pub fn parse(&mut self) -> Result<Expr, String> {
+    pub fn parse(&mut self) -> Result<Expr> {
         self.parse_expression()
     }
 
-    fn parse_expression(&mut self) -> Result<Expr, String> {
+    fn parse_expression(&mut self) -> Result<Expr> {
         self.parse_term()
     }
 
-    fn parse_term(&mut self) -> Result<Expr, String> {
+    fn parse_term(&mut self) -> Result<Expr> {
         let mut left = self.parse_factor()?;
 
         loop {
@@ -64,7 +65,7 @@ impl Parser {
         Ok(left)
     }
 
-    fn parse_factor(&mut self) -> Result<Expr, String> {
+    fn parse_factor(&mut self) -> Result<Expr> {
         let mut left = self.parse_primary()?;
 
         loop {
@@ -86,7 +87,7 @@ impl Parser {
         Ok(left)
     }
 
-    fn parse_primary(&mut self) -> Result<Expr, String> {
+    fn parse_primary(&mut self) -> Result<Expr> {
         match &self.current_token().token_type {
             TokenType::Number(value) => {
                 let num = *value;
@@ -109,7 +110,7 @@ impl Parser {
                 self.consume(TokenType::RightParen)?;
                 Ok(expr)
             }
-            _ => Err(format!("Unexpected token: {:?}", self.current_token().token_type)),
+            _ => bail!("Unexpected token: {:?}", self.current_token().token_type),
         }
     }
 }
@@ -119,9 +120,9 @@ mod tests {
     use super::*;
     use crate::lexer::Lexer;
 
-    fn parse_expression(input: &str) -> Result<Expr, String> {
+    fn parse_expression(input: &str) -> Result<Expr> {
         let mut lexer = Lexer::new(input);
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize()?;
         let mut parser = Parser::new(tokens);
         parser.parse()
     }

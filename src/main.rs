@@ -7,6 +7,7 @@ use std::env;
 use std::fs;
 use std::io::{self, Write};
 
+use anyhow::Result;
 use lexer::Lexer;
 use parser::Parser;
 use runtime::Runtime;
@@ -62,16 +63,16 @@ fn main() {
     }
 }
 
-fn execute_code(code: &str) -> Result<(), String> {
+fn execute_code(code: &str) -> Result<()> {
     let runtime = Runtime::new();
     let result = execute_expression(code, &runtime)?;
     println!("{}", result);
     Ok(())
 }
 
-fn execute_expression(input: &str, runtime: &Runtime) -> Result<runtime::Value, String> {
+fn execute_expression(input: &str, runtime: &Runtime) -> Result<runtime::Value> {
     let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize()?;
     
     let mut parser = Parser::new(tokens);
     let ast = parser.parse()?;
@@ -145,7 +146,7 @@ mod tests {
         for (input, expected_error) in error_test_cases {
             let result = execute_expression(input, &runtime);
             assert!(result.is_err(), "Expected error for input: {}", input);
-            let error_msg = result.unwrap_err();
+            let error_msg = result.unwrap_err().to_string();
             assert!(error_msg.contains(expected_error), 
                 "Expected error containing '{}', got '{}' for input: {}", 
                 expected_error, error_msg, input);
