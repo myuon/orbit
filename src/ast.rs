@@ -210,18 +210,27 @@ impl Function {
 }
 
 impl Stmt {
+    /// Create a variable binding statement (let)
     pub fn let_stmt(name: String, value: Expr) -> Self {
         Stmt::Let { name, value }
     }
 
+    /// Create a variable assignment statement
+    pub fn assign_stmt(name: String, value: Expr) -> Self {
+        Stmt::Assign { name, value }
+    }
+
+    /// Create an expression statement
     pub fn expression(expr: Expr) -> Self {
         Stmt::Expression(expr)
     }
 
+    /// Create a return statement
     pub fn return_stmt(expr: Expr) -> Self {
         Stmt::Return(expr)
     }
 
+    /// Create a conditional statement
     pub fn if_stmt(
         condition: Expr,
         then_branch: Vec<Stmt>,
@@ -234,11 +243,8 @@ impl Stmt {
         }
     }
 
+    /// Create a while loop statement
     pub fn while_stmt(condition: Expr, body: Vec<Stmt>) -> Self {
         Stmt::While { condition, body }
-    }
-
-    pub fn assign_stmt(name: String, value: Expr) -> Self {
-        Stmt::Assign { name, value }
     }
 }

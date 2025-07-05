@@ -283,41 +283,45 @@ impl Parser {
     }
 
     fn parse_comparison(&mut self) -> Result<Expr> {
-        let mut left = self.parse_term()?;
+        self.parse_binary_left_assoc(
+            |parser| parser.parse_term(),
+            &[
+                (TokenType::Equal, BinaryOp::Equal),
+                (TokenType::NotEqual, BinaryOp::NotEqual),
+                (TokenType::Less, BinaryOp::Less),
+                (TokenType::Greater, BinaryOp::Greater),
+                (TokenType::LessEqual, BinaryOp::LessEqual),
+                (TokenType::GreaterEqual, BinaryOp::GreaterEqual),
+            ],
+        )
+    }
+
+    /// Helper function for parsing left-associative binary operations
+    fn parse_binary_left_assoc<F>(
+        &mut self,
+        mut operand_parser: F,
+        operators: &[(TokenType, BinaryOp)],
+    ) -> Result<Expr>
+    where
+        F: FnMut(&mut Self) -> Result<Expr>,
+    {
+        let mut left = operand_parser(self)?;
 
         loop {
-            match &self.current_token().token_type {
-                TokenType::Equal => {
+            let mut found = false;
+            for (token_type, binary_op) in operators {
+                if std::mem::discriminant(&self.current_token().token_type)
+                    == std::mem::discriminant(token_type)
+                {
                     self.advance();
-                    let right = self.parse_term()?;
-                    left = Expr::binary(left, BinaryOp::Equal, right);
+                    let right = operand_parser(self)?;
+                    left = Expr::binary(left, *binary_op, right);
+                    found = true;
+                    break;
                 }
-                TokenType::NotEqual => {
-                    self.advance();
-                    let right = self.parse_term()?;
-                    left = Expr::binary(left, BinaryOp::NotEqual, right);
-                }
-                TokenType::Less => {
-                    self.advance();
-                    let right = self.parse_term()?;
-                    left = Expr::binary(left, BinaryOp::Less, right);
-                }
-                TokenType::Greater => {
-                    self.advance();
-                    let right = self.parse_term()?;
-                    left = Expr::binary(left, BinaryOp::Greater, right);
-                }
-                TokenType::LessEqual => {
-                    self.advance();
-                    let right = self.parse_term()?;
-                    left = Expr::binary(left, BinaryOp::LessEqual, right);
-                }
-                TokenType::GreaterEqual => {
-                    self.advance();
-                    let right = self.parse_term()?;
-                    left = Expr::binary(left, BinaryOp::GreaterEqual, right);
-                }
-                _ => break,
+            }
+            if !found {
+                break;
             }
         }
 
@@ -325,47 +329,23 @@ impl Parser {
     }
 
     fn parse_term(&mut self) -> Result<Expr> {
-        let mut left = self.parse_factor()?;
-
-        loop {
-            match &self.current_token().token_type {
-                TokenType::Plus => {
-                    self.advance();
-                    let right = self.parse_factor()?;
-                    left = Expr::binary(left, BinaryOp::Add, right);
-                }
-                TokenType::Minus => {
-                    self.advance();
-                    let right = self.parse_factor()?;
-                    left = Expr::binary(left, BinaryOp::Subtract, right);
-                }
-                _ => break,
-            }
-        }
-
-        Ok(left)
+        self.parse_binary_left_assoc(
+            |parser| parser.parse_factor(),
+            &[
+                (TokenType::Plus, BinaryOp::Add),
+                (TokenType::Minus, BinaryOp::Subtract),
+            ],
+        )
     }
 
     fn parse_factor(&mut self) -> Result<Expr> {
-        let mut left = self.parse_primary()?;
-
-        loop {
-            match &self.current_token().token_type {
-                TokenType::Star => {
-                    self.advance();
-                    let right = self.parse_primary()?;
-                    left = Expr::binary(left, BinaryOp::Multiply, right);
-                }
-                TokenType::Slash => {
-                    self.advance();
-                    let right = self.parse_primary()?;
-                    left = Expr::binary(left, BinaryOp::Divide, right);
-                }
-                _ => break,
-            }
-        }
-
-        Ok(left)
+        self.parse_binary_left_assoc(
+            |parser| parser.parse_primary(),
+            &[
+                (TokenType::Star, BinaryOp::Multiply),
+                (TokenType::Slash, BinaryOp::Divide),
+            ],
+        )
     }
 
     fn parse_primary(&mut self) -> Result<Expr> {
