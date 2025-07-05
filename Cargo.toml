@@ -1,7 +1,15 @@
 [package]
 name = "orbit"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[lib]
+name = "orbit"
+path = "src/lib.rs"
+
+[[bin]]
+name = "orbit"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"

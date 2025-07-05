@@ -39,7 +39,8 @@ The compiler follows a traditional multi-stage pipeline:
 
 **Current Rust Implementation:**
 
-- `src/main.rs` - Entry point with REPL and file execution modes
+- `src/lib.rs` - Library interface with compiler entry points (`execute_code`, `execute_file`, etc.)
+- `src/main.rs` - Binary entry point with REPL and file execution modes
 - `src/ast.rs` - AST definitions and token types for arithmetic expressions
 - `src/lexer.rs` - Tokenizer for numbers and arithmetic operators
 - `src/parser.rs` - Parser that builds AST from tokens
@@ -75,6 +76,7 @@ The language supports:
 - `.ob` files contain Orbit source code to execute
 - `.stdout` files contain expected output
 - Run with `cargo test test_orbit_files`
+- Tests call the library directly (no subprocess execution)
 - Tests verify end-to-end functionality of the compiler and runtime
 
 **Unit Tests**: Comprehensive unit tests are embedded in each module:

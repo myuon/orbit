@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+
+use orbit::execute_code;
 
 #[test]
 fn test_orbit_files() {
@@ -23,24 +24,13 @@ fn test_orbit_files() {
     
     assert!(!test_files.is_empty(), "No .ob test files found in tests/testcase directory");
     
-    // Build the project to ensure the binary exists
-    let build_output = Command::new("cargo")
-        .args(&["build", "--bin", "orbit"])
-        .current_dir(project_root)
-        .output()
-        .expect("Failed to execute cargo build");
-    
-    assert!(build_output.status.success(), 
-            "Failed to build orbit binary: {}", 
-            String::from_utf8_lossy(&build_output.stderr));
-    
     // Run each test file
     for test_file in test_files {
-        run_single_test(&test_file, project_root);
+        run_single_test(&test_file);
     }
 }
 
-fn run_single_test(test_file: &Path, project_root: &str) {
+fn run_single_test(test_file: &Path) {
     let test_name = test_file.file_stem().unwrap().to_str().unwrap();
     println!("Running test: {}", test_name);
     
@@ -58,33 +48,32 @@ fn run_single_test(test_file: &Path, project_root: &str) {
         .trim()
         .to_string();
     
-    // Run the orbit binary with the test file
-    let binary_path = Path::new(project_root).join("target").join("debug").join("orbit");
-    let output = Command::new(&binary_path)
-        .arg(test_file)
-        .output()
-        .unwrap_or_else(|e| panic!("Failed to execute orbit binary: {}", e));
+    // Read the test file content
+    let test_content = fs::read_to_string(test_file)
+        .unwrap_or_else(|e| panic!("Failed to read test file {}: {}", test_file.display(), e));
+    
+    // Execute the orbit code directly using the library
+    let result = execute_code(&test_content);
     
     // Check if execution was successful
-    if !output.status.success() {
-        panic!(
-            "Test {} failed with exit code {:?}.\nStderr: {}",
+    let actual_output = match result {
+        Ok(Some(value)) => value.to_string(),
+        Ok(None) => String::new(),
+        Err(e) => panic!(
+            "Test {} failed with error: {}",
             test_name,
-            output.status.code(),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+            e
+        ),
+    };
     
     // Compare actual output with expected output
-    let actual_output = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    
     assert_eq!(
-        actual_output, 
+        actual_output.trim(), 
         expected_output,
         "Test {} failed.\nExpected: '{}'\nActual: '{}'",
         test_name,
         expected_output,
-        actual_output
+        actual_output.trim()
     );
     
     println!("✓ Test {} passed", test_name);
