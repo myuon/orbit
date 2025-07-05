@@ -1,7 +1,6 @@
 use std::env;
 use std::process;
 
-
 #[derive(Debug)]
 struct Config {
     filename: String,
@@ -106,7 +105,9 @@ fn execute_file_with_options(
     print_stacks: bool,
 ) -> Result<Option<orbit::Value>, Box<dyn std::error::Error>> {
     if let Some(ir_file) = dump_ir_file {
-        orbit::execute_file_with_ir_dump(filename, ir_file).map_err(|e| e.into())
+        // IRダンプとスタックトレースの両方を有効にする
+        orbit::execute_file_with_ir_dump_and_options(filename, ir_file, print_stacks)
+            .map_err(|e| e.into())
     } else {
         orbit::execute_file_with_options(filename, print_stacks).map_err(|e| e.into())
     }

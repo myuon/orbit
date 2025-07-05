@@ -79,6 +79,32 @@ pub fn execute_file_with_ir_dump(filename: &str, ir_dump_file: &str) -> Result<O
     runtime.execute_program(&program)
 }
 
+/// Execute a file with IR dumping and stack printing options
+pub fn execute_file_with_ir_dump_and_options(
+    filename: &str,
+    ir_dump_file: &str,
+    print_stacks: bool,
+) -> Result<Option<Value>> {
+    use std::fs;
+
+    let contents = fs::read_to_string(filename)?;
+    let mut parser = create_parser(&contents)?;
+    let program = parser.parse_program()?;
+
+    // Compile to IR and dump
+    let mut compiler = VMCompiler::new();
+    let _instructions = compiler.compile_program(&program);
+
+    // Dump IR to file
+    compiler
+        .dump_ir_to_file(ir_dump_file)
+        .map_err(|e| anyhow::anyhow!("Failed to write IR dump: {}", e))?;
+
+    // Execute the program with stack printing option
+    let mut runtime = Runtime::new();
+    runtime.execute_program_with_options(&program, print_stacks)
+}
+
 /// Execute a file with optional stack printing
 pub fn execute_file_with_options(filename: &str, print_stacks: bool) -> Result<Option<Value>> {
     use std::fs;
