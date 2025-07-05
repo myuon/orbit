@@ -709,10 +709,11 @@ impl VMCompiler {
         self.local_vars.clear();
 
         // Map parameters to stack positions (negative offsets from BP)
-        // Stack layout: [arg0] [return_addr] [old_bp] <- BP points here
+        // Stack layout: [arg0] [arg1] ... [return_addr] [old_bp] <- BP points here
         // Parameters are accessed with negative offsets from BP
+        // First param is at BP-4, second at BP-3, etc.
         for (i, param) in func.params.iter().enumerate() {
-            let param_offset = -(i as i32 + 2); // -2 for first param, -3 for second, etc.
+            let param_offset = -(func.params.len() as i32 - i as i32 + 2);
             self.local_vars.insert(param.name.clone(), param_offset);
         }
 
