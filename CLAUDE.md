@@ -11,6 +11,7 @@ Orbit is a statically typed programming language with JIT compilation for AArch6
 - `cargo check --message-format=short` - Check the project for compilation errors (preferred for development)
 - `cargo test` - Run unit tests (ALWAYS run after making changes)
 - `cargo test test_orbit_files` - Run integration tests with .ob files
+- `cargo run <file.ob>` - Execute an Orbit source file
 
 ## Project Architecture
 
@@ -40,7 +41,7 @@ The compiler follows a traditional multi-stage pipeline:
 **Current Rust Implementation:**
 
 - `src/lib.rs` - Library interface with compiler entry points (`execute_code`, `execute_file`, etc.)
-- `src/main.rs` - Binary entry point with REPL and file execution modes
+- `src/main.rs` - Binary entry point for file execution mode
 - `src/ast.rs` - AST definitions and token types for arithmetic expressions
 - `src/lexer.rs` - Tokenizer for numbers and arithmetic operators
 - `src/parser.rs` - Parser that builds AST from tokens
