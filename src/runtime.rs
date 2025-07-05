@@ -1,5 +1,5 @@
 use crate::ast::{BinaryOp, Decl, Expr, FunParam, Function, Program, Stmt};
-use crate::vm::{self, VM};
+use crate::vm::{self, VM, VMCompiler};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
@@ -62,62 +62,22 @@ impl Runtime {
         }
     }
 
-    /// Execute a complete program
+    /// Execute a complete program by compiling to VM bytecode
     pub fn execute_program(&mut self, program: &Program) -> Result<Option<Value>> {
-        // First pass: register all function declarations
-        for decl in &program.declarations {
-            match decl {
-                Decl::Function(function) => {
-                    self.register_function(function)?;
-                }
-            }
-        }
-
-        // Look for a main function and execute it if found
-        if let Some(Value::Function {
-            params,
-            body,
-            return_expr,
-        }) = self.variables.get("main").cloned()
-        {
-            if !params.is_empty() {
-                bail!("Main function should not have parameters");
-            }
-
-            // Execute main function
-            self.call_stack.push(HashMap::new());
-
-            let mut result = None;
-
-            // Execute statements in main function body
-            for stmt in &body {
-                if let Some(val) = self.execute_stmt(stmt)? {
-                    result = Some(val);
-                }
-            }
-
-            // Execute return expression if present
-            if let Some(return_expr) = return_expr {
-                result = Some(self.evaluate(&return_expr)?);
-            }
-
-            self.call_stack.pop();
-            Ok(result)
-        } else {
-            bail!("No main function found");
+        // Compile program to VM bytecode
+        let mut compiler = VMCompiler::new();
+        let instructions = compiler.compile_program(program);
+        
+        // Execute on VM
+        self.vm.reset();
+        self.vm.load_program(instructions);
+        
+        match self.vm.execute() {
+            Ok(result) => Ok(Some(Value::Number(result as f64))),
+            Err(err) => bail!("VM execution error: {}", err),
         }
     }
 
-    /// Register a function declaration in the global scope
-    fn register_function(&mut self, function: &Function) -> Result<()> {
-        let function_value = Value::Function {
-            params: function.params.clone(),
-            body: function.body.clone(),
-            return_expr: function.return_expr.clone(),
-        };
-        self.variables.insert(function.name.clone(), function_value);
-        Ok(())
-    }
 
     /// Evaluate an expression by compiling to IR and executing on VM (for simple expressions)
     /// or handling complex constructs (functions, vectors) at runtime level

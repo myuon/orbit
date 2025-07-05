@@ -1,4 +1,6 @@
-use crate::ast::{Expr, BinaryOp};
+use crate::ast::{Expr, BinaryOp, Program, Function, Stmt, Decl};
+use std::collections::HashMap;
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
@@ -32,16 +34,52 @@ pub enum Instruction {
     Call(usize),
     Ret,
     
+    // Frame management
+    GetBP,
+    SetBP,
+    GetSP,
+    SetSP,
+    
     // No operation
     Nop,
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Instruction::Push(value) => write!(f, "push {}", value),
+            Instruction::Pop => write!(f, "pop"),
+            Instruction::Add => write!(f, "add"),
+            Instruction::Sub => write!(f, "sub"),
+            Instruction::Mul => write!(f, "mul"),
+            Instruction::Div => write!(f, "div"),
+            Instruction::Mod => write!(f, "mod"),
+            Instruction::Eq => write!(f, "eq"),
+            Instruction::Lt => write!(f, "lt"),
+            Instruction::Lte => write!(f, "lte"),
+            Instruction::Gt => write!(f, "gt"),
+            Instruction::Gte => write!(f, "gte"),
+            Instruction::Jump(addr) => write!(f, "jump {}", addr),
+            Instruction::JumpIfZero(addr) => write!(f, "jump_if_zero {}", addr),
+            Instruction::GetLocal(offset) => write!(f, "get_local {}", offset),
+            Instruction::SetLocal(offset) => write!(f, "set_local {}", offset),
+            Instruction::Call(addr) => write!(f, "call {}", addr),
+            Instruction::Ret => write!(f, "ret"),
+            Instruction::GetBP => write!(f, "get_bp"),
+            Instruction::SetBP => write!(f, "set_bp"),
+            Instruction::GetSP => write!(f, "get_sp"),
+            Instruction::SetSP => write!(f, "set_sp"),
+            Instruction::Nop => write!(f, "nop"),
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct VM {
     stack: Vec<i32>,
-    locals: Vec<i32>,
     pc: usize,           // program counter
-    bp: usize,           // base pointer for locals
+    bp: usize,           // base pointer for stack frame
+    sp: usize,           // stack pointer
     program: Vec<Instruction>,
 }
 
@@ -49,9 +87,9 @@ impl VM {
     pub fn new() -> Self {
         Self {
             stack: Vec::new(),
-            locals: Vec::new(),
             pc: 0,
             bp: 0,
+            sp: 0,
             program: Vec::new(),
         }
     }
@@ -188,11 +226,22 @@ impl VM {
                 }
                 
                 Instruction::GetLocal(offset) => {
-                    let index = (self.bp as i32 + offset) as usize;
-                    if index >= self.locals.len() {
-                        return Err(format!("Local variable access out of bounds: {}", index));
+                    let index = if *offset < 0 {
+                        // Negative offset: access parameters (before BP)
+                        let abs_offset = (-offset) as usize;
+                        if self.bp < abs_offset {
+                            return Err(format!("Parameter access out of bounds: BP={}, offset={}", self.bp, offset));
+                        }
+                        self.bp - abs_offset
+                    } else {
+                        // Positive offset: access local variables (after BP)
+                        self.bp + (*offset as usize)
+                    };
+                    
+                    if index >= self.stack.len() {
+                        return Err(format!("Local variable access out of bounds: index={}, stack_len={}", index, self.stack.len()));
                     }
-                    self.stack.push(self.locals[index]);
+                    self.stack.push(self.stack[index]);
                 }
                 
                 Instruction::SetLocal(offset) => {
@@ -200,27 +249,102 @@ impl VM {
                         return Err("Stack underflow for SetLocal".to_string());
                     }
                     let value = self.stack.pop().unwrap();
-                    let index = (self.bp as i32 + offset) as usize;
                     
-                    // Extend locals vector if needed
-                    while self.locals.len() <= index {
-                        self.locals.push(0);
+                    let index = if *offset < 0 {
+                        // Negative offset: access parameters (before BP)
+                        let abs_offset = (-offset) as usize;
+                        if self.bp < abs_offset {
+                            return Err(format!("Parameter access out of bounds: BP={}, offset={}", self.bp, offset));
+                        }
+                        self.bp - abs_offset
+                    } else {
+                        // Positive offset: access local variables (after BP)
+                        self.bp + (*offset as usize)
+                    };
+                    
+                    // Extend stack if needed for positive offsets
+                    while self.stack.len() <= index {
+                        self.stack.push(0);
                     }
                     
-                    self.locals[index] = value;
+                    self.stack[index] = value;
                 }
                 
-                Instruction::Call(_addr) => {
-                    // For now, just ignore function calls - will implement later
-                    return Err("Function calls not yet implemented".to_string());
+                Instruction::Call(addr) => {
+                    // Function calling convention:
+                    // 1. Arguments are already on stack
+                    // 2. Push return address (PC + 1)
+                    // 3. Push old BP
+                    // 4. Set new BP to current SP
+                    // 5. Jump to function
+                    
+                    self.stack.push((self.pc + 1) as i32);  // Return address
+                    self.stack.push(self.bp as i32);        // Old BP
+                    self.bp = self.stack.len();             // New BP
+                    self.pc = *addr;
+                    continue;
                 }
                 
                 Instruction::Ret => {
-                    // Return top of stack as result
-                    if self.stack.is_empty() {
-                        return Ok(0);
+                    // Function return convention:
+                    // Stack layout at function entry:
+                    // [args...] [return_addr] [old_bp] [locals...] [return_value]
+                    //                         ^BP
+                    
+                    if self.bp < 2 || self.stack.len() < self.bp {
+                        return Err("Stack underflow in function return".to_string());
                     }
-                    return Ok(self.stack.pop().unwrap());
+                    
+                    // Get return value from top of stack
+                    let return_value = if self.stack.len() > self.bp {
+                        self.stack.pop().unwrap_or(0)
+                    } else {
+                        0
+                    };
+                    
+                    // Get old BP and return address from stack frame
+                    let old_bp = self.stack[self.bp - 1] as usize;
+                    let return_addr = self.stack[self.bp - 2] as usize;
+                    
+                    // Restore stack to before function call (but keep arguments for now)
+                    self.stack.truncate(self.bp - 2);
+                    self.bp = old_bp;
+                    
+                    // Push return value back onto stack
+                    self.stack.push(return_value);
+                    
+                    // Jump to return address
+                    self.pc = return_addr;
+                    continue;
+                }
+                
+                Instruction::GetBP => {
+                    self.stack.push(self.bp as i32);
+                }
+                
+                Instruction::SetBP => {
+                    if self.stack.is_empty() {
+                        return Err("Stack underflow for SetBP".to_string());
+                    }
+                    self.bp = self.stack.pop().unwrap() as usize;
+                }
+                
+                Instruction::GetSP => {
+                    self.stack.push(self.stack.len() as i32);
+                }
+                
+                Instruction::SetSP => {
+                    if self.stack.is_empty() {
+                        return Err("Stack underflow for SetSP".to_string());
+                    }
+                    let new_sp = self.stack.pop().unwrap() as usize;
+                    if new_sp > self.stack.len() {
+                        // Extend stack
+                        self.stack.resize(new_sp, 0);
+                    } else {
+                        // Truncate stack
+                        self.stack.truncate(new_sp);
+                    }
                 }
                 
                 Instruction::Nop => {
@@ -242,9 +366,258 @@ impl VM {
     /// Reset the VM state for a fresh execution
     pub fn reset(&mut self) {
         self.stack.clear();
-        self.locals.clear();
         self.pc = 0;
         self.bp = 0;
+        self.sp = 0;
+    }
+}
+
+/// Compiler for generating VM bytecode from AST
+pub struct VMCompiler {
+    instructions: Vec<Instruction>,
+    function_addresses: HashMap<String, usize>,
+    local_vars: HashMap<String, i32>,
+    local_offset: i32,
+}
+
+impl VMCompiler {
+    pub fn new() -> Self {
+        Self {
+            instructions: Vec::new(),
+            function_addresses: HashMap::new(),
+            local_vars: HashMap::new(),
+            local_offset: 0,
+        }
+    }
+    
+    /// Dump compiled IR to a string
+    pub fn dump_ir(&self) -> String {
+        let mut output = String::new();
+        output.push_str("; Orbit VM IR Dump\n");
+        output.push_str("; Generated by Orbit Compiler\n\n");
+        
+        // Add function labels as comments
+        if !self.function_addresses.is_empty() {
+            output.push_str("; Function addresses:\n");
+            let mut functions: Vec<_> = self.function_addresses.iter().collect();
+            functions.sort_by_key(|(_, &addr)| addr);
+            for (name, &addr) in functions {
+                output.push_str(&format!("; {}: {}\n", name, addr));
+            }
+            output.push('\n');
+        }
+        
+        // Add instructions with line numbers
+        for (i, instruction) in self.instructions.iter().enumerate() {
+            // Add function labels
+            for (name, &addr) in &self.function_addresses {
+                if addr == i {
+                    output.push_str(&format!("\n{}:\n", name));
+                }
+            }
+            
+            output.push_str(&format!("{:4}: {}\n", i, instruction));
+        }
+        
+        output
+    }
+    
+    /// Dump compiled IR to a file
+    pub fn dump_ir_to_file(&self, filename: &str) -> Result<(), std::io::Error> {
+        use std::fs::File;
+        use std::io::Write;
+        
+        let ir_content = self.dump_ir();
+        let mut file = File::create(filename)?;
+        file.write_all(ir_content.as_bytes())?;
+        Ok(())
+    }
+    
+    /// Compile a complete program to VM bytecode
+    pub fn compile_program(&mut self, program: &Program) -> Vec<Instruction> {
+        // First pass: collect function addresses
+        for decl in &program.declarations {
+            match decl {
+                Decl::Function(func) => {
+                    self.function_addresses.insert(func.name.clone(), self.instructions.len());
+                    self.compile_function(func);
+                }
+            }
+        }
+        
+        // Add program entry point (jump to main function)
+        if self.function_addresses.contains_key("main") {
+            let main_addr = self.function_addresses["main"];
+            // Simply jump to main - don't use call convention for program entry
+            self.instructions.insert(0, Instruction::Jump(main_addr + 1)); // +1 to account for this instruction
+            
+            // Update all function addresses by +1 (for the added instruction)
+            for (_, addr) in self.function_addresses.iter_mut() {
+                *addr += 1;
+            }
+            
+            // Update all Call and Jump instructions
+            for instruction in &mut self.instructions {
+                match instruction {
+                    Instruction::Call(addr) => *addr += 1,
+                    Instruction::Jump(addr) => *addr += 1,
+                    _ => {}
+                }
+            }
+        }
+        
+        self.instructions.clone()
+    }
+    
+    /// Compile a function to VM bytecode
+    pub fn compile_function(&mut self, func: &Function) -> usize {
+        let func_start = self.instructions.len();
+        
+        // Function prologue - reserve space for local variables
+        // (This is simplified - in a real implementation we'd analyze the function first)
+        self.local_offset = 0;
+        self.local_vars.clear();
+        
+        // Map parameters to stack positions (negative offsets from BP)
+        // Stack layout: [arg0] [arg1] [return_addr] [old_bp] <- BP points here
+        for (i, param) in func.params.iter().enumerate() {
+            let param_offset = -2 - (func.params.len() as i32) + (i as i32); // Parameters are before return_addr and old_bp
+            self.local_vars.insert(param.name.clone(), param_offset);
+        }
+        
+        // Compile function body
+        for stmt in &func.body {
+            self.compile_statement(stmt);
+        }
+        
+        // Compile return expression if present
+        if let Some(return_expr) = &func.return_expr {
+            self.compile_expression(return_expr);
+        } else {
+            // Default return value
+            self.instructions.push(Instruction::Push(0));
+        }
+        
+        // Function epilogue
+        if func.name == "main" {
+            // For main function, just return the value without using function return convention
+            // The VM will naturally exit when it reaches the end of the program
+        } else {
+            self.instructions.push(Instruction::Ret);
+        }
+        
+        func_start
+    }
+    
+    /// Compile a statement to VM bytecode
+    fn compile_statement(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Let { name, value } => {
+                // Compile the value expression
+                self.compile_expression(value);
+                
+                // Assign to local variable
+                let offset = self.local_offset;
+                self.local_vars.insert(name.clone(), offset);
+                self.instructions.push(Instruction::SetLocal(offset));
+                self.local_offset += 1;
+            }
+            
+            Stmt::Expression(expr) => {
+                self.compile_expression(expr);
+                self.instructions.push(Instruction::Pop); // Discard result
+            }
+            
+            Stmt::Return(expr) => {
+                self.compile_expression(expr);
+                self.instructions.push(Instruction::Ret);
+            }
+            
+            Stmt::Assign { name, value } => {
+                self.compile_expression(value);
+                if let Some(&offset) = self.local_vars.get(name) {
+                    self.instructions.push(Instruction::SetLocal(offset));
+                } else {
+                    // This should be caught by type checker
+                    panic!("Undefined variable: {}", name);
+                }
+            }
+            
+            // TODO: Implement other statement types
+            _ => {
+                // For now, just ignore unsupported statements
+            }
+        }
+    }
+    
+    /// Compile an expression to VM bytecode
+    fn compile_expression(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Number(value) => {
+                self.instructions.push(Instruction::Push(*value as i32));
+            }
+            
+            Expr::Boolean(value) => {
+                self.instructions.push(Instruction::Push(if *value { 1 } else { 0 }));
+            }
+            
+            Expr::Identifier(name) => {
+                if let Some(&offset) = self.local_vars.get(name) {
+                    self.instructions.push(Instruction::GetLocal(offset));
+                } else {
+                    // This should be caught by type checker
+                    panic!("Undefined variable: {}", name);
+                }
+            }
+            
+            Expr::Binary { left, op, right } => {
+                self.compile_expression(left);
+                self.compile_expression(right);
+                
+                match op {
+                    BinaryOp::Add => self.instructions.push(Instruction::Add),
+                    BinaryOp::Subtract => self.instructions.push(Instruction::Sub),
+                    BinaryOp::Multiply => self.instructions.push(Instruction::Mul),
+                    BinaryOp::Divide => self.instructions.push(Instruction::Div),
+                    BinaryOp::Equal => self.instructions.push(Instruction::Eq),
+                    BinaryOp::NotEqual => {
+                        self.instructions.push(Instruction::Eq);
+                        self.instructions.push(Instruction::Push(1));
+                        self.instructions.push(Instruction::Sub);
+                    }
+                    BinaryOp::Less => self.instructions.push(Instruction::Lt),
+                    BinaryOp::LessEqual => self.instructions.push(Instruction::Lte),
+                    BinaryOp::Greater => self.instructions.push(Instruction::Gt),
+                    BinaryOp::GreaterEqual => self.instructions.push(Instruction::Gte),
+                }
+            }
+            
+            Expr::Call { callee, args } => {
+                // Push arguments onto stack (left to right)
+                for arg in args {
+                    self.compile_expression(arg);
+                }
+                
+                // Get function address
+                if let Expr::Identifier(func_name) = callee.as_ref() {
+                    if let Some(&addr) = self.function_addresses.get(func_name) {
+                        self.instructions.push(Instruction::Call(addr));
+                        
+                        // Note: arguments will be cleaned up by the Call instruction implementation
+                        // The return value will be left on the stack
+                    } else {
+                        panic!("Undefined function: {}", func_name);
+                    }
+                } else {
+                    panic!("Function calls with complex callees not supported yet");
+                }
+            }
+            
+            // TODO: Implement other expression types
+            _ => {
+                self.instructions.push(Instruction::Push(0)); // Placeholder
+            }
+        }
     }
 }
 
@@ -454,5 +827,83 @@ mod tests {
         vm.load_program(instructions);
         let result = vm.execute().unwrap();
         assert_eq!(result, 14);
+    }
+
+    #[test]
+    fn test_vm_simple_function() {
+        use crate::ast::{Program, Decl, Function, FunParam};
+        
+        // Create main function: fun main() do return 42; end
+        let main_func = Function {
+            name: "main".to_string(),
+            params: vec![],
+            body: vec![],
+            return_expr: Some(Box::new(Expr::Number(42.0))),
+        };
+        
+        let program = Program {
+            declarations: vec![
+                Decl::Function(main_func),
+            ],
+        };
+        
+        // Compile and execute
+        let mut compiler = VMCompiler::new();
+        let instructions = compiler.compile_program(&program);
+        
+        let mut vm = VM::new();
+        vm.load_program(instructions);
+        let result = vm.execute().unwrap();
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_vm_function_with_parameters() {
+        use crate::ast::{Program, Decl, Function, FunParam};
+        
+        // Create a simple function: fun add(x, y) do return x + y; end
+        let add_func = Function {
+            name: "add".to_string(),
+            params: vec![
+                FunParam { name: "x".to_string(), type_name: None },
+                FunParam { name: "y".to_string(), type_name: None },
+            ],
+            body: vec![],
+            return_expr: Some(Box::new(Expr::Binary {
+                left: Box::new(Expr::Identifier("x".to_string())),
+                op: BinaryOp::Add,
+                right: Box::new(Expr::Identifier("y".to_string())),
+            })),
+        };
+        
+        // Create main function: fun main() do return add(2, 3); end
+        let main_func = Function {
+            name: "main".to_string(),
+            params: vec![],
+            body: vec![],
+            return_expr: Some(Box::new(Expr::Call {
+                callee: Box::new(Expr::Identifier("add".to_string())),
+                args: vec![
+                    Expr::Number(2.0),
+                    Expr::Number(3.0),
+                ],
+            })),
+        };
+        
+        let program = Program {
+            declarations: vec![
+                Decl::Function(add_func),
+                Decl::Function(main_func),
+            ],
+        };
+        
+        // Compile and execute
+        let mut compiler = VMCompiler::new();
+        let instructions = compiler.compile_program(&program);
+        
+        let mut vm = VM::new();
+        vm.load_program(instructions);
+        let result = vm.execute().unwrap();
+        assert_eq!(result, 5);
     }
 }

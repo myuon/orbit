@@ -8,6 +8,7 @@ pub mod vm;
 // Re-export commonly used items
 pub use compiler::{execute_code, execute_file, Compiler};
 pub use runtime::{Runtime, Value};
+pub use vm::{VMCompiler};
 
 use anyhow::Result;
 use lexer::Lexer;
@@ -54,6 +55,27 @@ pub fn execute_statements(input: &str) -> Result<Vec<Value>> {
     }
 
     Ok(outputs)
+}
+
+/// Execute a file with IR dumping capability
+pub fn execute_file_with_ir_dump(filename: &str, ir_dump_file: &str) -> Result<Option<Value>> {
+    use std::fs;
+    
+    let contents = fs::read_to_string(filename)?;
+    let mut parser = create_parser(&contents)?;
+    let program = parser.parse_program()?;
+    
+    // Compile to IR and dump
+    let mut compiler = VMCompiler::new();
+    let _instructions = compiler.compile_program(&program);
+    
+    // Dump IR to file
+    compiler.dump_ir_to_file(ir_dump_file)
+        .map_err(|e| anyhow::anyhow!("Failed to write IR dump: {}", e))?;
+    
+    // Execute the program
+    let mut runtime = Runtime::new();
+    runtime.execute_program(&program)
 }
 
 #[cfg(test)]
