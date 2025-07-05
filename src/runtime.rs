@@ -1,4 +1,5 @@
 use crate::ast::{BinaryOp, Decl, Expr, FunParam, Function, Program, Stmt};
+use crate::vm::{self, VM};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
@@ -49,6 +50,7 @@ impl std::fmt::Display for Value {
 pub struct Runtime {
     variables: HashMap<String, Value>,
     call_stack: Vec<HashMap<String, Value>>,
+    vm: VM,
 }
 
 impl Runtime {
@@ -56,6 +58,7 @@ impl Runtime {
         Runtime {
             variables: HashMap::new(),
             call_stack: Vec::new(),
+            vm: VM::new(),
         }
     }
 
@@ -116,59 +119,11 @@ impl Runtime {
         Ok(())
     }
 
+    /// Evaluate an expression by compiling to IR and executing on VM (for simple expressions)
+    /// or handling complex constructs (functions, vectors) at runtime level
     pub fn evaluate(&mut self, expr: &Expr) -> Result<Value> {
         match expr {
-            Expr::Number(value) => Ok(Value::Number(*value)),
-            Expr::Boolean(value) => Ok(Value::Boolean(*value)),
-            Expr::String(value) => Ok(Value::String(value.clone())),
-            Expr::Identifier(name) => {
-                // Check call stack first (local variables)
-                if let Some(locals) = self.call_stack.last() {
-                    if let Some(value) = locals.get(name) {
-                        return Ok(value.clone());
-                    }
-                }
-
-                // Then check global variables
-                self.variables
-                    .get(name)
-                    .cloned()
-                    .ok_or_else(|| anyhow::anyhow!("Undefined variable: {}", name))
-            }
-            Expr::Binary { left, op, right } => {
-                let left_val = self.evaluate(left)?;
-                let right_val = self.evaluate(right)?;
-
-                match (&left_val, &right_val) {
-                    (Value::Number(l), Value::Number(r)) => match op {
-                        BinaryOp::Add => Ok(Value::Number(l + r)),
-                        BinaryOp::Subtract => Ok(Value::Number(l - r)),
-                        BinaryOp::Multiply => Ok(Value::Number(l * r)),
-                        BinaryOp::Divide => {
-                            if *r == 0.0 {
-                                bail!("Division by zero");
-                            }
-                            Ok(Value::Number(l / r))
-                        }
-                        BinaryOp::Equal => Ok(Value::Boolean(l == r)),
-                        BinaryOp::NotEqual => Ok(Value::Boolean(l != r)),
-                        BinaryOp::Less => Ok(Value::Boolean(l < r)),
-                        BinaryOp::Greater => Ok(Value::Boolean(l > r)),
-                        BinaryOp::LessEqual => Ok(Value::Boolean(l <= r)),
-                        BinaryOp::GreaterEqual => Ok(Value::Boolean(l >= r)),
-                    },
-                    (Value::String(l), Value::String(r)) => match op {
-                        BinaryOp::Add => Ok(Value::String(format!("{}{}", l, r))),
-                        _ => bail!("Unsupported operation {:?} for strings", op),
-                    },
-                    _ => bail!(
-                        "Type mismatch in binary operation: {:?} {:?} {:?}",
-                        left_val,
-                        op,
-                        right_val
-                    ),
-                }
-            }
+            // Handle complex constructs at runtime level
             Expr::Call { callee, args } => {
                 let function = self.evaluate(callee)?;
 
@@ -218,6 +173,22 @@ impl Runtime {
                     _ => bail!("Cannot call non-function value: {:?}", function),
                 }
             }
+            
+            Expr::Identifier(name) => {
+                // Check call stack first (local variables)
+                if let Some(locals) = self.call_stack.last() {
+                    if let Some(value) = locals.get(name) {
+                        return Ok(value.clone());
+                    }
+                }
+
+                // Then check global variables
+                self.variables
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("Undefined variable: {}", name))
+            }
+            
             Expr::VectorNew {
                 element_type,
                 initial_values,
@@ -231,6 +202,7 @@ impl Runtime {
                     elements,
                 })
             }
+            
             Expr::VectorIndex { vector, index } => {
                 let vector_value = self.evaluate(vector)?;
                 let index_value = self.evaluate(index)?;
@@ -250,8 +222,45 @@ impl Runtime {
                     _ => bail!("Cannot index non-vector value: {:?}", vector_value),
                 }
             }
+            
+            Expr::String(value) => Ok(Value::String(value.clone())),
+            
+            // Simple expressions: compile to IR and execute on VM
+            _ => {
+                // Phase 1: Compile AST to IR (bytecode)
+                let instructions = vm::compile_expression(expr);
+                
+                // Phase 2: Execute IR on VM
+                self.vm.reset();
+                self.vm.load_program(instructions);
+                
+                match self.vm.execute() {
+                    Ok(result) => {
+                        // Convert VM result to appropriate Value type
+                        if self.is_boolean_expr(expr) {
+                            Ok(Value::Boolean(result != 0))
+                        } else {
+                            Ok(Value::Number(result as f64))
+                        }
+                    },
+                    Err(err) => bail!("VM execution error: {}", err),
+                }
+            }
         }
     }
+    
+    /// Check if an expression should return a boolean value
+    fn is_boolean_expr(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Boolean(_) => true,
+            Expr::Binary { op, .. } => matches!(op, 
+                BinaryOp::Equal | BinaryOp::NotEqual | BinaryOp::Less | 
+                BinaryOp::Greater | BinaryOp::LessEqual | BinaryOp::GreaterEqual
+            ),
+            _ => false,
+        }
+    }
+
 
     pub fn execute_stmt(&mut self, stmt: &Stmt) -> Result<Option<Value>> {
         match stmt {

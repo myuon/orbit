@@ -3,6 +3,7 @@ pub mod compiler;
 pub mod lexer;
 pub mod parser;
 pub mod runtime;
+pub mod vm;
 
 // Re-export commonly used items
 pub use compiler::{execute_code, execute_file, Compiler};
@@ -53,4 +54,64 @@ pub fn execute_statements(input: &str) -> Result<Vec<Value>> {
     }
 
     Ok(outputs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{Expr, BinaryOp};
+
+    #[test]
+    fn test_ast_to_ir_compilation() {
+        // Test that Runtime properly compiles AST to IR and executes on VM
+        let test_cases = vec![
+            // Simple arithmetic
+            (Expr::Binary {
+                left: Box::new(Expr::Number(2.0)),
+                op: BinaryOp::Add,
+                right: Box::new(Expr::Number(3.0)),
+            }, Value::Number(5.0)),
+            // Complex expression
+            (Expr::Binary {
+                left: Box::new(Expr::Binary {
+                    left: Box::new(Expr::Number(2.0)),
+                    op: BinaryOp::Multiply,
+                    right: Box::new(Expr::Number(3.0)),
+                }),
+                op: BinaryOp::Add,
+                right: Box::new(Expr::Number(4.0)),
+            }, Value::Number(10.0)),
+            // Comparison
+            (Expr::Binary {
+                left: Box::new(Expr::Number(5.0)),
+                op: BinaryOp::Equal,
+                right: Box::new(Expr::Number(5.0)),
+            }, Value::Boolean(true)),
+            // Boolean values
+            (Expr::Boolean(false), Value::Boolean(false)),
+        ];
+
+        for (expr, expected) in test_cases {
+            let mut runtime = Runtime::new();
+            let result = runtime.evaluate(&expr).unwrap();
+            assert_eq!(result, expected);
+        }
+    }
+
+    #[test]
+    fn test_expression_execution_via_ir() {
+        let mut runtime = Runtime::new();
+        
+        // Test simple expression compiled to IR and executed on VM
+        let result = execute_expression("2 + 3 * 4", &mut runtime).unwrap();
+        assert_eq!(result, Value::Number(14.0));
+        
+        // Test boolean comparison compiled to IR and executed on VM
+        let result = execute_expression("5 == 5", &mut runtime).unwrap();
+        assert_eq!(result, Value::Boolean(true));
+        
+        // Test complex arithmetic expression
+        let result = execute_expression("(10 - 4) / 2", &mut runtime).unwrap();
+        assert_eq!(result, Value::Number(3.0));
+    }
 }
