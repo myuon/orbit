@@ -198,6 +198,7 @@ impl Parser {
     fn parse_return_stmt(&mut self) -> Result<Stmt> {
         self.consume(TokenType::Return)?;
         let expr = self.parse_expression()?;
+        self.consume(TokenType::Semicolon)?;
         Ok(Stmt::return_stmt(expr))
     }
 
@@ -272,11 +273,7 @@ impl Parser {
 
         self.consume(TokenType::Assign)?;
         let value = self.parse_expression()?;
-        
-        // Consume semicolon if present (for statement context)
-        if matches!(self.current_token().token_type, TokenType::Semicolon) {
-            self.advance();
-        }
+        self.consume(TokenType::Semicolon)?;
 
         Ok(Stmt::assign_stmt(name, value))
     }

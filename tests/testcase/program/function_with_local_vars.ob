@@ -1,8 +1,8 @@
 fun calculate(x) do
   let temp = x * 2;
-  return temp + 1
+  return temp + 1;
 end
 
 fun main() do
-  return calculate(5)
+  return calculate(5);
 end

@@ -1,11 +1,11 @@
 fun max(a, b) do
   if a > b then
-    return a
+    return a;
   else
-    return b
+    return b;
   end
 end
 
 fun main() do
-  return max(50, 30)
+  return max(50, 30);
 end

@@ -64,7 +64,7 @@ mod tests {
         let mut compiler = Compiler::new();
         let code = "
             fun main() do
-                return 42
+                return 42;
             end
         ";
         let result = compiler.execute(code).unwrap();
@@ -76,7 +76,7 @@ mod tests {
         let mut compiler = Compiler::new();
         let code = "
             fun main() do
-                return 42
+                return 42;
             end
         ";
         let result = compiler.execute(code).unwrap();
@@ -90,7 +90,7 @@ mod tests {
             fun main() do
                 let x = 10;
                 let y = 20;
-                return x + y
+                return x + y;
             end
         ";
         let result = compiler.execute(code).unwrap();
