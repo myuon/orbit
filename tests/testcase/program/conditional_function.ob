@@ -6,5 +6,6 @@ fun max(a, b) do
   end
 end
 
-max(10, 20)
-max(50, 30)
+fun main() do
+  return max(50, 30)
+end

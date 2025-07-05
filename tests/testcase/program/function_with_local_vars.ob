@@ -3,4 +3,6 @@ fun calculate(x) do
   return temp + 1
 end
 
-calculate(5)
+fun main() do
+  return calculate(5)
+end

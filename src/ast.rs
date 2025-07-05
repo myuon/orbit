@@ -41,7 +41,10 @@ pub struct Token {
 
 impl Token {
     pub fn new(token_type: TokenType, position: usize) -> Self {
-        Token { token_type, position }
+        Token {
+            token_type,
+            position,
+        }
     }
 }
 
@@ -165,7 +168,12 @@ impl Program {
 }
 
 impl Decl {
-    pub fn function(name: String, params: Vec<FunParam>, body: Vec<Stmt>, return_expr: Option<Expr>) -> Self {
+    pub fn function(
+        name: String,
+        params: Vec<FunParam>,
+        body: Vec<Stmt>,
+        return_expr: Option<Expr>,
+    ) -> Self {
         Decl::Function(Function {
             name,
             params,
@@ -176,7 +184,12 @@ impl Decl {
 }
 
 impl Function {
-    pub fn new(name: String, params: Vec<FunParam>, body: Vec<Stmt>, return_expr: Option<Expr>) -> Self {
+    pub fn new(
+        name: String,
+        params: Vec<FunParam>,
+        body: Vec<Stmt>,
+        return_expr: Option<Expr>,
+    ) -> Self {
         Function {
             name,
             params,
@@ -199,7 +212,11 @@ impl Stmt {
         Stmt::Return(expr)
     }
 
-    pub fn if_stmt(condition: Expr, then_branch: Vec<Stmt>, else_branch: Option<Vec<Stmt>>) -> Self {
+    pub fn if_stmt(
+        condition: Expr,
+        then_branch: Vec<Stmt>,
+        else_branch: Option<Vec<Stmt>>,
+    ) -> Self {
         Stmt::If {
             condition,
             then_branch,

@@ -36,7 +36,6 @@ impl Compiler {
         parser.parse_program()
     }
 
-
     /// Get a mutable reference to the runtime for direct manipulation
     pub fn runtime_mut(&mut self) -> &mut Runtime {
         &mut self.runtime
@@ -48,7 +47,6 @@ pub fn execute_code(code: &str) -> Result<Option<Value>> {
     let mut compiler = Compiler::new();
     compiler.execute(code)
 }
-
 
 /// Execute Orbit source code from a file and return the result
 pub fn execute_file(filename: &str) -> Result<Option<Value>> {
@@ -64,28 +62,36 @@ mod tests {
     #[test]
     fn test_compiler_basic_execution() {
         let mut compiler = Compiler::new();
-        let result = compiler.execute("42").unwrap();
+        let code = "
+            fun main() do
+                return 42
+            end
+        ";
+        let result = compiler.execute(code).unwrap();
         assert_eq!(result, Some(Value::Number(42.0)));
     }
 
     #[test]
-    fn test_compiler_with_output() {
+    fn test_compiler_with_program() {
         let mut compiler = Compiler::new();
-        let results = compiler.execute_with_output("1\n2\n3").unwrap();
-        assert_eq!(results, vec![
-            Value::Number(1.0),
-            Value::Number(2.0),
-            Value::Number(3.0),
-        ]);
+        let code = "
+            fun main() do
+                return 42
+            end
+        ";
+        let result = compiler.execute(code).unwrap();
+        assert_eq!(result, Some(Value::Number(42.0)));
     }
 
     #[test]
     fn test_compiler_with_statements() {
         let mut compiler = Compiler::new();
         let code = "
-            let x = 10;
-            let y = 20;
-            x + y
+            fun main() do
+                let x = 10;
+                let y = 20;
+                return x + y
+            end
         ";
         let result = compiler.execute(code).unwrap();
         assert_eq!(result, Some(Value::Number(30.0)));

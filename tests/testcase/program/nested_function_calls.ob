@@ -6,4 +6,6 @@ fun add_one(x) do
   return x + 1
 end
 
-add_one(double(3))
+fun main() do
+  return add_one(double(3))
+end
