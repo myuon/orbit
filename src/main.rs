@@ -35,7 +35,7 @@ fn main() {
         println!("Type 'exit' to quit");
         
         let mut input = String::new();
-        let runtime = Runtime::new();
+        let mut runtime = Runtime::new();
         
         loop {
             print!("> ");
@@ -55,8 +55,9 @@ fn main() {
                 break;
             }
             
-            match execute_expression(input, &runtime) {
-                Ok(value) => println!("{}", value),
+            match execute_statement(input, &mut runtime) {
+                Ok(Some(value)) => println!("{}", value),
+                Ok(None) => {} // No output for let statements
                 Err(e) => println!("Error: {}", e),
             }
         }
@@ -64,9 +65,20 @@ fn main() {
 }
 
 fn execute_code(code: &str) -> Result<()> {
-    let runtime = Runtime::new();
-    let result = execute_expression(code, &runtime)?;
-    println!("{}", result);
+    let mut runtime = Runtime::new();
+    
+    // Split into lines and execute each statement
+    for line in code.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        
+        let result = execute_statement(line, &mut runtime)?;
+        if let Some(value) = result {
+            println!("{}", value);
+        }
+    }
     Ok(())
 }
 
@@ -78,6 +90,16 @@ fn execute_expression(input: &str, runtime: &Runtime) -> Result<runtime::Value> 
     let ast = parser.parse()?;
     
     runtime.evaluate(&ast)
+}
+
+fn execute_statement(input: &str, runtime: &mut Runtime) -> Result<Option<runtime::Value>> {
+    let mut lexer = Lexer::new(input);
+    let tokens = lexer.tokenize()?;
+    
+    let mut parser = Parser::new(tokens);
+    let stmt = parser.parse_stmt()?;
+    
+    runtime.execute_stmt(&stmt)
 }
 
 #[cfg(test)]
@@ -135,16 +157,57 @@ mod tests {
     }
 
     #[test]
+    fn test_let_statements() {
+        let test_cases = vec![
+            ("let x = 10;", None),
+            ("let s = \"Hello, World!\";", None),
+            ("let result = 2 + 3;", None),
+        ];
+
+        let mut runtime = Runtime::new();
+        for (input, expected) in test_cases {
+            let result = execute_statement(input, &mut runtime).unwrap();
+            assert_eq!(result, expected, "Failed for input: {}", input);
+        }
+    }
+
+    #[test]
+    fn test_variable_usage() {
+        let mut runtime = Runtime::new();
+        
+        // Define variable
+        execute_statement("let x = 10;", &mut runtime).unwrap();
+        
+        // Use variable in expression
+        let result = execute_statement("x", &mut runtime).unwrap();
+        assert_eq!(result, Some(runtime::Value::Number(10.0)));
+        
+        // Use variable in arithmetic
+        let result = execute_statement("x + 5", &mut runtime).unwrap();
+        assert_eq!(result, Some(runtime::Value::Number(15.0)));
+    }
+
+    #[test]
+    fn test_string_variables() {
+        let mut runtime = Runtime::new();
+        
+        execute_statement("let s = \"Hello, World!\";", &mut runtime).unwrap();
+        let result = execute_statement("s", &mut runtime).unwrap();
+        assert_eq!(result, Some(runtime::Value::String("Hello, World!".to_string())));
+    }
+
+    #[test]
     fn test_error_cases() {
         let error_test_cases = vec![
             ("5 / 0", "Division by zero"),
             ("\"hello\" * 2", "Type mismatch"),
             ("5 + \"hello\"", "Type mismatch"),
+            ("undefined_var", "Undefined variable"),
         ];
 
-        let runtime = Runtime::new();
+        let mut runtime = Runtime::new();
         for (input, expected_error) in error_test_cases {
-            let result = execute_expression(input, &runtime);
+            let result = execute_statement(input, &mut runtime);
             assert!(result.is_err(), "Expected error for input: {}", input);
             let error_msg = result.unwrap_err().to_string();
             assert!(error_msg.contains(expected_error), 

@@ -3,6 +3,10 @@ pub enum TokenType {
     Number(f64),
     Boolean(bool),
     String(String),
+    Identifier(String),
+    Let,
+    Assign,
+    Semicolon,
     Plus,
     Minus,
     Star,
@@ -37,11 +41,21 @@ pub enum Expr {
     Number(f64),
     Boolean(bool),
     String(String),
+    Identifier(String),
     Binary {
         left: Box<Expr>,
         op: BinaryOp,
         right: Box<Expr>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Stmt {
+    Let {
+        name: String,
+        value: Expr,
+    },
+    Expression(Expr),
 }
 
 impl Expr {
@@ -57,11 +71,25 @@ impl Expr {
         Expr::String(value)
     }
 
+    pub fn identifier(name: String) -> Self {
+        Expr::Identifier(name)
+    }
+
     pub fn binary(left: Expr, op: BinaryOp, right: Expr) -> Self {
         Expr::Binary {
             left: Box::new(left),
             op,
             right: Box::new(right),
         }
+    }
+}
+
+impl Stmt {
+    pub fn let_stmt(name: String, value: Expr) -> Self {
+        Stmt::Let { name, value }
+    }
+
+    pub fn expression(expr: Expr) -> Self {
+        Stmt::Expression(expr)
     }
 }

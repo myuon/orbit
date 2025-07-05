@@ -118,10 +118,8 @@ impl Lexer {
                     let token_type = match identifier.as_str() {
                         "true" => TokenType::Boolean(true),
                         "false" => TokenType::Boolean(false),
-                        _ => {
-                            // For now, we don't have other identifiers, so skip
-                            continue;
-                        }
+                        "let" => TokenType::Let,
+                        _ => TokenType::Identifier(identifier),
                     };
                     return Token::new(token_type, pos);
                 }
@@ -149,6 +147,16 @@ impl Lexer {
                     let pos = self.position;
                     self.advance();
                     return Token::new(TokenType::Slash, pos);
+                }
+                Some('=') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token::new(TokenType::Assign, pos);
+                }
+                Some(';') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token::new(TokenType::Semicolon, pos);
                 }
                 Some('(') => {
                     let pos = self.position;

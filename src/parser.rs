@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Expr, Token, TokenType};
+use crate::ast::{BinaryOp, Expr, Stmt, Token, TokenType};
 use anyhow::{bail, Result};
 
 pub struct Parser {
@@ -37,6 +37,35 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Expr> {
         self.parse_expression()
+    }
+
+    pub fn parse_stmt(&mut self) -> Result<Stmt> {
+        match &self.current_token().token_type {
+            TokenType::Let => self.parse_let_stmt(),
+            _ => {
+                let expr = self.parse_expression()?;
+                Ok(Stmt::expression(expr))
+            }
+        }
+    }
+
+    fn parse_let_stmt(&mut self) -> Result<Stmt> {
+        self.consume(TokenType::Let)?;
+        
+        let name = match &self.current_token().token_type {
+            TokenType::Identifier(name) => {
+                let n = name.clone();
+                self.advance();
+                n
+            }
+            _ => bail!("Expected identifier after 'let'"),
+        };
+
+        self.consume(TokenType::Assign)?;
+        let value = self.parse_expression()?;
+        self.consume(TokenType::Semicolon)?;
+        
+        Ok(Stmt::let_stmt(name, value))
     }
 
     fn parse_expression(&mut self) -> Result<Expr> {
@@ -103,6 +132,11 @@ impl Parser {
                 let string_val = value.clone();
                 self.advance();
                 Ok(Expr::string(string_val))
+            }
+            TokenType::Identifier(name) => {
+                let identifier = name.clone();
+                self.advance();
+                Ok(Expr::identifier(identifier))
             }
             TokenType::LeftParen => {
                 self.advance();

@@ -1,5 +1,6 @@
-use crate::ast::{BinaryOp, Expr};
+use crate::ast::{BinaryOp, Expr, Stmt};
 use anyhow::{bail, Result};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -24,11 +25,15 @@ impl std::fmt::Display for Value {
     }
 }
 
-pub struct Runtime;
+pub struct Runtime {
+    variables: HashMap<String, Value>,
+}
 
 impl Runtime {
     pub fn new() -> Self {
-        Runtime
+        Runtime {
+            variables: HashMap::new(),
+        }
     }
 
     pub fn evaluate(&self, expr: &Expr) -> Result<Value> {
@@ -36,6 +41,11 @@ impl Runtime {
             Expr::Number(value) => Ok(Value::Number(*value)),
             Expr::Boolean(value) => Ok(Value::Boolean(*value)),
             Expr::String(value) => Ok(Value::String(value.clone())),
+            Expr::Identifier(name) => {
+                self.variables.get(name)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("Undefined variable: {}", name))
+            }
             Expr::Binary { left, op, right } => {
                 let left_val = self.evaluate(left)?;
                 let right_val = self.evaluate(right)?;
@@ -63,6 +73,20 @@ impl Runtime {
                     }
                     _ => bail!("Type mismatch in binary operation: {:?} {:?} {:?}", left_val, op, right_val),
                 }
+            }
+        }
+    }
+
+    pub fn execute_stmt(&mut self, stmt: &Stmt) -> Result<Option<Value>> {
+        match stmt {
+            Stmt::Let { name, value } => {
+                let val = self.evaluate(value)?;
+                self.variables.insert(name.clone(), val);
+                Ok(None)
+            }
+            Stmt::Expression(expr) => {
+                let val = self.evaluate(expr)?;
+                Ok(Some(val))
             }
         }
     }
