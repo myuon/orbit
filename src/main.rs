@@ -7,28 +7,32 @@ use orbit::execute_file;
 struct Config {
     filename: String,
     dump_ir: Option<String>,
+    print_stacks: bool,
 }
 
 fn parse_args() -> Result<Config, String> {
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() < 2 {
         return Err(format!("Usage: {} [OPTIONS] <file.ob>", args[0]));
     }
-    
+
     let mut filename = None;
     let mut dump_ir = None;
+    let mut print_stacks = false;
     let mut i = 1;
-    
+
     while i < args.len() {
         let arg = &args[i];
-        
+
         if arg.starts_with("--dump-ir=") {
             let ir_file = arg.strip_prefix("--dump-ir=").unwrap();
             if ir_file.is_empty() {
                 return Err("--dump-ir option requires a filename".to_string());
             }
             dump_ir = Some(ir_file.to_string());
+        } else if arg == "--print-stacks" {
+            print_stacks = true;
         } else if arg == "--help" || arg == "-h" {
             return Err("help".to_string());
         } else if arg.starts_with("--") {
@@ -38,14 +42,15 @@ fn parse_args() -> Result<Config, String> {
         } else {
             return Err("Too many arguments".to_string());
         }
-        
+
         i += 1;
     }
-    
+
     match filename {
         Some(f) => Ok(Config {
             filename: f,
             dump_ir,
+            print_stacks,
         }),
         None => Err("No input file specified".to_string()),
     }
@@ -66,7 +71,11 @@ fn main() {
         }
     };
 
-    match execute_file_with_options(&config.filename, config.dump_ir.as_deref()) {
+    match execute_file_with_options(
+        &config.filename,
+        config.dump_ir.as_deref(),
+        config.print_stacks,
+    ) {
         Ok(Some(value)) => println!("{}", value),
         Ok(None) => {}
         Err(e) => {
@@ -84,6 +93,7 @@ fn print_help(program_name: &str) {
     println!();
     println!("OPTIONS:");
     println!("    --dump-ir=<file>    Dump compiled IR to specified file");
+    println!("    --print-stacks      Print stack traces");
     println!("    -h, --help          Print help information");
     println!();
     println!("ARGS:");
@@ -91,11 +101,15 @@ fn print_help(program_name: &str) {
 }
 
 /// Execute a file with optional IR dumping
-fn execute_file_with_options(filename: &str, dump_ir_file: Option<&str>) -> Result<Option<orbit::Value>, Box<dyn std::error::Error>> {
+fn execute_file_with_options(
+    filename: &str,
+    dump_ir_file: Option<&str>,
+    print_stacks: bool,
+) -> Result<Option<orbit::Value>, Box<dyn std::error::Error>> {
     if let Some(ir_file) = dump_ir_file {
         orbit::execute_file_with_ir_dump(filename, ir_file).map_err(|e| e.into())
     } else {
-        execute_file(filename).map_err(|e| e.into())
+        orbit::execute_file_with_options(filename, print_stacks).map_err(|e| e.into())
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::ast::{BinaryOp, Decl, Expr, FunParam, Function, Program, Stmt};
-use crate::vm::{self, VM, VMCompiler};
+use crate::vm::{self, VMCompiler, VM};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
@@ -42,7 +42,6 @@ impl std::fmt::Display for Value {
                 }
                 write!(f, "]")
             }
-        
         }
     }
 }
@@ -67,17 +66,37 @@ impl Runtime {
         // Compile program to VM bytecode
         let mut compiler = VMCompiler::new();
         let instructions = compiler.compile_program(program);
-        
+
         // Execute on VM
         self.vm.reset();
         self.vm.load_program(instructions);
-        
+
         match self.vm.execute() {
             Ok(result) => Ok(Some(Value::Number(result as f64))),
             Err(err) => bail!("VM execution error: {}", err),
         }
     }
 
+    /// Execute a complete program with options (like stack printing)
+    pub fn execute_program_with_options(
+        &mut self,
+        program: &Program,
+        print_stacks: bool,
+    ) -> Result<Option<Value>> {
+        // Compile program to VM bytecode
+        let mut compiler = VMCompiler::new();
+        let instructions = compiler.compile_program(program);
+
+        // Execute on VM with stack printing option
+        self.vm.print_stacks = print_stacks;
+        self.vm.reset();
+        self.vm.load_program(instructions);
+
+        match self.vm.execute() {
+            Ok(result) => Ok(Some(Value::Number(result as f64))),
+            Err(err) => bail!("VM execution error: {}", err),
+        }
+    }
 
     /// Evaluate an expression by compiling to IR and executing on VM (for simple expressions)
     /// or handling complex constructs (functions, vectors) at runtime level
@@ -133,7 +152,7 @@ impl Runtime {
                     _ => bail!("Cannot call non-function value: {:?}", function),
                 }
             }
-            
+
             Expr::Identifier(name) => {
                 // Check call stack first (local variables)
                 if let Some(locals) = self.call_stack.last() {
@@ -148,7 +167,7 @@ impl Runtime {
                     .cloned()
                     .ok_or_else(|| anyhow::anyhow!("Undefined variable: {}", name))
             }
-            
+
             Expr::VectorNew {
                 element_type,
                 initial_values,
@@ -162,7 +181,7 @@ impl Runtime {
                     elements,
                 })
             }
-            
+
             Expr::VectorIndex { vector, index } => {
                 let vector_value = self.evaluate(vector)?;
                 let index_value = self.evaluate(index)?;
@@ -173,7 +192,11 @@ impl Runtime {
                         if idx < elements.len() {
                             Ok(elements[idx].clone())
                         } else {
-                            bail!("Vector index {} out of bounds (length: {})", idx, elements.len())
+                            bail!(
+                                "Vector index {} out of bounds (length: {})",
+                                idx,
+                                elements.len()
+                            )
                         }
                     }
                     (Value::Vector { .. }, _) => {
@@ -182,18 +205,18 @@ impl Runtime {
                     _ => bail!("Cannot index non-vector value: {:?}", vector_value),
                 }
             }
-            
+
             Expr::String(value) => Ok(Value::String(value.clone())),
-            
+
             // Simple expressions: compile to IR and execute on VM
             _ => {
                 // Phase 1: Compile AST to IR (bytecode)
                 let instructions = vm::compile_expression(expr);
-                
+
                 // Phase 2: Execute IR on VM
                 self.vm.reset();
                 self.vm.load_program(instructions);
-                
+
                 match self.vm.execute() {
                     Ok(result) => {
                         // Convert VM result to appropriate Value type
@@ -202,25 +225,29 @@ impl Runtime {
                         } else {
                             Ok(Value::Number(result as f64))
                         }
-                    },
+                    }
                     Err(err) => bail!("VM execution error: {}", err),
                 }
             }
         }
     }
-    
+
     /// Check if an expression should return a boolean value
     fn is_boolean_expr(&self, expr: &Expr) -> bool {
         match expr {
             Expr::Boolean(_) => true,
-            Expr::Binary { op, .. } => matches!(op, 
-                BinaryOp::Equal | BinaryOp::NotEqual | BinaryOp::Less | 
-                BinaryOp::Greater | BinaryOp::LessEqual | BinaryOp::GreaterEqual
+            Expr::Binary { op, .. } => matches!(
+                op,
+                BinaryOp::Equal
+                    | BinaryOp::NotEqual
+                    | BinaryOp::Less
+                    | BinaryOp::Greater
+                    | BinaryOp::LessEqual
+                    | BinaryOp::GreaterEqual
             ),
             _ => false,
         }
     }
-
 
     pub fn execute_stmt(&mut self, stmt: &Stmt) -> Result<Option<Value>> {
         match stmt {
@@ -274,7 +301,7 @@ impl Runtime {
                 let mut last_value = None;
                 loop {
                     let condition_val = self.evaluate(condition)?;
-                    
+
                     match condition_val {
                         Value::Boolean(true) => {
                             for stmt in body {
@@ -289,7 +316,7 @@ impl Runtime {
             }
             Stmt::Assign { name, value } => {
                 let val = self.evaluate(value)?;
-                
+
                 // Check if variable exists in local scope first
                 if let Some(locals) = self.call_stack.last_mut() {
                     if locals.contains_key(name) {
@@ -297,7 +324,7 @@ impl Runtime {
                         return Ok(None);
                     }
                 }
-                
+
                 // Then check global scope
                 if self.variables.contains_key(name) {
                     self.variables.insert(name.clone(), val);
@@ -308,7 +335,7 @@ impl Runtime {
             }
             Stmt::VectorPush { vector, value } => {
                 let val = self.evaluate(value)?;
-                
+
                 // Find the vector variable and push to it
                 if let Some(locals) = self.call_stack.last_mut() {
                     if let Some(vector_value) = locals.get_mut(vector) {
@@ -321,7 +348,7 @@ impl Runtime {
                         }
                     }
                 }
-                
+
                 // Check global scope
                 if let Some(vector_value) = self.variables.get_mut(vector) {
                     match vector_value {
@@ -342,12 +369,12 @@ impl Runtime {
             } => {
                 let idx_val = self.evaluate(index)?;
                 let new_val = self.evaluate(value)?;
-                
+
                 let idx = match idx_val {
                     Value::Number(n) => n as usize,
                     _ => bail!("Vector index must be a number"),
                 };
-                
+
                 // Find the vector variable and update element
                 if let Some(locals) = self.call_stack.last_mut() {
                     if let Some(vector_value) = locals.get_mut(vector) {
@@ -357,14 +384,18 @@ impl Runtime {
                                     elements[idx] = new_val;
                                     return Ok(None);
                                 } else {
-                                    bail!("Vector index {} out of bounds (length: {})", idx, elements.len());
+                                    bail!(
+                                        "Vector index {} out of bounds (length: {})",
+                                        idx,
+                                        elements.len()
+                                    );
                                 }
                             }
                             _ => bail!("Cannot index non-vector value: {}", vector),
                         }
                     }
                 }
-                
+
                 // Check global scope
                 if let Some(vector_value) = self.variables.get_mut(vector) {
                     match vector_value {
@@ -373,7 +404,11 @@ impl Runtime {
                                 elements[idx] = new_val;
                                 Ok(None)
                             } else {
-                                bail!("Vector index {} out of bounds (length: {})", idx, elements.len());
+                                bail!(
+                                    "Vector index {} out of bounds (length: {})",
+                                    idx,
+                                    elements.len()
+                                );
                             }
                         }
                         _ => bail!("Cannot index non-vector value: {}", vector),

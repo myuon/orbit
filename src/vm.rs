@@ -1,4 +1,4 @@
-use crate::ast::{Expr, BinaryOp, Program, Function, Stmt, Decl};
+use crate::ast::{BinaryOp, Decl, Expr, Function, Program, Stmt};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -7,39 +7,39 @@ pub enum Instruction {
     // Stack operations
     Push(i32),
     Pop,
-    
+
     // Arithmetic operations
     Add,
     Sub,
     Mul,
     Div,
     Mod,
-    
+
     // Comparison operations
     Eq,
     Lt,
     Lte,
     Gt,
     Gte,
-    
+
     // Control flow
     Jump(usize),
     JumpIfZero(usize),
-    
+
     // Local variables
     GetLocal(i32),
     SetLocal(i32),
-    
+
     // Function calls
     Call(usize),
     Ret,
-    
+
     // Frame management
     GetBP,
     SetBP,
     GetSP,
     SetSP,
-    
+
     // No operation
     Nop,
 }
@@ -77,10 +77,11 @@ impl fmt::Display for Instruction {
 #[derive(Debug)]
 pub struct VM {
     stack: Vec<i32>,
-    pc: usize,           // program counter
-    bp: usize,           // base pointer for stack frame
-    sp: usize,           // stack pointer
+    pc: usize, // program counter
+    bp: usize, // base pointer for stack frame
+    sp: usize, // stack pointer
     program: Vec<Instruction>,
+    pub print_stacks: bool, // whether to print stack state during execution
 }
 
 impl VM {
@@ -91,28 +92,56 @@ impl VM {
             bp: 0,
             sp: 0,
             program: Vec::new(),
+            print_stacks: false,
         }
     }
-    
+
+    pub fn new_with_stack_printing(print_stacks: bool) -> Self {
+        Self {
+            stack: Vec::new(),
+            pc: 0,
+            bp: 0,
+            sp: 0,
+            program: Vec::new(),
+            print_stacks,
+        }
+    }
+
     pub fn load_program(&mut self, program: Vec<Instruction>) {
         self.program = program;
         self.pc = 0;
     }
-    
+
     pub fn execute(&mut self) -> Result<i32, String> {
         while self.pc < self.program.len() {
-            match &self.program[self.pc] {
+            let instruction = &self.program[self.pc];
+
+            // Print instruction and stack state if enabled
+            if self.print_stacks {
+                println!(
+                    "{:04} {:20} [{}]",
+                    self.pc,
+                    format!("{}", instruction),
+                    self.stack
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+
+            match instruction {
                 Instruction::Push(value) => {
                     self.stack.push(*value);
                 }
-                
+
                 Instruction::Pop => {
                     if self.stack.is_empty() {
                         return Err("Stack underflow".to_string());
                     }
                     self.stack.pop();
                 }
-                
+
                 Instruction::Add => {
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for Add".to_string());
@@ -121,7 +150,7 @@ impl VM {
                     let a = self.stack.pop().unwrap();
                     self.stack.push(a + b);
                 }
-                
+
                 Instruction::Sub => {
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for Sub".to_string());
@@ -130,7 +159,7 @@ impl VM {
                     let a = self.stack.pop().unwrap();
                     self.stack.push(a - b);
                 }
-                
+
                 Instruction::Mul => {
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for Mul".to_string());
@@ -139,7 +168,7 @@ impl VM {
                     let a = self.stack.pop().unwrap();
                     self.stack.push(a * b);
                 }
-                
+
                 Instruction::Div => {
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for Div".to_string());
@@ -151,7 +180,7 @@ impl VM {
                     }
                     self.stack.push(a / b);
                 }
-                
+
                 Instruction::Mod => {
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for Mod".to_string());
@@ -163,7 +192,7 @@ impl VM {
                     }
                     self.stack.push(a % b);
                 }
-                
+
                 Instruction::Eq => {
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for Eq".to_string());
@@ -172,7 +201,7 @@ impl VM {
                     let a = self.stack.pop().unwrap();
                     self.stack.push(if a == b { 1 } else { 0 });
                 }
-                
+
                 Instruction::Lt => {
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for Lt".to_string());
@@ -181,7 +210,7 @@ impl VM {
                     let a = self.stack.pop().unwrap();
                     self.stack.push(if a < b { 1 } else { 0 });
                 }
-                
+
                 Instruction::Lte => {
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for Lte".to_string());
@@ -190,7 +219,7 @@ impl VM {
                     let a = self.stack.pop().unwrap();
                     self.stack.push(if a <= b { 1 } else { 0 });
                 }
-                
+
                 Instruction::Gt => {
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for Gt".to_string());
@@ -199,7 +228,7 @@ impl VM {
                     let a = self.stack.pop().unwrap();
                     self.stack.push(if a > b { 1 } else { 0 });
                 }
-                
+
                 Instruction::Gte => {
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for Gte".to_string());
@@ -208,12 +237,12 @@ impl VM {
                     let a = self.stack.pop().unwrap();
                     self.stack.push(if a >= b { 1 } else { 0 });
                 }
-                
+
                 Instruction::Jump(addr) => {
                     self.pc = *addr;
                     continue;
                 }
-                
+
                 Instruction::JumpIfZero(addr) => {
                     if self.stack.is_empty() {
                         return Err("Stack underflow for JumpIfZero".to_string());
@@ -224,52 +253,62 @@ impl VM {
                         continue;
                     }
                 }
-                
+
                 Instruction::GetLocal(offset) => {
                     let index = if *offset < 0 {
                         // Negative offset: access parameters (before BP)
                         let abs_offset = (-offset) as usize;
                         if self.bp < abs_offset {
-                            return Err(format!("Parameter access out of bounds: BP={}, offset={}", self.bp, offset));
+                            return Err(format!(
+                                "Parameter access out of bounds: BP={}, offset={}",
+                                self.bp, offset
+                            ));
                         }
                         self.bp - abs_offset
                     } else {
                         // Positive offset: access local variables (after BP)
                         self.bp + (*offset as usize)
                     };
-                    
+
                     if index >= self.stack.len() {
-                        return Err(format!("Local variable access out of bounds: index={}, stack_len={}", index, self.stack.len()));
+                        return Err(format!(
+                            "Local variable access out of bounds: index={}, stack_len={}",
+                            index,
+                            self.stack.len()
+                        ));
                     }
                     self.stack.push(self.stack[index]);
                 }
-                
+
                 Instruction::SetLocal(offset) => {
                     if self.stack.is_empty() {
                         return Err("Stack underflow for SetLocal".to_string());
                     }
                     let value = self.stack.pop().unwrap();
-                    
+
                     let index = if *offset < 0 {
                         // Negative offset: access parameters (before BP)
                         let abs_offset = (-offset) as usize;
                         if self.bp < abs_offset {
-                            return Err(format!("Parameter access out of bounds: BP={}, offset={}", self.bp, offset));
+                            return Err(format!(
+                                "Parameter access out of bounds: BP={}, offset={}",
+                                self.bp, offset
+                            ));
                         }
                         self.bp - abs_offset
                     } else {
                         // Positive offset: access local variables (after BP)
                         self.bp + (*offset as usize)
                     };
-                    
+
                     // Extend stack if needed for positive offsets
                     while self.stack.len() <= index {
                         self.stack.push(0);
                     }
-                    
+
                     self.stack[index] = value;
                 }
-                
+
                 Instruction::Call(addr) => {
                     // Function calling convention:
                     // 1. Arguments are already on stack
@@ -277,62 +316,62 @@ impl VM {
                     // 3. Push old BP
                     // 4. Set new BP to current SP
                     // 5. Jump to function
-                    
-                    self.stack.push((self.pc + 1) as i32);  // Return address
-                    self.stack.push(self.bp as i32);        // Old BP
-                    self.bp = self.stack.len();             // New BP
+
+                    self.stack.push((self.pc + 1) as i32); // Return address
+                    self.stack.push(self.bp as i32); // Old BP
+                    self.bp = self.stack.len(); // New BP
                     self.pc = *addr;
                     continue;
                 }
-                
+
                 Instruction::Ret => {
                     // Function return convention:
                     // Stack layout at function entry:
                     // [args...] [return_addr] [old_bp] [locals...] [return_value]
                     //                         ^BP
-                    
+
                     if self.bp < 2 || self.stack.len() < self.bp {
                         return Err("Stack underflow in function return".to_string());
                     }
-                    
+
                     // Get return value from top of stack
                     let return_value = if self.stack.len() > self.bp {
                         self.stack.pop().unwrap_or(0)
                     } else {
                         0
                     };
-                    
+
                     // Get old BP and return address from stack frame
                     let old_bp = self.stack[self.bp - 1] as usize;
                     let return_addr = self.stack[self.bp - 2] as usize;
-                    
+
                     // Restore stack to before function call (but keep arguments for now)
                     self.stack.truncate(self.bp - 2);
                     self.bp = old_bp;
-                    
+
                     // Push return value back onto stack
                     self.stack.push(return_value);
-                    
+
                     // Jump to return address
                     self.pc = return_addr;
                     continue;
                 }
-                
+
                 Instruction::GetBP => {
                     self.stack.push(self.bp as i32);
                 }
-                
+
                 Instruction::SetBP => {
                     if self.stack.is_empty() {
                         return Err("Stack underflow for SetBP".to_string());
                     }
                     self.bp = self.stack.pop().unwrap() as usize;
                 }
-                
+
                 Instruction::GetSP => {
                     self.stack.push(self.stack.len() as i32);
                 }
-                
+
                 Instruction::SetSP => {
                     if self.stack.is_empty() {
                         return Err("Stack underflow for SetSP".to_string());
@@ -346,15 +385,15 @@ impl VM {
                         self.stack.truncate(new_sp);
                     }
                 }
-                
+
                 Instruction::Nop => {
                     // Do nothing
                 }
             }
-            
+
             self.pc += 1;
         }
-        
+
         // Program ended, return top of stack or 0
         if self.stack.is_empty() {
             Ok(0)
@@ -362,13 +401,14 @@ impl VM {
             Ok(self.stack.pop().unwrap())
         }
     }
-    
+
     /// Reset the VM state for a fresh execution
     pub fn reset(&mut self) {
         self.stack.clear();
         self.pc = 0;
         self.bp = 0;
         self.sp = 0;
+        // Keep print_stacks setting unchanged
     }
 }
 
@@ -389,13 +429,13 @@ impl VMCompiler {
             local_offset: 0,
         }
     }
-    
+
     /// Dump compiled IR to a string
     pub fn dump_ir(&self) -> String {
         let mut output = String::new();
         output.push_str("; Orbit VM IR Dump\n");
         output.push_str("; Generated by Orbit Compiler\n\n");
-        
+
         // Add function labels as comments
         if !self.function_addresses.is_empty() {
             output.push_str("; Function addresses:\n");
@@ -406,7 +446,7 @@ impl VMCompiler {
             }
             output.push('\n');
         }
-        
+
         // Add instructions with line numbers
         for (i, instruction) in self.instructions.iter().enumerate() {
             // Add function labels
@@ -415,81 +455,82 @@ impl VMCompiler {
                     output.push_str(&format!("\n{}:\n", name));
                 }
             }
-            
+
             output.push_str(&format!("{:4}: {}\n", i, instruction));
         }
-        
+
         output
     }
-    
+
     /// Dump compiled IR to a file
     pub fn dump_ir_to_file(&self, filename: &str) -> Result<(), std::io::Error> {
         use std::fs::File;
         use std::io::Write;
-        
+
         let ir_content = self.dump_ir();
         let mut file = File::create(filename)?;
         file.write_all(ir_content.as_bytes())?;
         Ok(())
     }
-    
+
     /// Compile a complete program to VM bytecode
     pub fn compile_program(&mut self, program: &Program) -> Vec<Instruction> {
-        // First pass: collect function addresses
+        // 1. main関数とその他の関数を分けて収集
+        let mut main_func: Option<Function> = None;
+        let mut other_funcs: Vec<Function> = Vec::new();
         for decl in &program.declarations {
             match decl {
                 Decl::Function(func) => {
-                    self.function_addresses.insert(func.name.clone(), self.instructions.len());
-                    self.compile_function(func);
+                    if func.name == "main" {
+                        main_func = Some(func.clone());
+                    } else {
+                        other_funcs.push(func.clone());
+                    }
                 }
             }
         }
-        
-        // Add program entry point (jump to main function)
-        if self.function_addresses.contains_key("main") {
-            let main_addr = self.function_addresses["main"];
-            // Simply jump to main - don't use call convention for program entry
-            self.instructions.insert(0, Instruction::Jump(main_addr + 1)); // +1 to account for this instruction
-            
-            // Update all function addresses by +1 (for the added instruction)
-            for (_, addr) in self.function_addresses.iter_mut() {
-                *addr += 1;
-            }
-            
-            // Update all Call and Jump instructions
-            for instruction in &mut self.instructions {
-                match instruction {
-                    Instruction::Call(addr) => *addr += 1,
-                    Instruction::Jump(addr) => *addr += 1,
-                    _ => {}
-                }
-            }
+
+        // 2. main関数を最初にコンパイル
+        self.instructions.clear();
+        self.function_addresses.clear();
+        self.local_vars.clear();
+        self.local_offset = 0;
+        if let Some(main) = main_func {
+            self.function_addresses
+                .insert("main".to_string(), self.instructions.len());
+            self.compile_function(&main);
         }
-        
+        // 3. その他の関数を後ろにコンパイル
+        for func in &other_funcs {
+            self.function_addresses
+                .insert(func.name.clone(), self.instructions.len());
+            self.compile_function(func);
+        }
+        // 4. Call, Jump命令のアドレスを修正（mainの位置は0固定なので他はそのまま）
         self.instructions.clone()
     }
-    
+
     /// Compile a function to VM bytecode
     pub fn compile_function(&mut self, func: &Function) -> usize {
         let func_start = self.instructions.len();
-        
+
         // Function prologue - reserve space for local variables
         // (This is simplified - in a real implementation we'd analyze the function first)
         self.local_offset = 0;
         self.local_vars.clear();
-        
+
         // Map parameters to stack positions (negative offsets from BP)
         // Stack layout: [arg0] [arg1] [return_addr] [old_bp] <- BP points here
         for (i, param) in func.params.iter().enumerate() {
             let param_offset = -2 - (func.params.len() as i32) + (i as i32); // Parameters are before return_addr and old_bp
             self.local_vars.insert(param.name.clone(), param_offset);
         }
-        
+
         // Compile function body
         for stmt in &func.body {
             self.compile_statement(stmt);
         }
-        
+
         // Compile return expression if present
         if let Some(return_expr) = &func.return_expr {
             self.compile_expression(return_expr);
@@ -497,7 +538,7 @@ impl VMCompiler {
             // Default return value
             self.instructions.push(Instruction::Push(0));
         }
-        
+
         // Function epilogue
         if func.name == "main" {
             // For main function, just return the value without using function return convention
@@ -505,34 +546,34 @@ impl VMCompiler {
         } else {
             self.instructions.push(Instruction::Ret);
         }
-        
+
         func_start
     }
-    
+
     /// Compile a statement to VM bytecode
     fn compile_statement(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Let { name, value } => {
                 // Compile the value expression
                 self.compile_expression(value);
-                
+
                 // Assign to local variable
                 let offset = self.local_offset;
                 self.local_vars.insert(name.clone(), offset);
                 self.instructions.push(Instruction::SetLocal(offset));
                 self.local_offset += 1;
             }
-            
+
             Stmt::Expression(expr) => {
                 self.compile_expression(expr);
                 self.instructions.push(Instruction::Pop); // Discard result
             }
-            
+
             Stmt::Return(expr) => {
                 self.compile_expression(expr);
                 self.instructions.push(Instruction::Ret);
             }
-            
+
             Stmt::Assign { name, value } => {
                 self.compile_expression(value);
                 if let Some(&offset) = self.local_vars.get(name) {
@@ -542,25 +583,26 @@ impl VMCompiler {
                     panic!("Undefined variable: {}", name);
                 }
             }
-            
+
             // TODO: Implement other statement types
             _ => {
                 // For now, just ignore unsupported statements
             }
         }
     }
-    
+
     /// Compile an expression to VM bytecode
     fn compile_expression(&mut self, expr: &Expr) {
         match expr {
             Expr::Number(value) => {
                 self.instructions.push(Instruction::Push(*value as i32));
             }
-            
+
             Expr::Boolean(value) => {
-                self.instructions.push(Instruction::Push(if *value { 1 } else { 0 }));
+                self.instructions
+                    .push(Instruction::Push(if *value { 1 } else { 0 }));
             }
-            
+
             Expr::Identifier(name) => {
                 if let Some(&offset) = self.local_vars.get(name) {
                     self.instructions.push(Instruction::GetLocal(offset));
@@ -569,11 +611,11 @@ impl VMCompiler {
                     panic!("Undefined variable: {}", name);
                 }
             }
-            
+
             Expr::Binary { left, op, right } => {
                 self.compile_expression(left);
                 self.compile_expression(right);
-                
+
                 match op {
                     BinaryOp::Add => self.instructions.push(Instruction::Add),
                     BinaryOp::Subtract => self.instructions.push(Instruction::Sub),
@@ -591,18 +633,18 @@ impl VMCompiler {
                     BinaryOp::GreaterEqual => self.instructions.push(Instruction::Gte),
                 }
             }
-            
+
             Expr::Call { callee, args } => {
                 // Push arguments onto stack (left to right)
                 for arg in args {
                     self.compile_expression(arg);
                 }
-                
+
                 // Get function address
                 if let Expr::Identifier(func_name) = callee.as_ref() {
                     if let Some(&addr) = self.function_addresses.get(func_name) {
                         self.instructions.push(Instruction::Call(addr));
-                        
+
                         // Note: arguments will be cleaned up by the Call instruction implementation
                         // The return value will be left on the stack
                     } else {
@@ -612,7 +654,7 @@ impl VMCompiler {
                     panic!("Function calls with complex callees not supported yet");
                 }
             }
-            
+
             // TODO: Implement other expression types
             _ => {
                 self.instructions.push(Instruction::Push(0)); // Placeholder
@@ -633,21 +675,21 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
         Expr::Number(value) => {
             instructions.push(Instruction::Push(*value as i32));
         }
-        
+
         Expr::Boolean(value) => {
             instructions.push(Instruction::Push(if *value { 1 } else { 0 }));
         }
-        
+
         Expr::String(_value) => {
             // For now, just push 0 - strings need more complex handling
             instructions.push(Instruction::Push(0));
         }
-        
+
         Expr::Binary { left, op, right } => {
             // Compile operands in order (left first, then right)
             compile_expr_recursive(left, instructions);
             compile_expr_recursive(right, instructions);
-            
+
             // Add the operation instruction
             match op {
                 BinaryOp::Add => instructions.push(Instruction::Add),
@@ -666,22 +708,22 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
                 BinaryOp::GreaterEqual => instructions.push(Instruction::Gte),
             }
         }
-        
+
         Expr::Identifier(_name) => {
             // For now, just push 0 - will implement proper variable handling later
             instructions.push(Instruction::Push(0));
         }
-        
+
         Expr::Call { .. } => {
             // For now, just push 0 - function calls need more complex handling
             instructions.push(Instruction::Push(0));
         }
-        
+
         Expr::VectorNew { .. } => {
             // For now, just push 0 - vectors need more complex handling
             instructions.push(Instruction::Push(0));
         }
-        
+
         Expr::VectorIndex { .. } => {
             // For now, just push 0 - vector indexing needs more complex handling
             instructions.push(Instruction::Push(0));
@@ -696,11 +738,38 @@ mod tests {
     #[test]
     fn test_simple_arithmetic() {
         let test_cases = vec![
-            (vec![Instruction::Push(2), Instruction::Push(3), Instruction::Add], 5),
-            (vec![Instruction::Push(10), Instruction::Push(4), Instruction::Sub], 6),
-            (vec![Instruction::Push(3), Instruction::Push(4), Instruction::Mul], 12),
-            (vec![Instruction::Push(15), Instruction::Push(3), Instruction::Div], 5),
-            (vec![Instruction::Push(10), Instruction::Push(3), Instruction::Mod], 1),
+            (
+                vec![Instruction::Push(2), Instruction::Push(3), Instruction::Add],
+                5,
+            ),
+            (
+                vec![
+                    Instruction::Push(10),
+                    Instruction::Push(4),
+                    Instruction::Sub,
+                ],
+                6,
+            ),
+            (
+                vec![Instruction::Push(3), Instruction::Push(4), Instruction::Mul],
+                12,
+            ),
+            (
+                vec![
+                    Instruction::Push(15),
+                    Instruction::Push(3),
+                    Instruction::Div,
+                ],
+                5,
+            ),
+            (
+                vec![
+                    Instruction::Push(10),
+                    Instruction::Push(3),
+                    Instruction::Mod,
+                ],
+                1,
+            ),
         ];
 
         for (program, expected) in test_cases {
@@ -714,16 +783,46 @@ mod tests {
     #[test]
     fn test_comparison_operations() {
         let test_cases = vec![
-            (vec![Instruction::Push(5), Instruction::Push(5), Instruction::Eq], 1),
-            (vec![Instruction::Push(3), Instruction::Push(7), Instruction::Eq], 0),
-            (vec![Instruction::Push(3), Instruction::Push(7), Instruction::Lt], 1),
-            (vec![Instruction::Push(7), Instruction::Push(3), Instruction::Lt], 0),
-            (vec![Instruction::Push(3), Instruction::Push(7), Instruction::Lte], 1),
-            (vec![Instruction::Push(7), Instruction::Push(7), Instruction::Lte], 1),
-            (vec![Instruction::Push(7), Instruction::Push(3), Instruction::Gt], 1),
-            (vec![Instruction::Push(3), Instruction::Push(7), Instruction::Gt], 0),
-            (vec![Instruction::Push(7), Instruction::Push(3), Instruction::Gte], 1),
-            (vec![Instruction::Push(7), Instruction::Push(7), Instruction::Gte], 1),
+            (
+                vec![Instruction::Push(5), Instruction::Push(5), Instruction::Eq],
+                1,
+            ),
+            (
+                vec![Instruction::Push(3), Instruction::Push(7), Instruction::Eq],
+                0,
+            ),
+            (
+                vec![Instruction::Push(3), Instruction::Push(7), Instruction::Lt],
+                1,
+            ),
+            (
+                vec![Instruction::Push(7), Instruction::Push(3), Instruction::Lt],
+                0,
+            ),
+            (
+                vec![Instruction::Push(3), Instruction::Push(7), Instruction::Lte],
+                1,
+            ),
+            (
+                vec![Instruction::Push(7), Instruction::Push(7), Instruction::Lte],
+                1,
+            ),
+            (
+                vec![Instruction::Push(7), Instruction::Push(3), Instruction::Gt],
+                1,
+            ),
+            (
+                vec![Instruction::Push(3), Instruction::Push(7), Instruction::Gt],
+                0,
+            ),
+            (
+                vec![Instruction::Push(7), Instruction::Push(3), Instruction::Gte],
+                1,
+            ),
+            (
+                vec![Instruction::Push(7), Instruction::Push(7), Instruction::Gte],
+                1,
+            ),
         ];
 
         for (program, expected) in test_cases {
@@ -762,18 +861,18 @@ mod tests {
 
     #[test]
     fn test_ast_compilation() {
-        use crate::ast::{Expr, BinaryOp};
-        
+        use crate::ast::{BinaryOp, Expr};
+
         // Test simple literal
         let expr = Expr::Number(42.0);
         let instructions = compile_expression(&expr);
         assert_eq!(instructions, vec![Instruction::Push(42)]);
-        
+
         // Test boolean
         let expr = Expr::Boolean(true);
         let instructions = compile_expression(&expr);
         assert_eq!(instructions, vec![Instruction::Push(1)]);
-        
+
         // Test binary expression: 2 + 3
         let expr = Expr::Binary {
             left: Box::new(Expr::Number(2.0)),
@@ -781,12 +880,11 @@ mod tests {
             right: Box::new(Expr::Number(3.0)),
         };
         let instructions = compile_expression(&expr);
-        assert_eq!(instructions, vec![
-            Instruction::Push(2),
-            Instruction::Push(3),
-            Instruction::Add,
-        ]);
-        
+        assert_eq!(
+            instructions,
+            vec![Instruction::Push(2), Instruction::Push(3), Instruction::Add,]
+        );
+
         // Test complex expression: (2 + 3) * 4
         let expr = Expr::Binary {
             left: Box::new(Expr::Binary {
@@ -798,19 +896,22 @@ mod tests {
             right: Box::new(Expr::Number(4.0)),
         };
         let instructions = compile_expression(&expr);
-        assert_eq!(instructions, vec![
-            Instruction::Push(2),
-            Instruction::Push(3),
-            Instruction::Add,
-            Instruction::Push(4),
-            Instruction::Mul,
-        ]);
+        assert_eq!(
+            instructions,
+            vec![
+                Instruction::Push(2),
+                Instruction::Push(3),
+                Instruction::Add,
+                Instruction::Push(4),
+                Instruction::Mul,
+            ]
+        );
     }
 
     #[test]
     fn test_ast_to_vm_execution() {
-        use crate::ast::{Expr, BinaryOp};
-        
+        use crate::ast::{BinaryOp, Expr};
+
         // Test 2 + 3 * 4 (should be 14 with proper precedence)
         let expr = Expr::Binary {
             left: Box::new(Expr::Number(2.0)),
@@ -821,7 +922,7 @@ mod tests {
                 right: Box::new(Expr::Number(4.0)),
             }),
         };
-        
+
         let instructions = compile_expression(&expr);
         let mut vm = VM::new();
         vm.load_program(instructions);
@@ -831,8 +932,8 @@ mod tests {
 
     #[test]
     fn test_vm_simple_function() {
-        use crate::ast::{Program, Decl, Function, FunParam};
-        
+        use crate::ast::{Decl, FunParam, Function, Program};
+
         // Create main function: fun main() do return 42; end
         let main_func = Function {
             name: "main".to_string(),
@@ -840,17 +941,15 @@ mod tests {
             body: vec![],
             return_expr: Some(Box::new(Expr::Number(42.0))),
         };
-        
+
         let program = Program {
-            declarations: vec![
-                Decl::Function(main_func),
-            ],
+            declarations: vec![Decl::Function(main_func)],
         };
-        
+
         // Compile and execute
         let mut compiler = VMCompiler::new();
         let instructions = compiler.compile_program(&program);
-        
+
         let mut vm = VM::new();
         vm.load_program(instructions);
         let result = vm.execute().unwrap();
@@ -859,14 +958,20 @@ mod tests {
 
     #[test]
     fn test_vm_function_with_parameters() {
-        use crate::ast::{Program, Decl, Function, FunParam};
-        
+        use crate::ast::{Decl, FunParam, Function, Program};
+
         // Create a simple function: fun add(x, y) do return x + y; end
         let add_func = Function {
             name: "add".to_string(),
             params: vec![
-                FunParam { name: "x".to_string(), type_name: None },
-                FunParam { name: "y".to_string(), type_name: None },
+                FunParam {
+                    name: "x".to_string(),
+                    type_name: None,
+                },
+                FunParam {
+                    name: "y".to_string(),
+                    type_name: None,
+                },
             ],
             body: vec![],
             return_expr: Some(Box::new(Expr::Binary {
@@ -875,7 +980,7 @@ mod tests {
                 right: Box::new(Expr::Identifier("y".to_string())),
             })),
         };
-        
+
         // Create main function: fun main() do return add(2, 3); end
         let main_func = Function {
             name: "main".to_string(),
@@ -883,24 +988,18 @@ mod tests {
             body: vec![],
             return_expr: Some(Box::new(Expr::Call {
                 callee: Box::new(Expr::Identifier("add".to_string())),
-                args: vec![
-                    Expr::Number(2.0),
-                    Expr::Number(3.0),
-                ],
+                args: vec![Expr::Number(2.0), Expr::Number(3.0)],
             })),
         };
-        
+
         let program = Program {
-            declarations: vec![
-                Decl::Function(add_func),
-                Decl::Function(main_func),
-            ],
+            declarations: vec![Decl::Function(add_func), Decl::Function(main_func)],
         };
-        
+
         // Compile and execute
         let mut compiler = VMCompiler::new();
         let instructions = compiler.compile_program(&program);
-        
+
         let mut vm = VM::new();
         vm.load_program(instructions);
         let result = vm.execute().unwrap();
