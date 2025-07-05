@@ -10,6 +10,7 @@ Orbit is a statically typed programming language with JIT compilation for AArch6
 
 - `cargo check --message-format=short` - Check the project for compilation errors (preferred for development)
 - `cargo test` - Run unit tests (ALWAYS run after making changes)
+- `cargo test test_orbit_files` - Run integration tests with .ob files
 
 ## Project Architecture
 
@@ -70,7 +71,19 @@ The language supports:
 
 ### Testing
 
-Test files are in `zig_refs/test/` directory with `.ob` extension for Orbit source files and `.stdout` files for expected output. Heavy performance tests are in `zig_refs/test/heavy/`.
+**Integration Tests**: The Rust implementation includes integration tests in the `tests/testcase/` directory:
+- `.ob` files contain Orbit source code to execute
+- `.stdout` files contain expected output
+- Run with `cargo test test_orbit_files`
+- Tests verify end-to-end functionality of the compiler and runtime
+
+**Unit Tests**: Comprehensive unit tests are embedded in each module:
+- Lexer tests verify token generation
+- Parser tests verify AST construction
+- Runtime tests verify expression evaluation and function execution
+- Run with `cargo test`
+
+**Reference Tests**: Original Zig implementation tests are in `zig_refs/test/` directory with `.ob` extension for Orbit source files and `.stdout` files for expected output. Heavy performance tests are in `zig_refs/test/heavy/`.
 
 ### VS Code Extension
 

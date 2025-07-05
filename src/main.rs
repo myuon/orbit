@@ -8,6 +8,7 @@ use std::fs;
 use std::io::{self, Write};
 
 use anyhow::Result;
+use ast::TokenType;
 use lexer::Lexer;
 use parser::Parser;
 use runtime::Runtime;
@@ -67,18 +68,26 @@ fn main() {
 fn execute_code(code: &str) -> Result<()> {
     let mut runtime = Runtime::new();
     
-    // Split into lines and execute each statement
-    for line in code.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        
-        let result = execute_statement(line, &mut runtime)?;
+    // Try to parse the entire code as a sequence of statements first
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize()?;
+    let mut parser = Parser::new(tokens);
+    
+    // Parse and execute statements until we reach EOF
+    let mut last_value = None;
+    while !matches!(parser.current_token().token_type, TokenType::Eof) {
+        let stmt = parser.parse_stmt()?;
+        let result = runtime.execute_stmt(&stmt)?;
         if let Some(value) = result {
-            println!("{}", value);
+            last_value = Some(value);
         }
     }
+    
+    // Print the last expression value if any
+    if let Some(value) = last_value {
+        println!("{}", value);
+    }
+    
     Ok(())
 }
 

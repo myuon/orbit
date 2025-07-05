@@ -1,0 +1,9 @@
+fun double(x) do
+  return x * 2
+end
+
+fun add_one(x) do
+  return x + 1
+end
+
+add_one(double(3))

@@ -1,0 +1,6 @@
+fun calculate(x) do
+  let temp = x * 2;
+  return temp + 1
+end
+
+calculate(5)

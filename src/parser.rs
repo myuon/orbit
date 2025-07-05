@@ -16,7 +16,7 @@ impl Parser {
         }
     }
 
-    fn current_token(&self) -> &Token {
+    pub fn current_token(&self) -> &Token {
         self.tokens.get(self.position).unwrap_or(&self.eof_token)
     }
 

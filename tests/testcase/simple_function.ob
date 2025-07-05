@@ -1,0 +1,5 @@
+fun add(x, y) do
+  return x + y
+end
+
+add(2, 3)

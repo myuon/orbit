@@ -1,0 +1,3 @@
+let greeting = "Hello, ";
+let name = "World!";
+greeting + name
