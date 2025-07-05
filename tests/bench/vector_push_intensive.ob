@@ -3,7 +3,7 @@
 fun main() do
   let myVec1 = new vec(int) {};
   let myVec2 = new vec(int) {};
-  let count = 10000;
+  let count = 15000;
   let i = 0;
   
   // Push many elements to both vectors

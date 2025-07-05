@@ -1,5 +1,5 @@
 fun main() do
-  let n = 100000;
+  let n = 200000;
   let sum = 0;
   let i = 1;
   

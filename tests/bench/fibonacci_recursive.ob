@@ -9,5 +9,5 @@ fun fibonacci(n) do
 end
 
 fun main() do
-  return fibonacci(28);
+  return fibonacci(29);
 end

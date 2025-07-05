@@ -2,7 +2,7 @@
 // Creates large vector and performs many operations
 fun main() do
   let myVec = new vec(int) {};
-  let size = 10000;
+  let size = 15000;
   let i = 0;
   
   // Fill vector with values
