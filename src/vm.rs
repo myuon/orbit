@@ -475,38 +475,27 @@ impl VMCompiler {
 
     /// Compile a complete program to VM bytecode
     pub fn compile_program(&mut self, program: &Program) -> Vec<Instruction> {
-        // 1. main関数とその他の関数を分けて収集
-        let mut main_func: Option<Function> = None;
-        let mut other_funcs: Vec<Function> = Vec::new();
+        // 1. 関数を定義順に収集
+        let mut functions: Vec<Function> = Vec::new();
         for decl in &program.declarations {
             match decl {
                 Decl::Function(func) => {
-                    if func.name == "main" {
-                        main_func = Some(func.clone());
-                    } else {
-                        other_funcs.push(func.clone());
-                    }
+                    functions.push(func.clone());
                 }
             }
         }
 
-        // 2. main関数を最初にコンパイル
+        // 2. 関数を定義順にコンパイル
         self.instructions.clear();
         self.function_addresses.clear();
         self.local_vars.clear();
         self.local_offset = 0;
-        if let Some(main) = main_func {
-            self.function_addresses
-                .insert("main".to_string(), self.instructions.len());
-            self.compile_function(&main);
+
+        for func in &functions {
+            let func_addr = self.compile_function(func);
+            self.function_addresses.insert(func.name.clone(), func_addr);
         }
-        // 3. その他の関数を後ろにコンパイル
-        for func in &other_funcs {
-            self.function_addresses
-                .insert(func.name.clone(), self.instructions.len());
-            self.compile_function(func);
-        }
-        // 4. Call, Jump命令のアドレスを修正（mainの位置は0固定なので他はそのまま）
+
         self.instructions.clone()
     }
 
@@ -999,6 +988,10 @@ mod tests {
         // Compile and execute
         let mut compiler = VMCompiler::new();
         let instructions = compiler.compile_program(&program);
+
+        for inst in &instructions {
+            println!("{}", inst);
+        }
 
         let mut vm = VM::new();
         vm.load_program(instructions);
