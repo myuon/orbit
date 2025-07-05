@@ -8,6 +8,7 @@ Orbit is a statically typed programming language with JIT compilation for AArch6
 
 ## Build Commands
 
+- `cargo check` - Check the project for compilation errors (preferred for development)
 - `cargo build` - Build the project
 - `cargo run` - Build and run the orbit executable
 - `cargo test` - Run unit tests (ALWAYS run after making changes)
@@ -38,10 +39,12 @@ The compiler follows a traditional multi-stage pipeline:
 ### Key Files
 
 **Current Rust Implementation:**
-- `src/main.rs` - Entry point (currently basic stub)
+- `src/main.rs` - Entry point with REPL and file execution modes
+- `src/ast.rs` - AST definitions and token types for arithmetic expressions
+- `src/lexer.rs` - Tokenizer for numbers and arithmetic operators
+- `src/parser.rs` - Parser that builds AST from tokens
+- `src/runtime.rs` - Runtime system with Value type and expression evaluation
 - `src/compiler.rs` - Main compiler orchestration (to be implemented)
-- `src/ast.rs` - AST definitions and instruction set (to be implemented)
-- `src/runtime.rs` - Runtime system for built-in functions (to be implemented)
 - `src/jit.rs` - JIT compiler for AArch64 native code generation (to be implemented)
 - `src/vm.rs` - Stack-based virtual machine for interpretation (to be implemented)
 
@@ -82,6 +85,7 @@ The `zig_refs/orbit-mode/` directory contains a VS Code extension with syntax hi
 
 ## Development Guidelines
 
+- **Code Check**: Use `cargo check` for quick compilation checks during development
 - **Testing**: Always run `cargo test` after making changes to ensure all tests pass
 - **Migration**: Refer to `TASK.md` for the structured migration plan
 - **Reference**: Use the Zig code in `zig_refs/` as reference for implementation
