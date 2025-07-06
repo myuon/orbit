@@ -13,3 +13,4 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"
+tokio = { version = "1.0", features = ["rt-multi-thread", "time", "macros"] }

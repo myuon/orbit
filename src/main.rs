@@ -1,5 +1,6 @@
 use std::env;
 use std::process;
+use std::time::Duration;
 
 #[derive(Debug)]
 struct Config {
@@ -9,6 +10,7 @@ struct Config {
     print_stacks_on_call: Option<String>,
     profile: bool,
     profile_output: Option<String>,
+    timeout: Option<u64>, // timeout in seconds
 }
 
 fn parse_args() -> Result<Config, String> {
@@ -24,6 +26,7 @@ fn parse_args() -> Result<Config, String> {
     let mut print_stacks_on_call = None;
     let mut profile = false;
     let mut profile_output = None;
+    let mut timeout = None;
     let mut i = 1;
 
     while i < args.len() {
@@ -52,6 +55,14 @@ fn parse_args() -> Result<Config, String> {
             }
             profile = true;
             profile_output = Some(profile_file.to_string());
+        } else if arg.starts_with("--timeout=") {
+            let timeout_str = arg.strip_prefix("--timeout=").unwrap();
+            if timeout_str.is_empty() {
+                return Err("--timeout option requires a value".to_string());
+            }
+            // Parse timeout value (support formats like "10s", "5m", "30")
+            let timeout_secs = parse_timeout(timeout_str)?;
+            timeout = Some(timeout_secs);
         } else if arg == "--help" || arg == "-h" {
             return Err("help".to_string());
         } else if arg.starts_with("--") {
@@ -73,12 +84,36 @@ fn parse_args() -> Result<Config, String> {
             print_stacks_on_call,
             profile,
             profile_output,
+            timeout,
         }),
         None => Err("No input file specified".to_string()),
     }
 }
 
-fn main() {
+/// Parse timeout string like "10s", "5m", "30" (defaults to seconds)
+fn parse_timeout(timeout_str: &str) -> Result<u64, String> {
+    if timeout_str.is_empty() {
+        return Err("Empty timeout value".to_string());
+    }
+    
+    if timeout_str.ends_with('s') {
+        let num_str = &timeout_str[..timeout_str.len() - 1];
+        num_str.parse::<u64>()
+            .map_err(|_| format!("Invalid timeout value: {}", timeout_str))
+    } else if timeout_str.ends_with('m') {
+        let num_str = &timeout_str[..timeout_str.len() - 1];
+        num_str.parse::<u64>()
+            .map(|m| m * 60)
+            .map_err(|_| format!("Invalid timeout value: {}", timeout_str))
+    } else {
+        // Default to seconds if no unit specified
+        timeout_str.parse::<u64>()
+            .map_err(|_| format!("Invalid timeout value: {}", timeout_str))
+    }
+}
+
+#[tokio::main]
+async fn main() {
     let config = match parse_args() {
         Ok(config) => config,
         Err(e) => {
@@ -93,18 +128,21 @@ fn main() {
         }
     };
 
-    let result = if config.profile {
-        // Use profiling execution
-        orbit::execute_file_with_profiling(&config.filename, config.profile_output.as_deref())
-            .map_err(|e| e.into())
+    let result = if let Some(timeout_secs) = config.timeout {
+        // Execute with timeout
+        let timeout_duration = Duration::from_secs(timeout_secs);
+        let execution_future = execute_with_config(&config);
+        
+        match tokio::time::timeout(timeout_duration, execution_future).await {
+            Ok(result) => result,
+            Err(_) => {
+                eprintln!("Error: Execution timed out after {} seconds", timeout_secs);
+                process::exit(1);
+            }
+        }
     } else {
-        // Use regular execution
-        execute_file_with_options(
-            &config.filename,
-            config.dump_ir.as_deref(),
-            config.print_stacks,
-            config.print_stacks_on_call.as_deref(),
-        )
+        // Execute without timeout
+        execute_with_config(&config).await
     };
 
     match result {
@@ -129,10 +167,38 @@ fn print_help(program_name: &str) {
     println!("    --print-stacks-on-call=<func>  Print stack traces only when calling specific function");
     println!("    --profile                Enable profiling and print results");
     println!("    --profile-output=<file>  Enable profiling and save results to file");
+    println!("    --timeout=<time>         Set execution timeout (e.g., 10s, 5m, 30)");
     println!("    -h, --help               Print help information");
     println!();
     println!("ARGS:");
     println!("    <file.ob>           Orbit source file to execute");
+}
+
+/// Execute with configuration in an async context
+async fn execute_with_config(config: &Config) -> Result<Option<orbit::Value>, String> {
+    // Execute in a blocking task since orbit execution is synchronous
+    let filename = config.filename.clone();
+    let dump_ir_file = config.dump_ir.clone();
+    let print_stacks = config.print_stacks;
+    let print_stacks_on_call = config.print_stacks_on_call.clone();
+    let profile = config.profile;
+    let profile_output = config.profile_output.clone();
+    
+    tokio::task::spawn_blocking(move || {
+        if profile {
+            // Use profiling execution
+            orbit::execute_file_with_profiling(&filename, profile_output.as_deref())
+                .map_err(|e| e.to_string())
+        } else {
+            // Use regular execution
+            execute_file_with_options(
+                &filename,
+                dump_ir_file.as_deref(),
+                print_stacks,
+                print_stacks_on_call.as_deref(),
+            ).map_err(|e| e.to_string())
+        }
+    }).await.unwrap()
 }
 
 /// Execute a file with optional IR dumping
