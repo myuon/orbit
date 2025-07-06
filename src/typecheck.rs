@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Decl, Expr, Function, Program, Stmt};
+use crate::ast::{BinaryOp, Decl, Expr, Function, Program, Stmt, IndexContainerType};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
@@ -138,6 +138,180 @@ impl TypeChecker {
         Ok(())
     }
 
+    /// Perform type inference and fill in container types
+    pub fn infer_types(&mut self, program: &mut Program) -> Result<()> {
+        for decl in &mut program.declarations {
+            self.infer_declaration_types(decl)?;
+        }
+        Ok(())
+    }
+
+    fn infer_declaration_types(&mut self, decl: &mut Decl) -> Result<()> {
+        match decl {
+            Decl::Function(function) => self.infer_function_types(function),
+        }
+    }
+
+    fn infer_function_types(&mut self, function: &mut Function) -> Result<()> {
+        // Create new scope for function
+        let mut local_scope = HashMap::new();
+
+        // Add parameters to scope
+        for param in &function.params {
+            let param_type = if let Some(type_name) = &param.type_name {
+                Type::from_string(type_name)
+            } else {
+                Type::Unknown // Type inference could be added later
+            };
+            local_scope.insert(param.name.clone(), param_type);
+        }
+
+        self.call_stack.push(local_scope);
+
+        // Infer types in function body
+        for stmt in &mut function.body {
+            self.infer_statement_types(stmt)?;
+        }
+
+        self.call_stack.pop();
+        Ok(())
+    }
+
+    fn infer_statement_types(&mut self, stmt: &mut Stmt) -> Result<()> {
+        match stmt {
+            Stmt::Let { name, value } => {
+                self.infer_expression_types(value)?;
+                let value_type = self.check_expression(value)?;
+                
+                // Add to current scope
+                if let Some(locals) = self.call_stack.last_mut() {
+                    locals.insert(name.clone(), value_type);
+                } else {
+                    self.variables.insert(name.clone(), value_type);
+                }
+                Ok(())
+            }
+
+            Stmt::Expression(expr) => {
+                self.infer_expression_types(expr)?;
+                Ok(())
+            }
+
+            Stmt::Return(expr) => {
+                self.infer_expression_types(expr)?;
+                Ok(())
+            }
+
+            Stmt::If { condition, then_branch, else_branch } => {
+                self.infer_expression_types(condition)?;
+
+                for stmt in then_branch {
+                    self.infer_statement_types(stmt)?;
+                }
+
+                if let Some(else_stmts) = else_branch {
+                    for stmt in else_stmts {
+                        self.infer_statement_types(stmt)?;
+                    }
+                }
+                Ok(())
+            }
+
+            Stmt::While { condition, body } => {
+                self.infer_expression_types(condition)?;
+
+                for stmt in body {
+                    self.infer_statement_types(stmt)?;
+                }
+                Ok(())
+            }
+
+            Stmt::Assign { name: _, value } => {
+                self.infer_expression_types(value)?;
+                Ok(())
+            }
+
+            Stmt::VectorPush { vector: _, value } => {
+                self.infer_expression_types(value)?;
+                Ok(())
+            }
+
+            Stmt::IndexAssign { container, index, value, container_type } => {
+                self.infer_expression_types(index)?;
+                self.infer_expression_types(value)?;
+
+                // Infer container type based on variable type
+                let collection_type = self.lookup_variable(container)?;
+                match &collection_type {
+                    Type::Vector { .. } => {
+                        *container_type = Some(IndexContainerType::Vector);
+                    }
+                    Type::Map { .. } => {
+                        *container_type = Some(IndexContainerType::Map);
+                    }
+                    _ => {}
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn infer_expression_types(&mut self, expr: &mut Expr) -> Result<()> {
+        match expr {
+            Expr::Number(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) => {
+                // No inference needed for literals and identifiers
+                Ok(())
+            }
+
+            Expr::Binary { left, right, .. } => {
+                self.infer_expression_types(left)?;
+                self.infer_expression_types(right)?;
+                Ok(())
+            }
+
+            Expr::Call { callee, args } => {
+                self.infer_expression_types(callee)?;
+                for arg in args {
+                    self.infer_expression_types(arg)?;
+                }
+                Ok(())
+            }
+
+            Expr::VectorNew { initial_values, .. } => {
+                for value in initial_values {
+                    self.infer_expression_types(value)?;
+                }
+                Ok(())
+            }
+
+            Expr::Index { container, index, container_type } => {
+                self.infer_expression_types(container)?;
+                self.infer_expression_types(index)?;
+
+                // Infer container type based on container expression type
+                let container_value_type = self.check_expression(container)?;
+                match &container_value_type {
+                    Type::Vector { .. } => {
+                        *container_type = Some(IndexContainerType::Vector);
+                    }
+                    Type::Map { .. } => {
+                        *container_type = Some(IndexContainerType::Map);
+                    }
+                    _ => {}
+                }
+                Ok(())
+            }
+
+            Expr::MapNew { initial_pairs, .. } => {
+                for (key, value) in initial_pairs {
+                    self.infer_expression_types(key)?;
+                    self.infer_expression_types(value)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Type check a declaration
     fn check_declaration(&mut self, decl: &Decl) -> Result<()> {
         match decl {
@@ -263,11 +437,12 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Stmt::VectorAssign { vector, index, value } => {
+            Stmt::IndexAssign { container, index, value, container_type: _ } => {
                 let index_type = self.check_expression(index)?;
                 let value_type = self.check_expression(value)?;
-                let collection_type = self.lookup_variable(vector)?;
+                let collection_type = self.lookup_variable(container)?;
                 
+                // Just perform type checking, inference will be done separately
                 match &collection_type {
                     Type::Vector { element_type } => {
                         if !index_type.is_compatible_with(&Type::Number) {
@@ -286,25 +461,6 @@ impl TypeChecker {
                         }
                     }
                     _ => bail!("Cannot index non-vector/map type: {}", collection_type),
-                }
-                Ok(())
-            }
-
-            Stmt::MapAssign { map, key, value } => {
-                let key_type = self.check_expression(key)?;
-                let value_type = self.check_expression(value)?;
-                let map_type = self.lookup_variable(map)?;
-                
-                match &map_type {
-                    Type::Map { key_type: expected_key_type, value_type: expected_value_type } => {
-                        if !key_type.is_compatible_with(expected_key_type) {
-                            bail!("Map key type mismatch: expected {}, got {}", expected_key_type, key_type);
-                        }
-                        if !value_type.is_compatible_with(expected_value_type) {
-                            bail!("Map value type mismatch: expected {}, got {}", expected_value_type, value_type);
-                        }
-                    }
-                    _ => bail!("Cannot assign to non-map type: {}", map_type),
                 }
                 Ok(())
             }
@@ -385,11 +541,12 @@ impl TypeChecker {
                 })
             }
 
-            Expr::VectorIndex { vector, index } => {
-                let vector_type = self.check_expression(vector)?;
+            Expr::Index { container, index, container_type: _ } => {
+                let container_value_type = self.check_expression(container)?;
                 let index_type = self.check_expression(index)?;
                 
-                match &vector_type {
+                // Just perform type checking, inference will be done separately
+                match &container_value_type {
                     Type::Vector { element_type } => {
                         if !index_type.is_compatible_with(&Type::Number) {
                             bail!("Vector index must be number, got {}", index_type);
@@ -402,7 +559,7 @@ impl TypeChecker {
                         }
                         Ok(*value_type.clone())
                     }
-                    _ => bail!("Cannot index non-vector/map type: {}", vector_type),
+                    _ => bail!("Cannot index non-vector/map type: {}", container_value_type),
                 }
             }
 
@@ -429,20 +586,6 @@ impl TypeChecker {
                 })
             }
 
-            Expr::MapIndex { map, key } => {
-                let map_type = self.check_expression(map)?;
-                let key_type = self.check_expression(key)?;
-                
-                match &map_type {
-                    Type::Map { key_type: expected_key_type, value_type } => {
-                        if !key_type.is_compatible_with(expected_key_type) {
-                            bail!("Map key type mismatch: expected {}, got {}", expected_key_type, key_type);
-                        }
-                        Ok(*value_type.clone())
-                    }
-                    _ => bail!("Cannot index non-map type: {}", map_type),
-                }
-            }
         }
     }
 

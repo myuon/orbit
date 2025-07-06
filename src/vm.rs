@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Decl, Expr, Function, Program, Stmt};
+use crate::ast::{BinaryOp, Decl, Expr, Function, Program, Stmt, IndexContainerType};
 use crate::profiler::{InstructionTimer, Profiler};
 use crate::runtime::Value;
 use std::collections::HashMap;
@@ -1015,26 +1015,35 @@ impl VMCompiler {
                 self.instructions.push(Instruction::VectorPush);
             }
 
-            Stmt::VectorAssign {
-                vector,
+            Stmt::IndexAssign {
+                container,
                 index,
                 value,
+                container_type,
             } => {
-                // vector[index] = value
-                // value, index, vectorの順でpushし、VectorSet命令
+                // container[index] = value
+                // Compile different instructions based on container type
                 self.compile_expression(value);
                 self.compile_expression(index);
-                if let Some(&offset) = self.local_vars.get(vector) {
+                if let Some(&offset) = self.local_vars.get(container) {
                     self.instructions.push(Instruction::GetLocal(offset));
                 } else {
-                    panic!("Undefined vector variable: {}", vector);
+                    panic!("Undefined container variable: {}", container);
                 }
-                self.instructions.push(Instruction::VectorSet);
-            }
-            Stmt::MapAssign { map, key, value } => {
-                // Maps are not supported in VM compilation yet
-                // This would need to be handled at runtime level
-                panic!("Map operations not supported in VM compilation");
+                
+                match container_type {
+                    Some(IndexContainerType::Vector) => {
+                        self.instructions.push(Instruction::VectorSet);
+                    }
+                    Some(IndexContainerType::Map) => {
+                        // Maps are not supported in VM compilation yet
+                        panic!("Map operations not supported in VM compilation");
+                    }
+                    None => {
+                        // Type checking should have resolved this
+                        panic!("Container type not resolved during type checking");
+                    }
+                }
             }
         }
     }
@@ -1123,11 +1132,24 @@ impl VMCompiler {
                 self.instructions.push(Instruction::VectorNew);
             }
 
-            Expr::VectorIndex { vector, index } => {
-                // vector, indexの順でpushし、VectorIndex命令
-                self.compile_expression(vector);
+            Expr::Index { container, index, container_type } => {
+                // container, indexの順でpushし、適切なIndex命令
+                self.compile_expression(container);
                 self.compile_expression(index);
-                self.instructions.push(Instruction::VectorIndex);
+                
+                match container_type {
+                    Some(IndexContainerType::Vector) => {
+                        self.instructions.push(Instruction::VectorIndex);
+                    }
+                    Some(IndexContainerType::Map) => {
+                        // Maps are not supported in VM compilation yet
+                        panic!("Map indexing not supported in VM compilation");
+                    }
+                    None => {
+                        // Type checking should have resolved this
+                        panic!("Container type not resolved during type checking");
+                    }
+                }
             }
 
             // TODO: Implement other expression types
@@ -1198,18 +1220,13 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
             instructions.push(Instruction::Push(0));
         }
 
-        Expr::VectorIndex { .. } => {
-            // For now, just push 0 - vector indexing needs more complex handling
+        Expr::Index { .. } => {
+            // For now, just push 0 - indexing needs more complex handling
             instructions.push(Instruction::Push(0));
         }
 
         Expr::MapNew { .. } => {
             // For now, just push 0 - maps need more complex handling
-            instructions.push(Instruction::Push(0));
-        }
-
-        Expr::MapIndex { .. } => {
-            // For now, just push 0 - map indexing needs more complex handling
             instructions.push(Instruction::Push(0));
         }
     }
@@ -1500,6 +1517,7 @@ mod tests {
     fn dump_ir_for_vector_program() {
         use crate::lexer::Lexer;
         use crate::parser::Parser;
+        use crate::typecheck::TypeChecker;
         use crate::vm::VMCompiler;
         use std::fs;
 
@@ -1509,7 +1527,13 @@ mod tests {
         let mut lexer = Lexer::new(&code);
         let tokens = lexer.tokenize().expect("tokenize failed");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse_program().expect("parse_program failed");
+        let mut program = parser.parse_program().expect("parse_program failed");
+        
+        // Perform type checking and inference
+        let mut type_checker = TypeChecker::new();
+        type_checker.infer_types(&mut program).expect("type inference failed");
+        type_checker.check_program(&program).expect("type checking failed");
+        
         let mut compiler = VMCompiler::new();
         compiler.compile_program(&program);
         compiler.dump_ir_to_file(ir_path).expect("dump_ir failed");

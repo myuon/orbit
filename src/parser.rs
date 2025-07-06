@@ -160,7 +160,7 @@ impl Parser {
                         TokenType::Assign => self.parse_assign_stmt(),
                         TokenType::Push => self.parse_vector_push_stmt(),
                         TokenType::LeftBracket => {
-                            // Could be vector[index] = value or map[key] = value
+                            // Could be container[index] = value
                             self.parse_index_assign_or_expr()
                         }
                         _ => {
@@ -298,13 +298,13 @@ impl Parser {
     }
 
     fn parse_index_assign_or_expr(&mut self) -> Result<Stmt> {
-        // We need to check if this is vector[index] = value, map[key] = value, or just a complex expression
+        // We need to check if this is container[index] = value or just a complex expression
         // Let's parse it as an expression first and check if it's followed by assignment
 
         // Save the current position in case we need to backtrack
         let saved_position = self.position;
 
-        // Try to parse vector[index] assignment or map[key] assignment
+        // Try to parse container[index] assignment
         if let Ok(stmt) = self.try_parse_simple_index_assignment() {
             return Ok(stmt);
         }
@@ -336,12 +336,12 @@ impl Parser {
             self.consume(TokenType::Semicolon)?;
             
             // We can't differentiate between vector and map assignment at parse time
-            // For now, we'll assume it's a vector assignment and handle maps in runtime
-            // TODO: Add proper type checking to distinguish between vector and map
-            Ok(Stmt::VectorAssign {
-                vector: name,
+            // Type checking will determine the container type later
+            Ok(Stmt::IndexAssign {
+                container: name,
                 index,
                 value,
+                container_type: None, // Will be filled in by type checker
             })
         } else {
             bail!("Not an index assignment")
@@ -466,29 +466,29 @@ impl Parser {
                         args,
                     };
 
-                    // Check for vector indexing
+                    // Check for container indexing
                     if matches!(self.current_token().token_type, TokenType::LeftBracket) {
                         self.advance(); // consume '['
                         let index = self.parse_expression()?;
                         self.consume(TokenType::RightBracket)?;
-                        expr = Expr::VectorIndex {
-                            vector: Box::new(expr),
+                        expr = Expr::Index {
+                            container: Box::new(expr),
                             index: Box::new(index),
+                            container_type: None, // Will be filled in by type checker
                         };
                     }
 
                     Ok(expr)
                 } else if matches!(self.current_token().token_type, TokenType::LeftBracket) {
-                    // Vector/Map indexing - we'll determine the type at runtime
+                    // Container indexing - we'll determine the type at type checking
                     self.advance(); // consume '['
                     let index = self.parse_expression()?;
                     self.consume(TokenType::RightBracket)?;
                     
-                    // For now, we'll use VectorIndex and handle maps at runtime
-                    // TODO: Add proper type checking to distinguish between vector and map
-                    Ok(Expr::VectorIndex {
-                        vector: Box::new(Expr::Identifier(identifier)),
+                    Ok(Expr::Index {
+                        container: Box::new(Expr::Identifier(identifier)),
                         index: Box::new(index),
+                        container_type: None, // Will be filled in by type checker
                     })
                 } else {
                     Ok(Expr::Identifier(identifier))

@@ -88,6 +88,11 @@ impl Runtime {
 
     /// Execute a complete program by compiling to VM bytecode
     pub fn execute_program(&mut self, program: &Program) -> Result<Option<Value>> {
+        // Check if program contains features not supported by VM (e.g., maps)
+        if self.program_contains_unsupported_features(program) {
+            return self.execute_program_direct(program);
+        }
+
         // Compile program to VM bytecode
         let mut compiler = VMCompiler::new();
         let instructions = compiler.compile_program(program);
@@ -99,6 +104,167 @@ impl Runtime {
         match self.vm.execute() {
             Ok(result) => Ok(Some(Value::Number(result as f64))),
             Err(err) => bail!("VM execution error: {}", err),
+        }
+    }
+
+    /// Execute a complete program directly without VM compilation
+    pub fn execute_program_direct(&mut self, program: &Program) -> Result<Option<Value>> {
+        let mut last_value = None;
+
+        for decl in &program.declarations {
+            match decl {
+                crate::ast::Decl::Function(function) => {
+                    // Add function to runtime environment
+                    let function_value = Value::Function {
+                        params: function.params.clone(),
+                        body: function.body.clone(),
+                        return_expr: None,
+                    };
+                    self.variables.insert(function.name.clone(), function_value);
+                }
+            }
+        }
+
+        // Execute main function if it exists
+        if let Some(main_function) = self.variables.get("main").cloned() {
+            match main_function {
+                Value::Function { params, body, .. } => {
+                    if !params.is_empty() {
+                        bail!("Main function should not have parameters");
+                    }
+
+                    // Execute function body
+                    self.call_stack.push(HashMap::new());
+
+                    for stmt in &body {
+                        if let Some(val) = self.execute_stmt(stmt)? {
+                            last_value = Some(val);
+                        }
+                    }
+
+                    self.call_stack.pop();
+                }
+                _ => bail!("Main is not a function"),
+            }
+        }
+
+        Ok(last_value)
+    }
+
+    /// Check if the program contains features not supported by VM
+    fn program_contains_unsupported_features(&self, program: &Program) -> bool {
+        for decl in &program.declarations {
+            match decl {
+                crate::ast::Decl::Function(function) => {
+                    if self.function_contains_unsupported_features(function) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn function_contains_unsupported_features(&self, function: &crate::ast::Function) -> bool {
+        for stmt in &function.body {
+            if self.statement_contains_unsupported_features(stmt) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn statement_contains_unsupported_features(&self, stmt: &crate::ast::Stmt) -> bool {
+        match stmt {
+            crate::ast::Stmt::Let { value, .. } => self.expression_contains_unsupported_features(value),
+            crate::ast::Stmt::Expression(expr) => self.expression_contains_unsupported_features(expr),
+            crate::ast::Stmt::Return(expr) => self.expression_contains_unsupported_features(expr),
+            crate::ast::Stmt::If { condition, then_branch, else_branch } => {
+                if self.expression_contains_unsupported_features(condition) {
+                    return true;
+                }
+                for stmt in then_branch {
+                    if self.statement_contains_unsupported_features(stmt) {
+                        return true;
+                    }
+                }
+                if let Some(else_stmts) = else_branch {
+                    for stmt in else_stmts {
+                        if self.statement_contains_unsupported_features(stmt) {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+            crate::ast::Stmt::While { condition, body } => {
+                if self.expression_contains_unsupported_features(condition) {
+                    return true;
+                }
+                for stmt in body {
+                    if self.statement_contains_unsupported_features(stmt) {
+                        return true;
+                    }
+                }
+                false
+            }
+            crate::ast::Stmt::Assign { value, .. } => self.expression_contains_unsupported_features(value),
+            crate::ast::Stmt::VectorPush { value, .. } => self.expression_contains_unsupported_features(value),
+            crate::ast::Stmt::IndexAssign { index, value, container_type, .. } => {
+                // Maps are not supported in VM
+                if matches!(container_type, Some(crate::ast::IndexContainerType::Map)) {
+                    return true;
+                }
+                self.expression_contains_unsupported_features(index) ||
+                self.expression_contains_unsupported_features(value)
+            }
+        }
+    }
+
+    fn expression_contains_unsupported_features(&self, expr: &crate::ast::Expr) -> bool {
+        match expr {
+            crate::ast::Expr::Number(_) | crate::ast::Expr::Boolean(_) | 
+            crate::ast::Expr::String(_) | crate::ast::Expr::Identifier(_) => false,
+            
+            crate::ast::Expr::Binary { left, right, .. } => {
+                self.expression_contains_unsupported_features(left) ||
+                self.expression_contains_unsupported_features(right)
+            }
+            
+            crate::ast::Expr::Call { callee, args } => {
+                if self.expression_contains_unsupported_features(callee) {
+                    return true;
+                }
+                for arg in args {
+                    if self.expression_contains_unsupported_features(arg) {
+                        return true;
+                    }
+                }
+                false
+            }
+            
+            crate::ast::Expr::VectorNew { initial_values, .. } => {
+                for value in initial_values {
+                    if self.expression_contains_unsupported_features(value) {
+                        return true;
+                    }
+                }
+                false
+            }
+            
+            crate::ast::Expr::Index { container, index, container_type } => {
+                // Maps are not supported in VM
+                if matches!(container_type, Some(crate::ast::IndexContainerType::Map)) {
+                    return true;
+                }
+                self.expression_contains_unsupported_features(container) ||
+                self.expression_contains_unsupported_features(index)
+            }
+            
+            crate::ast::Expr::MapNew { .. } => {
+                // Maps are not supported in VM
+                true
+            }
         }
     }
 
@@ -207,12 +373,12 @@ impl Runtime {
                 })
             }
 
-            Expr::VectorIndex { vector, index } => {
-                let vector_value = self.evaluate(vector)?;
+            Expr::Index { container, index, container_type } => {
+                let container_value = self.evaluate(container)?;
                 let index_value = self.evaluate(index)?;
 
-                match (&vector_value, &index_value) {
-                    (Value::Vector { elements, .. }, Value::Number(idx)) => {
+                match (&container_value, &index_value, container_type) {
+                    (Value::Vector { elements, .. }, Value::Number(idx), _) => {
                         let idx = *idx as usize;
                         if idx < elements.len() {
                             Ok(elements[idx].clone())
@@ -224,16 +390,16 @@ impl Runtime {
                             )
                         }
                     }
-                    (Value::Vector { .. }, _) => {
+                    (Value::Vector { .. }, _, _) => {
                         bail!("Vector index must be a number")
                     }
-                    (Value::Map { entries, .. }, Value::String(key)) => {
+                    (Value::Map { entries, .. }, Value::String(key), _) => {
                         entries.get(key).cloned().ok_or_else(|| anyhow::anyhow!("Key '{}' not found in map", key))
                     }
-                    (Value::Map { .. }, _) => {
+                    (Value::Map { .. }, _, _) => {
                         bail!("Map key must be a string")
                     }
-                    _ => bail!("Cannot index non-vector/map value: {:?}", vector_value),
+                    _ => bail!("Cannot index non-vector/map value: {:?}", container_value),
                 }
             }
 
@@ -387,8 +553,8 @@ impl Runtime {
                 self.contains_variables(callee)
                     || args.iter().any(|arg| self.contains_variables(arg))
             }
-            Expr::VectorIndex { vector, index } => {
-                self.contains_variables(vector) || self.contains_variables(index)
+            Expr::Index { container, index, .. } => {
+                self.contains_variables(container) || self.contains_variables(index)
             }
             Expr::MapNew { initial_pairs, .. } => {
                 initial_pairs.iter().any(|(key, value)| {
@@ -512,19 +678,20 @@ impl Runtime {
                     bail!("Undefined vector: {}", vector)
                 }
             }
-            Stmt::VectorAssign {
-                vector,
+            Stmt::IndexAssign {
+                container,
                 index,
                 value,
+                container_type,
             } => {
                 let idx_val = self.evaluate(index)?;
                 let new_val = self.evaluate(value)?;
 
                 // Find the variable and update element (could be vector or map)
                 if let Some(locals) = self.call_stack.last_mut() {
-                    if let Some(collection_value) = locals.get_mut(vector) {
-                        match (collection_value, &idx_val) {
-                            (Value::Vector { elements, .. }, Value::Number(idx)) => {
+                    if let Some(collection_value) = locals.get_mut(container) {
+                        match (collection_value, &idx_val, container_type) {
+                            (Value::Vector { elements, .. }, Value::Number(idx), _) => {
                                 let idx = *idx as usize;
                                 if idx < elements.len() {
                                     elements[idx] = new_val;
@@ -537,25 +704,25 @@ impl Runtime {
                                     );
                                 }
                             }
-                            (Value::Map { entries, .. }, Value::String(key)) => {
+                            (Value::Map { entries, .. }, Value::String(key), _) => {
                                 entries.insert(key.clone(), new_val);
                                 return Ok(None);
                             }
-                            (Value::Vector { .. }, _) => {
+                            (Value::Vector { .. }, _, _) => {
                                 bail!("Vector index must be a number")
                             }
-                            (Value::Map { .. }, _) => {
+                            (Value::Map { .. }, _, _) => {
                                 bail!("Map key must be a string")
                             }
-                            _ => bail!("Cannot index non-vector/map value: {}", vector),
+                            _ => bail!("Cannot index non-vector/map value: {}", container),
                         }
                     }
                 }
 
                 // Check global scope
-                if let Some(collection_value) = self.variables.get_mut(vector) {
-                    match (collection_value, &idx_val) {
-                        (Value::Vector { elements, .. }, Value::Number(idx)) => {
+                if let Some(collection_value) = self.variables.get_mut(container) {
+                    match (collection_value, &idx_val, container_type) {
+                        (Value::Vector { elements, .. }, Value::Number(idx), _) => {
                             let idx = *idx as usize;
                             if idx < elements.len() {
                                 elements[idx] = new_val;
@@ -568,55 +735,20 @@ impl Runtime {
                                 );
                             }
                         }
-                        (Value::Map { entries, .. }, Value::String(key)) => {
+                        (Value::Map { entries, .. }, Value::String(key), _) => {
                             entries.insert(key.clone(), new_val);
                             Ok(None)
                         }
-                        (Value::Vector { .. }, _) => {
+                        (Value::Vector { .. }, _, _) => {
                             bail!("Vector index must be a number")
                         }
-                        (Value::Map { .. }, _) => {
+                        (Value::Map { .. }, _, _) => {
                             bail!("Map key must be a string")
                         }
-                        _ => bail!("Cannot index non-vector/map value: {}", vector),
+                        _ => bail!("Cannot index non-vector/map value: {}", container),
                     }
                 } else {
-                    bail!("Undefined variable: {}", vector)
-                }
-            }
-            Stmt::MapAssign { map, key, value } => {
-                let key_val = self.evaluate(key)?;
-                let new_val = self.evaluate(value)?;
-
-                let key_str = match key_val {
-                    Value::String(s) => s,
-                    _ => bail!("Map key must be a string"),
-                };
-
-                // Find the map variable and update element
-                if let Some(locals) = self.call_stack.last_mut() {
-                    if let Some(map_value) = locals.get_mut(map) {
-                        match map_value {
-                            Value::Map { entries, .. } => {
-                                entries.insert(key_str, new_val);
-                                return Ok(None);
-                            }
-                            _ => bail!("Cannot assign to non-map value: {}", map),
-                        }
-                    }
-                }
-
-                // Check global scope
-                if let Some(map_value) = self.variables.get_mut(map) {
-                    match map_value {
-                        Value::Map { entries, .. } => {
-                            entries.insert(key_str, new_val);
-                            Ok(None)
-                        }
-                        _ => bail!("Cannot assign to non-map value: {}", map),
-                    }
-                } else {
-                    bail!("Undefined map: {}", map)
+                    bail!("Undefined variable: {}", container)
                 }
             }
         }

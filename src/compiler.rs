@@ -8,14 +8,12 @@ use anyhow::Result;
 /// Compiler configuration options
 #[derive(Debug, Clone)]
 pub struct CompilerOptions {
-    pub enable_type_checking: bool,
+    // Type checking is always enabled and cannot be disabled
 }
 
 impl Default for CompilerOptions {
     fn default() -> Self {
-        CompilerOptions {
-            enable_type_checking: true,
-        }
+        CompilerOptions {}
     }
 }
 
@@ -45,19 +43,16 @@ impl Compiler {
     /// Compile and execute Orbit source code, returning the last value
     pub fn execute(&mut self, code: &str) -> Result<Option<Value>> {
         let tokens = self.tokenize(code)?;
-        let program = self.parse(tokens)?;
-        
-        if self.options.enable_type_checking {
-            self.typecheck(&program)?;
-        }
-        
-        self.runtime.execute_program(&program)
-    }
+        let mut program = self.parse(tokens)?;
 
-    /// Compile and execute Orbit source code without type checking
-    pub fn execute_unchecked(&mut self, code: &str) -> Result<Option<Value>> {
-        let tokens = self.tokenize(code)?;
-        let program = self.parse(tokens)?;
+        // Type checking is always performed
+        // First perform type inference to fill in container types
+        let mut type_checker = TypeChecker::new();
+        type_checker.infer_types(&mut program)?;
+
+        // Then perform type checking
+        self.typecheck(&program)?;
+
         self.runtime.execute_program(&program)
     }
 

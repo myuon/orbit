@@ -65,7 +65,12 @@ pub fn execute_file_with_ir_dump(filename: &str, ir_dump_file: &str) -> Result<O
 
     let contents = fs::read_to_string(filename)?;
     let mut parser = create_parser(&contents)?;
-    let program = parser.parse_program()?;
+    let mut program = parser.parse_program()?;
+
+    // Perform type checking and inference
+    let mut type_checker = crate::typecheck::TypeChecker::new();
+    type_checker.infer_types(&mut program)?;
+    type_checker.check_program(&program)?;
 
     // Compile to IR and dump
     let mut compiler = VMCompiler::new();
@@ -91,7 +96,12 @@ pub fn execute_file_with_ir_dump_and_options(
 
     let contents = fs::read_to_string(filename)?;
     let mut parser = create_parser(&contents)?;
-    let program = parser.parse_program()?;
+    let mut program = parser.parse_program()?;
+
+    // Perform type checking and inference
+    let mut type_checker = crate::typecheck::TypeChecker::new();
+    type_checker.infer_types(&mut program)?;
+    type_checker.check_program(&program)?;
 
     // Compile to IR and dump
     let mut compiler = VMCompiler::new();
@@ -113,7 +123,12 @@ pub fn execute_file_with_options(filename: &str, print_stacks: bool) -> Result<O
 
     let contents = fs::read_to_string(filename)?;
     let mut parser = create_parser(&contents)?;
-    let program = parser.parse_program()?;
+    let mut program = parser.parse_program()?;
+
+    // Perform type checking and inference
+    let mut type_checker = crate::typecheck::TypeChecker::new();
+    type_checker.infer_types(&mut program)?;
+    type_checker.check_program(&program)?;
 
     // Execute the program with stack printing option
     let mut runtime = Runtime::new();
@@ -129,7 +144,12 @@ pub fn execute_file_with_profiling(
 
     let contents = fs::read_to_string(filename)?;
     let mut parser = create_parser(&contents)?;
-    let program = parser.parse_program()?;
+    let mut program = parser.parse_program()?;
+
+    // Perform type checking and inference
+    let mut type_checker = crate::typecheck::TypeChecker::new();
+    type_checker.infer_types(&mut program)?;
+    type_checker.check_program(&program)?;
 
     // Execute the program with profiling enabled
     let mut runtime = Runtime::new();
@@ -159,7 +179,12 @@ pub fn execute_file_with_options_on_call(
 
     let contents = fs::read_to_string(filename)?;
     let mut parser = create_parser(&contents)?;
-    let program = parser.parse_program()?;
+    let mut program = parser.parse_program()?;
+
+    // Perform type checking and inference
+    let mut type_checker = crate::typecheck::TypeChecker::new();
+    type_checker.infer_types(&mut program)?;
+    type_checker.check_program(&program)?;
 
     // Execute the program with the specified options
     let mut runtime =
@@ -178,7 +203,12 @@ pub fn execute_file_with_ir_dump_and_options_on_call(
 
     let contents = fs::read_to_string(filename)?;
     let mut parser = create_parser(&contents)?;
-    let program = parser.parse_program()?;
+    let mut program = parser.parse_program()?;
+
+    // Perform type checking and inference
+    let mut type_checker = crate::typecheck::TypeChecker::new();
+    type_checker.infer_types(&mut program)?;
+    type_checker.check_program(&program)?;
 
     // Compile to IR and dump
     let mut compiler = VMCompiler::new();

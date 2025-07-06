@@ -67,6 +67,12 @@ pub enum BinaryOp {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum IndexContainerType {
+    Vector,
+    Map,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Number(f64),
     Boolean(bool),
@@ -85,18 +91,15 @@ pub enum Expr {
         element_type: String,
         initial_values: Vec<Expr>,
     },
-    VectorIndex {
-        vector: Box<Expr>,
+    Index {
+        container: Box<Expr>,
         index: Box<Expr>,
+        container_type: Option<IndexContainerType>,
     },
     MapNew {
         key_type: String,
         value_type: String,
         initial_pairs: Vec<(Expr, Expr)>,
-    },
-    MapIndex {
-        map: Box<Expr>,
-        key: Box<Expr>,
     },
 }
 
@@ -151,14 +154,10 @@ pub enum Stmt {
         vector: String,
         value: Expr,
     },
-    VectorAssign {
-        vector: String,
+    IndexAssign {
+        container: String,
         index: Expr,
         value: Expr,
-    },
-    MapAssign {
-        map: String,
-        key: Expr,
-        value: Expr,
+        container_type: Option<IndexContainerType>,
     },
 }
