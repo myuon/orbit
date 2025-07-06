@@ -192,8 +192,15 @@ async fn execute_with_config(config: &Config) -> Result<Option<orbit::Value>, St
     tokio::task::spawn_blocking(move || {
         if profile {
             // Use profiling execution
-            orbit::execute_file_with_profiling(&filename, profile_output.as_deref())
-                .map_err(|e| e.to_string())
+            let options = orbit::CompilerOptions {
+                ir_dump_file: dump_ir_file,
+                print_stacks,
+                print_stacks_on_call,
+                enable_profiling: true,
+                profile_output,
+            };
+            let mut compiler = orbit::Compiler::new_with_options(options);
+            compiler.execute_file(&filename).map_err(|e| e.to_string())
         } else {
             // Use regular execution
             execute_file_with_options(
@@ -209,26 +216,23 @@ async fn execute_with_config(config: &Config) -> Result<Option<orbit::Value>, St
     .unwrap()
 }
 
-/// Execute a file with optional IR dumping
+/// Execute a file with optional IR dumping using the new Compiler API
 fn execute_file_with_options(
     filename: &str,
     dump_ir_file: Option<&str>,
     print_stacks: bool,
     print_stacks_on_call: Option<&str>,
 ) -> Result<Option<orbit::Value>, Box<dyn std::error::Error>> {
-    if let Some(ir_file) = dump_ir_file {
-        // IRダンプとスタックトレースの両方を有効にする
-        orbit::execute_file_with_ir_dump_and_options_on_call(
-            filename,
-            ir_file,
-            print_stacks,
-            print_stacks_on_call,
-        )
-        .map_err(|e| e.into())
-    } else {
-        orbit::execute_file_with_options_on_call(filename, print_stacks, print_stacks_on_call)
-            .map_err(|e| e.into())
-    }
+    let options = orbit::CompilerOptions {
+        ir_dump_file: dump_ir_file.map(|s| s.to_string()),
+        print_stacks,
+        print_stacks_on_call: print_stacks_on_call.map(|s| s.to_string()),
+        enable_profiling: false,
+        profile_output: None,
+    };
+    
+    let mut compiler = orbit::Compiler::new_with_options(options);
+    compiler.execute_file(filename).map_err(|e| e.into())
 }
 
 #[cfg(test)]

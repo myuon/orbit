@@ -1,4 +1,4 @@
-use crate::ast::{Decl, Expr, Function, GlobalVariable, Program, Stmt, StructDecl};
+use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl};
 use anyhow::Result;
 use std::collections::HashMap;
 

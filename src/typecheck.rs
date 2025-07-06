@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, Program, Stmt, StructDecl};
+use crate::ast::{BinaryOp, Decl, Expr, Function, IndexContainerType, Program, Stmt, StructDecl};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
