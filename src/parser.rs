@@ -144,11 +144,7 @@ impl Parser {
 
         self.consume(TokenType::End)?;
 
-        Ok(Function {
-            name,
-            params,
-            body,
-        })
+        Ok(Function { name, params, body })
     }
 
     pub fn parse_stmt(&mut self) -> Result<Stmt> {
@@ -304,21 +300,21 @@ impl Parser {
     fn parse_vector_assign_or_expr(&mut self) -> Result<Stmt> {
         // We need to check if this is vector[index] = value or just a complex expression
         // Let's parse it as an expression first and check if it's followed by assignment
-        
+
         // Save the current position in case we need to backtrack
         let saved_position = self.position;
-        
+
         // Try to parse vector[index] assignment
         if let Ok(vector_name) = self.try_parse_simple_vector_assignment() {
             return Ok(vector_name);
         }
-        
+
         // Reset position and parse as a regular expression
         self.position = saved_position;
         let expr = self.parse_expression()?;
         Ok(Stmt::Expression(expr))
     }
-    
+
     fn try_parse_simple_vector_assignment(&mut self) -> Result<Stmt> {
         let vector = match &self.current_token().token_type {
             TokenType::Identifier(name) => {
@@ -495,7 +491,7 @@ impl Parser {
                 self.advance(); // consume 'new'
                 self.consume(TokenType::Vec)?; // consume 'vec'
                 self.consume(TokenType::LeftParen)?; // consume '('
-                
+
                 // Get the element type
                 let element_type = match &self.current_token().token_type {
                     TokenType::Identifier(type_name) => {
@@ -505,16 +501,16 @@ impl Parser {
                     }
                     _ => bail!("Expected type name in vector constructor"),
                 };
-                
+
                 self.consume(TokenType::RightParen)?; // consume ')'
                 self.consume(TokenType::LeftBrace)?; // consume '{'
-                
+
                 // Parse initial values (if any)
                 let mut initial_values = Vec::new();
                 if !matches!(self.current_token().token_type, TokenType::RightBrace) {
                     loop {
                         initial_values.push(self.parse_expression()?);
-                        
+
                         if matches!(self.current_token().token_type, TokenType::Comma) {
                             self.advance();
                         } else {
@@ -522,7 +518,7 @@ impl Parser {
                         }
                     }
                 }
-                
+
                 self.consume(TokenType::RightBrace)?; // consume '}'
                 Ok(Expr::VectorNew {
                     element_type,

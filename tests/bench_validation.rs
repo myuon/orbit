@@ -19,6 +19,7 @@ fn fibonacci_ref(n: i64) -> i64 {
     }
 }
 
+#[allow(dead_code)]
 fn ackermann_ref(m: i64, n: i64) -> i64 {
     if m == 0 {
         n + 1
@@ -169,7 +170,7 @@ fn test_benchmark_performance_and_correctness() {
             "❌ {} MISMATCH: Orbit result {} does not match Rust reference implementation {}",
             filename, actual_result, expected_result
         );
-        
+
         println!("✅ {} MATCH: {}", filename, actual_result);
 
         let avg_duration = durations.iter().sum::<Duration>().as_secs_f64() / 3.0;

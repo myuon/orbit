@@ -95,19 +95,22 @@ fn parse_timeout(timeout_str: &str) -> Result<u64, String> {
     if timeout_str.is_empty() {
         return Err("Empty timeout value".to_string());
     }
-    
+
     if timeout_str.ends_with('s') {
         let num_str = &timeout_str[..timeout_str.len() - 1];
-        num_str.parse::<u64>()
+        num_str
+            .parse::<u64>()
             .map_err(|_| format!("Invalid timeout value: {}", timeout_str))
     } else if timeout_str.ends_with('m') {
         let num_str = &timeout_str[..timeout_str.len() - 1];
-        num_str.parse::<u64>()
+        num_str
+            .parse::<u64>()
             .map(|m| m * 60)
             .map_err(|_| format!("Invalid timeout value: {}", timeout_str))
     } else {
         // Default to seconds if no unit specified
-        timeout_str.parse::<u64>()
+        timeout_str
+            .parse::<u64>()
             .map_err(|_| format!("Invalid timeout value: {}", timeout_str))
     }
 }
@@ -132,7 +135,7 @@ async fn main() {
         // Execute with timeout
         let timeout_duration = Duration::from_secs(timeout_secs);
         let execution_future = execute_with_config(&config);
-        
+
         match tokio::time::timeout(timeout_duration, execution_future).await {
             Ok(result) => result,
             Err(_) => {
@@ -164,7 +167,9 @@ fn print_help(program_name: &str) {
     println!("OPTIONS:");
     println!("    --dump-ir=<file>         Dump compiled IR to specified file");
     println!("    --print-stacks           Print stack traces during execution");
-    println!("    --print-stacks-on-call=<func>  Print stack traces only when calling specific function");
+    println!(
+        "    --print-stacks-on-call=<func>  Print stack traces only when calling specific function"
+    );
     println!("    --profile                Enable profiling and print results");
     println!("    --profile-output=<file>  Enable profiling and save results to file");
     println!("    --timeout=<time>         Set execution timeout (e.g., 10s, 5m, 30)");
@@ -183,7 +188,7 @@ async fn execute_with_config(config: &Config) -> Result<Option<orbit::Value>, St
     let print_stacks_on_call = config.print_stacks_on_call.clone();
     let profile = config.profile;
     let profile_output = config.profile_output.clone();
-    
+
     tokio::task::spawn_blocking(move || {
         if profile {
             // Use profiling execution
@@ -196,9 +201,12 @@ async fn execute_with_config(config: &Config) -> Result<Option<orbit::Value>, St
                 dump_ir_file.as_deref(),
                 print_stacks,
                 print_stacks_on_call.as_deref(),
-            ).map_err(|e| e.to_string())
+            )
+            .map_err(|e| e.to_string())
         }
-    }).await.unwrap()
+    })
+    .await
+    .unwrap()
 }
 
 /// Execute a file with optional IR dumping
@@ -210,10 +218,16 @@ fn execute_file_with_options(
 ) -> Result<Option<orbit::Value>, Box<dyn std::error::Error>> {
     if let Some(ir_file) = dump_ir_file {
         // IRダンプとスタックトレースの両方を有効にする
-        orbit::execute_file_with_ir_dump_and_options_on_call(filename, ir_file, print_stacks, print_stacks_on_call)
-            .map_err(|e| e.into())
+        orbit::execute_file_with_ir_dump_and_options_on_call(
+            filename,
+            ir_file,
+            print_stacks,
+            print_stacks_on_call,
+        )
+        .map_err(|e| e.into())
     } else {
-        orbit::execute_file_with_options_on_call(filename, print_stacks, print_stacks_on_call).map_err(|e| e.into())
+        orbit::execute_file_with_options_on_call(filename, print_stacks, print_stacks_on_call)
+            .map_err(|e| e.into())
     }
 }
 

@@ -29,11 +29,11 @@ pub enum TokenType {
     // Vector keywords
     New,
     Vec,
-    Push, // <-
-    LeftBracket, // [
+    Push,         // <-
+    LeftBracket,  // [
     RightBracket, // ]
-    LeftBrace, // {
-    RightBrace, // }
+    LeftBrace,    // {
+    RightBrace,   // }
     Fun,
     Do,
     End,
@@ -48,7 +48,6 @@ pub struct Token {
     pub token_type: TokenType,
     pub position: usize,
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinaryOp {
@@ -95,7 +94,6 @@ pub struct FunParam {
     pub name: String,
     pub type_name: Option<String>,
 }
-
 
 // Top-level program structure
 #[derive(Debug, Clone, PartialEq)]
@@ -148,4 +146,3 @@ pub enum Stmt {
         value: Expr,
     },
 }
-

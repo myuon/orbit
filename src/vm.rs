@@ -849,7 +849,7 @@ impl VMCompiler {
         self.instructions.push(Instruction::Push(-1));
 
         // Function epilogue
-        self.emit_function_epilogue(func);
+        self.emit_return_sequence();
 
         func_start
     }
@@ -870,11 +870,6 @@ impl VMCompiler {
             let param_offset = -(func.params.len() as i32 - i as i32 + 2);
             self.local_vars.insert(param.name.clone(), param_offset);
         }
-    }
-
-    /// Emit function epilogue - handles return value and stack cleanup
-    fn emit_function_epilogue(&mut self, func: &Function) {
-        self.emit_return_sequence();
     }
 
     /// Emit return sequence for non-main functions

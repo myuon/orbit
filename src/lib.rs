@@ -133,9 +133,9 @@ pub fn execute_file_with_profiling(
     // Execute the program with profiling enabled
     let mut runtime = Runtime::new();
     runtime.enable_profiling();
-    
+
     let result = runtime.execute_program(&program)?;
-    
+
     // Output profiling results
     if let Some(output_file) = profile_output {
         runtime
@@ -144,7 +144,7 @@ pub fn execute_file_with_profiling(
     } else {
         println!("{}", runtime.get_profile());
     }
-    
+
     Ok(result)
 }
 
@@ -161,7 +161,8 @@ pub fn execute_file_with_options_on_call(
     let program = parser.parse_program()?;
 
     // Execute the program with the specified options
-    let mut runtime = Runtime::new_with_call_tracing(print_stacks, print_stacks_on_call.map(|s| s.to_string()));
+    let mut runtime =
+        Runtime::new_with_call_tracing(print_stacks, print_stacks_on_call.map(|s| s.to_string()));
     runtime.execute_program(&program)
 }
 
@@ -188,7 +189,8 @@ pub fn execute_file_with_ir_dump_and_options_on_call(
         .map_err(|e| anyhow::anyhow!("Failed to write IR dump: {}", e))?;
 
     // Execute the program with the specified options
-    let mut runtime = Runtime::new_with_call_tracing(print_stacks, print_stacks_on_call.map(|s| s.to_string()));
+    let mut runtime =
+        Runtime::new_with_call_tracing(print_stacks, print_stacks_on_call.map(|s| s.to_string()));
     runtime.execute_program(&program)
 }
 
