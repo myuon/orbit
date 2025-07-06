@@ -81,6 +81,7 @@ pub enum Instruction {
     StructNew,
     StructFieldGet,
     StructFieldSet,
+    MethodCall(usize), // Method call with argument count
 }
 
 impl fmt::Display for Instruction {
@@ -130,6 +131,7 @@ impl fmt::Display for Instruction {
             Instruction::StructNew => write!(f, "struct_new"),
             Instruction::StructFieldGet => write!(f, "struct_field_get"),
             Instruction::StructFieldSet => write!(f, "struct_field_set"),
+            Instruction::MethodCall(argc) => write!(f, "method_call {}", argc),
         }
     }
 }
@@ -978,6 +980,70 @@ impl VM {
                         _ => return Err("StructFieldSet requires heap references".to_string()),
                     }
                 }
+
+                Instruction::MethodCall(argc) => {
+                    // For now, convert method calls to regular function calls with name mangling
+                    // This is a simplified implementation that assumes we have type information
+                    // Stack: [args...] [object] [method_name]
+                    if self.stack.len() < argc + 2 {
+                        return Err("Stack underflow for MethodCall".to_string());
+                    }
+                    
+                    // Get method name
+                    let method_name_ref = self.stack.pop().unwrap();
+                    let method_name = match method_name_ref {
+                        Value::HeapRef(heap_index) => {
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
+                            }
+                            match &self.heap[heap_index.0] {
+                                HeapObject::String(s) => s.clone(),
+                                _ => return Err("MethodCall requires a string method name".to_string()),
+                            }
+                        }
+                        _ => return Err("MethodCall requires a heap reference for method name".to_string()),
+                    };
+                    
+                    // Get object - we need to determine its struct type
+                    // For now, we'll hardcode this for the Point example
+                    // In a real implementation, we'd store type information with the object
+                    let object = self.stack.pop().unwrap();
+                    
+                    // Push object back as first argument for method call
+                    self.stack.push(object);
+                    
+                    // For the Point example, assume it's a Point struct
+                    // In a real implementation, we'd look up the type information
+                    let mangled_method_name = format!("Point_{}", method_name);
+                    
+                    // Create a function call instruction
+                    let call_instruction = Instruction::Call(mangled_method_name);
+                    
+                    // Set up stack frame and call the function
+                    // Push return address, old BP, etc.
+                    let old_bp = self.bp;
+                    let return_address = self.pc + 1;
+                    
+                    // Set up new frame
+                    self.stack.push(Value::Number(-1.0)); // placeholder for return value
+                    self.stack.push(Value::Number(return_address as f64));
+                    self.stack.push(Value::Number(old_bp as f64));
+                    self.stack.push(Value::Number((self.stack.len() - argc - 1) as f64));
+                    
+                    self.bp = self.stack.len() - 1;
+                    
+                    // Find and jump to function
+                    if let Instruction::Call(func_name) = &call_instruction {
+                        for (i, instr) in self.program.iter().enumerate() {
+                            if let Instruction::Label(label) = instr {
+                                if label == func_name {
+                                    self.pc = i + 1;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // Record profiling data if enabled
@@ -1094,11 +1160,19 @@ impl VMCompiler {
 
     /// Compile a complete program to VM bytecode
     pub fn compile_program(&mut self, program: &Program) -> Vec<Instruction> {
-        // 0. First pass: register all struct types
+        // 0. First pass: register all struct types and collect methods
         self.structs.clear();
+        let mut all_methods: Vec<Function> = Vec::new();
         for decl in &program.declarations {
             if let Decl::Struct(struct_decl) = decl {
                 self.structs.insert(struct_decl.name.clone(), struct_decl.clone());
+                
+                // Collect struct methods with name mangling
+                for method in &struct_decl.methods {
+                    let mut mangled_method = method.clone();
+                    mangled_method.name = format!("{}_{}", struct_decl.name, method.name);
+                    all_methods.push(mangled_method);
+                }
             }
         }
         
@@ -1115,6 +1189,12 @@ impl VMCompiler {
                     // Already handled in first pass
                 }
             }
+        }
+        
+        // Register struct methods in the function registry
+        for method in &all_methods {
+            functions.push(method.clone());
+            self.functions.insert(method.name.clone(), method.clone());
         }
 
         // 2. プログラムの先頭に call main; ret を挿入
@@ -1514,6 +1594,20 @@ impl VMCompiler {
                 self.instructions.push(Instruction::PushString(field.clone()));
                 self.instructions.push(Instruction::StructFieldGet);
             }
+
+            Expr::MethodCall { object, method, args } => {
+                // Method calls are compiled as function calls with name mangling
+                // First, determine the object type to construct the method name
+                // For now, we'll need to get the struct type at runtime
+                for arg in args {
+                    self.compile_expression(arg);
+                }
+                self.compile_expression(object);
+                
+                // Push the method name - the actual mangled name will be resolved at runtime
+                self.instructions.push(Instruction::PushString(method.clone()));
+                self.instructions.push(Instruction::MethodCall(args.len()));
+            }
         }
     }
 }
@@ -1604,6 +1698,19 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
             compile_expr_recursive(object, instructions);
             instructions.push(Instruction::PushString(field.clone()));
             instructions.push(Instruction::StructFieldGet);
+        }
+
+        Expr::MethodCall { object, method, args } => {
+            // Compile arguments first
+            for arg in args {
+                compile_expr_recursive(arg, instructions);
+            }
+            // Compile object
+            compile_expr_recursive(object, instructions);
+            // Push method name
+            instructions.push(Instruction::PushString(method.clone()));
+            // Method call with argument count
+            instructions.push(Instruction::MethodCall(args.len()));
         }
     }
 }

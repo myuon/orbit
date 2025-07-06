@@ -169,45 +169,53 @@ impl Parser {
         self.consume(TokenType::LeftBrace)?;
 
         let mut fields = Vec::new();
+        let mut methods = Vec::new();
 
         while !matches!(self.current_token().token_type, TokenType::RightBrace) {
             if matches!(self.current_token().token_type, TokenType::Eof) {
                 bail!("Unexpected end of file in struct declaration");
             }
 
-            let field_name = match &self.current_token().token_type {
-                TokenType::Identifier(name) => {
-                    let n = name.clone();
+            // Check if this is a method definition
+            if matches!(self.current_token().token_type, TokenType::Fun) {
+                let method = self.parse_function()?;
+                methods.push(method);
+            } else {
+                // Parse field
+                let field_name = match &self.current_token().token_type {
+                    TokenType::Identifier(name) => {
+                        let n = name.clone();
+                        self.advance();
+                        n
+                    }
+                    _ => bail!("Expected field name in struct declaration"),
+                };
+
+                self.consume(TokenType::Colon)?;
+
+                let type_name = match &self.current_token().token_type {
+                    TokenType::Identifier(name) => {
+                        let n = name.clone();
+                        self.advance();
+                        n
+                    }
+                    _ => bail!("Expected type name in struct field"),
+                };
+
+                fields.push(StructField { name: field_name, type_name });
+
+                if matches!(self.current_token().token_type, TokenType::Comma) {
                     self.advance();
-                    n
+                } else if !matches!(self.current_token().token_type, TokenType::RightBrace) && !matches!(self.current_token().token_type, TokenType::Fun) {
+                    bail!("Expected ',' or '}}' in struct declaration");
                 }
-                _ => bail!("Expected field name in struct declaration"),
-            };
-
-            self.consume(TokenType::Colon)?;
-
-            let type_name = match &self.current_token().token_type {
-                TokenType::Identifier(name) => {
-                    let n = name.clone();
-                    self.advance();
-                    n
-                }
-                _ => bail!("Expected type name in struct field"),
-            };
-
-            fields.push(StructField { name: field_name, type_name });
-
-            if matches!(self.current_token().token_type, TokenType::Comma) {
-                self.advance();
-            } else if !matches!(self.current_token().token_type, TokenType::RightBrace) {
-                bail!("Expected ',' or '}}' in struct declaration");
             }
         }
 
         self.consume(TokenType::RightBrace)?;
         self.consume(TokenType::Semicolon)?;
 
-        Ok(StructDecl { name, fields })
+        Ok(StructDecl { name, fields, methods })
     }
 
     pub fn parse_stmt(&mut self) -> Result<Stmt> {
@@ -563,7 +571,7 @@ impl Parser {
                         container_type: None, // Will be filled in by type checker
                     })
                 } else {
-                    // Check for field access
+                    // Check for field access or method call
                     let mut expr = Expr::Identifier(identifier);
                     
                     while matches!(self.current_token().token_type, TokenType::Dot) {
@@ -577,10 +585,36 @@ impl Parser {
                             _ => bail!("Expected field name after '.'"),
                         };
                         
-                        expr = Expr::FieldAccess {
-                            object: Box::new(expr),
-                            field: field_name,
-                        };
+                        // Check if this is a method call (followed by parentheses)
+                        if matches!(self.current_token().token_type, TokenType::LeftParen) {
+                            self.advance(); // consume '('
+                            let mut args = Vec::new();
+
+                            if !matches!(self.current_token().token_type, TokenType::RightParen) {
+                                loop {
+                                    args.push(self.parse_expression()?);
+
+                                    if matches!(self.current_token().token_type, TokenType::Comma) {
+                                        self.advance();
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+
+                            self.consume(TokenType::RightParen)?;
+                            expr = Expr::MethodCall {
+                                object: Box::new(expr),
+                                method: field_name,
+                                args,
+                            };
+                        } else {
+                            // Regular field access
+                            expr = Expr::FieldAccess {
+                                object: Box::new(expr),
+                                field: field_name,
+                            };
+                        }
                     }
                     
                     Ok(expr)
@@ -778,5 +812,65 @@ impl Parser {
         self.consume(TokenType::Semicolon)?;
         
         Ok(Stmt::FieldAssign { object, field, value })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer::Lexer;
+
+    #[test]
+    fn test_struct_with_methods_parsing() {
+        let code = r#"
+type Point = struct {
+  x: int,
+  y: int,
+
+  fun sum(self: Point) do
+    return self.x + self.y;
+  end
+};
+"#;
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().unwrap();
+        
+        assert_eq!(program.declarations.len(), 1);
+        
+        if let Decl::Struct(struct_decl) = &program.declarations[0] {
+            assert_eq!(struct_decl.name, "Point");
+            assert_eq!(struct_decl.fields.len(), 2);
+            assert_eq!(struct_decl.methods.len(), 1);
+            
+            let method = &struct_decl.methods[0];
+            assert_eq!(method.name, "sum");
+            assert_eq!(method.params.len(), 1);
+            assert_eq!(method.params[0].name, "self");
+        } else {
+            panic!("Expected struct declaration");
+        }
+    }
+
+    #[test]
+    fn test_method_call_parsing() {
+        let code = "p.sum()";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse().unwrap();
+        
+        if let Expr::MethodCall { object, method, args } = expr {
+            if let Expr::Identifier(obj_name) = object.as_ref() {
+                assert_eq!(obj_name, "p");
+            } else {
+                panic!("Expected identifier for object");
+            }
+            assert_eq!(method, "sum");
+            assert_eq!(args.len(), 0);
+        } else {
+            panic!("Expected method call, got: {:?}", expr);
+        }
     }
 }

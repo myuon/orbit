@@ -116,6 +116,7 @@ The `zig_refs/orbit-mode/` directory contains a VS Code extension with syntax hi
 - **Comments**: Add comments to explain "why" something is done, not "what" is being done, especially for non-standard implementations
 - **Git Commits**: Use Conventional Commit format (e.g., `feat: add new feature`, `fix(parser): resolve parsing issue`)
 - **Language**: All source code, comments, and commit messages should be in English
+- **Debug Files**: Always create temporary debug files in `./tmp/` directory, not in the project root. Clean up after debugging.
 
 ## Migration Priority
 

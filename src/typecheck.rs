@@ -385,11 +385,24 @@ impl TypeChecker {
                 self.infer_expression_types(object)?;
                 Ok(())
             }
+
+            Expr::MethodCall { object, args, .. } => {
+                self.infer_expression_types(object)?;
+                for arg in args {
+                    self.infer_expression_types(arg)?;
+                }
+                Ok(())
+            }
         }
     }
 
     /// Register a function signature for later type checking
     fn register_function(&mut self, function: &Function) -> Result<()> {
+        self.register_function_with_name(&function.name, function)
+    }
+
+    /// Register a function signature with a specific name (for name mangling)
+    fn register_function_with_name(&mut self, name: &str, function: &Function) -> Result<()> {
         // Determine parameter types
         let mut param_types = Vec::new();
         for param in &function.params {
@@ -409,7 +422,7 @@ impl TypeChecker {
             return_type: Box::new(return_type),
         };
 
-        self.functions.insert(function.name.clone(), function_type);
+        self.functions.insert(name.to_string(), function_type);
         Ok(())
     }
 
@@ -428,6 +441,13 @@ impl TypeChecker {
 
         // Register the struct type in the type registry
         self.structs.insert(struct_decl.name.clone(), struct_type);
+        
+        // Register struct methods with name mangling
+        for method in &struct_decl.methods {
+            let mangled_name = format!("{}_{}", struct_decl.name, method.name);
+            self.register_function_with_name(&mangled_name, method)?;
+        }
+        
         Ok(())
     }
 
@@ -915,6 +935,26 @@ impl TypeChecker {
                             .ok_or_else(|| anyhow::anyhow!("Field '{}' not found in struct", field))
                     }
                     _ => bail!("Cannot access field '{}' on non-struct type: {}", field, object_type),
+                }
+            }
+
+            Expr::MethodCall { object, method, args } => {
+                let object_type = self.check_expression(object)?;
+                match object_type {
+                    Type::Struct { name, .. } => {
+                        // Method calls will be handled by name mangling
+                        // For now, return Unknown type - this will be refined later
+                        // when we implement proper method resolution
+                        let method_name = format!("{}_{}", name, method);
+                        
+                        // For now, just verify the method exists by checking if it's a registered function
+                        if let Some(_) = self.functions.get(&method_name) {
+                            Ok(Type::Unknown) // Return type will be determined by function signature
+                        } else {
+                            bail!("Method '{}' not found for struct type '{}'", method, name)
+                        }
+                    }
+                    _ => bail!("Cannot call method '{}' on non-struct type: {}", method, object_type),
                 }
             }
         }

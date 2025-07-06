@@ -113,6 +113,11 @@ pub enum Expr {
         object: Box<Expr>,
         field: String,
     },
+    MethodCall {
+        object: Box<Expr>,
+        method: String,
+        args: Vec<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -139,6 +144,7 @@ pub enum Decl {
 pub struct StructDecl {
     pub name: String,
     pub fields: Vec<StructField>,
+    pub methods: Vec<Function>,
 }
 
 // Struct field
