@@ -747,6 +747,7 @@ pub struct VMCompiler {
     local_offset: i32,
     current_function_param_count: usize,
     current_function_name: String,
+    functions: HashMap<String, Function>,
 }
 
 impl VMCompiler {
@@ -757,6 +758,7 @@ impl VMCompiler {
             local_offset: 0,
             current_function_param_count: 0,
             current_function_name: String::new(),
+            functions: HashMap::new(),
         }
     }
 
@@ -794,12 +796,14 @@ impl VMCompiler {
 
     /// Compile a complete program to VM bytecode
     pub fn compile_program(&mut self, program: &Program) -> Vec<Instruction> {
-        // 1. 関数を定義順に収集
+        // 1. 関数を定義順に収集し、関数レジストリに登録
         let mut functions: Vec<Function> = Vec::new();
+        self.functions.clear();
         for decl in &program.declarations {
             match decl {
                 Decl::Function(func) => {
                     functions.push(func.clone());
+                    self.functions.insert(func.name.clone(), func.clone());
                 }
             }
         }
@@ -1063,6 +1067,11 @@ impl VMCompiler {
             Expr::Identifier(name) => {
                 if let Some(&offset) = self.local_vars.get(name) {
                     self.instructions.push(Instruction::GetLocal(offset));
+                } else if self.functions.contains_key(name) {
+                    // Function identifier used as expression (function pointer/name)
+                    // For now, just push a placeholder value - functions should be called, not used as values
+                    // This could be enhanced later to support function pointers
+                    panic!("Function '{}' cannot be used as a value (use function calls instead)", name);
                 } else {
                     // This should be caught by type checker
                     panic!("Undefined variable: {}", name);
@@ -1102,6 +1111,11 @@ impl VMCompiler {
                 }
 
                 if let Expr::Identifier(func_name) = callee.as_ref() {
+                    // Check if function exists
+                    if !self.functions.contains_key(func_name) {
+                        panic!("Undefined function: {}", func_name);
+                    }
+
                     // 3. Push current PC + offset (return address)
                     // PC will be at Call instruction, so return address is PC + 1
                     self.instructions.push(Instruction::GetPC);

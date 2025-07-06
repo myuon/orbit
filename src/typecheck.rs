@@ -139,6 +139,8 @@ pub struct TypeChecker {
     call_stack: Vec<HashMap<String, Type>>,
     /// Current function return type
     current_return_type: Option<Type>,
+    /// Function registry for function signatures
+    functions: HashMap<String, Type>,
 }
 
 impl TypeChecker {
@@ -147,11 +149,22 @@ impl TypeChecker {
             variables: HashMap::new(),
             call_stack: Vec::new(),
             current_return_type: None,
+            functions: HashMap::new(),
         }
     }
 
     /// Type check a complete program
     pub fn check_program(&mut self, program: &Program) -> Result<()> {
+        // First pass: register all function signatures
+        for decl in &program.declarations {
+            match decl {
+                Decl::Function(function) => {
+                    self.register_function(function)?;
+                }
+            }
+        }
+        
+        // Second pass: check function bodies
         for decl in &program.declarations {
             self.check_declaration(decl)?;
         }
@@ -343,6 +356,31 @@ impl TypeChecker {
                 Ok(())
             }
         }
+    }
+
+    /// Register a function signature for later type checking
+    fn register_function(&mut self, function: &Function) -> Result<()> {
+        // Determine parameter types
+        let mut param_types = Vec::new();
+        for param in &function.params {
+            let param_type = if let Some(type_name) = &param.type_name {
+                Type::from_string(type_name)
+            } else {
+                Type::Unknown // For now, allow unknown types
+            };
+            param_types.push(param_type);
+        }
+
+        // For now, assume all functions return Number (could be inferred later)
+        let return_type = Type::Number;
+
+        let function_type = Type::Function {
+            param_types,
+            return_type: Box::new(return_type),
+        };
+
+        self.functions.insert(function.name.clone(), function_type);
+        Ok(())
     }
 
     /// Type check a declaration
@@ -611,13 +649,50 @@ impl TypeChecker {
             }
 
             Expr::Call { callee, args } => {
-                // For now, assume all function calls return unknown type
-                // This would need proper function signature lookup
-                let _callee_type = self.check_expression(callee)?;
-                for arg in args {
-                    self.check_expression(arg)?;
+                // Check if the callee is a function identifier
+                if let Expr::Identifier(func_name) = callee.as_ref() {
+                    // Look up function signature and clone it to avoid borrow checker issues
+                    if let Some(func_type) = self.functions.get(func_name).cloned() {
+                        if let Type::Function { param_types, return_type } = func_type {
+                            // Check argument count
+                            if args.len() != param_types.len() {
+                                bail!(
+                                    "Function '{}' expects {} arguments, got {}",
+                                    func_name,
+                                    param_types.len(),
+                                    args.len()
+                                );
+                            }
+
+                            // Check argument types
+                            for (i, arg) in args.iter().enumerate() {
+                                let arg_type = self.check_expression(arg)?;
+                                if !arg_type.is_compatible_with(&param_types[i]) {
+                                    bail!(
+                                        "Function '{}' argument {} type mismatch: expected {}, got {}",
+                                        func_name,
+                                        i + 1,
+                                        param_types[i],
+                                        arg_type
+                                    );
+                                }
+                            }
+
+                            Ok(*return_type)
+                        } else {
+                            bail!("'{}' is not a function", func_name);
+                        }
+                    } else {
+                        bail!("Undefined function: {}", func_name);
+                    }
+                } else {
+                    // Handle complex function expressions (function pointers, etc.)
+                    let _callee_type = self.check_expression(callee)?;
+                    for arg in args {
+                        self.check_expression(arg)?;
+                    }
+                    Ok(Type::Unknown) // For now, return unknown for complex function calls
                 }
-                Ok(Type::Unknown) // Function call return type needs proper implementation
             }
 
             Expr::VectorNew {
@@ -723,10 +798,16 @@ impl TypeChecker {
         }
 
         // Then check global variables
-        self.variables
-            .get(name)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("Undefined variable: {}", name))
+        if let Some(var_type) = self.variables.get(name) {
+            return Ok(var_type.clone());
+        }
+
+        // Finally check functions (functions can be used as values)
+        if let Some(func_type) = self.functions.get(name) {
+            return Ok(func_type.clone());
+        }
+
+        bail!("Undefined variable: {}", name)
     }
 }
 
