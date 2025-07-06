@@ -8,6 +8,7 @@ use std::fmt;
 pub enum Instruction {
     // Stack operations
     Push(i64),
+    PushString(String),
     Pop,
 
     // Arithmetic operations
@@ -62,12 +63,18 @@ pub enum Instruction {
     VectorPush,
     VectorIndex,
     VectorSet,
+    
+    // Map operations
+    MapNew,
+    MapIndex,
+    MapSet,
 }
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Instruction::Push(value) => write!(f, "push {}", value),
+            Instruction::PushString(s) => write!(f, "push_string \"{}\"", s),
             Instruction::Pop => write!(f, "pop"),
             Instruction::Add => write!(f, "add"),
             Instruction::Sub => write!(f, "sub"),
@@ -100,6 +107,9 @@ impl fmt::Display for Instruction {
             Instruction::VectorPush => write!(f, "vector_push"),
             Instruction::VectorIndex => write!(f, "vector_index"),
             Instruction::VectorSet => write!(f, "vector_set"),
+            Instruction::MapNew => write!(f, "map_new"),
+            Instruction::MapIndex => write!(f, "map_index"),
+            Instruction::MapSet => write!(f, "map_set"),
         }
     }
 }
@@ -114,6 +124,8 @@ pub struct VM {
     pub print_stacks: bool, // whether to print stack state during execution
     print_stacks_on_call: Option<String>, // print stacks only when calling this function
     vectors: Vec<Vec<Value>>, // vector storage
+    maps: Vec<HashMap<String, Value>>, // map storage
+    strings: Vec<String>, // string literals storage
     // Profiling
     pub profiler: Profiler,
 }
@@ -141,6 +153,8 @@ impl VM {
             print_stacks,
             print_stacks_on_call: None,
             vectors: Vec::new(),
+            maps: Vec::new(),
+            strings: Vec::new(),
             profiler: Profiler::new_with_enabled(enable_profiling),
         }
     }
@@ -159,6 +173,8 @@ impl VM {
             print_stacks,
             print_stacks_on_call,
             vectors: Vec::new(),
+            maps: Vec::new(),
+            strings: Vec::new(),
             profiler: Profiler::new_with_enabled(enable_profiling),
         }
     }
@@ -199,6 +215,10 @@ impl VM {
 
                 Instruction::Push(value) => {
                     self.stack.push(Value::Number(*value as f64));
+                }
+
+                Instruction::PushString(s) => {
+                    self.stack.push(Value::String(s.clone()));
                 }
 
                 Instruction::Pop => {
@@ -683,6 +703,61 @@ impl VM {
                         _ => return Err("VectorSet requires numbers for both indices".to_string()),
                     }
                 }
+
+                Instruction::MapNew => {
+                    // Create a new empty map and push its index
+                    let map_index = self.maps.len();
+                    self.maps.push(HashMap::new());
+                    self.stack.push(Value::Number(map_index as f64));
+                }
+
+                Instruction::MapIndex => {
+                    // Stack: [map_index] [key]
+                    if self.stack.len() < 2 {
+                        return Err("Stack underflow for MapIndex".to_string());
+                    }
+                    let key_value = self.stack.pop().unwrap();
+                    let map_index_value = self.stack.pop().unwrap();
+                    match (map_index_value, key_value) {
+                        (Value::Number(map_index), Value::String(key)) => {
+                            let map_index = map_index as usize;
+                            if map_index >= self.maps.len() {
+                                return Err(format!("Invalid map index: {}", map_index));
+                            }
+                            match self.maps[map_index].get(&key) {
+                                Some(value) => {
+                                    self.stack.push(value.clone());
+                                }
+                                None => {
+                                    return Err(format!("Key '{}' not found in map", key));
+                                }
+                            }
+                        }
+                        _ => {
+                            return Err("MapIndex requires a map index (number) and key (string)".to_string())
+                        }
+                    }
+                }
+
+                Instruction::MapSet => {
+                    // Stack: [value] [key] [map_index]
+                    if self.stack.len() < 3 {
+                        return Err("Stack underflow for MapSet".to_string());
+                    }
+                    let map_index_value = self.stack.pop().unwrap();
+                    let key_value = self.stack.pop().unwrap();
+                    let value = self.stack.pop().unwrap();
+                    match (map_index_value, key_value) {
+                        (Value::Number(map_index), Value::String(key)) => {
+                            let map_index = map_index as usize;
+                            if map_index >= self.maps.len() {
+                                return Err(format!("Invalid map index: {}", map_index));
+                            }
+                            self.maps[map_index].insert(key, value);
+                        }
+                        _ => return Err("MapSet requires a map index (number) and key (string)".to_string()),
+                    }
+                }
             }
 
             // Record profiling data if enabled
@@ -1040,8 +1115,7 @@ impl VMCompiler {
                         self.instructions.push(Instruction::VectorSet);
                     }
                     Some(IndexContainerType::Map) => {
-                        // Maps are not supported in VM compilation yet
-                        panic!("Map operations not supported in VM compilation");
+                        self.instructions.push(Instruction::MapSet);
                     }
                     None => {
                         // Type checking should have resolved this
@@ -1062,6 +1136,10 @@ impl VMCompiler {
             Expr::Boolean(value) => {
                 self.instructions
                     .push(Instruction::Push(if *value { 1 } else { 0 }));
+            }
+
+            Expr::String(value) => {
+                self.instructions.push(Instruction::PushString(value.clone()));
             }
 
             Expr::Identifier(name) => {
@@ -1160,8 +1238,7 @@ impl VMCompiler {
                         self.instructions.push(Instruction::VectorIndex);
                     }
                     Some(IndexContainerType::Map) => {
-                        // Maps are not supported in VM compilation yet
-                        panic!("Map indexing not supported in VM compilation");
+                        self.instructions.push(Instruction::MapIndex);
                     }
                     None => {
                         // Type checking should have resolved this
@@ -1170,9 +1247,8 @@ impl VMCompiler {
                 }
             }
 
-            // TODO: Implement other expression types
-            _ => {
-                self.instructions.push(Instruction::Push(0)); // Placeholder
+            Expr::MapNew { .. } => {
+                self.instructions.push(Instruction::MapNew);
             }
         }
     }
@@ -1195,9 +1271,8 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
             instructions.push(Instruction::Push(if *value { 1 } else { 0 }));
         }
 
-        Expr::String(_value) => {
-            // For now, just push 0 - strings need more complex handling
-            instructions.push(Instruction::Push(0));
+        Expr::String(value) => {
+            instructions.push(Instruction::PushString(value.clone()));
         }
 
         Expr::Binary { left, op, right } => {
@@ -1244,8 +1319,7 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
         }
 
         Expr::MapNew { .. } => {
-            // For now, just push 0 - maps need more complex handling
-            instructions.push(Instruction::Push(0));
+            instructions.push(Instruction::MapNew);
         }
     }
 }
