@@ -133,21 +133,13 @@ impl Parser {
         self.consume(TokenType::Do)?;
 
         let mut body = Vec::new();
-        let mut return_expr = None;
 
         while !matches!(self.current_token().token_type, TokenType::End) {
             if matches!(self.current_token().token_type, TokenType::Eof) {
                 bail!("Unexpected end of file in function body");
             }
 
-            if matches!(self.current_token().token_type, TokenType::Return) {
-                let return_stmt = self.parse_return_stmt()?;
-                if let Stmt::Return(expr) = return_stmt {
-                    return_expr = Some(expr);
-                }
-            } else {
-                body.push(self.parse_stmt()?);
-            }
+            body.push(self.parse_stmt()?);
         }
 
         self.consume(TokenType::End)?;
@@ -156,7 +148,6 @@ impl Parser {
             name,
             params,
             body,
-            return_expr: return_expr.map(Box::new),
         })
     }
 

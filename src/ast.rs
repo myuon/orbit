@@ -115,7 +115,6 @@ pub struct Function {
     pub name: String,
     pub params: Vec<FunParam>,
     pub body: Vec<Stmt>,
-    pub return_expr: Option<Box<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

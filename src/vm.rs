@@ -513,22 +513,19 @@ impl VM {
                 }
 
                 Instruction::Ret => {
-                    // Ret instruction now only handles main function return
-                    // All other return operations are handled by compiler-generated instructions
+                    let address = self.stack.pop().unwrap();
+                    if self.bp == 0 {
+                        return match self.stack.pop().unwrap() {
+                            Value::Number(v) => Ok(v as i64),
+                            _ => Err("Ret requires a number".to_string()),
+                        };
+                    }
 
-                    // Pop return value from stack
-                    let return_value = if !self.stack.is_empty() {
-                        self.stack.pop().unwrap()
-                    } else {
-                        Value::Number(0.0)
-                    };
-
-                    // Return from main function - exit VM
-                    match return_value {
-                        Value::Number(n) => return Ok(n as i64),
-                        Value::Boolean(b) => return Ok(if b { 1 } else { 0 }),
-                        Value::Address(addr) => return Ok(addr as i64),
-                        _ => return Ok(0),
+                    match address {
+                        Value::Address(addr) => {
+                            self.pc = addr;
+                        }
+                        _ => return Err("Ret requires an address".to_string()),
                     }
                 }
 
@@ -749,6 +746,7 @@ pub struct VMCompiler {
     local_vars: HashMap<String, i32>,
     local_offset: i32,
     current_function_param_count: usize,
+    current_function_name: String,
 }
 
 impl VMCompiler {
@@ -758,6 +756,7 @@ impl VMCompiler {
             local_vars: HashMap::new(),
             local_offset: 0,
             current_function_param_count: 0,
+            current_function_name: String::new(),
         }
     }
 
@@ -810,6 +809,11 @@ impl VMCompiler {
         self.local_vars.clear();
         self.local_offset = 0;
         self.current_function_param_count = 0;
+        self.instructions.push(Instruction::Push(-1)); // placeholder for return value
+        self.instructions.push(Instruction::Push(0)); // placeholder for return address
+        self.instructions.push(Instruction::Push(-1)); // placeholder for old BP
+        self.instructions.push(Instruction::Push(3));
+        self.instructions.push(Instruction::SetBP);
         self.instructions
             .push(Instruction::Call("main".to_string()));
         self.instructions.push(Instruction::Ret);
@@ -830,6 +834,9 @@ impl VMCompiler {
         self.instructions
             .push(Instruction::Label(func.name.clone()));
 
+        // Set current function name for return handling
+        self.current_function_name = func.name.clone();
+
         // Function prologue
         self.emit_function_prologue(func);
 
@@ -838,13 +845,8 @@ impl VMCompiler {
             self.compile_statement(stmt);
         }
 
-        // Compile return expression if present
-        if let Some(return_expr) = &func.return_expr {
-            self.compile_expression(return_expr);
-        } else {
-            // Default return value
-            self.instructions.push(Instruction::Push(0));
-        }
+        // Default return value if no explicit return
+        self.instructions.push(Instruction::Push(-1));
 
         // Function epilogue
         self.emit_function_epilogue(func);
@@ -872,25 +874,25 @@ impl VMCompiler {
 
     /// Emit function epilogue - handles return value and stack cleanup
     fn emit_function_epilogue(&mut self, func: &Function) {
-        if func.name == "main" {
-            // For main function, use Ret instruction to exit VM
-            self.instructions.push(Instruction::Ret);
-        } else {
-            // For other functions, generate explicit return sequence
-            // The return value is already on the stack (pushed by the return expression)
-            
-            // Get return address from stack frame (at BP-2)
-            self.instructions.push(Instruction::GetLocal(-2)); // return address
+        self.emit_return_sequence();
+    }
 
-            // Get old BP from stack frame (at BP-1)  
-            self.instructions.push(Instruction::GetLocal(-1)); // old BP
+    /// Emit return sequence for non-main functions
+    fn emit_return_sequence(&mut self) {
+        // Get return address from stack frame (at BP-3)
+        let return_address_offset = -(self.current_function_param_count as i32 + 3);
+        self.instructions
+            .push(Instruction::SetLocal(return_address_offset));
 
-            // Restore BP
-            self.instructions.push(Instruction::SetBP);
+        self.instructions.push(Instruction::GetBP);
 
-            // Jump to return address (return value stays on stack)
-            self.instructions.push(Instruction::SetPC);
-        }
+        self.instructions.push(Instruction::SetSP);
+
+        // Restore BP
+        self.instructions.push(Instruction::SetBP);
+
+        // Jump to return address (return value stays on stack)
+        self.instructions.push(Instruction::Ret);
     }
 
     /// Compile a statement to VM bytecode
@@ -916,29 +918,7 @@ impl VMCompiler {
                 // Compile return value expression
                 self.compile_expression(expr);
 
-                // Generate explicit return sequence according to VM spec:
-                // 1. Store return value to placeholder position (overwrite placeholder)
-                // 2. Get old BP from stack frame
-                // 3. Set SP to old BP position
-                // 4. Set BP to old BP value
-                // 5. Jump to return address
-
-                // Calculate placeholder position: BP - (param_count + 2)
-                let placeholder_offset = -((self.current_function_param_count as i32) + 2);
-                self.instructions
-                    .push(Instruction::SetLocal(placeholder_offset));
-
-                // Get old BP from stack frame (at BP) - this gets the BP value we want to restore to
-                self.instructions.push(Instruction::GetBP);
-
-                // Set SP to current BP position (restore stack pointer)
-                self.instructions.push(Instruction::SetSP);
-
-                // Set BP to old BP value
-                self.instructions.push(Instruction::SetBP);
-
-                // Get return address from stack frame (at BP-1) and jump
-                self.instructions.push(Instruction::SetPC);
+                self.emit_return_sequence();
             }
 
             Stmt::Assign { name, value } => {
@@ -1132,15 +1112,15 @@ impl VMCompiler {
                     // After return, the return value is on top of the stack
                     // We need to clean up the arguments that are underneath it
                     // Stack after return: [placeholder, arg0, arg1, ..., return_addr, old_bp, return_value]
-                    
+
                     // The return value is on top, so we need to save it, clean up, then restore it
-                    // But since we can't easily do that, let's just clean up and rely on the 
+                    // But since we can't easily do that, let's just clean up and rely on the
                     // fact that the function should have put the return value in the right place
-                    
+
                     // Actually, let's clean up the arguments first (pop them from underneath)
                     // This is tricky, so for now let's just leave the return value on the stack
                     // and not clean up. This is not ideal but should work for testing.
-                    
+
                     // TODO: Implement proper stack cleanup
                     // Return value now on top of stack
                 } else {
