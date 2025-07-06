@@ -1,4 +1,4 @@
-use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl};
+use crate::ast::{Decl, Expr, Function, GlobalVariable, Program, Stmt, StructDecl};
 use anyhow::Result;
 use std::collections::HashMap;
 
@@ -32,6 +32,10 @@ impl Desugarer {
                 Decl::Function(function) => {
                     let desugared_function = self.desugar_function(function)?;
                     desugared_declarations.push(Decl::Function(desugared_function));
+                }
+                Decl::GlobalVariable(global_var) => {
+                    // Global variables don't need desugaring, pass them through
+                    desugared_declarations.push(Decl::GlobalVariable(global_var));
                 }
                 Decl::Struct(struct_decl) => {
                     // Add the original struct declaration (without methods)

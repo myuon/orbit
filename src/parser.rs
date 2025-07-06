@@ -1,5 +1,5 @@
 use crate::ast::{
-    BinaryOp, Decl, Expr, FunParam, Function, Program, Stmt, StructDecl, StructField, Token,
+    BinaryOp, Decl, Expr, FunParam, Function, GlobalVariable, Program, Stmt, StructDecl, StructField, Token,
     TokenType,
 };
 use anyhow::{bail, Result};
@@ -73,13 +73,37 @@ impl Parser {
                 let struct_decl = self.parse_struct_decl()?;
                 Ok(Decl::Struct(struct_decl))
             }
+            TokenType::Let => {
+                let global_var = self.parse_global_variable()?;
+                Ok(Decl::GlobalVariable(global_var))
+            }
             _ => {
                 bail!(
-                    "Expected declaration (function or type), found {:?}",
+                    "Expected declaration (function, type, or let), found {:?}",
                     self.current_token().token_type
                 )
             }
         }
+    }
+
+    /// Parse a global variable declaration
+    fn parse_global_variable(&mut self) -> Result<GlobalVariable> {
+        self.consume(TokenType::Let)?;
+
+        let name = match &self.current_token().token_type {
+            TokenType::Identifier(name) => {
+                let n = name.clone();
+                self.advance();
+                n
+            }
+            _ => bail!("Expected variable name after 'let'"),
+        };
+
+        self.consume(TokenType::Assign)?;
+        let value = self.parse_expression()?;
+        self.consume(TokenType::Semicolon)?;
+
+        Ok(GlobalVariable { name, value })
     }
 
     /// Parse a function declaration

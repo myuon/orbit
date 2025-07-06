@@ -138,6 +138,14 @@ pub struct Program {
 pub enum Decl {
     Function(Function),
     Struct(StructDecl),
+    GlobalVariable(GlobalVariable),
+}
+
+// Global variable declaration
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlobalVariable {
+    pub name: String,
+    pub value: Expr,
 }
 
 // Struct declaration

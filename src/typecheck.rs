@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Decl, Expr, Function, IndexContainerType, Program, Stmt, StructDecl};
+use crate::ast::{BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, Program, Stmt, StructDecl};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
@@ -142,6 +142,8 @@ impl Type {
 pub struct TypeChecker {
     /// Variable type environment
     variables: HashMap<String, Type>,
+    /// Global variable type environment
+    globals: HashMap<String, Type>,
     /// Function call stack for type scoping
     call_stack: Vec<HashMap<String, Type>>,
     /// Current function return type
@@ -156,6 +158,7 @@ impl TypeChecker {
     pub fn new() -> Self {
         TypeChecker {
             variables: HashMap::new(),
+            globals: HashMap::new(),
             call_stack: Vec::new(),
             current_return_type: None,
             functions: HashMap::new(),
@@ -172,14 +175,22 @@ impl TypeChecker {
             }
         }
 
-        // Second pass: register all function signatures (now that structs are available)
+        // Second pass: register global variables (now that structs are available)
+        for decl in &program.declarations {
+            if let Decl::GlobalVariable(global_var) = decl {
+                let var_type = self.check_expression(&global_var.value)?;
+                self.globals.insert(global_var.name.clone(), var_type);
+            }
+        }
+
+        // Third pass: register all function signatures (now that structs and globals are available)
         for decl in &program.declarations {
             if let Decl::Function(function) = decl {
                 self.register_function(function)?;
             }
         }
 
-        // Third pass: check function bodies
+        // Fourth pass: check function bodies
         for decl in &program.declarations {
             self.check_declaration(decl)?;
         }
@@ -198,6 +209,14 @@ impl TypeChecker {
         match decl {
             Decl::Function(function) => self.infer_function_types(function),
             Decl::Struct(_) => Ok(()), // Struct types are already resolved during registration
+            Decl::GlobalVariable(global_var) => {
+                // Type check the global variable's value
+                self.infer_expression_types(&mut global_var.value)?;
+                // Register the global variable's type
+                let var_type = self.check_expression(&global_var.value)?;
+                self.globals.insert(global_var.name.clone(), var_type);
+                Ok(())
+            }
         }
     }
 
@@ -491,6 +510,11 @@ impl TypeChecker {
         match decl {
             Decl::Function(function) => self.check_function(function),
             Decl::Struct(_) => Ok(()), // Struct declarations are checked during registration
+            Decl::GlobalVariable(global_var) => {
+                // Type check the global variable's value
+                self.check_expression(&global_var.value)?;
+                Ok(())
+            }
         }
     }
 
@@ -1087,6 +1111,11 @@ impl TypeChecker {
         }
 
         // Then check global variables
+        if let Some(var_type) = self.globals.get(name) {
+            return Ok(var_type.clone());
+        }
+        
+        // Then check instance variables
         if let Some(var_type) = self.variables.get(name) {
             return Ok(var_type.clone());
         }

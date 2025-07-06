@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Decl, Expr, Function, IndexContainerType, Program, Stmt, StructDecl};
+use crate::ast::{BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, Program, Stmt, StructDecl};
 use crate::profiler::{InstructionTimer, Profiler};
 use crate::runtime::{HeapIndex, HeapObject, Value};
 use std::collections::HashMap;
@@ -39,6 +39,10 @@ pub enum Instruction {
     // Local variables
     GetLocal(i32),
     SetLocal(i32),
+
+    // Global variables
+    GetGlobal(String),
+    SetGlobal(String),
 
     // Function calls
     Call(String),
@@ -107,6 +111,8 @@ impl fmt::Display for Instruction {
             Instruction::JumpIfZero(addr) => write!(f, "jump_if_zero {}", addr),
             Instruction::GetLocal(offset) => write!(f, "get_local {}", offset),
             Instruction::SetLocal(offset) => write!(f, "set_local {}", offset),
+            Instruction::GetGlobal(name) => write!(f, "get_global {}", name),
+            Instruction::SetGlobal(name) => write!(f, "set_global {}", name),
             Instruction::Call(func_name) => write!(f, "call {}", func_name),
             Instruction::Ret => write!(f, "ret"),
             Instruction::GetBP => write!(f, "get_bp"),
@@ -146,6 +152,7 @@ pub struct VM {
     pub print_stacks: bool, // whether to print stack state during execution
     print_stacks_on_call: Option<String>, // print stacks only when calling this function
     heap: Vec<HeapObject>,  // unified heap storage
+    globals: HashMap<String, Value>,  // global variables
     // Profiling
     pub profiler: Profiler,
 }
@@ -173,6 +180,7 @@ impl VM {
             print_stacks,
             print_stacks_on_call: None,
             heap: Vec::new(),
+            globals: HashMap::new(),
             profiler: Profiler::new_with_enabled(enable_profiling),
         }
     }
@@ -191,6 +199,7 @@ impl VM {
             print_stacks,
             print_stacks_on_call,
             heap: Vec::new(),
+            globals: HashMap::new(),
             profiler: Profiler::new_with_enabled(enable_profiling),
         }
     }
@@ -512,6 +521,21 @@ impl VM {
                     }
 
                     self.stack[index] = value;
+                }
+
+                Instruction::GetGlobal(name) => {
+                    match self.globals.get(name) {
+                        Some(value) => self.stack.push(value.clone()),
+                        None => return Err(format!("Undefined global variable: {}", name)),
+                    }
+                }
+
+                Instruction::SetGlobal(name) => {
+                    if self.stack.is_empty() {
+                        return Err("Stack underflow for SetGlobal".to_string());
+                    }
+                    let value = self.stack.pop().unwrap();
+                    self.globals.insert(name.clone(), value);
                 }
 
                 Instruction::Call(func_name) => {
@@ -1265,6 +1289,7 @@ impl VMCompiler {
 
         // 1. 関数を定義順に収集し、関数レジストリに登録
         let mut functions: Vec<Function> = Vec::new();
+        let mut global_variables: Vec<GlobalVariable> = Vec::new();
         self.functions.clear();
         for decl in &program.declarations {
             match decl {
@@ -1275,6 +1300,10 @@ impl VMCompiler {
                 Decl::Struct(_) => {
                     // Already handled in first pass
                 }
+                Decl::GlobalVariable(global_var) => {
+                    // Collect global variables for later initialization
+                    global_variables.push(global_var.clone());
+                }
             }
         }
 
@@ -1284,11 +1313,18 @@ impl VMCompiler {
             self.functions.insert(method.name.clone(), method.clone());
         }
 
-        // 2. プログラムの先頭に call main; ret を挿入
+        // 2. プログラムの先頭に初期化とcall main; ret を挿入
         self.instructions.clear();
         self.local_vars.clear();
         self.local_offset = 0;
         self.current_function_param_count = 0;
+        
+        // Initialize global variables first
+        for global_var in &global_variables {
+            self.compile_expression(&global_var.value);
+            self.instructions.push(Instruction::SetGlobal(global_var.name.clone()));
+        }
+        
         self.instructions.push(Instruction::Push(-1)); // placeholder for return value
         self.instructions.push(Instruction::Push(0)); // placeholder for return address
         self.instructions.push(Instruction::Push(-1)); // placeholder for old BP
@@ -1401,8 +1437,8 @@ impl VMCompiler {
                 if let Some(&offset) = self.local_vars.get(name) {
                     self.instructions.push(Instruction::SetLocal(offset));
                 } else {
-                    // This should be caught by type checker
-                    panic!("Undefined variable: {}", name);
+                    // Try to assign to global variable
+                    self.instructions.push(Instruction::SetGlobal(name.clone()));
                 }
             }
 
@@ -1569,8 +1605,8 @@ impl VMCompiler {
                         name
                     );
                 } else {
-                    // This should be caught by type checker
-                    panic!("Undefined variable: {}", name);
+                    // Try to access as global variable
+                    self.instructions.push(Instruction::GetGlobal(name.clone()));
                 }
             }
 
