@@ -153,4 +153,14 @@ impl Runtime {
     pub fn dump_profile_to_file(&self, filename: &str) -> Result<(), std::io::Error> {
         self.vm.dump_profile_to_file(filename)
     }
+
+    /// Enable output capture for testing
+    pub fn enable_output_capture(&mut self) {
+        self.vm.enable_output_capture();
+    }
+
+    /// Get captured output and clear the buffer
+    pub fn take_captured_output(&mut self) -> Option<String> {
+        self.vm.take_captured_output()
+    }
 }

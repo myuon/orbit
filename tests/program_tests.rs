@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use orbit::execute_code;
+use orbit::{execute_code, execute_code_with_output};
 
 #[test]
 fn test_program_files() {
@@ -56,48 +56,94 @@ fn run_single_program_test(test_file: &Path) {
     let test_name = test_file.file_stem().unwrap().to_str().unwrap();
     println!("Running program test: {}", test_name);
 
-    let expected_file = test_file.with_extension("stdout");
+    let expected_result_file = test_file.with_extension("result");
+    let expected_stdout_file = test_file.with_extension("stdout");
 
-    if !expected_file.exists() {
+    // Check if we have a .result file (new format) or fallback to .stdout (old format)
+    let (expected_result, has_result_file) = if expected_result_file.exists() {
+        let content = fs::read_to_string(&expected_result_file)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to read expected result file {}: {}",
+                    expected_result_file.display(),
+                    e
+                )
+            })
+            .trim()
+            .to_string();
+        (content, true)
+    } else if expected_stdout_file.exists() {
+        // Fallback to old format for backward compatibility
+        let content = fs::read_to_string(&expected_stdout_file)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to read expected stdout file {}: {}",
+                    expected_stdout_file.display(),
+                    e
+                )
+            })
+            .trim()
+            .to_string();
+        (content, false)
+    } else {
         panic!(
-            "Expected output file not found: {}",
-            expected_file.display()
+            "No expected output file found for test {}: neither {} nor {} exists",
+            test_name,
+            expected_result_file.display(),
+            expected_stdout_file.display()
         );
-    }
+    };
 
-    let expected_output = fs::read_to_string(&expected_file)
-        .unwrap_or_else(|e| {
-            panic!(
-                "Failed to read expected output file {}: {}",
-                expected_file.display(),
-                e
-            )
-        })
-        .trim()
-        .to_string();
+    let expected_stdout = if has_result_file && expected_stdout_file.exists() {
+        Some(
+            fs::read_to_string(&expected_stdout_file)
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to read expected stdout file {}: {}",
+                        expected_stdout_file.display(),
+                        e
+                    )
+                })
+                .trim()
+                .to_string(),
+        )
+    } else {
+        None
+    };
 
     let test_content = fs::read_to_string(test_file)
         .unwrap_or_else(|e| panic!("Failed to read test file {}: {}", test_file.display(), e));
 
-    // Execute the orbit code directly using the library
-    let result = execute_code(&test_content);
+    // Execute the orbit code with output capture
+    let (result, captured_stdout) = execute_code_with_output(&test_content)
+        .unwrap_or_else(|e| panic!("Test {} failed with error: {}", test_name, e));
 
-    // Check if execution was successful
-    let actual_output = match result {
-        Ok(Some(value)) => value.to_string(),
-        Ok(None) => String::new(),
-        Err(e) => panic!("Test {} failed with error: {}", test_name, e),
+    // Check the return value
+    let actual_result = match result {
+        Some(value) => value.to_string(),
+        None => String::new(),
     };
 
-    // Compare actual output with expected output
     assert_eq!(
-        actual_output.trim(),
-        expected_output,
-        "Test {} failed.\nExpected: '{}'\nActual: '{}'",
+        actual_result.trim(),
+        expected_result,
+        "Test {} failed (return value).\nExpected result: '{}'\nActual result: '{}'",
         test_name,
-        expected_output,
-        actual_output.trim()
+        expected_result,
+        actual_result.trim()
     );
+
+    // Check stdout if we have expected stdout
+    if let Some(expected_stdout) = expected_stdout {
+        assert_eq!(
+            captured_stdout.trim(),
+            expected_stdout,
+            "Test {} failed (stdout).\nExpected stdout: '{}'\nActual stdout: '{}'",
+            test_name,
+            expected_stdout,
+            captured_stdout.trim()
+        );
+    }
 
     println!("✓ Program test {} passed", test_name);
 }

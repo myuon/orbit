@@ -1,0 +1,5 @@
+fun main() do
+  syscall(1, "Hello, World!\n");
+  syscall(1, "42\n");
+  return 0;
+end

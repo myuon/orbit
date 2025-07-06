@@ -95,6 +95,9 @@ pub enum Instruction {
     StructFieldGet,
     StructFieldSet,
     MethodCall(usize), // Method call with argument count
+
+    // System calls
+    Syscall,
 }
 
 impl fmt::Display for Instruction {
@@ -152,6 +155,7 @@ impl fmt::Display for Instruction {
             Instruction::StructFieldGet => write!(f, "struct_field_get"),
             Instruction::StructFieldSet => write!(f, "struct_field_set"),
             Instruction::MethodCall(argc) => write!(f, "method_call {}", argc),
+            Instruction::Syscall => write!(f, "syscall"),
         }
     }
 }
@@ -167,6 +171,8 @@ pub struct VM {
     print_stacks_on_call: Option<String>, // print stacks only when calling this function
     heap: Vec<HeapObject>,  // unified heap storage
     globals: HashMap<String, Value>,  // global variables
+    // Output capture for testing
+    pub captured_output: Option<String>,
     // Profiling
     pub profiler: Profiler,
 }
@@ -195,6 +201,7 @@ impl VM {
             print_stacks_on_call: None,
             heap: Vec::new(),
             globals: HashMap::new(),
+            captured_output: None,
             profiler: Profiler::new_with_enabled(enable_profiling),
         }
     }
@@ -214,6 +221,7 @@ impl VM {
             print_stacks_on_call,
             heap: Vec::new(),
             globals: HashMap::new(),
+            captured_output: None,
             profiler: Profiler::new_with_enabled(enable_profiling),
         }
     }
@@ -221,6 +229,16 @@ impl VM {
     pub fn load_program(&mut self, program: Vec<Instruction>) {
         self.program = program;
         self.pc = 0;
+    }
+
+    /// Enable output capture for testing
+    pub fn enable_output_capture(&mut self) {
+        self.captured_output = Some(String::new());
+    }
+
+    /// Get captured output and clear the buffer
+    pub fn take_captured_output(&mut self) -> Option<String> {
+        self.captured_output.take()
     }
 
     // Removed load_program_with_constants - string constants are now initialized via PushString instructions
@@ -1295,6 +1313,49 @@ impl VM {
                         }
                     }
                 }
+
+                Instruction::Syscall => {
+                    // Stack: [syscall_number] [args...]
+                    // For now, we'll implement a simple write syscall (syscall number 1)
+                    if self.stack.len() < 2 {
+                        return Err("Stack underflow for Syscall".to_string());
+                    }
+                    
+                    let message_ref = self.stack.pop().unwrap();
+                    let syscall_number = self.stack.pop().unwrap();
+                    
+                    match syscall_number {
+                        Value::Number(1.0) => {
+                            // Write syscall
+                            match message_ref {
+                                Value::HeapRef(heap_index) => {
+                                    if heap_index.0 >= self.heap.len() {
+                                        return Err(format!("Invalid heap index: {}", heap_index.0));
+                                    }
+                                    match &self.heap[heap_index.0] {
+                                        HeapObject::String(s) => {
+                                            if let Some(ref mut captured) = self.captured_output {
+                                                captured.push_str(s);
+                                            } else {
+                                                print!("{}", s);
+                                                use std::io::Write;
+                                                std::io::stdout().flush().unwrap();
+                                            }
+                                        }
+                                        _ => return Err("Write syscall requires a string".to_string()),
+                                    }
+                                }
+                                _ => return Err("Write syscall requires a string reference".to_string()),
+                            }
+                        }
+                        _ => {
+                            return Err(format!(
+                                "Unsupported syscall number: {:?}",
+                                syscall_number
+                            ));
+                        }
+                    }
+                }
             }
 
             // Record profiling data if enabled
@@ -1337,6 +1398,10 @@ impl VM {
         self.sp = 0;
         self.heap.clear();
         // Keep print_stacks and profiler settings unchanged
+        // Reset captured output if it was enabled
+        if self.captured_output.is_some() {
+            self.captured_output = Some(String::new());
+        }
 
         // Reset profiling data if profiling is enabled
         self.profiler.clear();
@@ -1936,6 +2001,23 @@ impl VMCompiler {
             }
 
             Expr::Call { callee, args } => {
+                if let Expr::Identifier(func_name) = callee.as_ref() {
+                    // Handle syscall as a special built-in function
+                    if func_name == "syscall" {
+                        // For syscall, push arguments directly onto stack and call syscall instruction
+                        for arg in args {
+                            self.compile_expression(arg);
+                        }
+                        self.instructions.push(Instruction::Syscall);
+                        return;
+                    }
+
+                    // Check if function exists
+                    if !self.functions.contains_key(func_name) {
+                        panic!("Undefined function: {}", func_name);
+                    }
+                }
+
                 // Caller responsibilities according to VM spec:
                 // 1. Push placeholder for return value
                 self.instructions.push(Instruction::Push(-1));
@@ -1946,10 +2028,6 @@ impl VMCompiler {
                 }
 
                 if let Expr::Identifier(func_name) = callee.as_ref() {
-                    // Check if function exists
-                    if !self.functions.contains_key(func_name) {
-                        panic!("Undefined function: {}", func_name);
-                    }
 
                     // 3. Push current PC + offset (return address)
                     // PC will be at Call instruction, so return address is PC + 1
@@ -2121,8 +2199,18 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
             instructions.push(Instruction::Push(0));
         }
 
-        Expr::Call { .. } => {
-            // For now, just push 0 - function calls need more complex handling
+        Expr::Call { callee, args } => {
+            if let Expr::Identifier(func_name) = callee.as_ref() {
+                if func_name == "syscall" {
+                    // Handle syscall in standalone compilation
+                    for arg in args {
+                        compile_expr_recursive(arg, instructions);
+                    }
+                    instructions.push(Instruction::Syscall);
+                    return;
+                }
+            }
+            // For other function calls, just push 0 - need more complex handling
             instructions.push(Instruction::Push(0));
         }
 

@@ -856,6 +856,19 @@ impl TypeChecker {
             Expr::Call { callee, args } => {
                 // Check if the callee is a function identifier
                 if let Expr::Identifier(func_name) = callee.as_ref() {
+                    // Handle built-in functions
+                    if func_name == "syscall" {
+                        // syscall has variable arguments, just check that we have at least one argument
+                        if args.is_empty() {
+                            bail!("syscall requires at least one argument (syscall number)");
+                        }
+                        // Check argument types
+                        for arg in args {
+                            self.check_expression(arg)?;
+                        }
+                        return Ok(Type::Number); // syscall returns a number (result code)
+                    }
+
                     // Look up function signature and clone it to avoid borrow checker issues
                     if let Some(func_type) = self.functions.get(func_name).cloned() {
                         if let Type::Function {

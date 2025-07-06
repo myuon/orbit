@@ -10,5 +10,5 @@ pub mod utils;
 pub mod vm;
 
 // Re-export commonly used items
-pub use compiler::{execute_code, Compiler, CompilerOptions};
+pub use compiler::{execute_code, execute_code_with_output, Compiler, CompilerOptions};
 pub use runtime::Value;

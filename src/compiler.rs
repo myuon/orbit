@@ -152,3 +152,19 @@ pub fn execute_code(code: &str) -> Result<Option<Value>> {
     let mut compiler = Compiler::new();
     compiler.execute(code)
 }
+
+/// Execute Orbit source code and return both the result and captured stdout
+pub fn execute_code_with_output(code: &str) -> Result<(Option<Value>, String)> {
+    let mut compiler = Compiler::new();
+    
+    // Enable output capture
+    compiler.runtime_mut().enable_output_capture();
+    
+    // Execute the code
+    let result = compiler.execute(code)?;
+    
+    // Get the captured output
+    let captured_output = compiler.runtime_mut().take_captured_output().unwrap_or_default();
+    
+    Ok((result, captured_output))
+}
