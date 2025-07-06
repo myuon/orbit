@@ -1,5 +1,6 @@
 pub mod ast;
 pub mod compiler;
+pub mod desugar;
 pub mod lexer;
 pub mod parser;
 pub mod profiler;
@@ -13,6 +14,7 @@ pub use runtime::{Runtime, Value};
 pub use vm::VMCompiler;
 
 use anyhow::Result;
+use desugar::Desugarer;
 use lexer::Lexer;
 use parser::Parser;
 
@@ -29,16 +31,20 @@ pub fn execute_file_with_ir_dump(filename: &str, ir_dump_file: &str) -> Result<O
 
     let contents = fs::read_to_string(filename)?;
     let mut parser = create_parser(&contents)?;
-    let mut program = parser.parse_program()?;
+    let program = parser.parse_program()?;
 
-    // Perform type checking and inference
+    // 1. Desugar phase: transform method calls to function calls
+    let mut desugarer = Desugarer::new();
+    let mut desugared_program = desugarer.desugar_program(program)?;
+
+    // 2. Perform type checking and inference
     let mut type_checker = crate::typecheck::TypeChecker::new();
-    type_checker.infer_types(&mut program)?;
-    type_checker.check_program(&program)?;
+    type_checker.infer_types(&mut desugared_program)?;
+    type_checker.check_program(&desugared_program)?;
 
     // Compile to IR and dump
     let mut compiler = VMCompiler::new();
-    let _instructions = compiler.compile_program(&program);
+    let _instructions = compiler.compile_program(&desugared_program);
 
     // Dump IR to file
     compiler
@@ -47,7 +53,7 @@ pub fn execute_file_with_ir_dump(filename: &str, ir_dump_file: &str) -> Result<O
 
     // Execute the program
     let mut runtime = Runtime::new();
-    runtime.execute_program(&program)
+    runtime.execute_program(&desugared_program)
 }
 
 /// Execute a file with IR dumping and stack printing options
@@ -60,16 +66,20 @@ pub fn execute_file_with_ir_dump_and_options(
 
     let contents = fs::read_to_string(filename)?;
     let mut parser = create_parser(&contents)?;
-    let mut program = parser.parse_program()?;
+    let program = parser.parse_program()?;
 
-    // Perform type checking and inference
+    // 1. Desugar phase: transform method calls to function calls
+    let mut desugarer = Desugarer::new();
+    let mut desugared_program = desugarer.desugar_program(program)?;
+
+    // 2. Perform type checking and inference
     let mut type_checker = crate::typecheck::TypeChecker::new();
-    type_checker.infer_types(&mut program)?;
-    type_checker.check_program(&program)?;
+    type_checker.infer_types(&mut desugared_program)?;
+    type_checker.check_program(&desugared_program)?;
 
     // Compile to IR and dump
     let mut compiler = VMCompiler::new();
-    let _instructions = compiler.compile_program(&program);
+    let _instructions = compiler.compile_program(&desugared_program);
 
     // Dump IR to file
     compiler
@@ -78,7 +88,7 @@ pub fn execute_file_with_ir_dump_and_options(
 
     // Execute the program with stack printing option
     let mut runtime = Runtime::new();
-    runtime.execute_program_with_options(&program, print_stacks)
+    runtime.execute_program_with_options(&desugared_program, print_stacks)
 }
 
 /// Execute a file with optional stack printing
@@ -87,16 +97,20 @@ pub fn execute_file_with_options(filename: &str, print_stacks: bool) -> Result<O
 
     let contents = fs::read_to_string(filename)?;
     let mut parser = create_parser(&contents)?;
-    let mut program = parser.parse_program()?;
+    let program = parser.parse_program()?;
 
-    // Perform type checking and inference
+    // 1. Desugar phase: transform method calls to function calls
+    let mut desugarer = Desugarer::new();
+    let mut desugared_program = desugarer.desugar_program(program)?;
+
+    // 2. Perform type checking and inference
     let mut type_checker = crate::typecheck::TypeChecker::new();
-    type_checker.infer_types(&mut program)?;
-    type_checker.check_program(&program)?;
+    type_checker.infer_types(&mut desugared_program)?;
+    type_checker.check_program(&desugared_program)?;
 
     // Execute the program with stack printing option
     let mut runtime = Runtime::new();
-    runtime.execute_program_with_options(&program, print_stacks)
+    runtime.execute_program_with_options(&desugared_program, print_stacks)
 }
 
 /// Execute a file with profiling enabled
@@ -108,18 +122,22 @@ pub fn execute_file_with_profiling(
 
     let contents = fs::read_to_string(filename)?;
     let mut parser = create_parser(&contents)?;
-    let mut program = parser.parse_program()?;
+    let program = parser.parse_program()?;
 
-    // Perform type checking and inference
+    // 1. Desugar phase: transform method calls to function calls
+    let mut desugarer = Desugarer::new();
+    let mut desugared_program = desugarer.desugar_program(program)?;
+
+    // 2. Perform type checking and inference
     let mut type_checker = crate::typecheck::TypeChecker::new();
-    type_checker.infer_types(&mut program)?;
-    type_checker.check_program(&program)?;
+    type_checker.infer_types(&mut desugared_program)?;
+    type_checker.check_program(&desugared_program)?;
 
     // Execute the program with profiling enabled
     let mut runtime = Runtime::new();
     runtime.enable_profiling();
 
-    let result = runtime.execute_program(&program)?;
+    let result = runtime.execute_program(&desugared_program)?;
 
     // Output profiling results
     if let Some(output_file) = profile_output {
@@ -143,17 +161,21 @@ pub fn execute_file_with_options_on_call(
 
     let contents = fs::read_to_string(filename)?;
     let mut parser = create_parser(&contents)?;
-    let mut program = parser.parse_program()?;
+    let program = parser.parse_program()?;
 
-    // Perform type checking and inference
+    // 1. Desugar phase: transform method calls to function calls
+    let mut desugarer = Desugarer::new();
+    let mut desugared_program = desugarer.desugar_program(program)?;
+
+    // 2. Perform type checking and inference
     let mut type_checker = crate::typecheck::TypeChecker::new();
-    type_checker.check_program(&program)?;
-    type_checker.infer_types(&mut program)?;
+    type_checker.check_program(&desugared_program)?;
+    type_checker.infer_types(&mut desugared_program)?;
 
     // Execute the program with the specified options
     let mut runtime =
         Runtime::new_with_call_tracing(print_stacks, print_stacks_on_call.map(|s| s.to_string()));
-    runtime.execute_program(&program)
+    runtime.execute_program(&desugared_program)
 }
 
 /// Execute a file with IR dumping and call-specific tracing options
@@ -167,16 +189,20 @@ pub fn execute_file_with_ir_dump_and_options_on_call(
 
     let contents = fs::read_to_string(filename)?;
     let mut parser = create_parser(&contents)?;
-    let mut program = parser.parse_program()?;
+    let program = parser.parse_program()?;
 
-    // Perform type checking and inference
+    // 1. Desugar phase: transform method calls to function calls
+    let mut desugarer = Desugarer::new();
+    let mut desugared_program = desugarer.desugar_program(program)?;
+
+    // 2. Perform type checking and inference
     let mut type_checker = crate::typecheck::TypeChecker::new();
-    type_checker.infer_types(&mut program)?;
-    type_checker.check_program(&program)?;
+    type_checker.infer_types(&mut desugared_program)?;
+    type_checker.check_program(&desugared_program)?;
 
     // Compile to IR and dump
     let mut compiler = VMCompiler::new();
-    let _instructions = compiler.compile_program(&program);
+    let _instructions = compiler.compile_program(&desugared_program);
 
     // Dump IR to file
     compiler
@@ -186,5 +212,5 @@ pub fn execute_file_with_ir_dump_and_options_on_call(
     // Execute the program with the specified options
     let mut runtime =
         Runtime::new_with_call_tracing(print_stacks, print_stacks_on_call.map(|s| s.to_string()));
-    runtime.execute_program(&program)
+    runtime.execute_program(&desugared_program)
 }

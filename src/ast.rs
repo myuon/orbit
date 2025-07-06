@@ -117,6 +117,7 @@ pub enum Expr {
         object: Box<Expr>,
         method: String,
         args: Vec<Expr>,
+        object_type: Option<String>, // Struct type name, filled by type checker
     },
 }
 

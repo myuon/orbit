@@ -1,4 +1,5 @@
 use crate::ast::Program;
+use crate::desugar::Desugarer;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::runtime::{Runtime, Value};
@@ -43,19 +44,23 @@ impl Compiler {
     /// Compile and execute Orbit source code, returning the last value
     pub fn execute(&mut self, code: &str) -> Result<Option<Value>> {
         let tokens = self.tokenize(code)?;
-        let mut program = self.parse(tokens)?;
+        let program = self.parse(tokens)?;
 
-        // Type checking is always performed
+        // 1. Desugar phase: transform method calls to function calls
+        let mut desugarer = Desugarer::new();
+        let mut desugared_program = desugarer.desugar_program(program)?;
+
+        // 2. Type checking is always performed
         // Create a single type checker instance to maintain state
         let mut type_checker = TypeChecker::new();
         
         // First register struct types and functions
-        type_checker.check_program(&program)?;
+        type_checker.check_program(&desugared_program)?;
         
         // Then perform type inference to fill in container types
-        type_checker.infer_types(&mut program)?;
+        type_checker.infer_types(&mut desugared_program)?;
 
-        self.runtime.execute_program(&program)
+        self.runtime.execute_program(&desugared_program)
     }
 
     /// Tokenize the source code

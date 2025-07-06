@@ -607,6 +607,7 @@ impl Parser {
                                 object: Box::new(expr),
                                 method: field_name,
                                 args,
+                                object_type: None, // Will be filled by type checker
                             };
                         } else {
                             // Regular field access
@@ -861,7 +862,7 @@ type Point = struct {
         let mut parser = Parser::new(tokens);
         let expr = parser.parse().unwrap();
         
-        if let Expr::MethodCall { object, method, args } = expr {
+        if let Expr::MethodCall { object, method, args, object_type } = expr {
             if let Expr::Identifier(obj_name) = object.as_ref() {
                 assert_eq!(obj_name, "p");
             } else {
@@ -869,6 +870,7 @@ type Point = struct {
             }
             assert_eq!(method, "sum");
             assert_eq!(args.len(), 0);
+            assert_eq!(object_type, None); // Should be None before type checking
         } else {
             panic!("Expected method call, got: {:?}", expr);
         }

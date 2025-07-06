@@ -109,6 +109,7 @@ impl Type {
                     value_type: v2,
                 },
             ) => k1.is_compatible_with(k2) && v1.is_compatible_with(v2),
+            (Type::Struct { name: n1, .. }, Type::Struct { name: n2, .. }) => n1 == n2,
             _ => false,
         }
     }
@@ -132,6 +133,7 @@ impl Type {
                     value_type: v2,
                 },
             ) => k1.is_exactly(k2) && v1.is_exactly(v2),
+            (Type::Struct { name: n1, .. }, Type::Struct { name: n2, .. }) => n1 == n2,
             _ => false,
         }
     }
@@ -204,7 +206,7 @@ impl TypeChecker {
         // Add parameters to scope
         for param in &function.params {
             let param_type = if let Some(type_name) = &param.type_name {
-                Type::from_string(type_name)
+                self.resolve_type(type_name)
             } else {
                 Type::Unknown // Type inference could be added later
             };
@@ -386,11 +388,18 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Expr::MethodCall { object, args, .. } => {
+            Expr::MethodCall { object, args, object_type, .. } => {
                 self.infer_expression_types(object)?;
                 for arg in args {
                     self.infer_expression_types(arg)?;
                 }
+                
+                // Set object type information based on object expression type
+                let obj_type = self.check_expression(object)?;
+                if let Type::Struct { name, .. } = obj_type {
+                    *object_type = Some(name);
+                }
+                
                 Ok(())
             }
         }
@@ -479,7 +488,7 @@ impl TypeChecker {
         // Add parameters to scope
         for param in &function.params {
             let param_type = if let Some(type_name) = &param.type_name {
-                Type::from_string(type_name)
+                self.resolve_type(type_name)
             } else {
                 Type::Unknown // Type inference could be added later
             };
@@ -938,7 +947,7 @@ impl TypeChecker {
                 }
             }
 
-            Expr::MethodCall { object, method, args } => {
+            Expr::MethodCall { object, method, args: _, .. } => {
                 let object_type = self.check_expression(object)?;
                 match object_type {
                     Type::Struct { name, .. } => {

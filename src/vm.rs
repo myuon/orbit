@@ -1595,7 +1595,7 @@ impl VMCompiler {
                 self.instructions.push(Instruction::StructFieldGet);
             }
 
-            Expr::MethodCall { object, method, args } => {
+            Expr::MethodCall { object, method, args, .. } => {
                 // Method calls are compiled as function calls with name mangling
                 // First, determine the object type to construct the method name
                 // For now, we'll need to get the struct type at runtime
@@ -1700,7 +1700,7 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
             instructions.push(Instruction::StructFieldGet);
         }
 
-        Expr::MethodCall { object, method, args } => {
+        Expr::MethodCall { object, method, args, object_type: _ } => {
             // Compile arguments first
             for arg in args {
                 compile_expr_recursive(arg, instructions);
