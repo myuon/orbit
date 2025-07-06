@@ -187,4 +187,9 @@ pub enum Stmt {
         value: Expr,
         container_type: Option<IndexContainerType>,
     },
+    FieldAssign {
+        object: Expr,
+        field: String,
+        value: Expr,
+    },
 }

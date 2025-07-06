@@ -1,0 +1,11 @@
+type Point = struct {
+  x: int,
+  y: int,
+};
+
+fun main() do
+  let p = new Point { .x = 10, .y = 20 };
+  p.x = 5;
+  p.y = 15;
+  return p.x + p.y;
+end

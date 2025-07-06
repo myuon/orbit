@@ -217,7 +217,7 @@ impl Parser {
             TokenType::If => self.parse_if_stmt(),
             TokenType::While => self.parse_while_stmt(),
             TokenType::Identifier(_) => {
-                // Look ahead to see if this is an assignment, vector push, or vector assign
+                // Look ahead to see if this is an assignment, vector push, field assign, or vector assign
                 if self.position + 1 < self.tokens.len() {
                     match &self.tokens[self.position + 1].token_type {
                         TokenType::Assign => self.parse_assign_stmt(),
@@ -225,6 +225,15 @@ impl Parser {
                         TokenType::LeftBracket => {
                             // Could be container[index] = value
                             self.parse_index_assign_or_expr()
+                        }
+                        TokenType::Dot => {
+                            // Check if this is field assignment: obj.field = value
+                            if self.is_field_assignment() {
+                                self.parse_field_assign_stmt()
+                            } else {
+                                let expr = self.parse_expression()?;
+                                Ok(Stmt::Expression(expr))
+                            }
                         }
                         _ => {
                             let expr = self.parse_expression()?;
@@ -734,5 +743,40 @@ impl Parser {
             }
             _ => bail!("Unexpected token: {:?}", self.current_token().token_type),
         }
+    }
+
+    /// Check if the current position is the start of a field assignment (obj.field = value)
+    fn is_field_assignment(&self) -> bool {
+        // Pattern: identifier . identifier = ...
+        // Current position should be at identifier, next is dot
+        if self.position + 3 < self.tokens.len() {
+            matches!(self.tokens[self.position + 1].token_type, TokenType::Dot) &&
+            matches!(self.tokens[self.position + 2].token_type, TokenType::Identifier(_)) &&
+            matches!(self.tokens[self.position + 3].token_type, TokenType::Assign)
+        } else {
+            false
+        }
+    }
+
+    fn parse_field_assign_stmt(&mut self) -> Result<Stmt> {
+        // Parse: obj.field = value;
+        // Parse just the object identifier, not the full expression
+        let object = Expr::Identifier(self.parse_identifier("in field assignment")?);
+        self.consume(TokenType::Dot)?;
+        
+        let field = match &self.current_token().token_type {
+            TokenType::Identifier(name) => {
+                let n = name.clone();
+                self.advance();
+                n
+            }
+            _ => bail!("Expected field name after '.'"),
+        };
+        
+        self.consume(TokenType::Assign)?;
+        let value = self.parse_expression()?;
+        self.consume(TokenType::Semicolon)?;
+        
+        Ok(Stmt::FieldAssign { object, field, value })
     }
 }

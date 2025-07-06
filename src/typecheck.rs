@@ -307,6 +307,12 @@ impl TypeChecker {
                 }
                 Ok(())
             }
+
+            Stmt::FieldAssign { object, field: _, value } => {
+                self.infer_expression_types(object)?;
+                self.infer_expression_types(value)?;
+                Ok(())
+            }
         }
     }
 
@@ -624,6 +630,31 @@ impl TypeChecker {
                         }
                     }
                     _ => bail!("Cannot index non-vector/map type: {}", collection_type),
+                }
+                Ok(())
+            }
+
+            Stmt::FieldAssign { object, field, value } => {
+                let object_type = self.check_expression(object)?;
+                let value_type = self.check_expression(value)?;
+                
+                match &object_type {
+                    Type::Struct { fields, .. } => {
+                        match fields.get(field) {
+                            Some(field_type) => {
+                                if !value_type.is_compatible_with(field_type) {
+                                    bail!(
+                                        "Field assignment type mismatch: field '{}' has type {}, assigned {}",
+                                        field,
+                                        field_type,
+                                        value_type
+                                    );
+                                }
+                            }
+                            None => bail!("Field '{}' not found in struct", field),
+                        }
+                    }
+                    _ => bail!("Cannot assign field '{}' on non-struct type: {}", field, object_type),
                 }
                 Ok(())
             }

@@ -1357,6 +1357,14 @@ impl VMCompiler {
                     }
                 }
             }
+
+            Stmt::FieldAssign { object, field, value } => {
+                // obj.field = value
+                self.compile_expression(value);
+                self.instructions.push(Instruction::PushString(field.clone()));
+                self.compile_expression(object);
+                self.instructions.push(Instruction::StructFieldSet);
+            }
         }
     }
 
