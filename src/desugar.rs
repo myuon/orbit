@@ -330,6 +330,25 @@ impl Desugarer {
             }
             // For struct instantiation, we can determine the type directly
             Expr::StructNew { type_name, .. } => type_name.clone(),
+            // For field access, try to infer the field type
+            Expr::FieldAccess { object: _, field } => {
+                // Try to find the field type in our struct definitions
+                for (_struct_name, struct_decl) in &self.structs {
+                    for struct_field in &struct_decl.fields {
+                        if struct_field.name == *field {
+                            return Ok(format!("{}_{}", struct_field.type_name, method));
+                        }
+                    }
+                }
+                // If no match found, default to first available struct
+                if let Some((struct_name, _)) = self.structs.iter().next() {
+                    struct_name.clone()
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "No struct types available for method resolution"
+                    ));
+                }
+            }
             // For other expressions, default to first available struct
             _ => {
                 if let Some((struct_name, _)) = self.structs.iter().next() {
@@ -349,7 +368,7 @@ impl Desugarer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{FunParam, StructField};
+    use crate::ast::FunParam;
 
     #[test]
     fn test_method_call_desugaring() {
