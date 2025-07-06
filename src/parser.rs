@@ -334,7 +334,7 @@ impl Parser {
             self.advance(); // consume '='
             let value = self.parse_expression()?;
             self.consume(TokenType::Semicolon)?;
-            
+
             // We can't differentiate between vector and map assignment at parse time
             // Type checking will determine the container type later
             Ok(Stmt::IndexAssign {
@@ -484,7 +484,7 @@ impl Parser {
                     self.advance(); // consume '['
                     let index = self.parse_expression()?;
                     self.consume(TokenType::RightBracket)?;
-                    
+
                     Ok(Expr::Index {
                         container: Box::new(Expr::Identifier(identifier)),
                         index: Box::new(index),
@@ -496,7 +496,7 @@ impl Parser {
             }
             TokenType::New => {
                 self.advance(); // consume 'new'
-                
+
                 if matches!(self.current_token().token_type, TokenType::Vec) {
                     self.advance(); // consume 'vec'
                     self.consume(TokenType::LeftParen)?; // consume '('
@@ -536,34 +536,35 @@ impl Parser {
                 } else if matches!(self.current_token().token_type, TokenType::Map) {
                     self.advance(); // consume 'map'
                     self.consume(TokenType::LeftParen)?; // consume '('
-                    
+
                     // Parse key type: expect [*]type or type
-                    let key_type = if matches!(self.current_token().token_type, TokenType::LeftBracket) {
-                        self.advance(); // consume '['
-                        self.consume(TokenType::Star)?; // consume '*'
-                        self.consume(TokenType::RightBracket)?; // consume ']'
-                        
-                        match &self.current_token().token_type {
-                            TokenType::Identifier(type_name) => {
-                                let t = format!("[*]{}", type_name);
-                                self.advance();
-                                t
+                    let key_type =
+                        if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                            self.advance(); // consume '['
+                            self.consume(TokenType::Star)?; // consume '*'
+                            self.consume(TokenType::RightBracket)?; // consume ']'
+
+                            match &self.current_token().token_type {
+                                TokenType::Identifier(type_name) => {
+                                    let t = format!("[*]{}", type_name);
+                                    self.advance();
+                                    t
+                                }
+                                _ => bail!("Expected type name after [*]"),
                             }
-                            _ => bail!("Expected type name after [*]"),
-                        }
-                    } else {
-                        match &self.current_token().token_type {
-                            TokenType::Identifier(type_name) => {
-                                let t = type_name.clone();
-                                self.advance();
-                                t
+                        } else {
+                            match &self.current_token().token_type {
+                                TokenType::Identifier(type_name) => {
+                                    let t = type_name.clone();
+                                    self.advance();
+                                    t
+                                }
+                                _ => bail!("Expected key type in map constructor"),
                             }
-                            _ => bail!("Expected key type in map constructor"),
-                        }
-                    };
+                        };
 
                     self.consume(TokenType::Comma)?; // consume ','
-                    
+
                     // Parse value type
                     let value_type = match &self.current_token().token_type {
                         TokenType::Identifier(type_name) => {

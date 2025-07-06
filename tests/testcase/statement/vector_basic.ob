@@ -1,4 +1,0 @@
-let myVec = new vec(int) {};
-myVec <- 1;
-myVec <- 2;
-myVec[0]

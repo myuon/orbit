@@ -7,8 +7,7 @@ use orbit::execute_code;
 fn test_program_files() {
     let testcase_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
-        .join("testcase")
-        .join("program");
+        .join("testcase");
 
     let mut test_files = Vec::new();
     if let Ok(entries) = fs::read_dir(&testcase_dir) {
@@ -24,7 +23,7 @@ fn test_program_files() {
 
     assert!(
         !test_files.is_empty(),
-        "No .ob test files found in tests/testcase/program directory"
+        "No .ob test files found in tests/testcase directory"
     );
 
     for test_file in test_files {

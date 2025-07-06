@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Decl, Expr, Function, Program, Stmt, IndexContainerType};
+use crate::ast::{BinaryOp, Decl, Expr, Function, IndexContainerType, Program, Stmt};
 use crate::profiler::{InstructionTimer, Profiler};
 use crate::runtime::Value;
 use std::collections::HashMap;
@@ -1030,7 +1030,7 @@ impl VMCompiler {
                 } else {
                     panic!("Undefined container variable: {}", container);
                 }
-                
+
                 match container_type {
                     Some(IndexContainerType::Vector) => {
                         self.instructions.push(Instruction::VectorSet);
@@ -1132,11 +1132,15 @@ impl VMCompiler {
                 self.instructions.push(Instruction::VectorNew);
             }
 
-            Expr::Index { container, index, container_type } => {
+            Expr::Index {
+                container,
+                index,
+                container_type,
+            } => {
                 // container, indexの順でpushし、適切なIndex命令
                 self.compile_expression(container);
                 self.compile_expression(index);
-                
+
                 match container_type {
                     Some(IndexContainerType::Vector) => {
                         self.instructions.push(Instruction::VectorIndex);
@@ -1521,19 +1525,23 @@ mod tests {
         use crate::vm::VMCompiler;
         use std::fs;
 
-        let path = "tests/testcase/program/vector_program.ob";
+        let path = "tests/testcase/vector_program.ob";
         let ir_path = "target/vector_program.ir";
         let code = fs::read_to_string(path).expect("failed to read vector_program.ob");
         let mut lexer = Lexer::new(&code);
         let tokens = lexer.tokenize().expect("tokenize failed");
         let mut parser = Parser::new(tokens);
         let mut program = parser.parse_program().expect("parse_program failed");
-        
+
         // Perform type checking and inference
         let mut type_checker = TypeChecker::new();
-        type_checker.infer_types(&mut program).expect("type inference failed");
-        type_checker.check_program(&program).expect("type checking failed");
-        
+        type_checker
+            .infer_types(&mut program)
+            .expect("type inference failed");
+        type_checker
+            .check_program(&program)
+            .expect("type checking failed");
+
         let mut compiler = VMCompiler::new();
         compiler.compile_program(&program);
         compiler.dump_ir_to_file(ir_path).expect("dump_ir failed");

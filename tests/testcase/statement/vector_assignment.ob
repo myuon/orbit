@@ -1,3 +1,0 @@
-let myVec = new vec(int) {10, 20};
-myVec[0] = 100;
-myVec[0] + myVec[1]

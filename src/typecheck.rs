@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Decl, Expr, Function, Program, Stmt, IndexContainerType};
+use crate::ast::{BinaryOp, Decl, Expr, Function, IndexContainerType, Program, Stmt};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
@@ -29,8 +29,14 @@ impl std::fmt::Display for Type {
             Type::Number => write!(f, "number"),
             Type::String => write!(f, "string"),
             Type::Vector { element_type } => write!(f, "vec({})", element_type),
-            Type::Map { key_type, value_type } => write!(f, "map({}, {})", key_type, value_type),
-            Type::Function { param_types, return_type } => {
+            Type::Map {
+                key_type,
+                value_type,
+            } => write!(f, "map({}, {})", key_type, value_type),
+            Type::Function {
+                param_types,
+                return_type,
+            } => {
                 write!(f, "(")?;
                 for (i, param) in param_types.iter().enumerate() {
                     if i > 0 {
@@ -51,7 +57,7 @@ impl Type {
             "bool" => Type::Bool,
             "int" | "number" => Type::Number,
             "string" | "[*]byte" => Type::String, // Treat [*]byte as string
-            "byte" => Type::Number, // Individual bytes are numbers
+            "byte" => Type::Number,               // Individual bytes are numbers
             _ => {
                 if type_str.starts_with("vec(") && type_str.ends_with(')') {
                     let inner = &type_str[4..type_str.len() - 1];
@@ -88,9 +94,16 @@ impl Type {
             (Type::Vector { element_type: e1 }, Type::Vector { element_type: e2 }) => {
                 e1.is_compatible_with(e2)
             }
-            (Type::Map { key_type: k1, value_type: v1 }, Type::Map { key_type: k2, value_type: v2 }) => {
-                k1.is_compatible_with(k2) && v1.is_compatible_with(v2)
-            }
+            (
+                Type::Map {
+                    key_type: k1,
+                    value_type: v1,
+                },
+                Type::Map {
+                    key_type: k2,
+                    value_type: v2,
+                },
+            ) => k1.is_compatible_with(k2) && v1.is_compatible_with(v2),
             _ => false,
         }
     }
@@ -104,9 +117,16 @@ impl Type {
             (Type::Vector { element_type: e1 }, Type::Vector { element_type: e2 }) => {
                 e1.is_exactly(e2)
             }
-            (Type::Map { key_type: k1, value_type: v1 }, Type::Map { key_type: k2, value_type: v2 }) => {
-                k1.is_exactly(k2) && v1.is_exactly(v2)
-            }
+            (
+                Type::Map {
+                    key_type: k1,
+                    value_type: v1,
+                },
+                Type::Map {
+                    key_type: k2,
+                    value_type: v2,
+                },
+            ) => k1.is_exactly(k2) && v1.is_exactly(v2),
             _ => false,
         }
     }
@@ -182,7 +202,7 @@ impl TypeChecker {
             Stmt::Let { name, value } => {
                 self.infer_expression_types(value)?;
                 let value_type = self.check_expression(value)?;
-                
+
                 // Add to current scope
                 if let Some(locals) = self.call_stack.last_mut() {
                     locals.insert(name.clone(), value_type);
@@ -202,7 +222,11 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Stmt::If { condition, then_branch, else_branch } => {
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 self.infer_expression_types(condition)?;
 
                 for stmt in then_branch {
@@ -236,7 +260,12 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Stmt::IndexAssign { container, index, value, container_type } => {
+            Stmt::IndexAssign {
+                container,
+                index,
+                value,
+                container_type,
+            } => {
                 self.infer_expression_types(index)?;
                 self.infer_expression_types(value)?;
 
@@ -284,7 +313,11 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Expr::Index { container, index, container_type } => {
+            Expr::Index {
+                container,
+                index,
+                container_type,
+            } => {
                 self.infer_expression_types(container)?;
                 self.infer_expression_types(index)?;
 
@@ -355,7 +388,7 @@ impl TypeChecker {
         match stmt {
             Stmt::Let { name, value } => {
                 let value_type = self.check_expression(value)?;
-                
+
                 // Add to current scope
                 if let Some(locals) = self.call_stack.last_mut() {
                     locals.insert(name.clone(), value_type);
@@ -372,17 +405,25 @@ impl TypeChecker {
 
             Stmt::Return(expr) => {
                 let expr_type = self.check_expression(expr)?;
-                
+
                 // Check against expected return type if available
                 if let Some(expected_return_type) = &self.current_return_type {
                     if !expr_type.is_compatible_with(expected_return_type) {
-                        bail!("Return type mismatch: expected {}, got {}", expected_return_type, expr_type);
+                        bail!(
+                            "Return type mismatch: expected {}, got {}",
+                            expected_return_type,
+                            expr_type
+                        );
                     }
                 }
                 Ok(())
             }
 
-            Stmt::If { condition, then_branch, else_branch } => {
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let condition_type = self.check_expression(condition)?;
                 if !condition_type.is_compatible_with(&Type::Bool) {
                     bail!("If condition must be boolean, got {}", condition_type);
@@ -415,9 +456,14 @@ impl TypeChecker {
             Stmt::Assign { name, value } => {
                 let value_type = self.check_expression(value)?;
                 let var_type = self.lookup_variable(name)?;
-                
+
                 if !value_type.is_compatible_with(&var_type) {
-                    bail!("Assignment type mismatch: variable '{}' has type {}, assigned {}", name, var_type, value_type);
+                    bail!(
+                        "Assignment type mismatch: variable '{}' has type {}, assigned {}",
+                        name,
+                        var_type,
+                        value_type
+                    );
                 }
                 Ok(())
             }
@@ -425,11 +471,15 @@ impl TypeChecker {
             Stmt::VectorPush { vector, value } => {
                 let value_type = self.check_expression(value)?;
                 let vector_type = self.lookup_variable(vector)?;
-                
+
                 match &vector_type {
                     Type::Vector { element_type } => {
                         if !value_type.is_compatible_with(element_type) {
-                            bail!("Vector push type mismatch: vector element type is {}, pushed {}", element_type, value_type);
+                            bail!(
+                                "Vector push type mismatch: vector element type is {}, pushed {}",
+                                element_type,
+                                value_type
+                            );
                         }
                     }
                     _ => bail!("Cannot push to non-vector type: {}", vector_type),
@@ -437,11 +487,16 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Stmt::IndexAssign { container, index, value, container_type: _ } => {
+            Stmt::IndexAssign {
+                container,
+                index,
+                value,
+                container_type: _,
+            } => {
                 let index_type = self.check_expression(index)?;
                 let value_type = self.check_expression(value)?;
                 let collection_type = self.lookup_variable(container)?;
-                
+
                 // Just perform type checking, inference will be done separately
                 match &collection_type {
                     Type::Vector { element_type } => {
@@ -449,15 +504,30 @@ impl TypeChecker {
                             bail!("Vector index must be number, got {}", index_type);
                         }
                         if !value_type.is_compatible_with(element_type) {
-                            bail!("Vector assignment type mismatch: element type is {}, assigned {}", element_type, value_type);
+                            bail!(
+                                "Vector assignment type mismatch: element type is {}, assigned {}",
+                                element_type,
+                                value_type
+                            );
                         }
                     }
-                    Type::Map { key_type, value_type: map_value_type } => {
+                    Type::Map {
+                        key_type,
+                        value_type: map_value_type,
+                    } => {
                         if !index_type.is_compatible_with(key_type) {
-                            bail!("Map key type mismatch: expected {}, got {}", key_type, index_type);
+                            bail!(
+                                "Map key type mismatch: expected {}, got {}",
+                                key_type,
+                                index_type
+                            );
                         }
                         if !value_type.is_compatible_with(map_value_type) {
-                            bail!("Map value type mismatch: expected {}, got {}", map_value_type, value_type);
+                            bail!(
+                                "Map value type mismatch: expected {}, got {}",
+                                map_value_type,
+                                value_type
+                            );
                         }
                     }
                     _ => bail!("Cannot index non-vector/map type: {}", collection_type),
@@ -483,33 +553,58 @@ impl TypeChecker {
                 match op {
                     BinaryOp::Add => {
                         // For string concatenation
-                        if left_type.is_compatible_with(&Type::String) && right_type.is_compatible_with(&Type::String) {
+                        if left_type.is_compatible_with(&Type::String)
+                            && right_type.is_compatible_with(&Type::String)
+                        {
                             Ok(Type::String)
-                        } else if left_type.is_compatible_with(&Type::Number) && right_type.is_compatible_with(&Type::Number) {
+                        } else if left_type.is_compatible_with(&Type::Number)
+                            && right_type.is_compatible_with(&Type::Number)
+                        {
                             Ok(Type::Number)
                         } else {
                             bail!("Addition operation type mismatch: {} + {} (can only add numbers or concatenate strings)", left_type, right_type);
                         }
                     }
                     BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide => {
-                        if left_type.is_compatible_with(&Type::Number) && right_type.is_compatible_with(&Type::Number) {
+                        if left_type.is_compatible_with(&Type::Number)
+                            && right_type.is_compatible_with(&Type::Number)
+                        {
                             Ok(Type::Number)
                         } else {
-                            bail!("Arithmetic operation type mismatch: {} {} {} (requires numbers)", left_type, op_to_string(op), right_type);
+                            bail!(
+                                "Arithmetic operation type mismatch: {} {} {} (requires numbers)",
+                                left_type,
+                                op_to_string(op),
+                                right_type
+                            );
                         }
                     }
                     BinaryOp::Equal | BinaryOp::NotEqual => {
                         if left_type.is_compatible_with(&right_type) {
                             Ok(Type::Bool)
                         } else {
-                            bail!("Comparison type mismatch: {} and {} are not comparable", left_type, right_type);
+                            bail!(
+                                "Comparison type mismatch: {} and {} are not comparable",
+                                left_type,
+                                right_type
+                            );
                         }
                     }
-                    BinaryOp::Less | BinaryOp::Greater | BinaryOp::LessEqual | BinaryOp::GreaterEqual => {
-                        if left_type.is_compatible_with(&Type::Number) && right_type.is_compatible_with(&Type::Number) {
+                    BinaryOp::Less
+                    | BinaryOp::Greater
+                    | BinaryOp::LessEqual
+                    | BinaryOp::GreaterEqual => {
+                        if left_type.is_compatible_with(&Type::Number)
+                            && right_type.is_compatible_with(&Type::Number)
+                        {
                             Ok(Type::Bool)
                         } else {
-                            bail!("Comparison operation requires numbers: {} {} {}", left_type, op_to_string(op), right_type);
+                            bail!(
+                                "Comparison operation requires numbers: {} {} {}",
+                                left_type,
+                                op_to_string(op),
+                                right_type
+                            );
                         }
                     }
                 }
@@ -525,26 +620,37 @@ impl TypeChecker {
                 Ok(Type::Unknown) // Function call return type needs proper implementation
             }
 
-            Expr::VectorNew { element_type, initial_values } => {
+            Expr::VectorNew {
+                element_type,
+                initial_values,
+            } => {
                 let element_type = Type::from_string(element_type);
-                
+
                 // Check all initial values match element type
                 for value in initial_values {
                     let value_type = self.check_expression(value)?;
                     if !value_type.is_compatible_with(&element_type) {
-                        bail!("Vector initial value type mismatch: expected {}, got {}", element_type, value_type);
+                        bail!(
+                            "Vector initial value type mismatch: expected {}, got {}",
+                            element_type,
+                            value_type
+                        );
                     }
                 }
-                
+
                 Ok(Type::Vector {
                     element_type: Box::new(element_type),
                 })
             }
 
-            Expr::Index { container, index, container_type: _ } => {
+            Expr::Index {
+                container,
+                index,
+                container_type: _,
+            } => {
                 let container_value_type = self.check_expression(container)?;
                 let index_type = self.check_expression(index)?;
-                
+
                 // Just perform type checking, inference will be done separately
                 match &container_value_type {
                     Type::Vector { element_type } => {
@@ -553,9 +659,16 @@ impl TypeChecker {
                         }
                         Ok(*element_type.clone())
                     }
-                    Type::Map { key_type, value_type } => {
+                    Type::Map {
+                        key_type,
+                        value_type,
+                    } => {
                         if !index_type.is_compatible_with(key_type) {
-                            bail!("Map key type mismatch: expected {}, got {}", key_type, index_type);
+                            bail!(
+                                "Map key type mismatch: expected {}, got {}",
+                                key_type,
+                                index_type
+                            );
                         }
                         Ok(*value_type.clone())
                     }
@@ -563,29 +676,40 @@ impl TypeChecker {
                 }
             }
 
-            Expr::MapNew { key_type, value_type, initial_pairs } => {
+            Expr::MapNew {
+                key_type,
+                value_type,
+                initial_pairs,
+            } => {
                 let key_type = Type::from_string(key_type);
                 let value_type = Type::from_string(value_type);
-                
+
                 // Check all initial pairs match key/value types
                 for (key_expr, value_expr) in initial_pairs {
                     let actual_key_type = self.check_expression(key_expr)?;
                     let actual_value_type = self.check_expression(value_expr)?;
-                    
+
                     if !actual_key_type.is_compatible_with(&key_type) {
-                        bail!("Map initial key type mismatch: expected {}, got {}", key_type, actual_key_type);
+                        bail!(
+                            "Map initial key type mismatch: expected {}, got {}",
+                            key_type,
+                            actual_key_type
+                        );
                     }
                     if !actual_value_type.is_compatible_with(&value_type) {
-                        bail!("Map initial value type mismatch: expected {}, got {}", value_type, actual_value_type);
+                        bail!(
+                            "Map initial value type mismatch: expected {}, got {}",
+                            value_type,
+                            actual_value_type
+                        );
                     }
                 }
-                
+
                 Ok(Type::Map {
                     key_type: Box::new(key_type),
                     value_type: Box::new(value_type),
                 })
             }
-
         }
     }
 
@@ -630,7 +754,7 @@ mod tests {
     #[test]
     fn test_basic_type_checking() {
         let _checker = TypeChecker::new();
-        
+
         // Test basic types
         assert_eq!(Type::from_string("int"), Type::Number);
         assert_eq!(Type::from_string("bool"), Type::Bool);
@@ -695,7 +819,7 @@ mod tests {
         let mut checker = TypeChecker::new();
         let result = checker.check_program(&program);
         assert!(result.is_err());
-        
+
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("Addition operation type mismatch"));
     }
