@@ -34,6 +34,8 @@ pub enum TokenType {
     RightBracket, // ]
     LeftBrace,    // {
     RightBrace,   // }
+    // Map keywords
+    Map,
     Fun,
     Do,
     End,
@@ -86,6 +88,15 @@ pub enum Expr {
     VectorIndex {
         vector: Box<Expr>,
         index: Box<Expr>,
+    },
+    MapNew {
+        key_type: String,
+        value_type: String,
+        initial_pairs: Vec<(Expr, Expr)>,
+    },
+    MapIndex {
+        map: Box<Expr>,
+        key: Box<Expr>,
     },
 }
 
@@ -143,6 +154,11 @@ pub enum Stmt {
     VectorAssign {
         vector: String,
         index: Expr,
+        value: Expr,
+    },
+    MapAssign {
+        map: String,
+        key: Expr,
         value: Expr,
     },
 }

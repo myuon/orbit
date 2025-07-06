@@ -1031,6 +1031,11 @@ impl VMCompiler {
                 }
                 self.instructions.push(Instruction::VectorSet);
             }
+            Stmt::MapAssign { map, key, value } => {
+                // Maps are not supported in VM compilation yet
+                // This would need to be handled at runtime level
+                panic!("Map operations not supported in VM compilation");
+            }
         }
     }
 
@@ -1195,6 +1200,16 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
 
         Expr::VectorIndex { .. } => {
             // For now, just push 0 - vector indexing needs more complex handling
+            instructions.push(Instruction::Push(0));
+        }
+
+        Expr::MapNew { .. } => {
+            // For now, just push 0 - maps need more complex handling
+            instructions.push(Instruction::Push(0));
+        }
+
+        Expr::MapIndex { .. } => {
+            // For now, just push 0 - map indexing needs more complex handling
             instructions.push(Instruction::Push(0));
         }
     }

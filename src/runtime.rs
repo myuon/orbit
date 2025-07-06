@@ -18,6 +18,11 @@ pub enum Value {
         element_type: String,
         elements: Vec<Value>,
     },
+    Map {
+        key_type: String,
+        value_type: String,
+        entries: HashMap<String, Value>,
+    },
 }
 
 impl std::fmt::Display for Value {
@@ -43,6 +48,16 @@ impl std::fmt::Display for Value {
                     write!(f, "{}", elem)?;
                 }
                 write!(f, "]")
+            }
+            Value::Map { entries, .. } => {
+                write!(f, "{{")?;
+                for (i, (key, value)) in entries.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", key, value)?;
+                }
+                write!(f, "}}")
             }
         }
     }
@@ -212,8 +227,34 @@ impl Runtime {
                     (Value::Vector { .. }, _) => {
                         bail!("Vector index must be a number")
                     }
-                    _ => bail!("Cannot index non-vector value: {:?}", vector_value),
+                    (Value::Map { entries, .. }, Value::String(key)) => {
+                        entries.get(key).cloned().ok_or_else(|| anyhow::anyhow!("Key '{}' not found in map", key))
+                    }
+                    (Value::Map { .. }, _) => {
+                        bail!("Map key must be a string")
+                    }
+                    _ => bail!("Cannot index non-vector/map value: {:?}", vector_value),
                 }
+            }
+
+            Expr::MapNew { key_type, value_type, initial_pairs } => {
+                let mut entries = HashMap::new();
+                for (key_expr, value_expr) in initial_pairs {
+                    let key_value = self.evaluate(key_expr)?;
+                    let value_value = self.evaluate(value_expr)?;
+                    
+                    match key_value {
+                        Value::String(key) => {
+                            entries.insert(key, value_value);
+                        }
+                        _ => bail!("Map key must be a string"),
+                    }
+                }
+                Ok(Value::Map {
+                    key_type: key_type.clone(),
+                    value_type: value_type.clone(),
+                    entries,
+                })
             }
 
             Expr::String(value) => Ok(Value::String(value.clone())),
@@ -349,6 +390,11 @@ impl Runtime {
             Expr::VectorIndex { vector, index } => {
                 self.contains_variables(vector) || self.contains_variables(index)
             }
+            Expr::MapNew { initial_pairs, .. } => {
+                initial_pairs.iter().any(|(key, value)| {
+                    self.contains_variables(key) || self.contains_variables(value)
+                })
+            }
             _ => false,
         }
     }
@@ -474,16 +520,12 @@ impl Runtime {
                 let idx_val = self.evaluate(index)?;
                 let new_val = self.evaluate(value)?;
 
-                let idx = match idx_val {
-                    Value::Number(n) => n as usize,
-                    _ => bail!("Vector index must be a number"),
-                };
-
-                // Find the vector variable and update element
+                // Find the variable and update element (could be vector or map)
                 if let Some(locals) = self.call_stack.last_mut() {
-                    if let Some(vector_value) = locals.get_mut(vector) {
-                        match vector_value {
-                            Value::Vector { elements, .. } => {
+                    if let Some(collection_value) = locals.get_mut(vector) {
+                        match (collection_value, &idx_val) {
+                            (Value::Vector { elements, .. }, Value::Number(idx)) => {
+                                let idx = *idx as usize;
                                 if idx < elements.len() {
                                     elements[idx] = new_val;
                                     return Ok(None);
@@ -495,15 +537,26 @@ impl Runtime {
                                     );
                                 }
                             }
-                            _ => bail!("Cannot index non-vector value: {}", vector),
+                            (Value::Map { entries, .. }, Value::String(key)) => {
+                                entries.insert(key.clone(), new_val);
+                                return Ok(None);
+                            }
+                            (Value::Vector { .. }, _) => {
+                                bail!("Vector index must be a number")
+                            }
+                            (Value::Map { .. }, _) => {
+                                bail!("Map key must be a string")
+                            }
+                            _ => bail!("Cannot index non-vector/map value: {}", vector),
                         }
                     }
                 }
 
                 // Check global scope
-                if let Some(vector_value) = self.variables.get_mut(vector) {
-                    match vector_value {
-                        Value::Vector { elements, .. } => {
+                if let Some(collection_value) = self.variables.get_mut(vector) {
+                    match (collection_value, &idx_val) {
+                        (Value::Vector { elements, .. }, Value::Number(idx)) => {
+                            let idx = *idx as usize;
                             if idx < elements.len() {
                                 elements[idx] = new_val;
                                 Ok(None)
@@ -515,10 +568,55 @@ impl Runtime {
                                 );
                             }
                         }
-                        _ => bail!("Cannot index non-vector value: {}", vector),
+                        (Value::Map { entries, .. }, Value::String(key)) => {
+                            entries.insert(key.clone(), new_val);
+                            Ok(None)
+                        }
+                        (Value::Vector { .. }, _) => {
+                            bail!("Vector index must be a number")
+                        }
+                        (Value::Map { .. }, _) => {
+                            bail!("Map key must be a string")
+                        }
+                        _ => bail!("Cannot index non-vector/map value: {}", vector),
                     }
                 } else {
-                    bail!("Undefined vector: {}", vector)
+                    bail!("Undefined variable: {}", vector)
+                }
+            }
+            Stmt::MapAssign { map, key, value } => {
+                let key_val = self.evaluate(key)?;
+                let new_val = self.evaluate(value)?;
+
+                let key_str = match key_val {
+                    Value::String(s) => s,
+                    _ => bail!("Map key must be a string"),
+                };
+
+                // Find the map variable and update element
+                if let Some(locals) = self.call_stack.last_mut() {
+                    if let Some(map_value) = locals.get_mut(map) {
+                        match map_value {
+                            Value::Map { entries, .. } => {
+                                entries.insert(key_str, new_val);
+                                return Ok(None);
+                            }
+                            _ => bail!("Cannot assign to non-map value: {}", map),
+                        }
+                    }
+                }
+
+                // Check global scope
+                if let Some(map_value) = self.variables.get_mut(map) {
+                    match map_value {
+                        Value::Map { entries, .. } => {
+                            entries.insert(key_str, new_val);
+                            Ok(None)
+                        }
+                        _ => bail!("Cannot assign to non-map value: {}", map),
+                    }
+                } else {
+                    bail!("Undefined map: {}", map)
                 }
             }
         }

@@ -160,8 +160,8 @@ impl Parser {
                         TokenType::Assign => self.parse_assign_stmt(),
                         TokenType::Push => self.parse_vector_push_stmt(),
                         TokenType::LeftBracket => {
-                            // Could be vector[index] = value
-                            self.parse_vector_assign_or_expr()
+                            // Could be vector[index] = value or map[key] = value
+                            self.parse_index_assign_or_expr()
                         }
                         _ => {
                             let expr = self.parse_expression()?;
@@ -297,16 +297,16 @@ impl Parser {
         Ok(Stmt::VectorPush { vector, value })
     }
 
-    fn parse_vector_assign_or_expr(&mut self) -> Result<Stmt> {
-        // We need to check if this is vector[index] = value or just a complex expression
+    fn parse_index_assign_or_expr(&mut self) -> Result<Stmt> {
+        // We need to check if this is vector[index] = value, map[key] = value, or just a complex expression
         // Let's parse it as an expression first and check if it's followed by assignment
 
         // Save the current position in case we need to backtrack
         let saved_position = self.position;
 
-        // Try to parse vector[index] assignment
-        if let Ok(vector_name) = self.try_parse_simple_vector_assignment() {
-            return Ok(vector_name);
+        // Try to parse vector[index] assignment or map[key] assignment
+        if let Ok(stmt) = self.try_parse_simple_index_assignment() {
+            return Ok(stmt);
         }
 
         // Reset position and parse as a regular expression
@@ -315,14 +315,14 @@ impl Parser {
         Ok(Stmt::Expression(expr))
     }
 
-    fn try_parse_simple_vector_assignment(&mut self) -> Result<Stmt> {
-        let vector = match &self.current_token().token_type {
+    fn try_parse_simple_index_assignment(&mut self) -> Result<Stmt> {
+        let name = match &self.current_token().token_type {
             TokenType::Identifier(name) => {
                 let n = name.clone();
                 self.advance();
                 n
             }
-            _ => bail!("Expected vector name"),
+            _ => bail!("Expected variable name"),
         };
 
         self.consume(TokenType::LeftBracket)?; // consume '['
@@ -334,13 +334,17 @@ impl Parser {
             self.advance(); // consume '='
             let value = self.parse_expression()?;
             self.consume(TokenType::Semicolon)?;
+            
+            // We can't differentiate between vector and map assignment at parse time
+            // For now, we'll assume it's a vector assignment and handle maps in runtime
+            // TODO: Add proper type checking to distinguish between vector and map
             Ok(Stmt::VectorAssign {
-                vector,
+                vector: name,
                 index,
                 value,
             })
         } else {
-            bail!("Not a vector assignment")
+            bail!("Not an index assignment")
         }
     }
 
@@ -475,10 +479,13 @@ impl Parser {
 
                     Ok(expr)
                 } else if matches!(self.current_token().token_type, TokenType::LeftBracket) {
-                    // Vector indexing
+                    // Vector/Map indexing - we'll determine the type at runtime
                     self.advance(); // consume '['
                     let index = self.parse_expression()?;
                     self.consume(TokenType::RightBracket)?;
+                    
+                    // For now, we'll use VectorIndex and handle maps at runtime
+                    // TODO: Add proper type checking to distinguish between vector and map
                     Ok(Expr::VectorIndex {
                         vector: Box::new(Expr::Identifier(identifier)),
                         index: Box::new(index),
@@ -489,41 +496,113 @@ impl Parser {
             }
             TokenType::New => {
                 self.advance(); // consume 'new'
-                self.consume(TokenType::Vec)?; // consume 'vec'
-                self.consume(TokenType::LeftParen)?; // consume '('
+                
+                if matches!(self.current_token().token_type, TokenType::Vec) {
+                    self.advance(); // consume 'vec'
+                    self.consume(TokenType::LeftParen)?; // consume '('
 
-                // Get the element type
-                let element_type = match &self.current_token().token_type {
-                    TokenType::Identifier(type_name) => {
-                        let t = type_name.clone();
-                        self.advance();
-                        t
-                    }
-                    _ => bail!("Expected type name in vector constructor"),
-                };
-
-                self.consume(TokenType::RightParen)?; // consume ')'
-                self.consume(TokenType::LeftBrace)?; // consume '{'
-
-                // Parse initial values (if any)
-                let mut initial_values = Vec::new();
-                if !matches!(self.current_token().token_type, TokenType::RightBrace) {
-                    loop {
-                        initial_values.push(self.parse_expression()?);
-
-                        if matches!(self.current_token().token_type, TokenType::Comma) {
+                    // Get the element type
+                    let element_type = match &self.current_token().token_type {
+                        TokenType::Identifier(type_name) => {
+                            let t = type_name.clone();
                             self.advance();
-                        } else {
-                            break;
+                            t
+                        }
+                        _ => bail!("Expected type name in vector constructor"),
+                    };
+
+                    self.consume(TokenType::RightParen)?; // consume ')'
+                    self.consume(TokenType::LeftBrace)?; // consume '{'
+
+                    // Parse initial values (if any)
+                    let mut initial_values = Vec::new();
+                    if !matches!(self.current_token().token_type, TokenType::RightBrace) {
+                        loop {
+                            initial_values.push(self.parse_expression()?);
+
+                            if matches!(self.current_token().token_type, TokenType::Comma) {
+                                self.advance();
+                            } else {
+                                break;
+                            }
                         }
                     }
-                }
 
-                self.consume(TokenType::RightBrace)?; // consume '}'
-                Ok(Expr::VectorNew {
-                    element_type,
-                    initial_values,
-                })
+                    self.consume(TokenType::RightBrace)?; // consume '}'
+                    Ok(Expr::VectorNew {
+                        element_type,
+                        initial_values,
+                    })
+                } else if matches!(self.current_token().token_type, TokenType::Map) {
+                    self.advance(); // consume 'map'
+                    self.consume(TokenType::LeftParen)?; // consume '('
+                    
+                    // Parse key type: expect [*]type or type
+                    let key_type = if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                        self.advance(); // consume '['
+                        self.consume(TokenType::Star)?; // consume '*'
+                        self.consume(TokenType::RightBracket)?; // consume ']'
+                        
+                        match &self.current_token().token_type {
+                            TokenType::Identifier(type_name) => {
+                                let t = format!("[*]{}", type_name);
+                                self.advance();
+                                t
+                            }
+                            _ => bail!("Expected type name after [*]"),
+                        }
+                    } else {
+                        match &self.current_token().token_type {
+                            TokenType::Identifier(type_name) => {
+                                let t = type_name.clone();
+                                self.advance();
+                                t
+                            }
+                            _ => bail!("Expected key type in map constructor"),
+                        }
+                    };
+
+                    self.consume(TokenType::Comma)?; // consume ','
+                    
+                    // Parse value type
+                    let value_type = match &self.current_token().token_type {
+                        TokenType::Identifier(type_name) => {
+                            let t = type_name.clone();
+                            self.advance();
+                            t
+                        }
+                        _ => bail!("Expected value type in map constructor"),
+                    };
+
+                    self.consume(TokenType::RightParen)?; // consume ')'
+                    self.consume(TokenType::LeftBrace)?; // consume '{'
+
+                    // Parse initial key-value pairs (if any)
+                    let mut initial_pairs = Vec::new();
+                    if !matches!(self.current_token().token_type, TokenType::RightBrace) {
+                        loop {
+                            let key = self.parse_expression()?;
+                            self.consume(TokenType::Colon)?; // consume ':'
+                            let value = self.parse_expression()?;
+                            initial_pairs.push((key, value));
+
+                            if matches!(self.current_token().token_type, TokenType::Comma) {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+
+                    self.consume(TokenType::RightBrace)?; // consume '}'
+                    Ok(Expr::MapNew {
+                        key_type,
+                        value_type,
+                        initial_pairs,
+                    })
+                } else {
+                    bail!("Expected 'vec' or 'map' after 'new'")
+                }
             }
             TokenType::LeftParen => {
                 self.advance();

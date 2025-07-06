@@ -132,6 +132,7 @@ impl Lexer {
                         "while" => TokenType::While,
                         "new" => TokenType::New,
                         "vec" => TokenType::Vec,
+                        "map" => TokenType::Map,
                         _ => TokenType::Identifier(identifier),
                     };
                     return Token {
