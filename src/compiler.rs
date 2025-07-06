@@ -49,7 +49,7 @@ impl Compiler {
         // 1. Type inference phase: analyze types and set object_type information
         let mut type_checker = TypeChecker::new();
         let mut program_with_type_info = program;
-        
+
         // First register struct types and functions
         type_checker.check_program(&program_with_type_info)?;
         // Then perform type inference to set object_type fields

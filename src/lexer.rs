@@ -333,7 +333,9 @@ impl Lexer {
                 Some('.') => {
                     let pos = self.position;
                     // Check if this is a float or a dot operator
-                    if self.position + 1 < self.input.len() && self.input[self.position + 1].is_ascii_digit() {
+                    if self.position + 1 < self.input.len()
+                        && self.input[self.position + 1].is_ascii_digit()
+                    {
                         // This is a float literal starting with a dot
                         let num = self.read_number();
                         return Token {

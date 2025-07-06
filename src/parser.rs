@@ -1,4 +1,7 @@
-use crate::ast::{BinaryOp, Decl, Expr, FunParam, Function, Program, Stmt, StructDecl, StructField, Token, TokenType};
+use crate::ast::{
+    BinaryOp, Decl, Expr, FunParam, Function, Program, Stmt, StructDecl, StructField, Token,
+    TokenType,
+};
 use anyhow::{bail, Result};
 
 pub struct Parser {
@@ -202,11 +205,16 @@ impl Parser {
                     _ => bail!("Expected type name in struct field"),
                 };
 
-                fields.push(StructField { name: field_name, type_name });
+                fields.push(StructField {
+                    name: field_name,
+                    type_name,
+                });
 
                 if matches!(self.current_token().token_type, TokenType::Comma) {
                     self.advance();
-                } else if !matches!(self.current_token().token_type, TokenType::RightBrace) && !matches!(self.current_token().token_type, TokenType::Fun) {
+                } else if !matches!(self.current_token().token_type, TokenType::RightBrace)
+                    && !matches!(self.current_token().token_type, TokenType::Fun)
+                {
                     bail!("Expected ',' or '}}' in struct declaration");
                 }
             }
@@ -215,7 +223,11 @@ impl Parser {
         self.consume(TokenType::RightBrace)?;
         self.consume(TokenType::Semicolon)?;
 
-        Ok(StructDecl { name, fields, methods })
+        Ok(StructDecl {
+            name,
+            fields,
+            methods,
+        })
     }
 
     pub fn parse_stmt(&mut self) -> Result<Stmt> {
@@ -577,7 +589,7 @@ impl Parser {
                 } else {
                     // Check for field access or method call
                     let mut expr = Expr::Identifier(identifier);
-                    
+
                     while matches!(self.current_token().token_type, TokenType::Dot) {
                         self.advance(); // consume '.'
                         let field_name = match &self.current_token().token_type {
@@ -588,7 +600,7 @@ impl Parser {
                             }
                             _ => bail!("Expected field name after '.'"),
                         };
-                        
+
                         // Check if this is a method call (followed by parentheses)
                         if matches!(self.current_token().token_type, TokenType::LeftParen) {
                             self.advance(); // consume '('
@@ -621,7 +633,7 @@ impl Parser {
                             };
                         }
                     }
-                    
+
                     Ok(expr)
                 }
             }
@@ -789,9 +801,12 @@ impl Parser {
         // Pattern: identifier . identifier = ...
         // Current position should be at identifier, next is dot
         if self.position + 3 < self.tokens.len() {
-            matches!(self.tokens[self.position + 1].token_type, TokenType::Dot) &&
-            matches!(self.tokens[self.position + 2].token_type, TokenType::Identifier(_)) &&
-            matches!(self.tokens[self.position + 3].token_type, TokenType::Assign)
+            matches!(self.tokens[self.position + 1].token_type, TokenType::Dot)
+                && matches!(
+                    self.tokens[self.position + 2].token_type,
+                    TokenType::Identifier(_)
+                )
+                && matches!(self.tokens[self.position + 3].token_type, TokenType::Assign)
         } else {
             false
         }
@@ -802,7 +817,7 @@ impl Parser {
         // Parse just the object identifier, not the full expression
         let object = Expr::Identifier(self.parse_identifier("in field assignment")?);
         self.consume(TokenType::Dot)?;
-        
+
         let field = match &self.current_token().token_type {
             TokenType::Identifier(name) => {
                 let n = name.clone();
@@ -811,12 +826,16 @@ impl Parser {
             }
             _ => bail!("Expected field name after '.'"),
         };
-        
+
         self.consume(TokenType::Assign)?;
         let value = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
-        
-        Ok(Stmt::FieldAssign { object, field, value })
+
+        Ok(Stmt::FieldAssign {
+            object,
+            field,
+            value,
+        })
     }
 }
 
@@ -841,14 +860,14 @@ type Point = struct {
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
         let program = parser.parse_program().unwrap();
-        
+
         assert_eq!(program.declarations.len(), 1);
-        
+
         if let Decl::Struct(struct_decl) = &program.declarations[0] {
             assert_eq!(struct_decl.name, "Point");
             assert_eq!(struct_decl.fields.len(), 2);
             assert_eq!(struct_decl.methods.len(), 1);
-            
+
             let method = &struct_decl.methods[0];
             assert_eq!(method.name, "sum");
             assert_eq!(method.params.len(), 1);
@@ -865,8 +884,14 @@ type Point = struct {
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
         let expr = parser.parse().unwrap();
-        
-        if let Expr::MethodCall { object, method, args, object_type } = expr {
+
+        if let Expr::MethodCall {
+            object,
+            method,
+            args,
+            object_type,
+        } = expr
+        {
             if let Expr::Identifier(obj_name) = object.as_ref() {
                 assert_eq!(obj_name, "p");
             } else {

@@ -171,14 +171,14 @@ impl TypeChecker {
                 self.register_struct(struct_decl)?;
             }
         }
-        
+
         // Second pass: register all function signatures (now that structs are available)
         for decl in &program.declarations {
             if let Decl::Function(function) = decl {
                 self.register_function(function)?;
             }
         }
-        
+
         // Third pass: check function bodies
         for decl in &program.declarations {
             self.check_declaration(decl)?;
@@ -312,7 +312,11 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Stmt::FieldAssign { object, field: _, value } => {
+            Stmt::FieldAssign {
+                object,
+                field: _,
+                value,
+            } => {
                 self.infer_expression_types(object)?;
                 self.infer_expression_types(value)?;
                 Ok(())
@@ -390,18 +394,23 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Expr::MethodCall { object, args, object_type, .. } => {
+            Expr::MethodCall {
+                object,
+                args,
+                object_type,
+                ..
+            } => {
                 self.infer_expression_types(object)?;
                 for arg in args {
                     self.infer_expression_types(arg)?;
                 }
-                
+
                 // Set object type information based on object expression type
                 let obj_type = self.check_expression(object)?;
                 if let Type::Struct { name, .. } = obj_type {
                     *object_type = Some(name);
                 }
-                
+
                 Ok(())
             }
         }
@@ -452,13 +461,13 @@ impl TypeChecker {
 
         // Register the struct type in the type registry
         self.structs.insert(struct_decl.name.clone(), struct_type);
-        
+
         // Register struct methods with name mangling
         for method in &struct_decl.methods {
             let mangled_name = format!("{}_{}", struct_decl.name, method.name);
             self.register_function_with_name(&mangled_name, method)?;
         }
-        
+
         Ok(())
     }
 
@@ -468,7 +477,10 @@ impl TypeChecker {
         match Type::from_string(type_name) {
             Type::Unknown => {
                 // Check if it's a registered struct type
-                self.structs.get(type_name).cloned().unwrap_or(Type::Unknown)
+                self.structs
+                    .get(type_name)
+                    .cloned()
+                    .unwrap_or(Type::Unknown)
             }
             other => other,
         }
@@ -665,27 +677,33 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Stmt::FieldAssign { object, field, value } => {
+            Stmt::FieldAssign {
+                object,
+                field,
+                value,
+            } => {
                 let object_type = self.check_expression(object)?;
                 let value_type = self.check_expression(value)?;
-                
+
                 match &object_type {
-                    Type::Struct { fields, .. } => {
-                        match fields.get(field) {
-                            Some(field_type) => {
-                                if !value_type.is_compatible_with(field_type) {
-                                    bail!(
+                    Type::Struct { fields, .. } => match fields.get(field) {
+                        Some(field_type) => {
+                            if !value_type.is_compatible_with(field_type) {
+                                bail!(
                                         "Field assignment type mismatch: field '{}' has type {}, assigned {}",
                                         field,
                                         field_type,
                                         value_type
                                     );
-                                }
                             }
-                            None => bail!("Field '{}' not found in struct", field),
                         }
-                    }
-                    _ => bail!("Cannot assign field '{}' on non-struct type: {}", field, object_type),
+                        None => bail!("Field '{}' not found in struct", field),
+                    },
+                    _ => bail!(
+                        "Cannot assign field '{}' on non-struct type: {}",
+                        field,
+                        object_type
+                    ),
                 }
                 Ok(())
             }
@@ -770,7 +788,11 @@ impl TypeChecker {
                 if let Expr::Identifier(func_name) = callee.as_ref() {
                     // Look up function signature and clone it to avoid borrow checker issues
                     if let Some(func_type) = self.functions.get(func_name).cloned() {
-                        if let Type::Function { param_types, return_type } = func_type {
+                        if let Type::Function {
+                            param_types,
+                            return_type,
+                        } = func_type
+                        {
                             // Check argument count
                             if args.len() != param_types.len() {
                                 bail!(
@@ -906,22 +928,30 @@ impl TypeChecker {
             Expr::StructNew { type_name, fields } => {
                 // Look up the struct type
                 let struct_type = match self.structs.get(type_name) {
-                    Some(Type::Struct { fields: struct_fields, .. }) => struct_fields.clone(),
+                    Some(Type::Struct {
+                        fields: struct_fields,
+                        ..
+                    }) => struct_fields.clone(),
                     _ => bail!("Unknown struct type: {}", type_name),
                 };
 
                 // Check that all required fields are provided
                 for (field_name, _field_type) in &struct_type {
                     if !fields.iter().any(|(name, _)| name == field_name) {
-                        bail!("Missing required field '{}' in struct '{}'", field_name, type_name);
+                        bail!(
+                            "Missing required field '{}' in struct '{}'",
+                            field_name,
+                            type_name
+                        );
                     }
                 }
 
                 // Check that all provided fields are valid and have correct types
                 for (field_name, field_value) in fields {
-                    let field_type = struct_type.get(field_name)
-                        .ok_or_else(|| anyhow::anyhow!("Unknown field '{}' in struct '{}'", field_name, type_name))?;
-                    
+                    let field_type = struct_type.get(field_name).ok_or_else(|| {
+                        anyhow::anyhow!("Unknown field '{}' in struct '{}'", field_name, type_name)
+                    })?;
+
                     let actual_type = self.check_expression(field_value)?;
                     if !actual_type.is_compatible_with(field_type) {
                         bail!(
@@ -933,23 +963,33 @@ impl TypeChecker {
                     }
                 }
 
-                self.structs.get(type_name).cloned()
+                self.structs
+                    .get(type_name)
+                    .cloned()
                     .ok_or_else(|| anyhow::anyhow!("Unknown struct type: {}", type_name))
             }
 
             Expr::FieldAccess { object, field } => {
                 let object_type = self.check_expression(object)?;
                 match object_type {
-                    Type::Struct { fields, .. } => {
-                        fields.get(field)
-                            .cloned()
-                            .ok_or_else(|| anyhow::anyhow!("Field '{}' not found in struct", field))
-                    }
-                    _ => bail!("Cannot access field '{}' on non-struct type: {}", field, object_type),
+                    Type::Struct { fields, .. } => fields
+                        .get(field)
+                        .cloned()
+                        .ok_or_else(|| anyhow::anyhow!("Field '{}' not found in struct", field)),
+                    _ => bail!(
+                        "Cannot access field '{}' on non-struct type: {}",
+                        field,
+                        object_type
+                    ),
                 }
             }
 
-            Expr::MethodCall { object, method, args: _, .. } => {
+            Expr::MethodCall {
+                object,
+                method,
+                args: _,
+                ..
+            } => {
                 let object_type = self.check_expression(object)?;
                 match object_type {
                     Type::Struct { name, .. } => {
@@ -957,7 +997,7 @@ impl TypeChecker {
                         // For now, return Unknown type - this will be refined later
                         // when we implement proper method resolution
                         let method_name = format!("{}_{}", name, method);
-                        
+
                         // For now, just verify the method exists by checking if it's a registered function
                         if let Some(_) = self.functions.get(&method_name) {
                             Ok(Type::Unknown) // Return type will be determined by function signature
@@ -965,7 +1005,11 @@ impl TypeChecker {
                             bail!("Method '{}' not found for struct type '{}'", method, name)
                         }
                     }
-                    _ => bail!("Cannot call method '{}' on non-struct type: {}", method, object_type),
+                    _ => bail!(
+                        "Cannot call method '{}' on non-struct type: {}",
+                        method,
+                        object_type
+                    ),
                 }
             }
         }
@@ -979,11 +1023,11 @@ impl TypeChecker {
                 return return_type;
             }
         }
-        
+
         // Default to Number if no return statements found
         Type::Number
     }
-    
+
     /// Recursively search for return statements and infer their types
     fn find_return_type_in_statement(&self, stmt: &Stmt) -> Option<Type> {
         match stmt {
@@ -1001,7 +1045,11 @@ impl TypeChecker {
                     _ => Some(Type::Number), // Default fallback
                 }
             }
-            Stmt::If { then_branch, else_branch, .. } => {
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 // Check both branches for return statements
                 for stmt in then_branch {
                     if let Some(return_type) = self.find_return_type_in_statement(stmt) {

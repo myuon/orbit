@@ -47,14 +47,24 @@ impl std::fmt::Display for HeapObject {
         match self {
             HeapObject::String(s) => write!(f, "{}", s),
             HeapObject::Vector(v) => {
-                write!(f, "[{}]", v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", "))
+                write!(
+                    f,
+                    "[{}]",
+                    v.iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
             HeapObject::Map(m) => {
                 let entries: Vec<String> = m.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", entries.join(", "))
             }
             HeapObject::Struct(fields) => {
-                let entries: Vec<String> = fields.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
+                let entries: Vec<String> = fields
+                    .iter()
+                    .map(|(k, v)| format!("{}: {}", k, v))
+                    .collect();
                 write!(f, "{{{}}}", entries.join(", "))
             }
         }

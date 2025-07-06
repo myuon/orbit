@@ -20,7 +20,8 @@ impl Desugarer {
         // First pass: collect all struct declarations
         for decl in &program.declarations {
             if let Decl::Struct(struct_decl) = decl {
-                self.structs.insert(struct_decl.name.clone(), struct_decl.clone());
+                self.structs
+                    .insert(struct_decl.name.clone(), struct_decl.clone());
             }
         }
 
@@ -69,7 +70,7 @@ impl Desugarer {
     fn desugar_method(&mut self, struct_name: &str, method: Function) -> Result<Function> {
         let mangled_name = format!("{}_{}", struct_name, method.name);
         let desugared_body = self.desugar_statements(method.body)?;
-        
+
         Ok(Function {
             name: mangled_name,
             params: method.params,
@@ -91,7 +92,10 @@ impl Desugarer {
         match statement {
             Stmt::Let { name, value } => {
                 let desugared_value = self.desugar_expression(value)?;
-                Ok(Stmt::Let { name, value: desugared_value })
+                Ok(Stmt::Let {
+                    name,
+                    value: desugared_value,
+                })
             }
             Stmt::Expression(expr) => {
                 let desugared_expr = self.desugar_expression(expr)?;
@@ -101,7 +105,11 @@ impl Desugarer {
                 let desugared_expr = self.desugar_expression(expr)?;
                 Ok(Stmt::Return(desugared_expr))
             }
-            Stmt::If { condition, then_branch, else_branch } => {
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let desugared_condition = self.desugar_expression(condition)?;
                 let desugared_then = self.desugar_statements(then_branch)?;
                 let desugared_else = if let Some(else_stmts) = else_branch {
@@ -125,13 +133,24 @@ impl Desugarer {
             }
             Stmt::Assign { name, value } => {
                 let desugared_value = self.desugar_expression(value)?;
-                Ok(Stmt::Assign { name, value: desugared_value })
+                Ok(Stmt::Assign {
+                    name,
+                    value: desugared_value,
+                })
             }
             Stmt::VectorPush { vector, value } => {
                 let desugared_value = self.desugar_expression(value)?;
-                Ok(Stmt::VectorPush { vector, value: desugared_value })
+                Ok(Stmt::VectorPush {
+                    vector,
+                    value: desugared_value,
+                })
             }
-            Stmt::IndexAssign { container, index, value, container_type } => {
+            Stmt::IndexAssign {
+                container,
+                index,
+                value,
+                container_type,
+            } => {
                 let desugared_index = self.desugar_expression(index)?;
                 let desugared_value = self.desugar_expression(value)?;
                 Ok(Stmt::IndexAssign {
@@ -141,7 +160,11 @@ impl Desugarer {
                     container_type,
                 })
             }
-            Stmt::FieldAssign { object, field, value } => {
+            Stmt::FieldAssign {
+                object,
+                field,
+                value,
+            } => {
                 let desugared_object = self.desugar_expression(object)?;
                 let desugared_value = self.desugar_expression(value)?;
                 Ok(Stmt::FieldAssign {
@@ -157,7 +180,12 @@ impl Desugarer {
     fn desugar_expression(&mut self, expression: Expr) -> Result<Expr> {
         match expression {
             // Method call is the main target for desugaring
-            Expr::MethodCall { object, method, args, object_type } => {
+            Expr::MethodCall {
+                object,
+                method,
+                args,
+                object_type,
+            } => {
                 // First, desugar the object and arguments
                 let desugared_object = self.desugar_expression(*object)?;
                 let mut desugared_args = Vec::new();
@@ -203,7 +231,10 @@ impl Desugarer {
                     args: desugared_args,
                 })
             }
-            Expr::VectorNew { element_type, initial_values } => {
+            Expr::VectorNew {
+                element_type,
+                initial_values,
+            } => {
                 let mut desugared_values = Vec::new();
                 for value in initial_values {
                     desugared_values.push(self.desugar_expression(value)?);
@@ -213,7 +244,11 @@ impl Desugarer {
                     initial_values: desugared_values,
                 })
             }
-            Expr::Index { container, index, container_type } => {
+            Expr::Index {
+                container,
+                index,
+                container_type,
+            } => {
                 let desugared_container = self.desugar_expression(*container)?;
                 let desugared_index = self.desugar_expression(*index)?;
                 Ok(Expr::Index {
@@ -222,7 +257,11 @@ impl Desugarer {
                     container_type,
                 })
             }
-            Expr::MapNew { key_type, value_type, initial_pairs } => {
+            Expr::MapNew {
+                key_type,
+                value_type,
+                initial_pairs,
+            } => {
                 let mut desugared_pairs = Vec::new();
                 for (key, value) in initial_pairs {
                     let desugared_key = self.desugar_expression(key)?;
@@ -280,7 +319,9 @@ impl Desugarer {
                 if let Some((struct_name, _)) = self.structs.iter().next() {
                     struct_name.clone()
                 } else {
-                    return Err(anyhow::anyhow!("No struct types available for method resolution"));
+                    return Err(anyhow::anyhow!(
+                        "No struct types available for method resolution"
+                    ));
                 }
             }
             // For struct instantiation, we can determine the type directly
@@ -290,11 +331,13 @@ impl Desugarer {
                 if let Some((struct_name, _)) = self.structs.iter().next() {
                     struct_name.clone()
                 } else {
-                    return Err(anyhow::anyhow!("No struct types available for method resolution"));
+                    return Err(anyhow::anyhow!(
+                        "No struct types available for method resolution"
+                    ));
                 }
             }
         };
-        
+
         Ok(format!("{}_{}", struct_name, method))
     }
 }
@@ -307,7 +350,7 @@ mod tests {
     #[test]
     fn test_method_call_desugaring() {
         let mut desugarer = Desugarer::new();
-        
+
         // Add a struct type to the desugarer for testing
         let point_struct = StructDecl {
             name: "Point".to_string(),
@@ -319,7 +362,7 @@ mod tests {
             }],
         };
         desugarer.structs.insert("Point".to_string(), point_struct);
-        
+
         // Create a method call: p.sum()
         let method_call = Expr::MethodCall {
             object: Box::new(Expr::Identifier("p".to_string())),
@@ -329,7 +372,7 @@ mod tests {
         };
 
         let result = desugarer.desugar_expression(method_call).unwrap();
-        
+
         // Should be converted to: Point_sum(p)
         if let Expr::Call { callee, args } = result {
             if let Expr::Identifier(func_name) = callee.as_ref() {
@@ -351,7 +394,7 @@ mod tests {
     #[test]
     fn test_struct_method_to_function_conversion() {
         let mut desugarer = Desugarer::new();
-        
+
         // Create a struct with a method
         let method = Function {
             name: "sum".to_string(),
@@ -363,7 +406,7 @@ mod tests {
         };
 
         let result = desugarer.desugar_method("Point", method).unwrap();
-        
+
         assert_eq!(result.name, "Point_sum");
         assert_eq!(result.params.len(), 1);
         assert_eq!(result.params[0].name, "self");
@@ -372,7 +415,7 @@ mod tests {
     #[test]
     fn test_method_call_with_embedded_type() {
         let mut desugarer = Desugarer::new();
-        
+
         // Create a method call with embedded type information: p.sum()
         let method_call = Expr::MethodCall {
             object: Box::new(Expr::Identifier("p".to_string())),
@@ -382,7 +425,7 @@ mod tests {
         };
 
         let result = desugarer.desugar_expression(method_call).unwrap();
-        
+
         // Should be converted to: Point_sum(p) using embedded type info
         if let Expr::Call { callee, args } = result {
             if let Expr::Identifier(func_name) = callee.as_ref() {
