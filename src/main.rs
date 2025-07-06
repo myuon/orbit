@@ -1,16 +1,37 @@
-use std::env;
+use clap::Parser;
 use std::process;
 use std::time::Duration;
 
-#[derive(Debug)]
+#[derive(Parser, Debug)]
+#[command(name = "orbit")]
+#[command(version, about = "Orbit Programming Language Compiler", long_about = None)]
 struct Config {
+    /// Orbit source file to execute
     filename: String,
+
+    /// Dump compiled IR to specified file
+    #[arg(long, value_name = "FILE")]
     dump_ir: Option<String>,
+
+    /// Print stack traces during execution
+    #[arg(long)]
     print_stacks: bool,
+
+    /// Print stack traces only when calling specific function
+    #[arg(long, value_name = "FUNCTION")]
     print_stacks_on_call: Option<String>,
+
+    /// Enable profiling and print results
+    #[arg(long)]
     profile: bool,
+
+    /// Enable profiling and save results to file
+    #[arg(long, value_name = "FILE")]
     profile_output: Option<String>,
-    timeout: Option<u64>, // timeout in seconds
+
+    /// Set execution timeout (e.g., 10s, 5m, 30)
+    #[arg(long, value_name = "TIME", value_parser = parse_timeout)]
+    timeout: Option<u64>,
 }
 
 impl Config {
@@ -20,86 +41,9 @@ impl Config {
             ir_dump_file: self.dump_ir.clone(),
             print_stacks: self.print_stacks,
             print_stacks_on_call: self.print_stacks_on_call.clone(),
-            enable_profiling: self.profile,
+            enable_profiling: self.profile || self.profile_output.is_some(),
             profile_output: self.profile_output.clone(),
         }
-    }
-}
-
-fn parse_args() -> Result<Config, String> {
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() < 2 {
-        return Err(format!("Usage: {} [OPTIONS] <file.ob>", args[0]));
-    }
-
-    let mut filename = None;
-    let mut dump_ir = None;
-    let mut print_stacks = false;
-    let mut print_stacks_on_call = None;
-    let mut profile = false;
-    let mut profile_output = None;
-    let mut timeout = None;
-    let mut i = 1;
-
-    while i < args.len() {
-        let arg = &args[i];
-
-        if arg.starts_with("--dump-ir=") {
-            let ir_file = arg.strip_prefix("--dump-ir=").unwrap();
-            if ir_file.is_empty() {
-                return Err("--dump-ir option requires a filename".to_string());
-            }
-            dump_ir = Some(ir_file.to_string());
-        } else if arg == "--print-stacks" {
-            print_stacks = true;
-        } else if arg.starts_with("--print-stacks-on-call=") {
-            let function_name = arg.strip_prefix("--print-stacks-on-call=").unwrap();
-            if function_name.is_empty() {
-                return Err("--print-stacks-on-call option requires a function name".to_string());
-            }
-            print_stacks_on_call = Some(function_name.to_string());
-        } else if arg == "--profile" {
-            profile = true;
-        } else if arg.starts_with("--profile-output=") {
-            let profile_file = arg.strip_prefix("--profile-output=").unwrap();
-            if profile_file.is_empty() {
-                return Err("--profile-output option requires a filename".to_string());
-            }
-            profile = true;
-            profile_output = Some(profile_file.to_string());
-        } else if arg.starts_with("--timeout=") {
-            let timeout_str = arg.strip_prefix("--timeout=").unwrap();
-            if timeout_str.is_empty() {
-                return Err("--timeout option requires a value".to_string());
-            }
-            // Parse timeout value (support formats like "10s", "5m", "30")
-            let timeout_secs = parse_timeout(timeout_str)?;
-            timeout = Some(timeout_secs);
-        } else if arg == "--help" || arg == "-h" {
-            return Err("help".to_string());
-        } else if arg.starts_with("--") {
-            return Err(format!("Unknown option: {}", arg));
-        } else if filename.is_none() {
-            filename = Some(arg.clone());
-        } else {
-            return Err("Too many arguments".to_string());
-        }
-
-        i += 1;
-    }
-
-    match filename {
-        Some(f) => Ok(Config {
-            filename: f,
-            dump_ir,
-            print_stacks,
-            print_stacks_on_call,
-            profile,
-            profile_output,
-            timeout,
-        }),
-        None => Err("No input file specified".to_string()),
     }
 }
 
@@ -130,19 +74,7 @@ fn parse_timeout(timeout_str: &str) -> Result<u64, String> {
 
 #[tokio::main]
 async fn main() {
-    let config = match parse_args() {
-        Ok(config) => config,
-        Err(e) => {
-            if e == "help" {
-                print_help(&env::args().next().unwrap());
-                process::exit(0);
-            } else {
-                eprintln!("Error: {}", e);
-                print_help(&env::args().next().unwrap());
-                process::exit(1);
-            }
-        }
-    };
+    let config = Config::parse();
 
     let result = execute_with_optional_timeout(
         async {
@@ -158,7 +90,8 @@ async fn main() {
             .unwrap()
         },
         config.timeout,
-    ).await;
+    )
+    .await;
 
     match result {
         Ok(Some(value)) => println!("{}", value),
@@ -168,27 +101,6 @@ async fn main() {
             process::exit(1);
         }
     }
-}
-
-fn print_help(program_name: &str) {
-    println!("Orbit Programming Language Compiler");
-    println!();
-    println!("USAGE:");
-    println!("    {} [OPTIONS] <file.ob>", program_name);
-    println!();
-    println!("OPTIONS:");
-    println!("    --dump-ir=<file>         Dump compiled IR to specified file");
-    println!("    --print-stacks           Print stack traces during execution");
-    println!(
-        "    --print-stacks-on-call=<func>  Print stack traces only when calling specific function"
-    );
-    println!("    --profile                Enable profiling and print results");
-    println!("    --profile-output=<file>  Enable profiling and save results to file");
-    println!("    --timeout=<time>         Set execution timeout (e.g., 10s, 5m, 30)");
-    println!("    -h, --help               Print help information");
-    println!();
-    println!("ARGS:");
-    println!("    <file.ob>           Orbit source file to execute");
 }
 
 /// Execute a future with optional timeout
