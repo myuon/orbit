@@ -533,17 +533,33 @@ impl VM {
                     // We need to find the placeholder position and overwrite it
                     // The placeholder is before all arguments
                     
-                    // Remove frame info and local variables, restore BP
+                    // According to VM spec: overwrite placeholder with return value
+                    // Stack before: [return_placeholder, arg0, arg1, ..., return_addr, old_bp, locals...]
+                    // Stack after:  [return_value, arg0, arg1, ...]
+                    
+                    // 1. Calculate placeholder position
+                    // BP points to old_bp, return_addr is at BP-1
+                    // Arguments and placeholder are before return_addr
+                    let _frame_end = self.bp - 2; // Position before return_addr and old_bp
+                    
+                    // 2. Remove frame info and local variables first
                     self.stack.truncate(self.bp - 1); // Remove return_addr and old_bp
+                    
+                    // 3. Now find and overwrite the placeholder
+                    // The placeholder should be the first element of this function call
+                    // We need to find where this call's frame starts
+                    
+                    // For simple implementation: find the most recent 0 (placeholder)
+                    // and replace it with return_value
+                    for i in (0..self.stack.len()).rev() {
+                        if matches!(self.stack[i], Value::Number(0.0)) {
+                            self.stack[i] = return_value.clone();
+                            break;
+                        }
+                    }
+                    
+                    // 4. Restore BP
                     self.bp = old_bp;
-                    
-                    // Now stack has: [return_placeholder, arg0, arg1, ...]
-                    // According to spec, we should overwrite the placeholder with return value
-                    // But we need to know how many arguments there are
-                    
-                    // For now, we'll implement a simpler approach:
-                    // Put return value on stack, caller should clean up correctly
-                    self.stack.push(return_value);
 
                     // 6. Jump to return address
                     self.pc = return_addr;
@@ -1046,14 +1062,17 @@ impl VMCompiler {
                     self.instructions.push(Instruction::Call(func_name.clone()));
 
                     // The caller is responsible for cleaning up arguments
-                    // According to the spec, after return:
-                    // Stack: [return_value, arg0, arg1, ...]
+                    // After return, stack is: [return_value, arg0, arg1, ...]
                     // We need to remove the arguments, leaving only the return value
                     
-                    // We'll let the VM handle this cleanup properly
-                    // For now, don't generate cleanup code here
-                    
-                    // Return value remains on top of stack
+                    // Clean up arguments according to VM spec
+                    // After return, stack should be: [return_value, arg0, arg1, ...]
+                    // Caller must pop arguments in reverse order (step 5 in spec)
+                    for _ in 0..args.len() {
+                        self.instructions.push(Instruction::Pop);
+                    }
+                    // Return value should now be on top of stack
+                    // Return value now on top of stack
                 } else {
                     panic!("Function calls with complex callees not supported yet");
                 }
