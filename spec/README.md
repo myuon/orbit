@@ -18,6 +18,7 @@ This directory contains the comprehensive language specification for the Orbit p
 12. [Standard Library](12-standard-library.md) - Built-in functions and utilities
 13. [Grammar Reference](13-grammar-reference.md) - Formal grammar specification
 14. [Virtual Machine](14-virtual-machine.md) - Virtual machine architecture and instruction set
+15. [Command Line Interface](15-command-line-interface.md) - CLI options and usage
 
 ## Status
 
