@@ -248,6 +248,19 @@ impl Desugarer {
                     initial_values: desugared_values,
                 })
             }
+            Expr::PointerNew {
+                element_type,
+                initial_values,
+            } => {
+                let mut desugared_values = Vec::new();
+                for value in initial_values {
+                    desugared_values.push(self.desugar_expression(value)?);
+                }
+                Ok(Expr::PointerNew {
+                    element_type,
+                    initial_values: desugared_values,
+                })
+            }
             Expr::Index {
                 container,
                 index,

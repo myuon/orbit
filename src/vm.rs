@@ -81,6 +81,11 @@ pub enum Instruction {
     MapIndex,
     MapSet,
 
+    // Pointer operations
+    PointerNew,
+    PointerIndex,
+    PointerSet,
+
     // Struct operations
     StructNew,
     StructFieldGet,
@@ -134,6 +139,9 @@ impl fmt::Display for Instruction {
             Instruction::MapNew => write!(f, "map_new"),
             Instruction::MapIndex => write!(f, "map_index"),
             Instruction::MapSet => write!(f, "map_set"),
+            Instruction::PointerNew => write!(f, "pointer_new"),
+            Instruction::PointerIndex => write!(f, "pointer_index"),
+            Instruction::PointerSet => write!(f, "pointer_set"),
             Instruction::StructNew => write!(f, "struct_new"),
             Instruction::StructFieldGet => write!(f, "struct_field_get"),
             Instruction::StructFieldSet => write!(f, "struct_field_set"),
@@ -944,6 +952,91 @@ impl VM {
                         }
                     }
                 }
+
+                Instruction::PointerNew => {
+                    // Stack: [value_count] [value_1] ... [value_n]
+                    if self.stack.is_empty() {
+                        return Err("Stack underflow for PointerNew".to_string());
+                    }
+                    let value_count = match self.stack.pop().unwrap() {
+                        Value::Number(n) => n as usize,
+                        _ => return Err("PointerNew requires a number for value count".to_string()),
+                    };
+
+                    if self.stack.len() < value_count {
+                        return Err("Stack underflow for PointerNew values".to_string());
+                    }
+
+                    let mut values = Vec::new();
+                    for _ in 0..value_count {
+                        values.push(self.stack.pop().unwrap());
+                    }
+                    values.reverse(); // Stack is LIFO, so reverse to get original order
+
+                    let heap_index = self.heap.len();
+                    self.heap.push(HeapObject::Pointer(values));
+                    self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
+                }
+
+                Instruction::PointerIndex => {
+                    // Stack: [pointer_heap_ref] [element_index]
+                    if self.stack.len() < 2 {
+                        return Err("Stack underflow for PointerIndex".to_string());
+                    }
+                    let element_index_value = self.stack.pop().unwrap();
+                    let pointer_ref = self.stack.pop().unwrap();
+                    match (pointer_ref, element_index_value) {
+                        (Value::HeapRef(heap_index), Value::Number(element_index)) => {
+                            let element_index = element_index as usize;
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
+                            }
+                            match &self.heap[heap_index.0] {
+                                HeapObject::Pointer(arr) => {
+                                    if element_index >= arr.len() {
+                                        return Err(format!(
+                                            "Pointer index out of bounds: {} >= {}",
+                                            element_index,
+                                            arr.len()
+                                        ));
+                                    }
+                                    self.stack.push(arr[element_index].clone());
+                                }
+                                _ => return Err("PointerIndex requires a pointer heap object".to_string()),
+                            }
+                        }
+                        _ => return Err("PointerIndex requires a heap reference and number".to_string()),
+                    }
+                }
+
+                Instruction::PointerSet => {
+                    // Stack: [value] [element_index] [pointer_heap_ref]
+                    if self.stack.len() < 3 {
+                        return Err("Stack underflow for PointerSet".to_string());
+                    }
+                    let pointer_ref = self.stack.pop().unwrap();
+                    let element_index_value = self.stack.pop().unwrap();
+                    let value = self.stack.pop().unwrap();
+                    match (pointer_ref, element_index_value) {
+                        (Value::HeapRef(heap_index), Value::Number(element_index)) => {
+                            let element_index = element_index as usize;
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
+                            }
+                            match &mut self.heap[heap_index.0] {
+                                HeapObject::Pointer(arr) => {
+                                    if element_index >= arr.len() {
+                                        // Extend the array if needed
+                                        arr.resize(element_index + 1, Value::Number(0.0));
+                                    }
+                                    arr[element_index] = value;
+                                }
+                                _ => return Err("PointerSet requires a pointer heap object".to_string()),
+                            }
+                        }
+                        _ => return Err("PointerSet requires a heap reference and number".to_string()),
+                    }
+                }
                 Instruction::StructNew => {
                     // Stack: [field_count] [field_name_1] [field_value_1] ... [field_name_n] [field_value_n]
                     if self.stack.is_empty() {
@@ -1554,6 +1647,9 @@ impl VMCompiler {
                     Some(IndexContainerType::Map) => {
                         self.instructions.push(Instruction::MapSet);
                     }
+                    Some(IndexContainerType::Pointer) => {
+                        self.instructions.push(Instruction::PointerSet);
+                    }
                     None => {
                         // Type checking should have resolved this
                         panic!("Container type not resolved during type checking");
@@ -1678,6 +1774,16 @@ impl VMCompiler {
                 self.instructions.push(Instruction::VectorNew);
             }
 
+            Expr::PointerNew { initial_values, .. } => {
+                // Push initial values onto stack first
+                for value in initial_values {
+                    self.compile_expression(value);
+                }
+                // Push the count of initial values
+                self.instructions.push(Instruction::Push(initial_values.len() as i64));
+                self.instructions.push(Instruction::PointerNew);
+            }
+
             Expr::Index {
                 container,
                 index,
@@ -1693,6 +1799,9 @@ impl VMCompiler {
                     }
                     Some(IndexContainerType::Map) => {
                         self.instructions.push(Instruction::MapIndex);
+                    }
+                    Some(IndexContainerType::Pointer) => {
+                        self.instructions.push(Instruction::PointerIndex);
                     }
                     None => {
                         // Type checking should have resolved this
@@ -1809,6 +1918,11 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
 
         Expr::VectorNew { .. } => {
             // For now, just push 0 - vectors need more complex handling
+            instructions.push(Instruction::Push(0));
+        }
+
+        Expr::PointerNew { .. } => {
+            // For now, just push 0 - pointers need more complex handling
             instructions.push(Instruction::Push(0));
         }
 

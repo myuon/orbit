@@ -135,6 +135,7 @@ impl Lexer {
                         "map" => TokenType::Map,
                         "type" => TokenType::Type,
                         "struct" => TokenType::Struct,
+                        "pointer" => TokenType::Pointer,
                         _ => TokenType::Identifier(identifier),
                     };
                     return Token {

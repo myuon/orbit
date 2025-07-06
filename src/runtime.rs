@@ -14,6 +14,7 @@ pub enum HeapObject {
     Vector(Vec<Value>),
     Map(HashMap<String, Value>),
     Struct(HashMap<String, Value>),
+    Pointer(Vec<Value>), // Pointer is essentially an array of values
 }
 
 /// Values in the Orbit runtime system
@@ -66,6 +67,16 @@ impl std::fmt::Display for HeapObject {
                     .map(|(k, v)| format!("{}: {}", k, v))
                     .collect();
                 write!(f, "{{{}}}", entries.join(", "))
+            }
+            HeapObject::Pointer(v) => {
+                write!(
+                    f,
+                    "[*]{{{}}}",
+                    v.iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
         }
     }

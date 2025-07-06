@@ -135,14 +135,7 @@ impl Parser {
 
                 let type_name = if matches!(self.current_token().token_type, TokenType::Colon) {
                     self.advance();
-                    match &self.current_token().token_type {
-                        TokenType::Identifier(type_name) => {
-                            let t = type_name.clone();
-                            self.advance();
-                            Some(t)
-                        }
-                        _ => bail!("Expected type name after ':'"),
-                    }
+                    Some(self.parse_type_name()?)
                 } else {
                     None
                 };
@@ -220,14 +213,7 @@ impl Parser {
 
                 self.consume(TokenType::Colon)?;
 
-                let type_name = match &self.current_token().token_type {
-                    TokenType::Identifier(name) => {
-                        let n = name.clone();
-                        self.advance();
-                        n
-                    }
-                    _ => bail!("Expected type name in struct field"),
-                };
+                let type_name = self.parse_type_name()?;
 
                 fields.push(StructField {
                     name: field_name,
@@ -398,6 +384,27 @@ impl Parser {
                 Ok(n)
             }
             _ => bail!("Expected identifier {}", context),
+        }
+    }
+
+    /// Parse a type name, including pointer types [*]T
+    fn parse_type_name(&mut self) -> Result<String> {
+        if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+            self.advance(); // consume '['
+            self.consume(TokenType::Star)?; // consume '*'
+            self.consume(TokenType::RightBracket)?; // consume ']'
+            
+            let inner_type = self.parse_type_name()?;
+            Ok(format!("[*]{}", inner_type))
+        } else {
+            match &self.current_token().token_type {
+                TokenType::Identifier(name) => {
+                    let n = name.clone();
+                    self.advance();
+                    Ok(n)
+                }
+                _ => bail!("Expected type name"),
+            }
         }
     }
 
@@ -700,6 +707,42 @@ impl Parser {
                         element_type,
                         initial_values,
                     })
+                } else if matches!(self.current_token().token_type, TokenType::Pointer) {
+                    self.advance(); // consume 'pointer'
+                    self.consume(TokenType::LeftParen)?; // consume '('
+
+                    // Get the element type
+                    let element_type = match &self.current_token().token_type {
+                        TokenType::Identifier(type_name) => {
+                            let t = type_name.clone();
+                            self.advance();
+                            t
+                        }
+                        _ => bail!("Expected type name in pointer constructor"),
+                    };
+
+                    self.consume(TokenType::RightParen)?; // consume ')'
+                    self.consume(TokenType::LeftBrace)?; // consume '{'
+
+                    // Parse initial values (if any)
+                    let mut initial_values = Vec::new();
+                    if !matches!(self.current_token().token_type, TokenType::RightBrace) {
+                        loop {
+                            initial_values.push(self.parse_expression()?);
+
+                            if matches!(self.current_token().token_type, TokenType::Comma) {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+
+                    self.consume(TokenType::RightBrace)?; // consume '}'
+                    Ok(Expr::PointerNew {
+                        element_type,
+                        initial_values,
+                    })
                 } else if matches!(self.current_token().token_type, TokenType::Map) {
                     self.advance(); // consume 'map'
                     self.consume(TokenType::LeftParen)?; // consume '('
@@ -926,6 +969,30 @@ type Point = struct {
             assert_eq!(object_type, None); // Should be None before type checking
         } else {
             panic!("Expected method call, got: {:?}", expr);
+        }
+    }
+
+    #[test]
+    fn test_pointer_type_parsing() {
+        let code = r#"
+type Point = struct {
+  data: [*]int
+};
+"#;
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().unwrap();
+
+        assert_eq!(program.declarations.len(), 1);
+
+        if let Decl::Struct(struct_decl) = &program.declarations[0] {
+            assert_eq!(struct_decl.name, "Point");
+            assert_eq!(struct_decl.fields.len(), 1);
+            assert_eq!(struct_decl.fields[0].name, "data");
+            assert_eq!(struct_decl.fields[0].type_name, "[*]int");
+        } else {
+            panic!("Expected struct declaration");
         }
     }
 }

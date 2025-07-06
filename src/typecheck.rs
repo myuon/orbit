@@ -15,6 +15,9 @@ pub enum Type {
         key_type: Box<Type>,
         value_type: Box<Type>,
     },
+    Pointer {
+        element_type: Box<Type>,
+    },
     Function {
         param_types: Vec<Type>,
         return_type: Box<Type>,
@@ -37,6 +40,7 @@ impl std::fmt::Display for Type {
                 key_type,
                 value_type,
             } => write!(f, "map({}, {})", key_type, value_type),
+            Type::Pointer { element_type } => write!(f, "[*]{}", element_type),
             Type::Function {
                 param_types,
                 return_type,
@@ -81,6 +85,11 @@ impl Type {
                     } else {
                         Type::Unknown
                     }
+                } else if type_str.starts_with("[*]") {
+                    let inner = &type_str[3..];
+                    Type::Pointer {
+                        element_type: Box::new(Type::from_string(inner)),
+                    }
                 } else {
                     Type::Unknown
                 }
@@ -97,6 +106,9 @@ impl Type {
             (Type::Number, Type::Number) => true,
             (Type::String, Type::String) => true,
             (Type::Vector { element_type: e1 }, Type::Vector { element_type: e2 }) => {
+                e1.is_compatible_with(e2)
+            }
+            (Type::Pointer { element_type: e1 }, Type::Pointer { element_type: e2 }) => {
                 e1.is_compatible_with(e2)
             }
             (
@@ -121,6 +133,9 @@ impl Type {
             (Type::Number, Type::Number) => true,
             (Type::String, Type::String) => true,
             (Type::Vector { element_type: e1 }, Type::Vector { element_type: e2 }) => {
+                e1.is_exactly(e2)
+            }
+            (Type::Pointer { element_type: e1 }, Type::Pointer { element_type: e2 }) => {
                 e1.is_exactly(e2)
             }
             (
@@ -326,6 +341,9 @@ impl TypeChecker {
                     Type::Map { .. } => {
                         *container_type = Some(IndexContainerType::Map);
                     }
+                    Type::Pointer { .. } => {
+                        *container_type = Some(IndexContainerType::Pointer);
+                    }
                     _ => {}
                 }
                 Ok(())
@@ -371,6 +389,13 @@ impl TypeChecker {
                 Ok(())
             }
 
+            Expr::PointerNew { initial_values, .. } => {
+                for value in initial_values {
+                    self.infer_expression_types(value)?;
+                }
+                Ok(())
+            }
+
             Expr::Index {
                 container,
                 index,
@@ -387,6 +412,9 @@ impl TypeChecker {
                     }
                     Type::Map { .. } => {
                         *container_type = Some(IndexContainerType::Map);
+                    }
+                    Type::Pointer { .. } => {
+                        *container_type = Some(IndexContainerType::Pointer);
                     }
                     _ => {}
                 }
@@ -696,7 +724,19 @@ impl TypeChecker {
                             );
                         }
                     }
-                    _ => bail!("Cannot index non-vector/map type: {}", collection_type),
+                    Type::Pointer { element_type } => {
+                        if !index_type.is_compatible_with(&Type::Number) {
+                            bail!("Pointer index must be number, got {}", index_type);
+                        }
+                        if !value_type.is_compatible_with(element_type) {
+                            bail!(
+                                "Pointer assignment type mismatch: element type is {}, assigned {}",
+                                element_type,
+                                value_type
+                            );
+                        }
+                    }
+                    _ => bail!("Cannot index non-vector/map/pointer type: {}", collection_type),
                 }
                 Ok(())
             }
@@ -881,6 +921,29 @@ impl TypeChecker {
                 })
             }
 
+            Expr::PointerNew {
+                element_type,
+                initial_values,
+            } => {
+                let element_type = self.resolve_type(element_type);
+
+                // Check all initial values match element type
+                for value_expr in initial_values {
+                    let value_type = self.check_expression(value_expr)?;
+                    if !value_type.is_compatible_with(&element_type) {
+                        bail!(
+                            "Pointer element type mismatch: element type is {}, got {}",
+                            element_type,
+                            value_type
+                        );
+                    }
+                }
+
+                Ok(Type::Pointer {
+                    element_type: Box::new(element_type),
+                })
+            }
+
             Expr::Index {
                 container,
                 index,
@@ -910,7 +973,13 @@ impl TypeChecker {
                         }
                         Ok(*value_type.clone())
                     }
-                    _ => bail!("Cannot index non-vector/map type: {}", container_value_type),
+                    Type::Pointer { element_type } => {
+                        if !index_type.is_compatible_with(&Type::Number) {
+                            bail!("Pointer index must be number, got {}", index_type);
+                        }
+                        Ok(*element_type.clone())
+                    }
+                    _ => bail!("Cannot index non-vector/map/pointer type: {}", container_value_type),
                 }
             }
 
@@ -1221,5 +1290,40 @@ mod tests {
 
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("Addition operation type mismatch"));
+    }
+
+    #[test]
+    fn test_pointer_type_parsing() {
+        // Test that "[*]int" parses correctly as a pointer type
+        let pointer_type = Type::from_string("[*]int");
+        assert!(matches!(pointer_type, Type::Pointer { .. }));
+        
+        if let Type::Pointer { element_type } = pointer_type {
+            assert!(matches!(element_type.as_ref(), Type::Number));
+        }
+    }
+
+    #[test]
+    fn test_pointer_type_display() {
+        let pointer_type = Type::Pointer {
+            element_type: Box::new(Type::Number),
+        };
+        assert_eq!(format!("{}", pointer_type), "[*]number");
+    }
+
+    #[test]
+    fn test_pointer_type_compatibility() {
+        let pointer1 = Type::Pointer {
+            element_type: Box::new(Type::Number),
+        };
+        let pointer2 = Type::Pointer {
+            element_type: Box::new(Type::Number),
+        };
+        let different_pointer = Type::Pointer {
+            element_type: Box::new(Type::String),
+        };
+
+        assert!(pointer1.is_compatible_with(&pointer2));
+        assert!(!pointer1.is_compatible_with(&different_pointer));
     }
 }

@@ -46,6 +46,8 @@ pub enum TokenType {
     Type,
     Struct,
     Dot,
+    // Pointer keyword
+    Pointer,
     Eof,
 }
 
@@ -74,6 +76,7 @@ pub enum BinaryOp {
 pub enum IndexContainerType {
     Vector,
     Map,
+    Pointer,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -92,6 +95,10 @@ pub enum Expr {
         args: Vec<Expr>,
     },
     VectorNew {
+        element_type: String,
+        initial_values: Vec<Expr>,
+    },
+    PointerNew {
         element_type: String,
         initial_values: Vec<Expr>,
     },
@@ -157,6 +164,12 @@ pub struct StructDecl {
 }
 
 // Struct field
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeExpr {
+    Simple(String),
+    Pointer(Box<TypeExpr>),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructField {
     pub name: String,
