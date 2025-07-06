@@ -9,9 +9,13 @@ struct Config {
     /// Orbit source file to execute
     filename: String,
 
+    /// Enable IR dumping
+    #[arg(long)]
+    dump_ir: bool,
+
     /// Dump compiled IR to specified file
     #[arg(long, value_name = "FILE")]
-    dump_ir: Option<String>,
+    dump_ir_output: Option<String>,
 
     /// Print stack traces during execution
     #[arg(long)]
@@ -38,7 +42,8 @@ impl Config {
     /// Convert Config to CompilerOptions
     fn to_compiler_options(&self) -> orbit::CompilerOptions {
         orbit::CompilerOptions {
-            ir_dump_file: self.dump_ir.clone(),
+            dump_ir: self.dump_ir || self.dump_ir_output.is_some(),
+            dump_ir_output: self.dump_ir_output.clone(),
             print_stacks: self.print_stacks,
             print_stacks_on_call: self.print_stacks_on_call.clone(),
             enable_profiling: self.profile || self.profile_output.is_some(),

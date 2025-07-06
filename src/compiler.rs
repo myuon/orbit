@@ -10,8 +10,10 @@ use anyhow::Result;
 /// Compiler configuration options
 #[derive(Debug, Clone)]
 pub struct CompilerOptions {
-    /// Enable IR dumping to a file
-    pub ir_dump_file: Option<String>,
+    /// Enable IR dumping
+    pub dump_ir: bool,
+    /// Output file for IR dump
+    pub dump_ir_output: Option<String>,
     /// Enable stack printing during execution
     pub print_stacks: bool,
     /// Enable stack printing for specific function calls
@@ -25,7 +27,8 @@ pub struct CompilerOptions {
 impl Default for CompilerOptions {
     fn default() -> Self {
         CompilerOptions {
-            ir_dump_file: None,
+            dump_ir: false,
+            dump_ir_output: None,
             print_stacks: false,
             print_stacks_on_call: None,
             enable_profiling: false,
@@ -94,12 +97,18 @@ impl Compiler {
         final_type_checker.check_program(&desugared_program)?;
 
         // 4. Handle IR dumping if requested
-        if let Some(ir_dump_file) = &self.options.ir_dump_file {
+        if self.options.dump_ir {
             let mut vm_compiler = VMCompiler::new();
             let _instructions = vm_compiler.compile_program(&desugared_program);
-            vm_compiler
-                .dump_ir_to_file(ir_dump_file)
-                .map_err(|e| anyhow::anyhow!("Failed to write IR dump: {}", e))?;
+            
+            if let Some(dump_ir_output) = &self.options.dump_ir_output {
+                vm_compiler
+                    .dump_ir_to_file(dump_ir_output)
+                    .map_err(|e| anyhow::anyhow!("Failed to write IR dump: {}", e))?;
+            } else {
+                // Default behavior: dump to stdout
+                println!("{}", vm_compiler.dump_ir());
+            }
         }
 
         // 5. Enable profiling if requested
