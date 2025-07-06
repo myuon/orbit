@@ -159,7 +159,7 @@ Lower Addresses
 
 1. Callee prepares return value on top of evaluation stack
 2. Callee restores BP and SP to remove local variables and frame info
-3. Callee overwrites the return value placeholder with actual return value
+3. **Callee copies the return value from stack top to the placeholder position** (overwriting the placeholder reserved by caller)
 4. Callee jumps to return address
 5. Caller pops arguments in reverse order (last to first)
 6. Return value remains on top of stack for caller use
