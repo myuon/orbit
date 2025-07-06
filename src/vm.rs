@@ -1109,20 +1109,10 @@ impl VMCompiler {
                     // 6. Jump to function
                     self.instructions.push(Instruction::Call(func_name.clone()));
 
-                    // After return, the return value is on top of the stack
-                    // We need to clean up the arguments that are underneath it
-                    // Stack after return: [placeholder, arg0, arg1, ..., return_addr, old_bp, return_value]
-
-                    // The return value is on top, so we need to save it, clean up, then restore it
-                    // But since we can't easily do that, let's just clean up and rely on the
-                    // fact that the function should have put the return value in the right place
-
-                    // Actually, let's clean up the arguments first (pop them from underneath)
-                    // This is tricky, so for now let's just leave the return value on the stack
-                    // and not clean up. This is not ideal but should work for testing.
-
-                    // TODO: Implement proper stack cleanup
-                    // Return value now on top of stack
+                    // 7. Pop return value from stack
+                    for _ in 0..args.len() {
+                        self.instructions.push(Instruction::Pop);
+                    }
                 } else {
                     panic!("Function calls with complex callees not supported yet");
                 }
@@ -1422,8 +1412,7 @@ mod tests {
         let main_func = Function {
             name: "main".to_string(),
             params: vec![],
-            body: vec![],
-            return_expr: Some(Box::new(Expr::Number(42.0))),
+            body: vec![Stmt::Return(Expr::Number(42.0))],
         };
 
         let program = Program {
@@ -1461,23 +1450,21 @@ mod tests {
                     type_name: None,
                 },
             ],
-            body: vec![],
-            return_expr: Some(Box::new(Expr::Binary {
+            body: vec![Stmt::Return(Expr::Binary {
                 left: Box::new(Expr::Identifier("x".to_string())),
                 op: BinaryOp::Add,
                 right: Box::new(Expr::Identifier("y".to_string())),
-            })),
+            })],
         };
 
         // Create main function: fun main() do return add(2, 3); end
         let main_func = Function {
             name: "main".to_string(),
             params: vec![],
-            body: vec![],
-            return_expr: Some(Box::new(Expr::Call {
+            body: vec![Stmt::Return(Expr::Call {
                 callee: Box::new(Expr::Identifier("add".to_string())),
                 args: vec![Expr::Number(2.0), Expr::Number(3.0)],
-            })),
+            })],
         };
 
         let program = Program {
