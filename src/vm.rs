@@ -17,6 +17,10 @@ pub enum Instruction {
     Div,
     Mod,
 
+    // Address arithmetic operations
+    AddressAdd,  // Address + Number -> Address
+    AddressSub,  // Address - Number -> Address
+
     // Comparison operations
     Eq,
     Lt,
@@ -67,6 +71,8 @@ impl fmt::Display for Instruction {
             Instruction::Pop => write!(f, "pop"),
             Instruction::Add => write!(f, "add"),
             Instruction::Sub => write!(f, "sub"),
+            Instruction::AddressAdd => write!(f, "address_add"),
+            Instruction::AddressSub => write!(f, "address_sub"),
             Instruction::Mul => write!(f, "mul"),
             Instruction::Div => write!(f, "div"),
             Instruction::Mod => write!(f, "mod"),
@@ -278,6 +284,34 @@ impl VM {
                     }
                 }
 
+                Instruction::AddressAdd => {
+                    if self.stack.len() < 2 {
+                        return Err("Stack underflow for AddressAdd".to_string());
+                    }
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
+                    match (a, b) {
+                        (Value::Address(addr), Value::Number(offset)) => {
+                            self.stack.push(Value::Address(addr + offset as usize));
+                        }
+                        _ => return Err("AddressAdd requires Address + Number".to_string()),
+                    }
+                }
+
+                Instruction::AddressSub => {
+                    if self.stack.len() < 2 {
+                        return Err("Stack underflow for AddressSub".to_string());
+                    }
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
+                    match (a, b) {
+                        (Value::Address(addr), Value::Number(offset)) => {
+                            self.stack.push(Value::Address(addr - offset as usize));
+                        }
+                        _ => return Err("AddressSub requires Address - Number".to_string()),
+                    }
+                }
+
                 Instruction::Eq => {
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for Eq".to_string());
@@ -481,7 +515,7 @@ impl VM {
                 Instruction::Ret => {
                     // Ret instruction now only handles main function return
                     // All other return operations are handled by compiler-generated instructions
-                    
+
                     // Pop return value from stack
                     let return_value = if !self.stack.is_empty() {
                         self.stack.pop().unwrap()
@@ -828,17 +862,17 @@ impl VMCompiler {
             // For other functions, generate explicit return sequence
             // Get return address from stack frame (at BP-1)
             self.instructions.push(Instruction::GetLocal(-1)); // return address
-            
-            // Get old BP from stack frame (at BP)  
+
+            // Get old BP from stack frame (at BP)
             self.instructions.push(Instruction::GetLocal(0)); // old BP
-            
+
             // Overwrite placeholder with return value
             // TODO: Calculate correct placeholder position
             // For now, use a simplified approach
-            
+
             // Restore BP
             self.instructions.push(Instruction::SetBP);
-            
+
             // Jump to return address
             self.instructions.push(Instruction::SetPC);
         }
@@ -868,27 +902,27 @@ impl VMCompiler {
             Stmt::Return(expr) => {
                 // Compile return value expression
                 self.compile_expression(expr);
-                
+
                 // Generate explicit return sequence according to VM spec:
                 // 1. Store return value to placeholder position (overwrite placeholder)
                 // 2. Restore old BP from stack frame
                 // 3. Restore stack pointer to clean up locals
                 // 4. Jump to return address
-                
+
                 // Get return address from stack frame (at BP-1)
                 self.instructions.push(Instruction::GetLocal(-1)); // return address
-                
+
                 // Get old BP from stack frame (at BP)
                 self.instructions.push(Instruction::GetLocal(0)); // old BP
-                
+
                 // Overwrite placeholder with return value
                 // TODO: Calculate correct placeholder position
                 // For now, use a simplified approach
-                
+
                 // Restore BP
                 self.instructions.push(Instruction::SetBP);
-                
-                // Jump to return address  
+
+                // Jump to return address
                 self.instructions.push(Instruction::SetPC);
             }
 
@@ -1068,7 +1102,7 @@ impl VMCompiler {
                     // PC will be at Call instruction, so return address is PC + 1
                     self.instructions.push(Instruction::GetPC);
                     self.instructions.push(Instruction::Push(5)); // Offset to return address (after Call)
-                    self.instructions.push(Instruction::Add);
+                    self.instructions.push(Instruction::AddressAdd);
 
                     // 4. Push current BP (old base pointer)
                     self.instructions.push(Instruction::GetBP);
