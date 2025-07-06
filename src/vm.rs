@@ -8,7 +8,8 @@ use std::fmt;
 pub enum Instruction {
     // Stack operations
     Push(i64),
-    PushString(String),
+    PushString(String), // Only used for global initialization
+    PushHeapRef(usize), // Push heap reference by index
     Pop,
 
     // Arithmetic operations
@@ -101,6 +102,7 @@ impl fmt::Display for Instruction {
         match self {
             Instruction::Push(value) => write!(f, "push {}", value),
             Instruction::PushString(s) => write!(f, "push_string \"{}\"", s),
+            Instruction::PushHeapRef(index) => write!(f, "push_heap_ref {}", index),
             Instruction::Pop => write!(f, "pop"),
             Instruction::Add => write!(f, "add"),
             Instruction::Sub => write!(f, "sub"),
@@ -221,6 +223,17 @@ impl VM {
         self.pc = 0;
     }
 
+    /// Load program with pre-populated string constants
+    pub fn load_program_with_constants(&mut self, program: Vec<Instruction>, string_constants: &[String]) {
+        // Clear heap and pre-populate with string constants
+        self.heap.clear();
+        for string in string_constants {
+            self.heap.push(HeapObject::String(string.clone()));
+        }
+        self.program = program;
+        self.pc = 0;
+    }
+
     pub fn execute(&mut self) -> Result<i64, String> {
         // Initialize BP to point to the start of the stack
         self.bp = 0;
@@ -259,6 +272,13 @@ impl VM {
                     let heap_index = self.heap.len();
                     self.heap.push(HeapObject::String(s.clone()));
                     self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
+                }
+
+                Instruction::PushHeapRef(index) => {
+                    if *index >= self.heap.len() {
+                        return Err(format!("Invalid heap index: {}", index));
+                    }
+                    self.stack.push(Value::HeapRef(HeapIndex(*index)));
                 }
 
                 Instruction::Pop => {
@@ -1351,6 +1371,8 @@ pub struct VMCompiler {
     current_function_name: String,
     functions: HashMap<String, Function>,
     structs: HashMap<String, StructDecl>,
+    string_constants: HashMap<String, usize>, // string -> heap index mapping
+    string_constant_list: Vec<String>, // ordered list of string constants
 }
 
 impl VMCompiler {
@@ -1363,7 +1385,26 @@ impl VMCompiler {
             current_function_name: String::new(),
             functions: HashMap::new(),
             structs: HashMap::new(),
+            string_constants: HashMap::new(),
+            string_constant_list: Vec::new(),
         }
+    }
+
+    /// Get or create a string constant, returning its heap index
+    fn get_or_create_string_constant(&mut self, s: &str) -> usize {
+        if let Some(&index) = self.string_constants.get(s) {
+            index
+        } else {
+            let index = self.string_constant_list.len();
+            self.string_constants.insert(s.to_string(), index);
+            self.string_constant_list.push(s.to_string());
+            index
+        }
+    }
+
+    /// Get the list of string constants for VM initialization
+    pub fn get_string_constants(&self) -> &[String] {
+        &self.string_constant_list
     }
 
     /// Dump compiled IR to a string
@@ -1726,8 +1767,8 @@ impl VMCompiler {
             }
 
             Expr::String(value) => {
-                self.instructions
-                    .push(Instruction::PushString(value.clone()));
+                let heap_index = self.get_or_create_string_constant(value);
+                self.instructions.push(Instruction::PushHeapRef(heap_index));
             }
 
             Expr::Identifier(name) => {

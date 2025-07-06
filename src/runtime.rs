@@ -102,10 +102,11 @@ impl Runtime {
         // Compile program to VM bytecode
         let mut compiler = VMCompiler::new();
         let instructions = compiler.compile_program(program);
+        let string_constants = compiler.get_string_constants();
 
         // Execute on VM
         self.vm.reset();
-        self.vm.load_program(instructions);
+        self.vm.load_program_with_constants(instructions, string_constants);
 
         match self.vm.execute() {
             Ok(result) => Ok(Some(Value::Number(result as f64))),
@@ -122,11 +123,12 @@ impl Runtime {
         // Compile program to VM bytecode
         let mut compiler = VMCompiler::new();
         let instructions = compiler.compile_program(program);
+        let string_constants = compiler.get_string_constants();
 
         // Execute on VM with stack printing option
         self.vm.print_stacks = print_stacks;
         self.vm.reset();
-        self.vm.load_program(instructions);
+        self.vm.load_program_with_constants(instructions, string_constants);
 
         match self.vm.execute() {
             Ok(result) => Ok(Some(Value::Number(result as f64))),
