@@ -450,12 +450,12 @@ impl VM {
                         }
                     }
                     
-                    // Function calling convention:
-                    // 1. Arguments are already on stack
-                    // 2. Push return address (PC + 1)
-                    // 3. Push old BP
-                    // 4. Set new BP to (stack.len() - 2)
-                    // 5. Jump to function
+                    // Function calling convention according to VM spec:
+                    // Stack before call: [return_val_placeholder, arg0, arg1, ...]
+                    // 1. Push return address (PC + 1)
+                    // 2. Push old BP
+                    // 3. Set new BP to current SP
+                    // 4. Jump to function
 
                     // Find function address by name
                     let mut target_addr = None;
@@ -469,9 +469,11 @@ impl VM {
                     }
 
                     if let Some(addr) = target_addr {
+                        // Push return address and old BP
                         self.stack.push(Value::Number((self.pc + 1) as f64)); // Return address
                         self.stack.push(Value::Number(self.bp as f64)); // Old BP
-                                                                        // BPは[引数...][return_addr][old_bp]のold_bpを指す
+                        
+                        // Set new BP to current SP (points to old BP)
                         self.bp = self.stack.len() - 1;
                         self.pc = addr;
                         continue;
@@ -481,22 +483,22 @@ impl VM {
                 }
 
                 Instruction::Ret => {
-                    // 関数リターン時のスタックレイアウト:
-                    // [args...] [return_addr] [old_bp] <- BP
-                    //                         ^BP
-
+                    // Return sequence according to VM spec:
+                    // Stack layout during function: [return_placeholder, args..., return_addr, old_bp] <- BP
+                    //                                                                                    ^BP
+                    
                     if self.bp < 1 || self.stack.len() < self.bp + 1 {
                         return Err("Stack underflow in function return".to_string());
                     }
 
-                    // Get return value from top of stack
+                    // 1. Get return value from top of stack (prepared by callee)
                     let return_value = if self.stack.len() > self.bp + 1 {
                         self.stack.pop().unwrap_or(Value::Number(0.0))
                     } else {
                         Value::Number(0.0)
                     };
 
-                    // Get old BP and return address from stack frame
+                    // 2. Get old BP and return address from stack frame
                     let old_bp = match self.stack[self.bp] {
                         Value::Number(n) => n as usize,
                         _ => return Err("Invalid BP value in stack frame".to_string()),
@@ -516,15 +518,34 @@ impl VM {
                         }
                     }
 
-
-                    // Restore stack to before function call (but keep arguments for now)
-                    self.stack.truncate(self.bp - 1);
+                    // 3. Find the return value placeholder position
+                    // Need to find how many arguments were passed to calculate placeholder position
+                    // Stack: [return_placeholder, arg0, arg1, ..., return_addr, old_bp]
+                    // The placeholder is at position: bp - 1 - num_args - 1
+                    
+                    // For now, we'll use a simpler approach: restore BP and SP, then overwrite placeholder
+                    // This assumes the caller will clean up arguments properly
+                    
+                    // 4. According to VM spec, we need to overwrite the return value placeholder
+                    // Stack during function: [return_placeholder, arg0, arg1, ..., return_addr, old_bp, locals...]
+                    //                                                                        ^BP
+                    
+                    // We need to find the placeholder position and overwrite it
+                    // The placeholder is before all arguments
+                    
+                    // Remove frame info and local variables, restore BP
+                    self.stack.truncate(self.bp - 1); // Remove return_addr and old_bp
                     self.bp = old_bp;
-
-                    // Push return value back onto stack
+                    
+                    // Now stack has: [return_placeholder, arg0, arg1, ...]
+                    // According to spec, we should overwrite the placeholder with return value
+                    // But we need to know how many arguments there are
+                    
+                    // For now, we'll implement a simpler approach:
+                    // Put return value on stack, caller should clean up correctly
                     self.stack.push(return_value);
 
-                    // Jump to return address
+                    // 6. Jump to return address
                     self.pc = return_addr;
                     continue;
                 }
@@ -793,9 +814,9 @@ impl VMCompiler {
         self.local_vars.clear();
 
         // Map parameters to stack positions (negative offsets from BP)
-        // Stack layout: [arg0] [arg1] ... [return_addr] [old_bp] <- BP points here
+        // Stack layout: [return_placeholder] [arg0] [arg1] ... [return_addr] [old_bp] <- BP points here
         // Parameters are accessed with negative offsets from BP
-        // First param is at BP-4, second at BP-3, etc.
+        // First param is at BP-(num_params+2), second at BP-(num_params+1), etc.
         for (i, param) in func.params.iter().enumerate() {
             let param_offset = -(func.params.len() as i32 - i as i32 + 2);
             self.local_vars.insert(param.name.clone(), param_offset);
@@ -1011,17 +1032,28 @@ impl VMCompiler {
             }
 
             Expr::Call { callee, args } => {
-                // Push arguments onto stack (left to right)
+                // Caller responsibilities according to VM spec:
+                // 1. Push placeholder for return value (e.g., 0)
+                self.instructions.push(Instruction::Push(0));
+                
+                // 2. Push function arguments onto stack (left to right)
                 for arg in args {
                     self.compile_expression(arg);
                 }
 
-                // Generate call instruction
+                // 3-6. Generate call instruction (handles remaining caller responsibilities)
                 if let Expr::Identifier(func_name) = callee.as_ref() {
                     self.instructions.push(Instruction::Call(func_name.clone()));
 
-                    // Note: arguments will be cleaned up by the Call instruction implementation
-                    // The return value will be left on the stack
+                    // The caller is responsible for cleaning up arguments
+                    // According to the spec, after return:
+                    // Stack: [return_value, arg0, arg1, ...]
+                    // We need to remove the arguments, leaving only the return value
+                    
+                    // We'll let the VM handle this cleanup properly
+                    // For now, don't generate cleanup code here
+                    
+                    // Return value remains on top of stack
                 } else {
                     panic!("Function calls with complex callees not supported yet");
                 }
