@@ -118,6 +118,35 @@ pub fn execute_file_with_options(filename: &str, print_stacks: bool) -> Result<O
     runtime.execute_program_with_options(&program, print_stacks)
 }
 
+/// Execute a file with profiling enabled
+pub fn execute_file_with_profiling(
+    filename: &str,
+    profile_output: Option<&str>,
+) -> Result<Option<Value>> {
+    use std::fs;
+
+    let contents = fs::read_to_string(filename)?;
+    let mut parser = create_parser(&contents)?;
+    let program = parser.parse_program()?;
+
+    // Execute the program with profiling enabled
+    let mut runtime = Runtime::new();
+    runtime.enable_profiling();
+    
+    let result = runtime.execute_program(&program)?;
+    
+    // Output profiling results
+    if let Some(output_file) = profile_output {
+        runtime
+            .dump_profile_to_file(output_file)
+            .map_err(|e| anyhow::anyhow!("Failed to write profile: {}", e))?;
+    } else {
+        println!("{}", runtime.get_profile());
+    }
+    
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

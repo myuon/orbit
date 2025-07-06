@@ -6,6 +6,8 @@ struct Config {
     filename: String,
     dump_ir: Option<String>,
     print_stacks: bool,
+    profile: bool,
+    profile_output: Option<String>,
 }
 
 fn parse_args() -> Result<Config, String> {
@@ -18,6 +20,8 @@ fn parse_args() -> Result<Config, String> {
     let mut filename = None;
     let mut dump_ir = None;
     let mut print_stacks = false;
+    let mut profile = false;
+    let mut profile_output = None;
     let mut i = 1;
 
     while i < args.len() {
@@ -31,6 +35,15 @@ fn parse_args() -> Result<Config, String> {
             dump_ir = Some(ir_file.to_string());
         } else if arg == "--print-stacks" {
             print_stacks = true;
+        } else if arg == "--profile" {
+            profile = true;
+        } else if arg.starts_with("--profile-output=") {
+            let profile_file = arg.strip_prefix("--profile-output=").unwrap();
+            if profile_file.is_empty() {
+                return Err("--profile-output option requires a filename".to_string());
+            }
+            profile = true;
+            profile_output = Some(profile_file.to_string());
         } else if arg == "--help" || arg == "-h" {
             return Err("help".to_string());
         } else if arg.starts_with("--") {
@@ -49,6 +62,8 @@ fn parse_args() -> Result<Config, String> {
             filename: f,
             dump_ir,
             print_stacks,
+            profile,
+            profile_output,
         }),
         None => Err("No input file specified".to_string()),
     }
@@ -69,11 +84,20 @@ fn main() {
         }
     };
 
-    match execute_file_with_options(
-        &config.filename,
-        config.dump_ir.as_deref(),
-        config.print_stacks,
-    ) {
+    let result = if config.profile {
+        // Use profiling execution
+        orbit::execute_file_with_profiling(&config.filename, config.profile_output.as_deref())
+            .map_err(|e| e.into())
+    } else {
+        // Use regular execution
+        execute_file_with_options(
+            &config.filename,
+            config.dump_ir.as_deref(),
+            config.print_stacks,
+        )
+    };
+
+    match result {
         Ok(Some(value)) => println!("{}", value),
         Ok(None) => {}
         Err(e) => {
@@ -90,9 +114,11 @@ fn print_help(program_name: &str) {
     println!("    {} [OPTIONS] <file.ob>", program_name);
     println!();
     println!("OPTIONS:");
-    println!("    --dump-ir=<file>    Dump compiled IR to specified file");
-    println!("    --print-stacks      Print stack traces");
-    println!("    -h, --help          Print help information");
+    println!("    --dump-ir=<file>         Dump compiled IR to specified file");
+    println!("    --print-stacks           Print stack traces during execution");
+    println!("    --profile                Enable profiling and print results");
+    println!("    --profile-output=<file>  Enable profiling and save results to file");
+    println!("    -h, --help               Print help information");
     println!();
     println!("ARGS:");
     println!("    <file.ob>           Orbit source file to execute");

@@ -467,4 +467,24 @@ impl Runtime {
             }
         }
     }
+    
+    /// Enable profiling in the VM
+    pub fn enable_profiling(&mut self) {
+        self.vm.enable_profiling = true;
+    }
+    
+    /// Disable profiling in the VM
+    pub fn disable_profiling(&mut self) {
+        self.vm.enable_profiling = false;
+    }
+    
+    /// Get profiling results from the VM
+    pub fn get_profile(&self) -> String {
+        self.vm.dump_profile()
+    }
+    
+    /// Dump profiling results to a file
+    pub fn dump_profile_to_file(&self, filename: &str) -> Result<(), std::io::Error> {
+        self.vm.dump_profile_to_file(filename)
+    }
 }
