@@ -109,6 +109,7 @@ The `zig_refs/orbit-mode/` directory contains a VS Code extension with syntax hi
 - **Testing**: Always run `cargo test` after making changes to ensure all tests pass
 - **Test Style**: Use table-driven testing for unit tests whenever possible to reduce duplication and improve maintainability
 - **Code Duplication**: Use `similarity-rs src/` to detect code duplication and guide refactoring efforts
+- **Refactoring**: Use refactor-mcp tools for code changes and searches when available
 - **Migration**: Refer to `TASK.md` for the structured migration plan
 - **Reference**: Use the Zig code in `zig_refs/` as reference for implementation
 - **Specifications**: Use the language specification in `spec/` for authoritative language definition
