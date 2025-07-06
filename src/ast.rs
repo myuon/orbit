@@ -77,6 +77,7 @@ pub enum IndexContainerType {
     Vector,
     Map,
     Pointer,
+    String,
 }
 
 #[derive(Debug, Clone, PartialEq)]

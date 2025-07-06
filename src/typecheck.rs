@@ -416,6 +416,9 @@ impl TypeChecker {
                     Type::Pointer { .. } => {
                         *container_type = Some(IndexContainerType::Pointer);
                     }
+                    Type::String => {
+                        *container_type = Some(IndexContainerType::String);
+                    }
                     _ => {}
                 }
                 Ok(())
@@ -736,7 +739,10 @@ impl TypeChecker {
                             );
                         }
                     }
-                    _ => bail!("Cannot index non-vector/map/pointer type: {}", collection_type),
+                    Type::String => {
+                        bail!("Cannot assign to string index: strings are immutable");
+                    }
+                    _ => bail!("Cannot index assign to non-vector/map/pointer type: {}", collection_type),
                 }
                 Ok(())
             }
@@ -979,7 +985,14 @@ impl TypeChecker {
                         }
                         Ok(*element_type.clone())
                     }
-                    _ => bail!("Cannot index non-vector/map/pointer type: {}", container_value_type),
+                    Type::String => {
+                        // String is [*]byte, so indexing returns a byte (number)
+                        if !index_type.is_compatible_with(&Type::Number) {
+                            bail!("String index must be number, got {}", index_type);
+                        }
+                        Ok(Type::Number) // byte is represented as number
+                    }
+                    _ => bail!("Cannot index non-vector/map/pointer/string type: {}", container_value_type),
                 }
             }
 
@@ -1325,5 +1338,47 @@ mod tests {
 
         assert!(pointer1.is_compatible_with(&pointer2));
         assert!(!pointer1.is_compatible_with(&different_pointer));
+    }
+
+    #[test]
+    fn test_string_indexing_type_checking() {
+        let input = r#"
+            fun main() do
+                let str = "Hello";
+                return str[0];
+            end
+        "#;
+
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().unwrap();
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_ok()); // String indexing should be allowed
+    }
+
+    #[test]
+    fn test_string_assignment_prevention() {
+        let input = r#"
+            fun main() do
+                let str = "Hello";
+                str[0] = 72;
+                return str[0];
+            end
+        "#;
+
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().unwrap();
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err()); // String assignment should be rejected
+
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("strings are immutable"));
     }
 }

@@ -86,6 +86,9 @@ pub enum Instruction {
     PointerIndex,
     PointerSet,
 
+    // String operations  
+    StringIndex,
+
     // Struct operations
     StructNew,
     StructFieldGet,
@@ -142,6 +145,7 @@ impl fmt::Display for Instruction {
             Instruction::PointerNew => write!(f, "pointer_new"),
             Instruction::PointerIndex => write!(f, "pointer_index"),
             Instruction::PointerSet => write!(f, "pointer_set"),
+            Instruction::StringIndex => write!(f, "string_index"),
             Instruction::StructNew => write!(f, "struct_new"),
             Instruction::StructFieldGet => write!(f, "struct_field_get"),
             Instruction::StructFieldSet => write!(f, "struct_field_set"),
@@ -1037,6 +1041,39 @@ impl VM {
                         _ => return Err("PointerSet requires a heap reference and number".to_string()),
                     }
                 }
+
+                Instruction::StringIndex => {
+                    // Stack: [string_heap_ref] [element_index]
+                    if self.stack.len() < 2 {
+                        return Err("Stack underflow for StringIndex".to_string());
+                    }
+                    let element_index_value = self.stack.pop().unwrap();
+                    let string_ref = self.stack.pop().unwrap();
+                    match (string_ref, element_index_value) {
+                        (Value::HeapRef(heap_index), Value::Number(element_index)) => {
+                            let element_index = element_index as usize;
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
+                            }
+                            match &self.heap[heap_index.0] {
+                                HeapObject::String(s) => {
+                                    let bytes = s.as_bytes();
+                                    if element_index >= bytes.len() {
+                                        return Err(format!(
+                                            "String index out of bounds: {} >= {}",
+                                            element_index,
+                                            bytes.len()
+                                        ));
+                                    }
+                                    // Return the byte value as a number
+                                    self.stack.push(Value::Number(bytes[element_index] as f64));
+                                }
+                                _ => return Err("StringIndex requires a string heap object".to_string()),
+                            }
+                        }
+                        _ => return Err("StringIndex requires a heap reference and number".to_string()),
+                    }
+                }
                 Instruction::StructNew => {
                     // Stack: [field_count] [field_name_1] [field_value_1] ... [field_name_n] [field_value_n]
                     if self.stack.is_empty() {
@@ -1650,6 +1687,10 @@ impl VMCompiler {
                     Some(IndexContainerType::Pointer) => {
                         self.instructions.push(Instruction::PointerSet);
                     }
+                    Some(IndexContainerType::String) => {
+                        // Strings are immutable, this should not happen
+                        panic!("Cannot assign to string index - strings are immutable");
+                    }
                     None => {
                         // Type checking should have resolved this
                         panic!("Container type not resolved during type checking");
@@ -1802,6 +1843,9 @@ impl VMCompiler {
                     }
                     Some(IndexContainerType::Pointer) => {
                         self.instructions.push(Instruction::PointerIndex);
+                    }
+                    Some(IndexContainerType::String) => {
+                        self.instructions.push(Instruction::StringIndex);
                     }
                     None => {
                         // Type checking should have resolved this
