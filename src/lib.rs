@@ -4,6 +4,7 @@ pub mod lexer;
 pub mod parser;
 pub mod profiler;
 pub mod runtime;
+pub mod typecheck;
 pub mod vm;
 
 // Re-export commonly used items
