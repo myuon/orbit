@@ -147,8 +147,8 @@ pub fn execute_file_with_options_on_call(
 
     // Perform type checking and inference
     let mut type_checker = crate::typecheck::TypeChecker::new();
-    type_checker.infer_types(&mut program)?;
     type_checker.check_program(&program)?;
+    type_checker.infer_types(&mut program)?;
 
     // Execute the program with the specified options
     let mut runtime =

@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Decl, Expr, Function, IndexContainerType, Program, Stmt};
+use crate::ast::{BinaryOp, Decl, Expr, Function, IndexContainerType, Program, Stmt, StructDecl};
 use crate::profiler::{InstructionTimer, Profiler};
 use crate::runtime::{Value, HeapObject, HeapIndex};
 use std::collections::HashMap;
@@ -76,6 +76,11 @@ pub enum Instruction {
     MapNew,
     MapIndex,
     MapSet,
+    
+    // Struct operations
+    StructNew,
+    StructFieldGet,
+    StructFieldSet,
 }
 
 impl fmt::Display for Instruction {
@@ -122,6 +127,9 @@ impl fmt::Display for Instruction {
             Instruction::MapNew => write!(f, "map_new"),
             Instruction::MapIndex => write!(f, "map_index"),
             Instruction::MapSet => write!(f, "map_set"),
+            Instruction::StructNew => write!(f, "struct_new"),
+            Instruction::StructFieldGet => write!(f, "struct_field_get"),
+            Instruction::StructFieldSet => write!(f, "struct_field_set"),
         }
     }
 }
@@ -866,6 +874,110 @@ impl VM {
                         _ => return Err("MapSet requires a heap reference and key (string)".to_string()),
                     }
                 }
+                Instruction::StructNew => {
+                    // Stack: [field_count] [field_name_1] [field_value_1] ... [field_name_n] [field_value_n]
+                    if self.stack.is_empty() {
+                        return Err("Stack underflow for StructNew".to_string());
+                    }
+                    let field_count = match self.stack.pop().unwrap() {
+                        Value::Number(n) => n as usize,
+                        _ => return Err("StructNew requires a number for field count".to_string()),
+                    };
+                    
+                    if self.stack.len() < field_count * 2 {
+                        return Err("Stack underflow for StructNew fields".to_string());
+                    }
+                    
+                    let mut fields = HashMap::new();
+                    for _ in 0..field_count {
+                        let field_value = self.stack.pop().unwrap();
+                        let field_name = match self.stack.pop().unwrap() {
+                            Value::HeapRef(heap_index) => {
+                                if heap_index.0 >= self.heap.len() {
+                                    return Err(format!("Invalid heap index: {}", heap_index.0));
+                                }
+                                match &self.heap[heap_index.0] {
+                                    HeapObject::String(s) => s.clone(),
+                                    _ => return Err("StructNew requires string field names".to_string()),
+                                }
+                            }
+                            _ => return Err("StructNew requires heap reference for field names".to_string()),
+                        };
+                        fields.insert(field_name, field_value);
+                    }
+                    
+                    let heap_index = HeapIndex(self.heap.len());
+                    self.heap.push(HeapObject::Struct(fields));
+                    self.stack.push(Value::HeapRef(heap_index));
+                }
+                Instruction::StructFieldGet => {
+                    // Stack: [struct_heap_ref] [field_name]
+                    if self.stack.len() < 2 {
+                        return Err("Stack underflow for StructFieldGet".to_string());
+                    }
+                    let field_name_ref = self.stack.pop().unwrap();
+                    let struct_ref = self.stack.pop().unwrap();
+                    
+                    match (struct_ref, field_name_ref) {
+                        (Value::HeapRef(heap_index), Value::HeapRef(name_heap_index)) => {
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
+                            }
+                            if name_heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid name heap index: {}", name_heap_index.0));
+                            }
+                            
+                            let field_name = match &self.heap[name_heap_index.0] {
+                                HeapObject::String(s) => s.clone(),
+                                _ => return Err("StructFieldGet requires a string field name".to_string()),
+                            };
+                            
+                            match &self.heap[heap_index.0] {
+                                HeapObject::Struct(fields) => {
+                                    match fields.get(&field_name) {
+                                        Some(value) => self.stack.push(value.clone()),
+                                        None => return Err(format!("Field '{}' not found in struct", field_name)),
+                                    }
+                                }
+                                _ => return Err("StructFieldGet requires a struct heap object".to_string()),
+                            }
+                        }
+                        _ => return Err("StructFieldGet requires heap references".to_string()),
+                    }
+                }
+                Instruction::StructFieldSet => {
+                    // Stack: [value] [field_name] [struct_heap_ref]
+                    if self.stack.len() < 3 {
+                        return Err("Stack underflow for StructFieldSet".to_string());
+                    }
+                    let struct_ref = self.stack.pop().unwrap();
+                    let field_name_ref = self.stack.pop().unwrap();
+                    let value = self.stack.pop().unwrap();
+                    
+                    match (struct_ref, field_name_ref) {
+                        (Value::HeapRef(heap_index), Value::HeapRef(name_heap_index)) => {
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
+                            }
+                            if name_heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid name heap index: {}", name_heap_index.0));
+                            }
+                            
+                            let field_name = match &self.heap[name_heap_index.0] {
+                                HeapObject::String(s) => s.clone(),
+                                _ => return Err("StructFieldSet requires a string field name".to_string()),
+                            };
+                            
+                            match &mut self.heap[heap_index.0] {
+                                HeapObject::Struct(fields) => {
+                                    fields.insert(field_name, value);
+                                }
+                                _ => return Err("StructFieldSet requires a struct heap object".to_string()),
+                            }
+                        }
+                        _ => return Err("StructFieldSet requires heap references".to_string()),
+                    }
+                }
             }
 
             // Record profiling data if enabled
@@ -932,6 +1044,7 @@ pub struct VMCompiler {
     current_function_param_count: usize,
     current_function_name: String,
     functions: HashMap<String, Function>,
+    structs: HashMap<String, StructDecl>,
 }
 
 impl VMCompiler {
@@ -943,6 +1056,7 @@ impl VMCompiler {
             current_function_param_count: 0,
             current_function_name: String::new(),
             functions: HashMap::new(),
+            structs: HashMap::new(),
         }
     }
 
@@ -980,6 +1094,14 @@ impl VMCompiler {
 
     /// Compile a complete program to VM bytecode
     pub fn compile_program(&mut self, program: &Program) -> Vec<Instruction> {
+        // 0. First pass: register all struct types
+        self.structs.clear();
+        for decl in &program.declarations {
+            if let Decl::Struct(struct_decl) = decl {
+                self.structs.insert(struct_decl.name.clone(), struct_decl.clone());
+            }
+        }
+        
         // 1. 関数を定義順に収集し、関数レジストリに登録
         let mut functions: Vec<Function> = Vec::new();
         self.functions.clear();
@@ -988,6 +1110,9 @@ impl VMCompiler {
                 Decl::Function(func) => {
                     functions.push(func.clone());
                     self.functions.insert(func.name.clone(), func.clone());
+                }
+                Decl::Struct(_) => {
+                    // Already handled in first pass
                 }
             }
         }
@@ -1359,6 +1484,28 @@ impl VMCompiler {
             Expr::MapNew { .. } => {
                 self.instructions.push(Instruction::MapNew);
             }
+            
+            Expr::StructNew { type_name, fields } => {
+                // Verify struct exists
+                if !self.structs.contains_key(type_name) {
+                    panic!("Unknown struct type: {}", type_name);
+                }
+                
+                // Push field values and names onto stack
+                for (field_name, field_value) in fields {
+                    self.instructions.push(Instruction::PushString(field_name.clone()));
+                    self.compile_expression(field_value);
+                }
+                // Push field count
+                self.instructions.push(Instruction::Push(fields.len() as i64));
+                self.instructions.push(Instruction::StructNew);
+            }
+            
+            Expr::FieldAccess { object, field } => {
+                self.compile_expression(object);
+                self.instructions.push(Instruction::PushString(field.clone()));
+                self.instructions.push(Instruction::StructFieldGet);
+            }
         }
     }
 }
@@ -1429,6 +1576,26 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
 
         Expr::MapNew { .. } => {
             instructions.push(Instruction::MapNew);
+        }
+        
+        Expr::StructNew { type_name: _, fields } => {
+            // Note: struct type checking should be done at type check time
+            // For standalone compilation, we assume struct is valid
+            
+            // Push field values and names onto stack
+            for (field_name, field_value) in fields {
+                instructions.push(Instruction::PushString(field_name.clone()));
+                compile_expr_recursive(field_value, instructions);
+            }
+            // Push field count
+            instructions.push(Instruction::Push(fields.len() as i64));
+            instructions.push(Instruction::StructNew);
+        }
+        
+        Expr::FieldAccess { object, field } => {
+            compile_expr_recursive(object, instructions);
+            instructions.push(Instruction::PushString(field.clone()));
+            instructions.push(Instruction::StructFieldGet);
         }
     }
 }

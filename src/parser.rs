@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Decl, Expr, FunParam, Function, Program, Stmt, Token, TokenType};
+use crate::ast::{BinaryOp, Decl, Expr, FunParam, Function, Program, Stmt, StructDecl, StructField, Token, TokenType};
 use anyhow::{bail, Result};
 
 pub struct Parser {
@@ -66,9 +66,13 @@ impl Parser {
                 let function = self.parse_function()?;
                 Ok(Decl::Function(function))
             }
+            TokenType::Type => {
+                let struct_decl = self.parse_struct_decl()?;
+                Ok(Decl::Struct(struct_decl))
+            }
             _ => {
                 bail!(
-                    "Expected declaration (function), found {:?}",
+                    "Expected declaration (function or type), found {:?}",
                     self.current_token().token_type
                 )
             }
@@ -145,6 +149,65 @@ impl Parser {
         self.consume(TokenType::End)?;
 
         Ok(Function { name, params, body })
+    }
+
+    /// Parse a struct declaration
+    fn parse_struct_decl(&mut self) -> Result<StructDecl> {
+        self.consume(TokenType::Type)?;
+
+        let name = match &self.current_token().token_type {
+            TokenType::Identifier(name) => {
+                let n = name.clone();
+                self.advance();
+                n
+            }
+            _ => bail!("Expected struct name after 'type'"),
+        };
+
+        self.consume(TokenType::Assign)?;
+        self.consume(TokenType::Struct)?;
+        self.consume(TokenType::LeftBrace)?;
+
+        let mut fields = Vec::new();
+
+        while !matches!(self.current_token().token_type, TokenType::RightBrace) {
+            if matches!(self.current_token().token_type, TokenType::Eof) {
+                bail!("Unexpected end of file in struct declaration");
+            }
+
+            let field_name = match &self.current_token().token_type {
+                TokenType::Identifier(name) => {
+                    let n = name.clone();
+                    self.advance();
+                    n
+                }
+                _ => bail!("Expected field name in struct declaration"),
+            };
+
+            self.consume(TokenType::Colon)?;
+
+            let type_name = match &self.current_token().token_type {
+                TokenType::Identifier(name) => {
+                    let n = name.clone();
+                    self.advance();
+                    n
+                }
+                _ => bail!("Expected type name in struct field"),
+            };
+
+            fields.push(StructField { name: field_name, type_name });
+
+            if matches!(self.current_token().token_type, TokenType::Comma) {
+                self.advance();
+            } else if !matches!(self.current_token().token_type, TokenType::RightBrace) {
+                bail!("Expected ',' or '}}' in struct declaration");
+            }
+        }
+
+        self.consume(TokenType::RightBrace)?;
+        self.consume(TokenType::Semicolon)?;
+
+        Ok(StructDecl { name, fields })
     }
 
     pub fn parse_stmt(&mut self) -> Result<Stmt> {
@@ -491,7 +554,27 @@ impl Parser {
                         container_type: None, // Will be filled in by type checker
                     })
                 } else {
-                    Ok(Expr::Identifier(identifier))
+                    // Check for field access
+                    let mut expr = Expr::Identifier(identifier);
+                    
+                    while matches!(self.current_token().token_type, TokenType::Dot) {
+                        self.advance(); // consume '.'
+                        let field_name = match &self.current_token().token_type {
+                            TokenType::Identifier(name) => {
+                                let n = name.clone();
+                                self.advance();
+                                n
+                            }
+                            _ => bail!("Expected field name after '.'"),
+                        };
+                        
+                        expr = Expr::FieldAccess {
+                            object: Box::new(expr),
+                            field: field_name,
+                        };
+                    }
+                    
+                    Ok(expr)
                 }
             }
             TokenType::New => {
@@ -602,7 +685,45 @@ impl Parser {
                         initial_pairs,
                     })
                 } else {
-                    bail!("Expected 'vec' or 'map' after 'new'")
+                    // Handle struct instantiation: new TypeName { .field = value, ... }
+                    let type_name = match &self.current_token().token_type {
+                        TokenType::Identifier(name) => {
+                            let n = name.clone();
+                            self.advance();
+                            n
+                        }
+                        _ => bail!("Expected type name after 'new'"),
+                    };
+
+                    self.consume(TokenType::LeftBrace)?;
+
+                    let mut fields = Vec::new();
+                    if !matches!(self.current_token().token_type, TokenType::RightBrace) {
+                        loop {
+                            self.consume(TokenType::Dot)?; // consume '.'
+                            let field_name = match &self.current_token().token_type {
+                                TokenType::Identifier(name) => {
+                                    let n = name.clone();
+                                    self.advance();
+                                    n
+                                }
+                                _ => bail!("Expected field name after '.'"),
+                            };
+
+                            self.consume(TokenType::Assign)?; // consume '='
+                            let value = self.parse_expression()?;
+                            fields.push((field_name, value));
+
+                            if matches!(self.current_token().token_type, TokenType::Comma) {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+
+                    self.consume(TokenType::RightBrace)?;
+                    Ok(Expr::StructNew { type_name, fields })
                 }
             }
             TokenType::LeftParen => {

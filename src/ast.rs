@@ -42,6 +42,10 @@ pub enum TokenType {
     Return,
     Comma,
     Colon,
+    // Struct keywords
+    Type,
+    Struct,
+    Dot,
     Eof,
 }
 
@@ -101,6 +105,14 @@ pub enum Expr {
         value_type: String,
         initial_pairs: Vec<(Expr, Expr)>,
     },
+    StructNew {
+        type_name: String,
+        fields: Vec<(String, Expr)>,
+    },
+    FieldAccess {
+        object: Box<Expr>,
+        field: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -119,6 +131,21 @@ pub struct Program {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Decl {
     Function(Function),
+    Struct(StructDecl),
+}
+
+// Struct declaration
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDecl {
+    pub name: String,
+    pub fields: Vec<StructField>,
+}
+
+// Struct field
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructField {
+    pub name: String,
+    pub type_name: String,
 }
 
 // Function declaration with body

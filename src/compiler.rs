@@ -46,12 +46,14 @@ impl Compiler {
         let mut program = self.parse(tokens)?;
 
         // Type checking is always performed
-        // First perform type inference to fill in container types
+        // Create a single type checker instance to maintain state
         let mut type_checker = TypeChecker::new();
+        
+        // First register struct types and functions
+        type_checker.check_program(&program)?;
+        
+        // Then perform type inference to fill in container types
         type_checker.infer_types(&mut program)?;
-
-        // Then perform type checking
-        self.typecheck(&program)?;
 
         self.runtime.execute_program(&program)
     }

@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Decl, Expr, Function, IndexContainerType, Program, Stmt};
+use crate::ast::{BinaryOp, Decl, Expr, Function, IndexContainerType, Program, Stmt, StructDecl};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
@@ -18,6 +18,10 @@ pub enum Type {
     Function {
         param_types: Vec<Type>,
         return_type: Box<Type>,
+    },
+    Struct {
+        name: String,
+        fields: HashMap<String, Type>,
     },
 }
 
@@ -46,6 +50,7 @@ impl std::fmt::Display for Type {
                 }
                 write!(f, ") -> {}", return_type)
             }
+            Type::Struct { name, .. } => write!(f, "{}", name),
         }
     }
 }
@@ -141,6 +146,8 @@ pub struct TypeChecker {
     current_return_type: Option<Type>,
     /// Function registry for function signatures
     functions: HashMap<String, Type>,
+    /// Struct type registry
+    structs: HashMap<String, Type>,
 }
 
 impl TypeChecker {
@@ -150,6 +157,7 @@ impl TypeChecker {
             call_stack: Vec::new(),
             current_return_type: None,
             functions: HashMap::new(),
+            structs: HashMap::new(),
         }
     }
 
@@ -160,6 +168,9 @@ impl TypeChecker {
             match decl {
                 Decl::Function(function) => {
                     self.register_function(function)?;
+                }
+                Decl::Struct(struct_decl) => {
+                    self.register_struct(struct_decl)?;
                 }
             }
         }
@@ -182,6 +193,7 @@ impl TypeChecker {
     fn infer_declaration_types(&mut self, decl: &mut Decl) -> Result<()> {
         match decl {
             Decl::Function(function) => self.infer_function_types(function),
+            Decl::Struct(_) => Ok(()), // Struct types are already resolved during registration
         }
     }
 
@@ -355,6 +367,18 @@ impl TypeChecker {
                 }
                 Ok(())
             }
+
+            Expr::StructNew { fields, .. } => {
+                for (_, value) in fields {
+                    self.infer_expression_types(value)?;
+                }
+                Ok(())
+            }
+
+            Expr::FieldAccess { object, .. } => {
+                self.infer_expression_types(object)?;
+                Ok(())
+            }
         }
     }
 
@@ -364,7 +388,7 @@ impl TypeChecker {
         let mut param_types = Vec::new();
         for param in &function.params {
             let param_type = if let Some(type_name) = &param.type_name {
-                Type::from_string(type_name)
+                self.resolve_type(type_name)
             } else {
                 Type::Unknown // For now, allow unknown types
             };
@@ -383,10 +407,41 @@ impl TypeChecker {
         Ok(())
     }
 
+    /// Register a struct type for later type checking
+    fn register_struct(&mut self, struct_decl: &StructDecl) -> Result<()> {
+        let mut fields = HashMap::new();
+        for field in &struct_decl.fields {
+            let field_type = self.resolve_type(&field.type_name);
+            fields.insert(field.name.clone(), field_type);
+        }
+
+        let struct_type = Type::Struct {
+            name: struct_decl.name.clone(),
+            fields,
+        };
+
+        // Register the struct type in the type registry
+        self.structs.insert(struct_decl.name.clone(), struct_type);
+        Ok(())
+    }
+
+    /// Resolve a type name to a Type, checking struct registry
+    fn resolve_type(&self, type_name: &str) -> Type {
+        // First check if it's a built-in type
+        match Type::from_string(type_name) {
+            Type::Unknown => {
+                // Check if it's a registered struct type
+                self.structs.get(type_name).cloned().unwrap_or(Type::Unknown)
+            }
+            other => other,
+        }
+    }
+
     /// Type check a declaration
     fn check_declaration(&mut self, decl: &Decl) -> Result<()> {
         match decl {
             Decl::Function(function) => self.check_function(function),
+            Decl::Struct(_) => Ok(()), // Struct declarations are checked during registration
         }
     }
 
@@ -699,7 +754,7 @@ impl TypeChecker {
                 element_type,
                 initial_values,
             } => {
-                let element_type = Type::from_string(element_type);
+                let element_type = self.resolve_type(element_type);
 
                 // Check all initial values match element type
                 for value in initial_values {
@@ -756,8 +811,8 @@ impl TypeChecker {
                 value_type,
                 initial_pairs,
             } => {
-                let key_type = Type::from_string(key_type);
-                let value_type = Type::from_string(value_type);
+                let key_type = self.resolve_type(key_type);
+                let value_type = self.resolve_type(value_type);
 
                 // Check all initial pairs match key/value types
                 for (key_expr, value_expr) in initial_pairs {
@@ -784,6 +839,52 @@ impl TypeChecker {
                     key_type: Box::new(key_type),
                     value_type: Box::new(value_type),
                 })
+            }
+
+            Expr::StructNew { type_name, fields } => {
+                // Look up the struct type
+                let struct_type = match self.structs.get(type_name) {
+                    Some(Type::Struct { fields: struct_fields, .. }) => struct_fields.clone(),
+                    _ => bail!("Unknown struct type: {}", type_name),
+                };
+
+                // Check that all required fields are provided
+                for (field_name, _field_type) in &struct_type {
+                    if !fields.iter().any(|(name, _)| name == field_name) {
+                        bail!("Missing required field '{}' in struct '{}'", field_name, type_name);
+                    }
+                }
+
+                // Check that all provided fields are valid and have correct types
+                for (field_name, field_value) in fields {
+                    let field_type = struct_type.get(field_name)
+                        .ok_or_else(|| anyhow::anyhow!("Unknown field '{}' in struct '{}'", field_name, type_name))?;
+                    
+                    let actual_type = self.check_expression(field_value)?;
+                    if !actual_type.is_compatible_with(field_type) {
+                        bail!(
+                            "Field '{}' type mismatch: expected {}, got {}",
+                            field_name,
+                            field_type,
+                            actual_type
+                        );
+                    }
+                }
+
+                self.structs.get(type_name).cloned()
+                    .ok_or_else(|| anyhow::anyhow!("Unknown struct type: {}", type_name))
+            }
+
+            Expr::FieldAccess { object, field } => {
+                let object_type = self.check_expression(object)?;
+                match object_type {
+                    Type::Struct { fields, .. } => {
+                        fields.get(field)
+                            .cloned()
+                            .ok_or_else(|| anyhow::anyhow!("Field '{}' not found in struct", field))
+                    }
+                    _ => bail!("Cannot access field '{}' on non-struct type: {}", field, object_type),
+                }
             }
         }
     }

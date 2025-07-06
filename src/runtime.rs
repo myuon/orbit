@@ -13,6 +13,7 @@ pub enum HeapObject {
     String(String),
     Vector(Vec<Value>),
     Map(HashMap<String, Value>),
+    Struct(HashMap<String, Value>),
 }
 
 /// Values in the Orbit runtime system
@@ -50,6 +51,10 @@ impl std::fmt::Display for HeapObject {
             }
             HeapObject::Map(m) => {
                 let entries: Vec<String> = m.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
+                write!(f, "{{{}}}", entries.join(", "))
+            }
+            HeapObject::Struct(fields) => {
+                let entries: Vec<String> = fields.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", entries.join(", "))
             }
         }

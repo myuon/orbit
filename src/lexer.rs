@@ -133,6 +133,8 @@ impl Lexer {
                         "new" => TokenType::New,
                         "vec" => TokenType::Vec,
                         "map" => TokenType::Map,
+                        "type" => TokenType::Type,
+                        "struct" => TokenType::Struct,
                         _ => TokenType::Identifier(identifier),
                     };
                     return Token {
@@ -327,6 +329,24 @@ impl Lexer {
                         token_type: TokenType::Greater,
                         position: pos,
                     };
+                }
+                Some('.') => {
+                    let pos = self.position;
+                    // Check if this is a float or a dot operator
+                    if self.position + 1 < self.input.len() && self.input[self.position + 1].is_ascii_digit() {
+                        // This is a float literal starting with a dot
+                        let num = self.read_number();
+                        return Token {
+                            token_type: TokenType::Number(num),
+                            position: pos,
+                        };
+                    } else {
+                        self.advance();
+                        return Token {
+                            token_type: TokenType::Dot,
+                            position: pos,
+                        };
+                    }
                 }
                 None => {
                     return Token {
