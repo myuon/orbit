@@ -207,6 +207,37 @@ impl Runtime {
             }
 
             Expr::String(value) => Ok(Value::String(value.clone())),
+            
+            // Binary expressions with variables need to be evaluated at runtime
+            Expr::Binary { left, op, right } if self.contains_variables(expr) => {
+                let left_val = self.evaluate(left)?;
+                let right_val = self.evaluate(right)?;
+                
+                match (left_val, right_val, op) {
+                    (Value::Number(a), Value::Number(b), BinaryOp::Add) => Ok(Value::Number(a + b)),
+                    (Value::Number(a), Value::Number(b), BinaryOp::Subtract) => Ok(Value::Number(a - b)),
+                    (Value::Number(a), Value::Number(b), BinaryOp::Multiply) => Ok(Value::Number(a * b)),
+                    (Value::Number(a), Value::Number(b), BinaryOp::Divide) => {
+                        if b == 0.0 {
+                            bail!("Division by zero")
+                        } else {
+                            Ok(Value::Number(a / b))
+                        }
+                    }
+                    (Value::Number(a), Value::Number(b), BinaryOp::Equal) => Ok(Value::Boolean(a == b)),
+                    (Value::Number(a), Value::Number(b), BinaryOp::NotEqual) => Ok(Value::Boolean(a != b)),
+                    (Value::Number(a), Value::Number(b), BinaryOp::Less) => Ok(Value::Boolean(a < b)),
+                    (Value::Number(a), Value::Number(b), BinaryOp::Greater) => Ok(Value::Boolean(a > b)),
+                    (Value::Number(a), Value::Number(b), BinaryOp::LessEqual) => Ok(Value::Boolean(a <= b)),
+                    (Value::Number(a), Value::Number(b), BinaryOp::GreaterEqual) => Ok(Value::Boolean(a >= b)),
+                    (Value::String(a), Value::String(b), BinaryOp::Add) => Ok(Value::String(a + &b)),
+                    (Value::String(a), Value::String(b), BinaryOp::Equal) => Ok(Value::Boolean(a == b)),
+                    (Value::String(a), Value::String(b), BinaryOp::NotEqual) => Ok(Value::Boolean(a != b)),
+                    (Value::Boolean(a), Value::Boolean(b), BinaryOp::Equal) => Ok(Value::Boolean(a == b)),
+                    (Value::Boolean(a), Value::Boolean(b), BinaryOp::NotEqual) => Ok(Value::Boolean(a != b)),
+                    _ => bail!("Invalid operation for types"),
+                }
+            }
 
             // Simple expressions: compile to IR and execute on VM
             _ => {
@@ -245,6 +276,23 @@ impl Runtime {
                     | BinaryOp::LessEqual
                     | BinaryOp::GreaterEqual
             ),
+            _ => false,
+        }
+    }
+
+    /// Check if an expression contains variables (identifiers)
+    fn contains_variables(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Identifier(_) => true,
+            Expr::Binary { left, right, .. } => {
+                self.contains_variables(left) || self.contains_variables(right)
+            }
+            Expr::Call { callee, args } => {
+                self.contains_variables(callee) || args.iter().any(|arg| self.contains_variables(arg))
+            }
+            Expr::VectorIndex { vector, index } => {
+                self.contains_variables(vector) || self.contains_variables(index)
+            }
             _ => false,
         }
     }

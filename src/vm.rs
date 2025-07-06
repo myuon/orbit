@@ -23,6 +23,9 @@ pub enum Instruction {
     Gt,
     Gte,
 
+    // Logical operations
+    Not,
+
     // Control flow
     Jump(usize),
     JumpIfZero(usize),
@@ -69,6 +72,7 @@ impl fmt::Display for Instruction {
             Instruction::Lte => write!(f, "lte"),
             Instruction::Gt => write!(f, "gt"),
             Instruction::Gte => write!(f, "gte"),
+            Instruction::Not => write!(f, "not"),
             Instruction::Jump(addr) => write!(f, "jump {}", addr),
             Instruction::JumpIfZero(addr) => write!(f, "jump_if_zero {}", addr),
             Instruction::GetLocal(offset) => write!(f, "get_local {}", offset),
@@ -311,6 +315,22 @@ impl VM {
                                 "Greater than or equal operation requires numbers".to_string()
                             )
                         }
+                    }
+                }
+
+                Instruction::Not => {
+                    if self.stack.is_empty() {
+                        return Err("Stack underflow for Not".to_string());
+                    }
+                    let value = self.stack.pop().unwrap();
+                    match value {
+                        Value::Boolean(b) => {
+                            self.stack.push(Value::Boolean(!b));
+                        }
+                        Value::Number(n) => {
+                            self.stack.push(Value::Boolean(n == 0.0));
+                        }
+                        _ => return Err("Not operation requires boolean or number".to_string()),
                     }
                 }
 
@@ -1004,8 +1024,7 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
                 BinaryOp::Equal => instructions.push(Instruction::Eq),
                 BinaryOp::NotEqual => {
                     instructions.push(Instruction::Eq);
-                    instructions.push(Instruction::Push(1));
-                    instructions.push(Instruction::Sub);
+                    instructions.push(Instruction::Not);
                 }
                 BinaryOp::Less => instructions.push(Instruction::Lt),
                 BinaryOp::LessEqual => instructions.push(Instruction::Lte),
@@ -1327,7 +1346,7 @@ mod tests {
         use std::fs;
 
         let path = "tests/testcase/program/vector_program.ob";
-        let ir_path = "vector_program.ir";
+        let ir_path = "target/vector_program.ir";
         let code = fs::read_to_string(path).expect("failed to read vector_program.ob");
         let mut lexer = Lexer::new(&code);
         let tokens = lexer.tokenize().expect("tokenize failed");
