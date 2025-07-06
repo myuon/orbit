@@ -49,15 +49,15 @@ impl Compiler {
     /// Create a new compiler instance with specific options
     pub fn new_with_options(options: CompilerOptions) -> Self {
         let runtime = if options.print_stacks || options.print_stacks_on_call.is_some() {
-            Runtime::new_with_call_tracing(options.print_stacks, options.print_stacks_on_call.clone())
+            Runtime::new_with_call_tracing(
+                options.print_stacks,
+                options.print_stacks_on_call.clone(),
+            )
         } else {
             Runtime::new()
         };
-        
-        Compiler {
-            runtime,
-            options,
-        }
+
+        Compiler { runtime, options }
     }
 
     /// Compile and execute Orbit source code, returning the last value
@@ -109,7 +109,8 @@ impl Compiler {
 
         // 6. Execute the program
         let result = if self.options.print_stacks || self.options.print_stacks_on_call.is_some() {
-            self.runtime.execute_program_with_options(&desugared_program, self.options.print_stacks)
+            self.runtime
+                .execute_program_with_options(&desugared_program, self.options.print_stacks)
         } else {
             self.runtime.execute_program(&desugared_program)
         };
@@ -140,7 +141,6 @@ impl Compiler {
         parser.parse_program()
     }
 
-
     /// Get a mutable reference to the runtime for direct manipulation
     pub fn runtime_mut(&mut self) -> &mut Runtime {
         &mut self.runtime
@@ -151,91 +151,4 @@ impl Compiler {
 pub fn execute_code(code: &str) -> Result<Option<Value>> {
     let mut compiler = Compiler::new();
     compiler.execute(code)
-}
-
-/// Execute Orbit source code from a file and return the result
-pub fn execute_file(filename: &str) -> Result<Option<Value>> {
-    let mut compiler = Compiler::new();
-    compiler.execute_file(filename)
-}
-
-/// Execute a file with IR dumping capability
-pub fn execute_file_with_ir_dump(filename: &str, ir_dump_file: &str) -> Result<Option<Value>> {
-    let options = CompilerOptions {
-        ir_dump_file: Some(ir_dump_file.to_string()),
-        ..Default::default()
-    };
-    let mut compiler = Compiler::new_with_options(options);
-    compiler.execute_file(filename)
-}
-
-/// Execute a file with IR dumping and stack printing options
-pub fn execute_file_with_ir_dump_and_options(
-    filename: &str,
-    ir_dump_file: &str,
-    print_stacks: bool,
-) -> Result<Option<Value>> {
-    let options = CompilerOptions {
-        ir_dump_file: Some(ir_dump_file.to_string()),
-        print_stacks,
-        ..Default::default()
-    };
-    let mut compiler = Compiler::new_with_options(options);
-    compiler.execute_file(filename)
-}
-
-/// Execute a file with optional stack printing
-pub fn execute_file_with_options(filename: &str, print_stacks: bool) -> Result<Option<Value>> {
-    let options = CompilerOptions {
-        print_stacks,
-        ..Default::default()
-    };
-    let mut compiler = Compiler::new_with_options(options);
-    compiler.execute_file(filename)
-}
-
-/// Execute a file with profiling enabled
-pub fn execute_file_with_profiling(
-    filename: &str,
-    profile_output: Option<&str>,
-) -> Result<Option<Value>> {
-    let options = CompilerOptions {
-        enable_profiling: true,
-        profile_output: profile_output.map(|s| s.to_string()),
-        ..Default::default()
-    };
-    let mut compiler = Compiler::new_with_options(options);
-    compiler.execute_file(filename)
-}
-
-/// Execute a file with optional stack printing and call-specific tracing
-pub fn execute_file_with_options_on_call(
-    filename: &str,
-    print_stacks: bool,
-    print_stacks_on_call: Option<&str>,
-) -> Result<Option<Value>> {
-    let options = CompilerOptions {
-        print_stacks,
-        print_stacks_on_call: print_stacks_on_call.map(|s| s.to_string()),
-        ..Default::default()
-    };
-    let mut compiler = Compiler::new_with_options(options);
-    compiler.execute_file(filename)
-}
-
-/// Execute a file with IR dumping and call-specific tracing options
-pub fn execute_file_with_ir_dump_and_options_on_call(
-    filename: &str,
-    ir_dump_file: &str,
-    print_stacks: bool,
-    print_stacks_on_call: Option<&str>,
-) -> Result<Option<Value>> {
-    let options = CompilerOptions {
-        ir_dump_file: Some(ir_dump_file.to_string()),
-        print_stacks,
-        print_stacks_on_call: print_stacks_on_call.map(|s| s.to_string()),
-        ..Default::default()
-    };
-    let mut compiler = Compiler::new_with_options(options);
-    compiler.execute_file(filename)
 }
