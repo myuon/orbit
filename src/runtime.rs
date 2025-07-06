@@ -1,4 +1,4 @@
-use crate::ast::{Expr, FunParam, Program, Stmt};
+use crate::ast::Program;
 use crate::vm::{VMCompiler, VM};
 use anyhow::{bail, Result};
 
@@ -8,11 +8,6 @@ pub enum Value {
     Boolean(bool),
     String(String),
     Address(usize),
-    Function {
-        params: Vec<FunParam>,
-        body: Vec<Stmt>,
-        return_expr: Option<Box<Expr>>,
-    },
     VectorIndex(usize),
     MapIndex(usize),
 }
@@ -30,7 +25,6 @@ impl std::fmt::Display for Value {
             Value::Boolean(b) => write!(f, "{}", b),
             Value::String(s) => write!(f, "{}", s),
             Value::Address(addr) => write!(f, "@{}", addr),
-            Value::Function { .. } => write!(f, "<function>"),
             Value::VectorIndex(index) => write!(f, "vector@{}", index),
             Value::MapIndex(index) => write!(f, "map@{}", index),
         }
