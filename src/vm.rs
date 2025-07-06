@@ -223,16 +223,7 @@ impl VM {
         self.pc = 0;
     }
 
-    /// Load program with pre-populated string constants
-    pub fn load_program_with_constants(&mut self, program: Vec<Instruction>, string_constants: &[String]) {
-        // Clear heap and pre-populate with string constants
-        self.heap.clear();
-        for string in string_constants {
-            self.heap.push(HeapObject::String(string.clone()));
-        }
-        self.program = program;
-        self.pc = 0;
-    }
+    // Removed load_program_with_constants - string constants are now initialized via PushString instructions
 
     pub fn execute(&mut self) -> Result<i64, String> {
         // Initialize BP to point to the start of the stack
@@ -1406,6 +1397,126 @@ impl VMCompiler {
     pub fn get_string_constants(&self) -> &[String] {
         &self.string_constant_list
     }
+    
+    /// Collect string constants from a declaration
+    fn collect_string_constants_from_decl(&mut self, decl: &Decl) {
+        match decl {
+            Decl::Function(func) => {
+                for stmt in &func.body {
+                    self.collect_string_constants_from_stmt(stmt);
+                }
+            }
+            Decl::GlobalVariable(global_var) => {
+                self.collect_string_constants_from_expr(&global_var.value);
+            }
+            Decl::Struct(struct_decl) => {
+                for method in &struct_decl.methods {
+                    for stmt in &method.body {
+                        self.collect_string_constants_from_stmt(stmt);
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Collect string constants from a statement
+    fn collect_string_constants_from_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Let { value, .. } => {
+                self.collect_string_constants_from_expr(value);
+            }
+            Stmt::Assign { value, .. } => {
+                self.collect_string_constants_from_expr(value);
+            }
+            Stmt::Return(expr) => {
+                self.collect_string_constants_from_expr(expr);
+            }
+            Stmt::Expression(expr) => {
+                self.collect_string_constants_from_expr(expr);
+            }
+            Stmt::If { condition, then_branch, else_branch } => {
+                self.collect_string_constants_from_expr(condition);
+                for stmt in then_branch {
+                    self.collect_string_constants_from_stmt(stmt);
+                }
+                if let Some(else_stmts) = else_branch {
+                    for stmt in else_stmts {
+                        self.collect_string_constants_from_stmt(stmt);
+                    }
+                }
+            }
+            Stmt::While { condition, body } => {
+                self.collect_string_constants_from_expr(condition);
+                for stmt in body {
+                    self.collect_string_constants_from_stmt(stmt);
+                }
+            }
+            Stmt::VectorPush { value, .. } => {
+                self.collect_string_constants_from_expr(value);
+            }
+            Stmt::IndexAssign { index, value, .. } => {
+                self.collect_string_constants_from_expr(index);
+                self.collect_string_constants_from_expr(value);
+            }
+            Stmt::FieldAssign { object, value, .. } => {
+                self.collect_string_constants_from_expr(object);
+                self.collect_string_constants_from_expr(value);
+            }
+        }
+    }
+    
+    /// Collect string constants from an expression
+    fn collect_string_constants_from_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::String(s) => {
+                self.get_or_create_string_constant(s);
+            }
+            Expr::Binary { left, right, .. } => {
+                self.collect_string_constants_from_expr(left);
+                self.collect_string_constants_from_expr(right);
+            }
+            Expr::Call { args, .. } => {
+                for arg in args {
+                    self.collect_string_constants_from_expr(arg);
+                }
+            }
+            Expr::MethodCall { object, args, .. } => {
+                self.collect_string_constants_from_expr(object);
+                for arg in args {
+                    self.collect_string_constants_from_expr(arg);
+                }
+            }
+            Expr::FieldAccess { object, .. } => {
+                self.collect_string_constants_from_expr(object);
+            }
+            Expr::Index { container, index, .. } => {
+                self.collect_string_constants_from_expr(container);
+                self.collect_string_constants_from_expr(index);
+            }
+            Expr::StructNew { fields, .. } => {
+                for (_, field_value) in fields {
+                    self.collect_string_constants_from_expr(field_value);
+                }
+            }
+            Expr::VectorNew { initial_values, .. } => {
+                for value in initial_values {
+                    self.collect_string_constants_from_expr(value);
+                }
+            }
+            Expr::PointerNew { initial_values, .. } => {
+                for value in initial_values {
+                    self.collect_string_constants_from_expr(value);
+                }
+            }
+            Expr::MapNew { initial_pairs, .. } => {
+                for (key, value) in initial_pairs {
+                    self.collect_string_constants_from_expr(key);
+                    self.collect_string_constants_from_expr(value);
+                }
+            }
+            _ => {} // Other expressions don't contain strings
+        }
+    }
 
     /// Dump compiled IR to a string
     pub fn dump_ir(&self) -> String {
@@ -1441,9 +1552,17 @@ impl VMCompiler {
 
     /// Compile a complete program to VM bytecode
     pub fn compile_program(&mut self, program: &Program) -> Vec<Instruction> {
-        // 0. First pass: register all struct types and collect methods
+        // 0. First pass: register all struct types, collect methods, and collect string constants
         self.structs.clear();
+        self.string_constants.clear();
+        self.string_constant_list.clear();
         let mut all_methods: Vec<Function> = Vec::new();
+        
+        // Pre-scan for string constants
+        for decl in &program.declarations {
+            self.collect_string_constants_from_decl(decl);
+        }
+        
         for decl in &program.declarations {
             if let Decl::Struct(struct_decl) = decl {
                 self.structs
@@ -1490,7 +1609,13 @@ impl VMCompiler {
         self.local_offset = 0;
         self.current_function_param_count = 0;
         
-        // Initialize global variables first
+        // Initialize string constants in heap first
+        for string_constant in &self.string_constant_list {
+            self.instructions.push(Instruction::PushString(string_constant.clone()));
+            self.instructions.push(Instruction::Pop); // Discard the HeapRef from stack
+        }
+        
+        // Initialize global variables second
         for global_var in &global_variables {
             self.compile_expression(&global_var.value);
             self.instructions.push(Instruction::SetGlobal(global_var.name.clone()));
