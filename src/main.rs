@@ -145,7 +145,18 @@ async fn main() {
     };
 
     let result = execute_with_optional_timeout(
-        execute_with_config(&config),
+        async {
+            // Execute in a blocking task since orbit execution is synchronous
+            let filename = config.filename.clone();
+            let options = config.to_compiler_options();
+
+            tokio::task::spawn_blocking(move || {
+                let mut compiler = orbit::Compiler::new_with_options(options);
+                compiler.execute_file(&filename).map_err(|e| e.to_string())
+            })
+            .await
+            .unwrap()
+        },
         config.timeout,
     ).await;
 
@@ -201,21 +212,6 @@ where
         future.await
     }
 }
-
-/// Execute with configuration in an async context
-async fn execute_with_config(config: &Config) -> Result<Option<orbit::Value>, String> {
-    // Execute in a blocking task since orbit execution is synchronous
-    let filename = config.filename.clone();
-    let options = config.to_compiler_options();
-
-    tokio::task::spawn_blocking(move || {
-        let mut compiler = orbit::Compiler::new_with_options(options);
-        compiler.execute_file(&filename).map_err(|e| e.to_string())
-    })
-    .await
-    .unwrap()
-}
-
 
 #[cfg(test)]
 mod tests {
