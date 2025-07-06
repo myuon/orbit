@@ -1085,6 +1085,16 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
 mod tests {
     use super::*;
 
+    /// Helper function to run VM test cases
+    fn run_vm_test_cases(test_cases: Vec<(Vec<Instruction>, i32)>) {
+        for (program, expected) in test_cases {
+            let mut vm = VM::new();
+            vm.load_program(program);
+            let result = vm.execute().unwrap();
+            assert_eq!(result, expected);
+        }
+    }
+
     #[test]
     fn test_simple_arithmetic() {
         let test_cases = vec![
@@ -1122,12 +1132,7 @@ mod tests {
             ),
         ];
 
-        for (program, expected) in test_cases {
-            let mut vm = VM::new();
-            vm.load_program(program);
-            let result = vm.execute().unwrap();
-            assert_eq!(result, expected);
-        }
+        run_vm_test_cases(test_cases);
     }
 
     #[test]
@@ -1175,12 +1180,7 @@ mod tests {
             ),
         ];
 
-        for (program, expected) in test_cases {
-            let mut vm = VM::new();
-            vm.load_program(program);
-            let result = vm.execute().unwrap();
-            assert_eq!(result, expected);
-        }
+        run_vm_test_cases(test_cases);
     }
 
     #[test]

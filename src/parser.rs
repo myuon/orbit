@@ -282,37 +282,31 @@ impl Parser {
         Ok(Stmt::While { condition, body })
     }
 
-    fn parse_assign_stmt(&mut self) -> Result<Stmt> {
-        let name = match &self.current_token().token_type {
+    /// Helper function to parse an identifier and advance
+    fn parse_identifier(&mut self, context: &str) -> Result<String> {
+        match &self.current_token().token_type {
             TokenType::Identifier(name) => {
                 let n = name.clone();
                 self.advance();
-                n
+                Ok(n)
             }
-            _ => bail!("Expected identifier in assignment"),
-        };
+            _ => bail!("Expected identifier {}", context),
+        }
+    }
 
+    fn parse_assign_stmt(&mut self) -> Result<Stmt> {
+        let name = self.parse_identifier("in assignment")?;
         self.consume(TokenType::Assign)?;
         let value = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
-
         Ok(Stmt::Assign { name, value })
     }
 
     fn parse_vector_push_stmt(&mut self) -> Result<Stmt> {
-        let vector = match &self.current_token().token_type {
-            TokenType::Identifier(name) => {
-                let n = name.clone();
-                self.advance();
-                n
-            }
-            _ => bail!("Expected vector name in push statement"),
-        };
-
+        let vector = self.parse_identifier("in push statement")?;
         self.consume(TokenType::Push)?; // consume '<-'
         let value = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
-
         Ok(Stmt::VectorPush { vector, value })
     }
 
