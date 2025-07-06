@@ -7,7 +7,7 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
     // Stack operations
-    Push(i32),
+    Push(i64),
     Pop,
 
     // Arithmetic operations
@@ -138,7 +138,7 @@ impl VM {
         self.pc = 0;
     }
 
-    pub fn execute(&mut self) -> Result<i32, String> {
+    pub fn execute(&mut self) -> Result<i64, String> {
         // Initialize BP to point to the start of the stack
         self.bp = 0;
 
@@ -478,7 +478,7 @@ impl VM {
                     if return_addr == 1 {
                         // Main function returned, exit VM and return the value
                         match return_value {
-                            Value::Number(n) => return Ok(n as i32),
+                            Value::Number(n) => return Ok(n as i64),
                             Value::Boolean(b) => return Ok(if b { 1 } else { 0 }),
                             _ => return Ok(0),
                         }
@@ -640,7 +640,7 @@ impl VM {
         } else {
             let value = self.stack.pop().unwrap();
             match value {
-                Value::Number(n) => Ok(n as i32),
+                Value::Number(n) => Ok(n as i64),
                 Value::Boolean(b) => Ok(if b { 1 } else { 0 }),
                 _ => Ok(0),
             }
@@ -938,7 +938,7 @@ impl VMCompiler {
     fn compile_expression(&mut self, expr: &Expr) {
         match expr {
             Expr::Number(value) => {
-                self.instructions.push(Instruction::Push(*value as i32));
+                self.instructions.push(Instruction::Push(*value as i64));
             }
 
             Expr::Boolean(value) => {
@@ -1024,7 +1024,7 @@ pub fn compile_expression(expr: &Expr) -> Vec<Instruction> {
 fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
     match expr {
         Expr::Number(value) => {
-            instructions.push(Instruction::Push(*value as i32));
+            instructions.push(Instruction::Push(*value as i64));
         }
 
         Expr::Boolean(value) => {
@@ -1086,7 +1086,7 @@ mod tests {
     use super::*;
 
     /// Helper function to run VM test cases
-    fn run_vm_test_cases(test_cases: Vec<(Vec<Instruction>, i32)>) {
+    fn run_vm_test_cases(test_cases: Vec<(Vec<Instruction>, i64)>) {
         for (program, expected) in test_cases {
             let mut vm = VM::new();
             vm.load_program(program);
