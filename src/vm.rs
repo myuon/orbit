@@ -44,6 +44,8 @@ pub enum Instruction {
     SetBP,
     GetSP,
     SetSP,
+    GetPC,
+    SetPC,
 
     // Labels
     Label(String),
@@ -84,6 +86,8 @@ impl fmt::Display for Instruction {
             Instruction::SetBP => write!(f, "set_bp"),
             Instruction::GetSP => write!(f, "get_sp"),
             Instruction::SetSP => write!(f, "set_sp"),
+            Instruction::GetPC => write!(f, "get_pc"),
+            Instruction::SetPC => write!(f, "set_pc"),
             Instruction::Label(name) => write!(f, "{}:", name),
             Instruction::Nop => write!(f, "nop"),
             Instruction::VectorNew => write!(f, "vector_new"),
@@ -101,7 +105,7 @@ pub struct VM {
     bp: usize, // base pointer for stack frame
     sp: usize, // stack pointer
     program: Vec<Instruction>,
-    pub print_stacks: bool,   // whether to print stack state during execution
+    pub print_stacks: bool, // whether to print stack state during execution
     print_stacks_on_call: Option<String>, // print stacks only when calling this function
     vectors: Vec<Vec<Value>>, // vector storage
     // Profiling
@@ -116,11 +120,11 @@ impl VM {
     pub fn new_with_stack_printing(print_stacks: bool) -> Self {
         Self::with_options(print_stacks, false)
     }
-    
+
     pub fn new_with_profiling(enable_profiling: bool) -> Self {
         Self::with_options(false, enable_profiling)
     }
-    
+
     pub fn with_options(print_stacks: bool, enable_profiling: bool) -> Self {
         Self {
             stack: Vec::new(),
@@ -134,8 +138,12 @@ impl VM {
             profiler: Profiler::new_with_enabled(enable_profiling),
         }
     }
-    
-    pub fn with_all_options(print_stacks: bool, print_stacks_on_call: Option<String>, enable_profiling: bool) -> Self {
+
+    pub fn with_all_options(
+        print_stacks: bool,
+        print_stacks_on_call: Option<String>,
+        enable_profiling: bool,
+    ) -> Self {
         Self {
             stack: Vec::new(),
             pc: 0,
@@ -174,7 +182,7 @@ impl VM {
                         .join(", ")
                 );
             }
-            
+
             // Start timing if profiling is enabled
             let timer = InstructionTimer::start(self.profiler.enabled);
 
@@ -449,15 +457,9 @@ impl VM {
                             );
                         }
                     }
-                    
-                    // Function calling convention according to VM spec:
-                    // Stack before call: [return_val_placeholder, arg0, arg1, ...]
-                    // 1. Push return address (PC + 1)
-                    // 2. Push old BP
-                    // 3. Set new BP to current SP
-                    // 4. Jump to function
 
-                    // Find function address by name
+                    // Call instruction now only performs jump to function
+                    // All other operations (PC/BP setup) are handled by compiler-generated instructions
                     let mut target_addr = None;
                     for (i, inst) in self.program.iter().enumerate() {
                         if let Instruction::Label(label_name) = inst {
@@ -469,12 +471,6 @@ impl VM {
                     }
 
                     if let Some(addr) = target_addr {
-                        // Push return address and old BP
-                        self.stack.push(Value::Number((self.pc + 1) as f64)); // Return address
-                        self.stack.push(Value::Number(self.bp as f64)); // Old BP
-                        
-                        // Set new BP to current SP (points to old BP)
-                        self.bp = self.stack.len() - 1;
                         self.pc = addr;
                         continue;
                     } else {
@@ -486,7 +482,7 @@ impl VM {
                     // Return sequence according to VM spec:
                     // Stack layout during function: [return_placeholder, args..., return_addr, old_bp] <- BP
                     //                                                                                    ^BP
-                    
+
                     if self.bp < 1 || self.stack.len() < self.bp + 1 {
                         return Err("Stack underflow in function return".to_string());
                     }
@@ -522,33 +518,33 @@ impl VM {
                     // Need to find how many arguments were passed to calculate placeholder position
                     // Stack: [return_placeholder, arg0, arg1, ..., return_addr, old_bp]
                     // The placeholder is at position: bp - 1 - num_args - 1
-                    
+
                     // For now, we'll use a simpler approach: restore BP and SP, then overwrite placeholder
                     // This assumes the caller will clean up arguments properly
-                    
+
                     // 4. According to VM spec, we need to overwrite the return value placeholder
                     // Stack during function: [return_placeholder, arg0, arg1, ..., return_addr, old_bp, locals...]
                     //                                                                        ^BP
-                    
+
                     // We need to find the placeholder position and overwrite it
                     // The placeholder is before all arguments
-                    
+
                     // According to VM spec: overwrite placeholder with return value
                     // Stack before: [return_placeholder, arg0, arg1, ..., return_addr, old_bp, locals...]
                     // Stack after:  [return_value, arg0, arg1, ...]
-                    
+
                     // 1. Calculate placeholder position
                     // BP points to old_bp, return_addr is at BP-1
                     // Arguments and placeholder are before return_addr
                     let _frame_end = self.bp - 2; // Position before return_addr and old_bp
-                    
+
                     // 2. Remove frame info and local variables first
                     self.stack.truncate(self.bp - 1); // Remove return_addr and old_bp
-                    
+
                     // 3. Now find and overwrite the placeholder
                     // The placeholder should be the first element of this function call
                     // We need to find where this call's frame starts
-                    
+
                     // For simple implementation: find the most recent 0 (placeholder)
                     // and replace it with return_value
                     for i in (0..self.stack.len()).rev() {
@@ -557,7 +553,7 @@ impl VM {
                             break;
                         }
                     }
-                    
+
                     // 4. Restore BP
                     self.bp = old_bp;
 
@@ -604,6 +600,23 @@ impl VM {
                             }
                         }
                         _ => return Err("SetSP requires a number".to_string()),
+                    }
+                }
+
+                Instruction::GetPC => {
+                    self.stack.push(Value::Number(self.pc as f64));
+                }
+
+                Instruction::SetPC => {
+                    if self.stack.is_empty() {
+                        return Err("Stack underflow for SetPC".to_string());
+                    }
+                    let value = self.stack.pop().unwrap();
+                    match value {
+                        Value::Number(n) => {
+                            self.pc = n as usize;
+                        }
+                        _ => return Err("SetPC requires a number".to_string()),
                     }
                 }
 
@@ -689,12 +702,16 @@ impl VM {
                     }
                 }
             }
-            
+
             // Record profiling data if enabled
             if let Some(elapsed) = timer.finish() {
-                let instruction_name = format!("{:?}", instruction).split('(').next().unwrap_or("Unknown").to_string();
+                let instruction_name = format!("{:?}", instruction)
+                    .split('(')
+                    .next()
+                    .unwrap_or("Unknown")
+                    .to_string();
                 self.profiler.record_instruction(instruction_name, elapsed);
-                
+
                 // Special handling for Call instructions
                 if let Instruction::Call(func_name) = instruction {
                     self.profiler.record_function_call(func_name.clone());
@@ -724,16 +741,16 @@ impl VM {
         self.bp = 0;
         self.sp = 0;
         // Keep print_stacks and profiler settings unchanged
-        
+
         // Reset profiling data if profiling is enabled
         self.profiler.clear();
     }
-    
+
     /// Dump profiling results to a string
     pub fn dump_profile(&self) -> String {
         self.profiler.generate_report()
     }
-    
+
     /// Dump profiling results to a file
     pub fn dump_profile_to_file(&self, filename: &str) -> Result<(), std::io::Error> {
         self.profiler.save_report_to_file(filename)
@@ -1049,29 +1066,36 @@ impl VMCompiler {
 
             Expr::Call { callee, args } => {
                 // Caller responsibilities according to VM spec:
-                // 1. Push placeholder for return value (e.g., 0)
+                // 1. Push placeholder for return value
                 self.instructions.push(Instruction::Push(0));
-                
+
                 // 2. Push function arguments onto stack (left to right)
                 for arg in args {
                     self.compile_expression(arg);
                 }
 
-                // 3-6. Generate call instruction (handles remaining caller responsibilities)
                 if let Expr::Identifier(func_name) = callee.as_ref() {
+                    // 3. Push current PC + offset (return address)
+                    // PC will be at Call instruction, so return address is PC + 1
+                    self.instructions.push(Instruction::GetPC);
+                    self.instructions.push(Instruction::Push(5)); // Offset to return address (after Call)
+                    self.instructions.push(Instruction::Add);
+
+                    // 4. Push current BP (old base pointer)
+                    self.instructions.push(Instruction::GetBP);
+
+                    // 5. Set new BP to current SP
+                    self.instructions.push(Instruction::GetSP);
+                    self.instructions.push(Instruction::SetBP);
+
+                    // 6. Jump to function
                     self.instructions.push(Instruction::Call(func_name.clone()));
 
-                    // The caller is responsible for cleaning up arguments
-                    // After return, stack is: [return_value, arg0, arg1, ...]
-                    // We need to remove the arguments, leaving only the return value
-                    
-                    // Clean up arguments according to VM spec
-                    // After return, stack should be: [return_value, arg0, arg1, ...]
-                    // Caller must pop arguments in reverse order (step 5 in spec)
+                    // After return, clean up arguments
+                    // Stack after return: [return_value, arg0, arg1, ...]
                     for _ in 0..args.len() {
                         self.instructions.push(Instruction::Pop);
                     }
-                    // Return value should now be on top of stack
                     // Return value now on top of stack
                 } else {
                     panic!("Function calls with complex callees not supported yet");

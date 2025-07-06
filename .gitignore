@@ -10,3 +10,5 @@ out/
 # Added by cargo
 
 /target
+
+tmp/
