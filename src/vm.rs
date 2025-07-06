@@ -1,6 +1,6 @@
 use crate::ast::{BinaryOp, Decl, Expr, Function, IndexContainerType, Program, Stmt};
 use crate::profiler::{InstructionTimer, Profiler};
-use crate::runtime::Value;
+use crate::runtime::{Value, HeapObject, HeapIndex};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -58,6 +58,14 @@ pub enum Instruction {
     // No operation
     Nop,
 
+    // Heap operations
+    HeapAlloc,      // Allocate new heap object
+    HeapGet,        // Get value from heap object
+    HeapSet,        // Set value in heap object
+    
+    // String operations
+    StringNew,
+    
     // Vector operations
     VectorNew,
     VectorPush,
@@ -103,6 +111,10 @@ impl fmt::Display for Instruction {
             Instruction::SetPC => write!(f, "set_pc"),
             Instruction::Label(name) => write!(f, "{}:", name),
             Instruction::Nop => write!(f, "nop"),
+            Instruction::HeapAlloc => write!(f, "heap_alloc"),
+            Instruction::HeapGet => write!(f, "heap_get"),
+            Instruction::HeapSet => write!(f, "heap_set"),
+            Instruction::StringNew => write!(f, "string_new"),
             Instruction::VectorNew => write!(f, "vector_new"),
             Instruction::VectorPush => write!(f, "vector_push"),
             Instruction::VectorIndex => write!(f, "vector_index"),
@@ -123,9 +135,7 @@ pub struct VM {
     program: Vec<Instruction>,
     pub print_stacks: bool, // whether to print stack state during execution
     print_stacks_on_call: Option<String>, // print stacks only when calling this function
-    vectors: Vec<Vec<Value>>, // vector storage
-    maps: Vec<HashMap<String, Value>>, // map storage
-    strings: Vec<String>, // string literals storage
+    heap: Vec<HeapObject>, // unified heap storage
     // Profiling
     pub profiler: Profiler,
 }
@@ -152,9 +162,7 @@ impl VM {
             program: Vec::new(),
             print_stacks,
             print_stacks_on_call: None,
-            vectors: Vec::new(),
-            maps: Vec::new(),
-            strings: Vec::new(),
+            heap: Vec::new(),
             profiler: Profiler::new_with_enabled(enable_profiling),
         }
     }
@@ -172,9 +180,7 @@ impl VM {
             program: Vec::new(),
             print_stacks,
             print_stacks_on_call,
-            vectors: Vec::new(),
-            maps: Vec::new(),
-            strings: Vec::new(),
+            heap: Vec::new(),
             profiler: Profiler::new_with_enabled(enable_profiling),
         }
     }
@@ -218,7 +224,10 @@ impl VM {
                 }
 
                 Instruction::PushString(s) => {
-                    self.stack.push(Value::String(s.clone()));
+                    // Allocate string on heap and push heap reference
+                    let heap_index = self.heap.len();
+                    self.heap.push(HeapObject::String(s.clone()));
+                    self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
                 }
 
                 Instruction::Pop => {
@@ -626,131 +635,235 @@ impl VM {
                     // Do nothing
                 }
 
+                Instruction::HeapAlloc => {
+                    // Allocate a new heap object (type determined by stack content)
+                    // For now, this is a placeholder - specific allocation is handled by typed instructions
+                    let heap_index = self.heap.len();
+                    self.heap.push(HeapObject::String(String::new())); // Default placeholder
+                    self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
+                }
+
+                Instruction::HeapGet => {
+                    // Get value from heap object - implementation depends on object type
+                    if self.stack.is_empty() {
+                        return Err("Stack underflow for HeapGet".to_string());
+                    }
+                    let heap_ref = self.stack.pop().unwrap();
+                    match heap_ref {
+                        Value::HeapRef(heap_index) => {
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
+                            }
+                            // For now, just push the heap ref back - specific get operations handled by typed instructions
+                            self.stack.push(Value::HeapRef(heap_index));
+                        }
+                        _ => return Err("HeapGet requires a heap reference".to_string()),
+                    }
+                }
+
+                Instruction::HeapSet => {
+                    // Set value in heap object - implementation depends on object type
+                    if self.stack.len() < 2 {
+                        return Err("Stack underflow for HeapSet".to_string());
+                    }
+                    let heap_ref = self.stack.pop().unwrap();
+                    let _value = self.stack.pop().unwrap();
+                    match heap_ref {
+                        Value::HeapRef(heap_index) => {
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
+                            }
+                            // For now, just discard - specific set operations handled by typed instructions
+                        }
+                        _ => return Err("HeapSet requires a heap reference".to_string()),
+                    }
+                }
+
+                Instruction::StringNew => {
+                    // Create a new string from stack value
+                    if self.stack.is_empty() {
+                        return Err("Stack underflow for StringNew".to_string());
+                    }
+                    let value = self.stack.pop().unwrap();
+                    let string_value = match value {
+                        Value::HeapRef(heap_index) => {
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
+                            }
+                            match &self.heap[heap_index.0] {
+                                HeapObject::String(s) => s.clone(),
+                                _ => return Err("StringNew requires a string heap object".to_string()),
+                            }
+                        }
+                        _ => return Err("StringNew requires a heap reference".to_string()),
+                    };
+                    let heap_index = self.heap.len();
+                    self.heap.push(HeapObject::String(string_value));
+                    self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
+                }
+
                 Instruction::VectorNew => {
-                    // Create a new empty vector and push its index
-                    let vector_index = self.vectors.len();
-                    self.vectors.push(Vec::new());
-                    self.stack.push(Value::VectorIndex(vector_index));
+                    // Create a new empty vector and push its heap index
+                    let heap_index = self.heap.len();
+                    self.heap.push(HeapObject::Vector(Vec::new()));
+                    self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
                 }
 
                 Instruction::VectorPush => {
-                    // Stack: [value] [vector_index]
+                    // Stack: [value] [vector_heap_ref]
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for VectorPush".to_string());
                     }
-                    let vector_index_value = self.stack.pop().unwrap();
+                    let vector_ref = self.stack.pop().unwrap();
                     let value = self.stack.pop().unwrap();
-                    match vector_index_value {
-                        Value::VectorIndex(vector_index) => {
-                            if vector_index >= self.vectors.len() {
-                                return Err(format!("Invalid vector index: {}", vector_index));
+                    match vector_ref {
+                        Value::HeapRef(heap_index) => {
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
                             }
-                            self.vectors[vector_index].push(value);
+                            match &mut self.heap[heap_index.0] {
+                                HeapObject::Vector(vec) => {
+                                    vec.push(value);
+                                }
+                                _ => return Err("VectorPush requires a vector heap object".to_string()),
+                            }
                         }
-                        _ => {
-                            return Err("VectorPush requires a vector index".to_string())
-                        }
+                        _ => return Err("VectorPush requires a heap reference".to_string()),
                     }
                 }
 
                 Instruction::VectorIndex => {
-                    // Stack: [vector_index] [element_index]
+                    // Stack: [vector_heap_ref] [element_index]
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for VectorIndex".to_string());
                     }
                     let element_index_value = self.stack.pop().unwrap();
-                    let vector_index_value = self.stack.pop().unwrap();
-                    match (vector_index_value, element_index_value) {
-                        (Value::VectorIndex(vector_index), Value::Number(element_index)) => {
+                    let vector_ref = self.stack.pop().unwrap();
+                    match (vector_ref, element_index_value) {
+                        (Value::HeapRef(heap_index), Value::Number(element_index)) => {
                             let element_index = element_index as usize;
-                            if vector_index >= self.vectors.len() {
-                                return Err(format!("Invalid vector index: {}", vector_index));
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
                             }
-                            if element_index >= self.vectors[vector_index].len() {
-                                return Err(format!("Invalid element index: {}", element_index));
+                            match &self.heap[heap_index.0] {
+                                HeapObject::Vector(vec) => {
+                                    if element_index >= vec.len() {
+                                        return Err(format!("Invalid element index: {}", element_index));
+                                    }
+                                    let value = vec[element_index].clone();
+                                    self.stack.push(value);
+                                }
+                                _ => return Err("VectorIndex requires a vector heap object".to_string()),
                             }
-                            let value = self.vectors[vector_index][element_index].clone();
-                            self.stack.push(value);
                         }
-                        _ => {
-                            return Err("VectorIndex requires vector index and element index (number)".to_string())
-                        }
+                        _ => return Err("VectorIndex requires heap reference and element index (number)".to_string()),
                     }
                 }
 
                 Instruction::VectorSet => {
-                    // Stack: [value] [element_index] [vector_index]
+                    // Stack: [value] [element_index] [vector_heap_ref]
                     if self.stack.len() < 3 {
                         return Err("Stack underflow for VectorSet".to_string());
                     }
-                    let vector_index_value = self.stack.pop().unwrap();
+                    let vector_ref = self.stack.pop().unwrap();
                     let element_index_value = self.stack.pop().unwrap();
                     let value = self.stack.pop().unwrap();
-                    match (vector_index_value, element_index_value) {
-                        (Value::VectorIndex(vector_index), Value::Number(element_index)) => {
+                    match (vector_ref, element_index_value) {
+                        (Value::HeapRef(heap_index), Value::Number(element_index)) => {
                             let element_index = element_index as usize;
-                            if vector_index >= self.vectors.len() {
-                                return Err(format!("Invalid vector index: {}", vector_index));
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
                             }
-                            if element_index >= self.vectors[vector_index].len() {
-                                return Err(format!("Invalid element index: {}", element_index));
+                            match &mut self.heap[heap_index.0] {
+                                HeapObject::Vector(vec) => {
+                                    if element_index >= vec.len() {
+                                        return Err(format!("Invalid element index: {}", element_index));
+                                    }
+                                    vec[element_index] = value;
+                                }
+                                _ => return Err("VectorSet requires a vector heap object".to_string()),
                             }
-                            self.vectors[vector_index][element_index] = value;
                         }
-                        _ => return Err("VectorSet requires vector index and element index (number)".to_string()),
+                        _ => return Err("VectorSet requires heap reference and element index (number)".to_string()),
                     }
                 }
 
                 Instruction::MapNew => {
-                    // Create a new empty map and push its index
-                    let map_index = self.maps.len();
-                    self.maps.push(HashMap::new());
-                    self.stack.push(Value::MapIndex(map_index));
+                    // Create a new empty map and push its heap index
+                    let heap_index = self.heap.len();
+                    self.heap.push(HeapObject::Map(HashMap::new()));
+                    self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
                 }
 
                 Instruction::MapIndex => {
-                    // Stack: [map_index] [key]
+                    // Stack: [map_heap_ref] [key]
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for MapIndex".to_string());
                     }
                     let key_value = self.stack.pop().unwrap();
-                    let map_index_value = self.stack.pop().unwrap();
-                    match (map_index_value, key_value) {
-                        (Value::MapIndex(map_index), Value::String(key)) => {
-                            if map_index >= self.maps.len() {
-                                return Err(format!("Invalid map index: {}", map_index));
+                    let map_ref = self.stack.pop().unwrap();
+                    match (map_ref, key_value) {
+                        (Value::HeapRef(heap_index), Value::HeapRef(key_heap_index)) => {
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
                             }
-                            match self.maps[map_index].get(&key) {
-                                Some(value) => {
-                                    self.stack.push(value.clone());
+                            if key_heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid key heap index: {}", key_heap_index.0));
+                            }
+                            
+                            let key = match &self.heap[key_heap_index.0] {
+                                HeapObject::String(s) => s.clone(),
+                                _ => return Err("MapIndex requires a string key".to_string()),
+                            };
+                            
+                            match &self.heap[heap_index.0] {
+                                HeapObject::Map(map) => {
+                                    match map.get(&key) {
+                                        Some(value) => {
+                                            self.stack.push(value.clone());
+                                        }
+                                        None => {
+                                            return Err(format!("Key '{}' not found in map", key));
+                                        }
+                                    }
                                 }
-                                None => {
-                                    return Err(format!("Key '{}' not found in map", key));
-                                }
+                                _ => return Err("MapIndex requires a map heap object".to_string()),
                             }
                         }
-                        _ => {
-                            return Err("MapIndex requires a map index and key (string)".to_string())
-                        }
+                        _ => return Err("MapIndex requires a heap reference and key (string)".to_string()),
                     }
                 }
 
                 Instruction::MapSet => {
-                    // Stack: [value] [key] [map_index]
+                    // Stack: [value] [key] [map_heap_ref]
                     if self.stack.len() < 3 {
                         return Err("Stack underflow for MapSet".to_string());
                     }
-                    let map_index_value = self.stack.pop().unwrap();
+                    let map_ref = self.stack.pop().unwrap();
                     let key_value = self.stack.pop().unwrap();
                     let value = self.stack.pop().unwrap();
-                    match (map_index_value, key_value) {
-                        (Value::MapIndex(map_index), Value::String(key)) => {
-                            if map_index >= self.maps.len() {
-                                return Err(format!("Invalid map index: {}", map_index));
+                    match (map_ref, key_value) {
+                        (Value::HeapRef(heap_index), Value::HeapRef(key_heap_index)) => {
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
                             }
-                            self.maps[map_index].insert(key, value);
+                            if key_heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid key heap index: {}", key_heap_index.0));
+                            }
+                            
+                            let key = match &self.heap[key_heap_index.0] {
+                                HeapObject::String(s) => s.clone(),
+                                _ => return Err("MapSet requires a string key".to_string()),
+                            };
+                            
+                            match &mut self.heap[heap_index.0] {
+                                HeapObject::Map(map) => {
+                                    map.insert(key, value);
+                                }
+                                _ => return Err("MapSet requires a map heap object".to_string()),
+                            }
                         }
-                        _ => return Err("MapSet requires a map index and key (string)".to_string()),
+                        _ => return Err("MapSet requires a heap reference and key (string)".to_string()),
                     }
                 }
             }
@@ -782,9 +895,7 @@ impl VM {
                 Value::Number(n) => Ok(n as i64),
                 Value::Boolean(b) => Ok(if b { 1 } else { 0 }),
                 Value::Address(addr) => Ok(addr as i64),
-                Value::VectorIndex(idx) => Ok(idx as i64),
-                Value::MapIndex(idx) => Ok(idx as i64),
-                _ => Ok(0),
+                Value::HeapRef(heap_index) => Ok(heap_index.0 as i64),
             }
         }
     }
@@ -795,9 +906,7 @@ impl VM {
         self.pc = 0;
         self.bp = 0;
         self.sp = 0;
-        self.vectors.clear();
-        self.maps.clear();
-        self.strings.clear();
+        self.heap.clear();
         // Keep print_stacks and profiler settings unchanged
 
         // Reset profiling data if profiling is enabled

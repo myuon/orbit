@@ -1,15 +1,27 @@
 use crate::ast::Program;
 use crate::vm::{VMCompiler, VM};
 use anyhow::{bail, Result};
+use std::collections::HashMap;
 
+/// Index into the heap for heap-allocated objects
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HeapIndex(pub usize);
+
+/// Objects stored on the heap
+#[derive(Debug, Clone, PartialEq)]
+pub enum HeapObject {
+    String(String),
+    Vector(Vec<Value>),
+    Map(HashMap<String, Value>),
+}
+
+/// Values in the Orbit runtime system
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Number(f64),
     Boolean(bool),
-    String(String),
     Address(usize),
-    VectorIndex(usize),
-    MapIndex(usize),
+    HeapRef(HeapIndex),
 }
 
 impl std::fmt::Display for Value {
@@ -23,10 +35,23 @@ impl std::fmt::Display for Value {
                 }
             }
             Value::Boolean(b) => write!(f, "{}", b),
-            Value::String(s) => write!(f, "{}", s),
             Value::Address(addr) => write!(f, "@{}", addr),
-            Value::VectorIndex(index) => write!(f, "vector@{}", index),
-            Value::MapIndex(index) => write!(f, "map@{}", index),
+            Value::HeapRef(index) => write!(f, "heap@{}", index.0),
+        }
+    }
+}
+
+impl std::fmt::Display for HeapObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HeapObject::String(s) => write!(f, "{}", s),
+            HeapObject::Vector(v) => {
+                write!(f, "[{}]", v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", "))
+            }
+            HeapObject::Map(m) => {
+                let entries: Vec<String> = m.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
+                write!(f, "{{{}}}", entries.join(", "))
+            }
         }
     }
 }
