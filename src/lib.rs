@@ -2,6 +2,7 @@ pub mod ast;
 pub mod compiler;
 pub mod lexer;
 pub mod parser;
+pub mod profiler;
 pub mod runtime;
 pub mod vm;
 

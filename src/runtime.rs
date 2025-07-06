@@ -470,12 +470,12 @@ impl Runtime {
     
     /// Enable profiling in the VM
     pub fn enable_profiling(&mut self) {
-        self.vm.enable_profiling = true;
+        self.vm.profiler.enable();
     }
     
     /// Disable profiling in the VM
     pub fn disable_profiling(&mut self) {
-        self.vm.enable_profiling = false;
+        self.vm.profiler.disable();
     }
     
     /// Get profiling results from the VM

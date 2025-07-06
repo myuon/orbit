@@ -1,8 +1,8 @@
 use crate::ast::{BinaryOp, Decl, Expr, Function, Program, Stmt};
+use crate::profiler::{InstructionTimer, Profiler};
 use crate::runtime::Value;
 use std::collections::HashMap;
 use std::fmt;
-use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
@@ -103,31 +103,24 @@ pub struct VM {
     program: Vec<Instruction>,
     pub print_stacks: bool,   // whether to print stack state during execution
     vectors: Vec<Vec<Value>>, // vector storage
-    // Profiling fields
-    pub enable_profiling: bool,
-    instruction_counts: HashMap<String, u64>,
-    instruction_times: HashMap<String, Duration>,
-    function_call_counts: HashMap<String, u64>,
+    // Profiling
+    pub profiler: Profiler,
 }
 
 impl VM {
     pub fn new() -> Self {
-        Self {
-            stack: Vec::new(),
-            pc: 0,
-            bp: 0,
-            sp: 0,
-            program: Vec::new(),
-            print_stacks: false,
-            vectors: Vec::new(),
-            enable_profiling: false,
-            instruction_counts: HashMap::new(),
-            instruction_times: HashMap::new(),
-            function_call_counts: HashMap::new(),
-        }
+        Self::with_options(false, false)
     }
 
     pub fn new_with_stack_printing(print_stacks: bool) -> Self {
+        Self::with_options(print_stacks, false)
+    }
+    
+    pub fn new_with_profiling(enable_profiling: bool) -> Self {
+        Self::with_options(false, enable_profiling)
+    }
+    
+    pub fn with_options(print_stacks: bool, enable_profiling: bool) -> Self {
         Self {
             stack: Vec::new(),
             pc: 0,
@@ -136,26 +129,7 @@ impl VM {
             program: Vec::new(),
             print_stacks,
             vectors: Vec::new(),
-            enable_profiling: false,
-            instruction_counts: HashMap::new(),
-            instruction_times: HashMap::new(),
-            function_call_counts: HashMap::new(),
-        }
-    }
-    
-    pub fn new_with_profiling(enable_profiling: bool) -> Self {
-        Self {
-            stack: Vec::new(),
-            pc: 0,
-            bp: 0,
-            sp: 0,
-            program: Vec::new(),
-            print_stacks: false,
-            vectors: Vec::new(),
-            enable_profiling,
-            instruction_counts: HashMap::new(),
-            instruction_times: HashMap::new(),
-            function_call_counts: HashMap::new(),
+            profiler: Profiler::new_with_enabled(enable_profiling),
         }
     }
 
@@ -186,11 +160,7 @@ impl VM {
             }
             
             // Start timing if profiling is enabled
-            let start_time = if self.enable_profiling {
-                Some(Instant::now())
-            } else {
-                None
-            };
+            let timer = InstructionTimer::start(self.profiler.enabled);
 
             match instruction {
                 Instruction::Label(_) => {
@@ -651,22 +621,13 @@ impl VM {
             }
             
             // Record profiling data if enabled
-            if self.enable_profiling {
-                if let Some(start) = start_time {
-                    let elapsed = start.elapsed();
-                    let instruction_name = format!("{:?}", instruction).split('(').next().unwrap_or("Unknown").to_string();
-                    
-                    // Update instruction counts
-                    *self.instruction_counts.entry(instruction_name.clone()).or_insert(0) += 1;
-                    
-                    // Update instruction times
-                    let total_time = self.instruction_times.entry(instruction_name.clone()).or_insert(Duration::new(0, 0));
-                    *total_time += elapsed;
-                    
-                    // Special handling for Call instructions
-                    if let Instruction::Call(func_name) = instruction {
-                        *self.function_call_counts.entry(func_name.clone()).or_insert(0) += 1;
-                    }
+            if let Some(elapsed) = timer.finish() {
+                let instruction_name = format!("{:?}", instruction).split('(').next().unwrap_or("Unknown").to_string();
+                self.profiler.record_instruction(instruction_name, elapsed);
+                
+                // Special handling for Call instructions
+                if let Instruction::Call(func_name) = instruction {
+                    self.profiler.record_function_call(func_name.clone());
                 }
             }
 
@@ -692,99 +653,20 @@ impl VM {
         self.pc = 0;
         self.bp = 0;
         self.sp = 0;
-        // Keep print_stacks setting unchanged
+        // Keep print_stacks and profiler settings unchanged
         
         // Reset profiling data if profiling is enabled
-        if self.enable_profiling {
-            self.instruction_counts.clear();
-            self.instruction_times.clear();
-            self.function_call_counts.clear();
-        }
+        self.profiler.clear();
     }
     
     /// Dump profiling results to a string
     pub fn dump_profile(&self) -> String {
-        if !self.enable_profiling {
-            return "Profiling is not enabled".to_string();
-        }
-        
-        let mut output = String::new();
-        output.push_str("=== VM Profiling Results ===\n\n");
-        
-        // Sort instructions by total time (descending)
-        let mut time_sorted: Vec<_> = self.instruction_times.iter().collect();
-        time_sorted.sort_by(|a, b| b.1.cmp(a.1));
-        
-        output.push_str("Instructions by total execution time:\n");
-        output.push_str("Instruction        | Count      | Total Time  | Avg Time    \n");
-        output.push_str("-------------------|------------|-------------|-------------\n");
-        
-        for (instruction, total_time) in time_sorted {
-            let count = self.instruction_counts.get(instruction).unwrap_or(&0);
-            let avg_time = if *count > 0 {
-                total_time.as_nanos() / (*count as u128)
-            } else {
-                0
-            };
-            
-            output.push_str(&format!(
-                "{:<18} | {:>10} | {:>8}ms | {:>8}ns\n",
-                instruction,
-                count,
-                total_time.as_millis(),
-                avg_time
-            ));
-        }
-        
-        // Sort instructions by count (descending)
-        let mut count_sorted: Vec<_> = self.instruction_counts.iter().collect();
-        count_sorted.sort_by(|a, b| b.1.cmp(a.1));
-        
-        output.push_str("\nInstructions by execution count:\n");
-        output.push_str("Instruction        | Count      | Total Time  \n");
-        output.push_str("-------------------|------------|-------------\n");
-        
-        for (instruction, count) in count_sorted {
-            let zero_duration = Duration::new(0, 0);
-            let total_time = self.instruction_times.get(instruction).unwrap_or(&zero_duration);
-            output.push_str(&format!(
-                "{:<18} | {:>10} | {:>8}ms\n",
-                instruction,
-                count,
-                total_time.as_millis()
-            ));
-        }
-        
-        // Function call statistics
-        if !self.function_call_counts.is_empty() {
-            output.push_str("\nFunction call statistics:\n");
-            output.push_str("Function           | Call Count \n");
-            output.push_str("-------------------|------------\n");
-            
-            let mut func_sorted: Vec<_> = self.function_call_counts.iter().collect();
-            func_sorted.sort_by(|a, b| b.1.cmp(a.1));
-            
-            for (func_name, count) in func_sorted {
-                output.push_str(&format!(
-                    "{:<18} | {:>10}\n",
-                    func_name,
-                    count
-                ));
-            }
-        }
-        
-        output
+        self.profiler.generate_report()
     }
     
     /// Dump profiling results to a file
     pub fn dump_profile_to_file(&self, filename: &str) -> Result<(), std::io::Error> {
-        use std::fs::File;
-        use std::io::Write;
-        
-        let profile_content = self.dump_profile();
-        let mut file = File::create(filename)?;
-        file.write_all(profile_content.as_bytes())?;
-        Ok(())
+        self.profiler.save_report_to_file(filename)
     }
 }
 
@@ -1048,11 +930,6 @@ impl VMCompiler {
                     panic!("Undefined vector variable: {}", vector);
                 }
                 self.instructions.push(Instruction::VectorSet);
-            }
-
-            // TODO: Implement other statement types
-            _ => {
-                // For now, just ignore unsupported statements
             }
         }
     }
