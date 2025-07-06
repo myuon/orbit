@@ -1,6 +1,6 @@
 use clap::Parser;
+use orbit::utils::{execute_with_optional_timeout, parse_timeout};
 use std::process;
-use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(name = "orbit")]
@@ -47,31 +47,6 @@ impl Config {
     }
 }
 
-/// Parse timeout string like "10s", "5m", "30" (defaults to seconds)
-fn parse_timeout(timeout_str: &str) -> Result<u64, String> {
-    if timeout_str.is_empty() {
-        return Err("Empty timeout value".to_string());
-    }
-
-    if timeout_str.ends_with('s') {
-        let num_str = &timeout_str[..timeout_str.len() - 1];
-        num_str
-            .parse::<u64>()
-            .map_err(|_| format!("Invalid timeout value: {}", timeout_str))
-    } else if timeout_str.ends_with('m') {
-        let num_str = &timeout_str[..timeout_str.len() - 1];
-        num_str
-            .parse::<u64>()
-            .map(|m| m * 60)
-            .map_err(|_| format!("Invalid timeout value: {}", timeout_str))
-    } else {
-        // Default to seconds if no unit specified
-        timeout_str
-            .parse::<u64>()
-            .map_err(|_| format!("Invalid timeout value: {}", timeout_str))
-    }
-}
-
 #[tokio::main]
 async fn main() {
     let config = Config::parse();
@@ -99,57 +74,6 @@ async fn main() {
         Err(e) => {
             eprintln!("Error: {}", e);
             process::exit(1);
-        }
-    }
-}
-
-/// Execute a future with optional timeout
-async fn execute_with_optional_timeout<T, F>(
-    future: F,
-    timeout_secs: Option<u64>,
-) -> Result<T, String>
-where
-    F: std::future::Future<Output = Result<T, String>>,
-{
-    if let Some(timeout_secs) = timeout_secs {
-        let timeout_duration = Duration::from_secs(timeout_secs);
-        match tokio::time::timeout(timeout_duration, future).await {
-            Ok(result) => result,
-            Err(_) => {
-                eprintln!("Error: Execution timed out after {} seconds", timeout_secs);
-                process::exit(1);
-            }
-        }
-    } else {
-        future.await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use orbit::execute_code;
-    use std::fs;
-    use std::path::Path;
-
-    #[test]
-    fn test_file_execution() {
-        // Test that we can execute .ob files correctly
-        let test_cases = vec![("tests/testcase/program/simple_function.ob", "5")];
-
-        for (file_path, expected) in test_cases {
-            if Path::new(file_path).exists() {
-                let content = fs::read_to_string(file_path).unwrap();
-                let result = execute_code(&content).unwrap();
-                match result {
-                    Some(value) => assert_eq!(
-                        value.to_string(),
-                        expected,
-                        "Failed for file: {}",
-                        file_path
-                    ),
-                    None => assert_eq!("", expected, "Failed for file: {}", file_path),
-                }
-            }
         }
     }
 }
