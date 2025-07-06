@@ -13,6 +13,19 @@ struct Config {
     timeout: Option<u64>, // timeout in seconds
 }
 
+impl Config {
+    /// Convert Config to CompilerOptions
+    fn to_compiler_options(&self) -> orbit::CompilerOptions {
+        orbit::CompilerOptions {
+            ir_dump_file: self.dump_ir.clone(),
+            print_stacks: self.print_stacks,
+            print_stacks_on_call: self.print_stacks_on_call.clone(),
+            enable_profiling: self.profile,
+            profile_output: self.profile_output.clone(),
+        }
+    }
+}
+
 fn parse_args() -> Result<Config, String> {
     let args: Vec<String> = env::args().collect();
 
@@ -131,22 +144,10 @@ async fn main() {
         }
     };
 
-    let result = if let Some(timeout_secs) = config.timeout {
-        // Execute with timeout
-        let timeout_duration = Duration::from_secs(timeout_secs);
-        let execution_future = execute_with_config(&config);
-
-        match tokio::time::timeout(timeout_duration, execution_future).await {
-            Ok(result) => result,
-            Err(_) => {
-                eprintln!("Error: Execution timed out after {} seconds", timeout_secs);
-                process::exit(1);
-            }
-        }
-    } else {
-        // Execute without timeout
-        execute_with_config(&config).await
-    };
+    let result = execute_with_optional_timeout(
+        execute_with_config(&config),
+        config.timeout,
+    ).await;
 
     match result {
         Ok(Some(value)) => println!("{}", value),
@@ -179,61 +180,42 @@ fn print_help(program_name: &str) {
     println!("    <file.ob>           Orbit source file to execute");
 }
 
+/// Execute a future with optional timeout
+async fn execute_with_optional_timeout<T, F>(
+    future: F,
+    timeout_secs: Option<u64>,
+) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, String>>,
+{
+    if let Some(timeout_secs) = timeout_secs {
+        let timeout_duration = Duration::from_secs(timeout_secs);
+        match tokio::time::timeout(timeout_duration, future).await {
+            Ok(result) => result,
+            Err(_) => {
+                eprintln!("Error: Execution timed out after {} seconds", timeout_secs);
+                process::exit(1);
+            }
+        }
+    } else {
+        future.await
+    }
+}
+
 /// Execute with configuration in an async context
 async fn execute_with_config(config: &Config) -> Result<Option<orbit::Value>, String> {
     // Execute in a blocking task since orbit execution is synchronous
     let filename = config.filename.clone();
-    let dump_ir_file = config.dump_ir.clone();
-    let print_stacks = config.print_stacks;
-    let print_stacks_on_call = config.print_stacks_on_call.clone();
-    let profile = config.profile;
-    let profile_output = config.profile_output.clone();
+    let options = config.to_compiler_options();
 
     tokio::task::spawn_blocking(move || {
-        if profile {
-            // Use profiling execution
-            let options = orbit::CompilerOptions {
-                ir_dump_file: dump_ir_file,
-                print_stacks,
-                print_stacks_on_call,
-                enable_profiling: true,
-                profile_output,
-            };
-            let mut compiler = orbit::Compiler::new_with_options(options);
-            compiler.execute_file(&filename).map_err(|e| e.to_string())
-        } else {
-            // Use regular execution
-            execute_file_with_options(
-                &filename,
-                dump_ir_file.as_deref(),
-                print_stacks,
-                print_stacks_on_call.as_deref(),
-            )
-            .map_err(|e| e.to_string())
-        }
+        let mut compiler = orbit::Compiler::new_with_options(options);
+        compiler.execute_file(&filename).map_err(|e| e.to_string())
     })
     .await
     .unwrap()
 }
 
-/// Execute a file with optional IR dumping using the new Compiler API
-fn execute_file_with_options(
-    filename: &str,
-    dump_ir_file: Option<&str>,
-    print_stacks: bool,
-    print_stacks_on_call: Option<&str>,
-) -> Result<Option<orbit::Value>, Box<dyn std::error::Error>> {
-    let options = orbit::CompilerOptions {
-        ir_dump_file: dump_ir_file.map(|s| s.to_string()),
-        print_stacks,
-        print_stacks_on_call: print_stacks_on_call.map(|s| s.to_string()),
-        enable_profiling: false,
-        profile_output: None,
-    };
-    
-    let mut compiler = orbit::Compiler::new_with_options(options);
-    compiler.execute_file(filename).map_err(|e| e.into())
-}
 
 #[cfg(test)]
 mod tests {
