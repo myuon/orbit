@@ -1,0 +1,4 @@
+fun main() do
+  let x = (5 + 3;
+  return x;
+end

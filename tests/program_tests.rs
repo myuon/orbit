@@ -9,25 +9,46 @@ fn test_program_files() {
         .join("tests")
         .join("testcase");
 
-    let mut test_files = Vec::new();
+    // Test success cases
+    let mut success_test_files = Vec::new();
     if let Ok(entries) = fs::read_dir(&testcase_dir) {
         for entry in entries {
             if let Ok(entry) = entry {
                 let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("ob") {
-                    test_files.push(path);
+                if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("ob") {
+                    success_test_files.push(path);
                 }
             }
         }
     }
 
     assert!(
-        !test_files.is_empty(),
+        !success_test_files.is_empty(),
         "No .ob test files found in tests/testcase directory"
     );
 
-    for test_file in test_files {
+    for test_file in success_test_files {
         run_single_program_test(&test_file);
+    }
+
+    // Test error cases
+    let errors_dir = testcase_dir.join("errors");
+    if errors_dir.exists() {
+        let mut error_test_files = Vec::new();
+        if let Ok(entries) = fs::read_dir(&errors_dir) {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("ob") {
+                        error_test_files.push(path);
+                    }
+                }
+            }
+        }
+
+        for test_file in error_test_files {
+            run_single_error_test(&test_file);
+        }
     }
 }
 
@@ -79,4 +100,56 @@ fn run_single_program_test(test_file: &Path) {
     );
 
     println!("✓ Program test {} passed", test_name);
+}
+
+fn run_single_error_test(test_file: &Path) {
+    let test_name = test_file.file_stem().unwrap().to_str().unwrap();
+    println!("Running error test: {}", test_name);
+
+    let expected_error_file = test_file.with_extension("stderr");
+
+    if !expected_error_file.exists() {
+        panic!(
+            "Expected error file not found: {}",
+            expected_error_file.display()
+        );
+    }
+
+    let expected_error_fragment = fs::read_to_string(&expected_error_file)
+        .unwrap_or_else(|e| {
+            panic!(
+                "Failed to read expected error file {}: {}",
+                expected_error_file.display(),
+                e
+            )
+        })
+        .trim()
+        .to_string();
+
+    let test_content = fs::read_to_string(test_file)
+        .unwrap_or_else(|e| panic!("Failed to read test file {}: {}", test_file.display(), e));
+
+    // Execute the orbit code directly using the library
+    let result = execute_code(&test_content);
+
+    // Check if execution failed as expected
+    match result {
+        Ok(value) => {
+            panic!(
+                "Error test {} unexpectedly succeeded with result: {:?}",
+                test_name, value
+            );
+        }
+        Err(error) => {
+            let error_message = error.to_string();
+            if !error_message.contains(&expected_error_fragment) {
+                panic!(
+                    "Error test {} failed.\nExpected error to contain: '{}'\nActual error: '{}'",
+                    test_name, expected_error_fragment, error_message
+                );
+            }
+        }
+    }
+
+    println!("✓ Error test {} passed", test_name);
 }
