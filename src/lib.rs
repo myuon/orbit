@@ -148,6 +148,50 @@ pub fn execute_file_with_profiling(
     Ok(result)
 }
 
+/// Execute a file with optional stack printing and call-specific tracing
+pub fn execute_file_with_options_on_call(
+    filename: &str,
+    print_stacks: bool,
+    print_stacks_on_call: Option<&str>,
+) -> Result<Option<Value>> {
+    use std::fs;
+
+    let contents = fs::read_to_string(filename)?;
+    let mut parser = create_parser(&contents)?;
+    let program = parser.parse_program()?;
+
+    // Execute the program with the specified options
+    let mut runtime = Runtime::new_with_call_tracing(print_stacks, print_stacks_on_call.map(|s| s.to_string()));
+    runtime.execute_program(&program)
+}
+
+/// Execute a file with IR dumping and call-specific tracing options
+pub fn execute_file_with_ir_dump_and_options_on_call(
+    filename: &str,
+    ir_dump_file: &str,
+    print_stacks: bool,
+    print_stacks_on_call: Option<&str>,
+) -> Result<Option<Value>> {
+    use std::fs;
+
+    let contents = fs::read_to_string(filename)?;
+    let mut parser = create_parser(&contents)?;
+    let program = parser.parse_program()?;
+
+    // Compile to IR and dump
+    let mut compiler = VMCompiler::new();
+    let _instructions = compiler.compile_program(&program);
+
+    // Dump IR to file
+    compiler
+        .dump_ir_to_file(ir_dump_file)
+        .map_err(|e| anyhow::anyhow!("Failed to write IR dump: {}", e))?;
+
+    // Execute the program with the specified options
+    let mut runtime = Runtime::new_with_call_tracing(print_stacks, print_stacks_on_call.map(|s| s.to_string()));
+    runtime.execute_program(&program)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -60,6 +60,14 @@ impl Runtime {
             vm: VM::new(),
         }
     }
+    
+    pub fn new_with_call_tracing(print_stacks: bool, print_stacks_on_call: Option<String>) -> Self {
+        Runtime {
+            variables: HashMap::new(),
+            call_stack: Vec::new(),
+            vm: VM::with_all_options(print_stacks, print_stacks_on_call, false),
+        }
+    }
 
     /// Execute a complete program by compiling to VM bytecode
     pub fn execute_program(&mut self, program: &Program) -> Result<Option<Value>> {

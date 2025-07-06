@@ -6,6 +6,7 @@ struct Config {
     filename: String,
     dump_ir: Option<String>,
     print_stacks: bool,
+    print_stacks_on_call: Option<String>,
     profile: bool,
     profile_output: Option<String>,
 }
@@ -20,6 +21,7 @@ fn parse_args() -> Result<Config, String> {
     let mut filename = None;
     let mut dump_ir = None;
     let mut print_stacks = false;
+    let mut print_stacks_on_call = None;
     let mut profile = false;
     let mut profile_output = None;
     let mut i = 1;
@@ -35,6 +37,12 @@ fn parse_args() -> Result<Config, String> {
             dump_ir = Some(ir_file.to_string());
         } else if arg == "--print-stacks" {
             print_stacks = true;
+        } else if arg.starts_with("--print-stacks-on-call=") {
+            let function_name = arg.strip_prefix("--print-stacks-on-call=").unwrap();
+            if function_name.is_empty() {
+                return Err("--print-stacks-on-call option requires a function name".to_string());
+            }
+            print_stacks_on_call = Some(function_name.to_string());
         } else if arg == "--profile" {
             profile = true;
         } else if arg.starts_with("--profile-output=") {
@@ -62,6 +70,7 @@ fn parse_args() -> Result<Config, String> {
             filename: f,
             dump_ir,
             print_stacks,
+            print_stacks_on_call,
             profile,
             profile_output,
         }),
@@ -94,6 +103,7 @@ fn main() {
             &config.filename,
             config.dump_ir.as_deref(),
             config.print_stacks,
+            config.print_stacks_on_call.as_deref(),
         )
     };
 
@@ -116,6 +126,7 @@ fn print_help(program_name: &str) {
     println!("OPTIONS:");
     println!("    --dump-ir=<file>         Dump compiled IR to specified file");
     println!("    --print-stacks           Print stack traces during execution");
+    println!("    --print-stacks-on-call=<func>  Print stack traces only when calling specific function");
     println!("    --profile                Enable profiling and print results");
     println!("    --profile-output=<file>  Enable profiling and save results to file");
     println!("    -h, --help               Print help information");
@@ -129,13 +140,14 @@ fn execute_file_with_options(
     filename: &str,
     dump_ir_file: Option<&str>,
     print_stacks: bool,
+    print_stacks_on_call: Option<&str>,
 ) -> Result<Option<orbit::Value>, Box<dyn std::error::Error>> {
     if let Some(ir_file) = dump_ir_file {
         // IRダンプとスタックトレースの両方を有効にする
-        orbit::execute_file_with_ir_dump_and_options(filename, ir_file, print_stacks)
+        orbit::execute_file_with_ir_dump_and_options_on_call(filename, ir_file, print_stacks, print_stacks_on_call)
             .map_err(|e| e.into())
     } else {
-        orbit::execute_file_with_options(filename, print_stacks).map_err(|e| e.into())
+        orbit::execute_file_with_options_on_call(filename, print_stacks, print_stacks_on_call).map_err(|e| e.into())
     }
 }
 

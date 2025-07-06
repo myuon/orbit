@@ -102,6 +102,7 @@ pub struct VM {
     sp: usize, // stack pointer
     program: Vec<Instruction>,
     pub print_stacks: bool,   // whether to print stack state during execution
+    print_stacks_on_call: Option<String>, // print stacks only when calling this function
     vectors: Vec<Vec<Value>>, // vector storage
     // Profiling
     pub profiler: Profiler,
@@ -128,6 +129,21 @@ impl VM {
             sp: 0,
             program: Vec::new(),
             print_stacks,
+            print_stacks_on_call: None,
+            vectors: Vec::new(),
+            profiler: Profiler::new_with_enabled(enable_profiling),
+        }
+    }
+    
+    pub fn with_all_options(print_stacks: bool, print_stacks_on_call: Option<String>, enable_profiling: bool) -> Self {
+        Self {
+            stack: Vec::new(),
+            pc: 0,
+            bp: 0,
+            sp: 0,
+            program: Vec::new(),
+            print_stacks,
+            print_stacks_on_call,
             vectors: Vec::new(),
             profiler: Profiler::new_with_enabled(enable_profiling),
         }
@@ -418,6 +434,22 @@ impl VM {
                 }
 
                 Instruction::Call(func_name) => {
+                    // Check if this is the function we want to trace and print stack state
+                    if let Some(ref target_func) = self.print_stacks_on_call {
+                        if func_name == target_func {
+                            println!(
+                                "{:04} {:20} [{}]",
+                                self.pc,
+                                format!("{}", instruction),
+                                self.stack
+                                    .iter()
+                                    .map(|x| x.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            );
+                        }
+                    }
+                    
                     // Function calling convention:
                     // 1. Arguments are already on stack
                     // 2. Push return address (PC + 1)
@@ -483,6 +515,7 @@ impl VM {
                             _ => return Ok(0),
                         }
                     }
+
 
                     // Restore stack to before function call (but keep arguments for now)
                     self.stack.truncate(self.bp - 1);
