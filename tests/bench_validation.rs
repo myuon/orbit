@@ -164,14 +164,13 @@ fn test_benchmark_performance_and_correctness() {
         );
 
         // Compare with Rust reference implementation
-        if actual_result != expected_result {
-            println!(
-                "❌ {} MISMATCH: Orbit={}, Rust={}",
-                filename, actual_result, expected_result
-            );
-        } else {
-            println!("✅ {} MATCH: {}", filename, actual_result);
-        }
+        assert_eq!(
+            actual_result, expected_result,
+            "❌ {} MISMATCH: Orbit result {} does not match Rust reference implementation {}",
+            filename, actual_result, expected_result
+        );
+        
+        println!("✅ {} MATCH: {}", filename, actual_result);
 
         let avg_duration = durations.iter().sum::<Duration>().as_secs_f64() / 3.0;
         println!(
