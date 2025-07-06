@@ -390,13 +390,13 @@ impl VM {
                     let index = if *offset < 0 {
                         // Negative offset: access parameters (before BP)
                         let abs_offset = (-offset) as usize;
-                        if self.bp + 1 < abs_offset {
+                        if self.bp < abs_offset {
                             return Err(format!(
                                 "Parameter access out of bounds: BP={}, offset={}",
                                 self.bp, offset
                             ));
                         }
-                        self.bp + 1 - abs_offset
+                        self.bp - abs_offset
                     } else {
                         // Positive offset: access local variables (after BP)
                         self.bp + (*offset as usize)
@@ -421,13 +421,13 @@ impl VM {
                     let index = if *offset < 0 {
                         // Negative offset: access parameters (before BP)
                         let abs_offset = (-offset) as usize;
-                        if self.bp + 1 < abs_offset {
+                        if self.bp < abs_offset {
                             return Err(format!(
                                 "Parameter access out of bounds: BP={}, offset={}",
                                 self.bp, offset
                             ));
                         }
-                        self.bp + 1 - abs_offset
+                        self.bp - abs_offset
                     } else {
                         // Positive offset: access local variables (after BP)
                         self.bp + (*offset as usize)
@@ -493,12 +493,13 @@ impl VM {
                     match return_value {
                         Value::Number(n) => return Ok(n as i64),
                         Value::Boolean(b) => return Ok(if b { 1 } else { 0 }),
+                        Value::Address(addr) => return Ok(addr as i64),
                         _ => return Ok(0),
                     }
                 }
 
                 Instruction::GetBP => {
-                    self.stack.push(Value::Number(self.bp as f64));
+                    self.stack.push(Value::Address(self.bp));
                 }
 
                 Instruction::SetBP => {
@@ -507,15 +508,18 @@ impl VM {
                     }
                     let value = self.stack.pop().unwrap();
                     match value {
+                        Value::Address(addr) => {
+                            self.bp = addr;
+                        }
                         Value::Number(n) => {
                             self.bp = n as usize;
                         }
-                        _ => return Err("SetBP requires a number".to_string()),
+                        _ => return Err("SetBP requires an address or number".to_string()),
                     }
                 }
 
                 Instruction::GetSP => {
-                    self.stack.push(Value::Number(self.stack.len() as f64));
+                    self.stack.push(Value::Address(self.stack.len()));
                 }
 
                 Instruction::SetSP => {
@@ -524,6 +528,15 @@ impl VM {
                     }
                     let value = self.stack.pop().unwrap();
                     match value {
+                        Value::Address(addr) => {
+                            if addr > self.stack.len() {
+                                // Extend stack
+                                self.stack.resize(addr, Value::Number(0.0));
+                            } else {
+                                // Truncate stack
+                                self.stack.truncate(addr);
+                            }
+                        }
                         Value::Number(n) => {
                             let new_sp = n as usize;
                             if new_sp > self.stack.len() {
@@ -534,12 +547,12 @@ impl VM {
                                 self.stack.truncate(new_sp);
                             }
                         }
-                        _ => return Err("SetSP requires a number".to_string()),
+                        _ => return Err("SetSP requires an address or number".to_string()),
                     }
                 }
 
                 Instruction::GetPC => {
-                    self.stack.push(Value::Number(self.pc as f64));
+                    self.stack.push(Value::Address(self.pc));
                 }
 
                 Instruction::SetPC => {
@@ -548,10 +561,13 @@ impl VM {
                     }
                     let value = self.stack.pop().unwrap();
                     match value {
+                        Value::Address(addr) => {
+                            self.pc = addr;
+                        }
                         Value::Number(n) => {
                             self.pc = n as usize;
                         }
-                        _ => return Err("SetPC requires a number".to_string()),
+                        _ => return Err("SetPC requires an address or number".to_string()),
                     }
                 }
 
@@ -664,6 +680,7 @@ impl VM {
             match value {
                 Value::Number(n) => Ok(n as i64),
                 Value::Boolean(b) => Ok(if b { 1 } else { 0 }),
+                Value::Address(addr) => Ok(addr as i64),
                 _ => Ok(0),
             }
         }

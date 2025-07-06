@@ -8,6 +8,7 @@ pub enum Value {
     Number(f64),
     Boolean(bool),
     String(String),
+    Address(usize),
     Function {
         params: Vec<FunParam>,
         body: Vec<Stmt>,
@@ -31,6 +32,7 @@ impl std::fmt::Display for Value {
             }
             Value::Boolean(b) => write!(f, "{}", b),
             Value::String(s) => write!(f, "{}", s),
+            Value::Address(addr) => write!(f, "@{}", addr),
             Value::Function { .. } => write!(f, "<function>"),
             Value::Vector { elements, .. } => {
                 write!(f, "[")?;
@@ -60,7 +62,7 @@ impl Runtime {
             vm: VM::new(),
         }
     }
-    
+
     pub fn new_with_call_tracing(print_stacks: bool, print_stacks_on_call: Option<String>) -> Self {
         Runtime {
             variables: HashMap::new(),
@@ -215,16 +217,20 @@ impl Runtime {
             }
 
             Expr::String(value) => Ok(Value::String(value.clone())),
-            
+
             // Binary expressions with variables need to be evaluated at runtime
             Expr::Binary { left, op, right } if self.contains_variables(expr) => {
                 let left_val = self.evaluate(left)?;
                 let right_val = self.evaluate(right)?;
-                
+
                 match (left_val, right_val, op) {
                     (Value::Number(a), Value::Number(b), BinaryOp::Add) => Ok(Value::Number(a + b)),
-                    (Value::Number(a), Value::Number(b), BinaryOp::Subtract) => Ok(Value::Number(a - b)),
-                    (Value::Number(a), Value::Number(b), BinaryOp::Multiply) => Ok(Value::Number(a * b)),
+                    (Value::Number(a), Value::Number(b), BinaryOp::Subtract) => {
+                        Ok(Value::Number(a - b))
+                    }
+                    (Value::Number(a), Value::Number(b), BinaryOp::Multiply) => {
+                        Ok(Value::Number(a * b))
+                    }
                     (Value::Number(a), Value::Number(b), BinaryOp::Divide) => {
                         if b == 0.0 {
                             bail!("Division by zero")
@@ -232,17 +238,58 @@ impl Runtime {
                             Ok(Value::Number(a / b))
                         }
                     }
-                    (Value::Number(a), Value::Number(b), BinaryOp::Equal) => Ok(Value::Boolean(a == b)),
-                    (Value::Number(a), Value::Number(b), BinaryOp::NotEqual) => Ok(Value::Boolean(a != b)),
-                    (Value::Number(a), Value::Number(b), BinaryOp::Less) => Ok(Value::Boolean(a < b)),
-                    (Value::Number(a), Value::Number(b), BinaryOp::Greater) => Ok(Value::Boolean(a > b)),
-                    (Value::Number(a), Value::Number(b), BinaryOp::LessEqual) => Ok(Value::Boolean(a <= b)),
-                    (Value::Number(a), Value::Number(b), BinaryOp::GreaterEqual) => Ok(Value::Boolean(a >= b)),
-                    (Value::String(a), Value::String(b), BinaryOp::Add) => Ok(Value::String(a + &b)),
-                    (Value::String(a), Value::String(b), BinaryOp::Equal) => Ok(Value::Boolean(a == b)),
-                    (Value::String(a), Value::String(b), BinaryOp::NotEqual) => Ok(Value::Boolean(a != b)),
-                    (Value::Boolean(a), Value::Boolean(b), BinaryOp::Equal) => Ok(Value::Boolean(a == b)),
-                    (Value::Boolean(a), Value::Boolean(b), BinaryOp::NotEqual) => Ok(Value::Boolean(a != b)),
+                    (Value::Number(a), Value::Number(b), BinaryOp::Equal) => {
+                        Ok(Value::Boolean(a == b))
+                    }
+                    (Value::Number(a), Value::Number(b), BinaryOp::NotEqual) => {
+                        Ok(Value::Boolean(a != b))
+                    }
+                    (Value::Number(a), Value::Number(b), BinaryOp::Less) => {
+                        Ok(Value::Boolean(a < b))
+                    }
+                    (Value::Number(a), Value::Number(b), BinaryOp::Greater) => {
+                        Ok(Value::Boolean(a > b))
+                    }
+                    (Value::Number(a), Value::Number(b), BinaryOp::LessEqual) => {
+                        Ok(Value::Boolean(a <= b))
+                    }
+                    (Value::Number(a), Value::Number(b), BinaryOp::GreaterEqual) => {
+                        Ok(Value::Boolean(a >= b))
+                    }
+                    (Value::String(a), Value::String(b), BinaryOp::Add) => {
+                        Ok(Value::String(a + &b))
+                    }
+                    (Value::String(a), Value::String(b), BinaryOp::Equal) => {
+                        Ok(Value::Boolean(a == b))
+                    }
+                    (Value::String(a), Value::String(b), BinaryOp::NotEqual) => {
+                        Ok(Value::Boolean(a != b))
+                    }
+                    (Value::Boolean(a), Value::Boolean(b), BinaryOp::Equal) => {
+                        Ok(Value::Boolean(a == b))
+                    }
+                    (Value::Boolean(a), Value::Boolean(b), BinaryOp::NotEqual) => {
+                        Ok(Value::Boolean(a != b))
+                    }
+                    // Address comparison operations only
+                    (Value::Address(a), Value::Address(b), BinaryOp::Equal) => {
+                        Ok(Value::Boolean(a == b))
+                    }
+                    (Value::Address(a), Value::Address(b), BinaryOp::NotEqual) => {
+                        Ok(Value::Boolean(a != b))
+                    }
+                    (Value::Address(a), Value::Address(b), BinaryOp::Less) => {
+                        Ok(Value::Boolean(a < b))
+                    }
+                    (Value::Address(a), Value::Address(b), BinaryOp::Greater) => {
+                        Ok(Value::Boolean(a > b))
+                    }
+                    (Value::Address(a), Value::Address(b), BinaryOp::LessEqual) => {
+                        Ok(Value::Boolean(a <= b))
+                    }
+                    (Value::Address(a), Value::Address(b), BinaryOp::GreaterEqual) => {
+                        Ok(Value::Boolean(a >= b))
+                    }
                     _ => bail!("Invalid operation for types"),
                 }
             }
@@ -296,7 +343,8 @@ impl Runtime {
                 self.contains_variables(left) || self.contains_variables(right)
             }
             Expr::Call { callee, args } => {
-                self.contains_variables(callee) || args.iter().any(|arg| self.contains_variables(arg))
+                self.contains_variables(callee)
+                    || args.iter().any(|arg| self.contains_variables(arg))
             }
             Expr::VectorIndex { vector, index } => {
                 self.contains_variables(vector) || self.contains_variables(index)
@@ -475,22 +523,22 @@ impl Runtime {
             }
         }
     }
-    
+
     /// Enable profiling in the VM
     pub fn enable_profiling(&mut self) {
         self.vm.profiler.enable();
     }
-    
+
     /// Disable profiling in the VM
     pub fn disable_profiling(&mut self) {
         self.vm.profiler.disable();
     }
-    
+
     /// Get profiling results from the VM
     pub fn get_profile(&self) -> String {
         self.vm.dump_profile()
     }
-    
+
     /// Dump profiling results to a file
     pub fn dump_profile_to_file(&self, filename: &str) -> Result<(), std::io::Error> {
         self.vm.dump_profile_to_file(filename)
