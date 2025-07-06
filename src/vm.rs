@@ -18,8 +18,8 @@ pub enum Instruction {
     Mod,
 
     // Address arithmetic operations
-    AddressAdd,  // Address + Number -> Address
-    AddressSub,  // Address - Number -> Address
+    AddressAdd, // Address + Number -> Address
+    AddressSub, // Address - Number -> Address
 
     // Comparison operations
     Eq,
@@ -748,6 +748,7 @@ pub struct VMCompiler {
     instructions: Vec<Instruction>,
     local_vars: HashMap<String, i32>,
     local_offset: i32,
+    current_function_param_count: usize,
 }
 
 impl VMCompiler {
@@ -756,6 +757,7 @@ impl VMCompiler {
             instructions: Vec::new(),
             local_vars: HashMap::new(),
             local_offset: 0,
+            current_function_param_count: 0,
         }
     }
 
@@ -807,6 +809,7 @@ impl VMCompiler {
         self.instructions.clear();
         self.local_vars.clear();
         self.local_offset = 0;
+        self.current_function_param_count = 0;
         self.instructions
             .push(Instruction::Call("main".to_string()));
         self.instructions.push(Instruction::Ret);
@@ -831,6 +834,7 @@ impl VMCompiler {
         // (This is simplified - in a real implementation we'd analyze the function first)
         self.local_offset = 0;
         self.local_vars.clear();
+        self.current_function_param_count = func.params.len();
 
         // Map parameters to stack positions (negative offsets from BP)
         // Stack layout: [return_placeholder] [arg0] [arg1] ... [return_addr] [old_bp] <- BP points here
@@ -860,15 +864,16 @@ impl VMCompiler {
             self.instructions.push(Instruction::Ret);
         } else {
             // For other functions, generate explicit return sequence
+            // Calculate placeholder position: BP - (param_count + 2)
+            let placeholder_offset = -((self.current_function_param_count as i32) + 2);
+            self.instructions
+                .push(Instruction::SetLocal(placeholder_offset));
+
             // Get return address from stack frame (at BP-1)
             self.instructions.push(Instruction::GetLocal(-1)); // return address
 
             // Get old BP from stack frame (at BP)
             self.instructions.push(Instruction::GetLocal(0)); // old BP
-
-            // Overwrite placeholder with return value
-            // TODO: Calculate correct placeholder position
-            // For now, use a simplified approach
 
             // Restore BP
             self.instructions.push(Instruction::SetBP);
@@ -905,24 +910,26 @@ impl VMCompiler {
 
                 // Generate explicit return sequence according to VM spec:
                 // 1. Store return value to placeholder position (overwrite placeholder)
-                // 2. Restore old BP from stack frame
-                // 3. Restore stack pointer to clean up locals
-                // 4. Jump to return address
+                // 2. Get old BP from stack frame
+                // 3. Set SP to old BP position
+                // 4. Set BP to old BP value
+                // 5. Jump to return address
 
-                // Get return address from stack frame (at BP-1)
-                self.instructions.push(Instruction::GetLocal(-1)); // return address
+                // Calculate placeholder position: BP - (param_count + 2)
+                let placeholder_offset = -((self.current_function_param_count as i32) + 2);
+                self.instructions
+                    .push(Instruction::SetLocal(placeholder_offset));
 
-                // Get old BP from stack frame (at BP)
-                self.instructions.push(Instruction::GetLocal(0)); // old BP
+                // Get old BP from stack frame (at BP) - this gets the BP value we want to restore to
+                self.instructions.push(Instruction::GetBP);
 
-                // Overwrite placeholder with return value
-                // TODO: Calculate correct placeholder position
-                // For now, use a simplified approach
+                // Set SP to current BP position (restore stack pointer)
+                self.instructions.push(Instruction::SetSP);
 
-                // Restore BP
+                // Set BP to old BP value
                 self.instructions.push(Instruction::SetBP);
 
-                // Jump to return address
+                // Get return address from stack frame (at BP-1) and jump
                 self.instructions.push(Instruction::SetPC);
             }
 
@@ -1090,7 +1097,7 @@ impl VMCompiler {
             Expr::Call { callee, args } => {
                 // Caller responsibilities according to VM spec:
                 // 1. Push placeholder for return value
-                self.instructions.push(Instruction::Push(0));
+                self.instructions.push(Instruction::Push(-1));
 
                 // 2. Push function arguments onto stack (left to right)
                 for arg in args {
@@ -1489,9 +1496,10 @@ mod tests {
         println!("Generated IR:");
         println!("{}", compiler.dump_ir());
 
-        let mut vm = VM::new();
+        let mut vm = VM::new_with_stack_printing(true);
         vm.load_program(instructions);
         let result = vm.execute().unwrap();
+        println!("Final result: {}", result);
         assert_eq!(result, 5);
     }
 
