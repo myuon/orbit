@@ -9,6 +9,7 @@ Orbit is a statically typed programming language with JIT compilation for AArch6
 ## Commands for Claude Code
 
 - `cargo check --message-format=short` - Check the project for compilation errors (preferred for development)
+- `cargo fix` - Automatically fix Rust warnings and errors when possible (run when warnings appear)
 - `cargo test --message-format=short` - Run unit tests (ALWAYS run after making changes)
 - `cargo test test_orbit_files --message-format=short` - Run integration tests with .ob files
 - `cargo run <file.ob>` - Execute an Orbit source file
@@ -104,6 +105,7 @@ The `zig_refs/orbit-mode/` directory contains a VS Code extension with syntax hi
 ## Development Guidelines
 
 - **Code Check**: Use `cargo check` for quick compilation checks during development
+- **Warning Fixes**: When Rust warnings appear, try `cargo fix` first to automatically fix common issues
 - **Testing**: Always run `cargo test` after making changes to ensure all tests pass
 - **Test Style**: Use table-driven testing for unit tests whenever possible to reduce duplication and improve maintainability
 - **Code Duplication**: Use `similarity-rs src/` to detect code duplication and guide refactoring efforts
