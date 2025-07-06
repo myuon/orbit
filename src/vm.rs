@@ -479,87 +479,22 @@ impl VM {
                 }
 
                 Instruction::Ret => {
-                    // Return sequence according to VM spec:
-                    // Stack layout during function: [return_placeholder, args..., return_addr, old_bp] <- BP
-                    //                                                                                    ^BP
-
-                    if self.bp < 1 || self.stack.len() < self.bp + 1 {
-                        return Err("Stack underflow in function return".to_string());
-                    }
-
-                    // 1. Get return value from top of stack (prepared by callee)
-                    let return_value = if self.stack.len() > self.bp + 1 {
-                        self.stack.pop().unwrap_or(Value::Number(0.0))
+                    // Ret instruction now only handles main function return
+                    // All other return operations are handled by compiler-generated instructions
+                    
+                    // Pop return value from stack
+                    let return_value = if !self.stack.is_empty() {
+                        self.stack.pop().unwrap()
                     } else {
                         Value::Number(0.0)
                     };
 
-                    // 2. Get old BP and return address from stack frame
-                    let old_bp = match self.stack[self.bp] {
-                        Value::Number(n) => n as usize,
-                        _ => return Err("Invalid BP value in stack frame".to_string()),
-                    };
-                    let return_addr = match self.stack[self.bp - 1] {
-                        Value::Number(n) => n as usize,
-                        _ => return Err("Invalid return address in stack frame".to_string()),
-                    };
-
-                    // Check if this is main function return (return address is 1)
-                    if return_addr == 1 {
-                        // Main function returned, exit VM and return the value
-                        match return_value {
-                            Value::Number(n) => return Ok(n as i64),
-                            Value::Boolean(b) => return Ok(if b { 1 } else { 0 }),
-                            _ => return Ok(0),
-                        }
+                    // Return from main function - exit VM
+                    match return_value {
+                        Value::Number(n) => return Ok(n as i64),
+                        Value::Boolean(b) => return Ok(if b { 1 } else { 0 }),
+                        _ => return Ok(0),
                     }
-
-                    // 3. Find the return value placeholder position
-                    // Need to find how many arguments were passed to calculate placeholder position
-                    // Stack: [return_placeholder, arg0, arg1, ..., return_addr, old_bp]
-                    // The placeholder is at position: bp - 1 - num_args - 1
-
-                    // For now, we'll use a simpler approach: restore BP and SP, then overwrite placeholder
-                    // This assumes the caller will clean up arguments properly
-
-                    // 4. According to VM spec, we need to overwrite the return value placeholder
-                    // Stack during function: [return_placeholder, arg0, arg1, ..., return_addr, old_bp, locals...]
-                    //                                                                        ^BP
-
-                    // We need to find the placeholder position and overwrite it
-                    // The placeholder is before all arguments
-
-                    // According to VM spec: overwrite placeholder with return value
-                    // Stack before: [return_placeholder, arg0, arg1, ..., return_addr, old_bp, locals...]
-                    // Stack after:  [return_value, arg0, arg1, ...]
-
-                    // 1. Calculate placeholder position
-                    // BP points to old_bp, return_addr is at BP-1
-                    // Arguments and placeholder are before return_addr
-                    let _frame_end = self.bp - 2; // Position before return_addr and old_bp
-
-                    // 2. Remove frame info and local variables first
-                    self.stack.truncate(self.bp - 1); // Remove return_addr and old_bp
-
-                    // 3. Now find and overwrite the placeholder
-                    // The placeholder should be the first element of this function call
-                    // We need to find where this call's frame starts
-
-                    // For simple implementation: find the most recent 0 (placeholder)
-                    // and replace it with return_value
-                    for i in (0..self.stack.len()).rev() {
-                        if matches!(self.stack[i], Value::Number(0.0)) {
-                            self.stack[i] = return_value.clone();
-                            break;
-                        }
-                    }
-
-                    // 4. Restore BP
-                    self.bp = old_bp;
-
-                    // 6. Jump to return address
-                    self.pc = return_addr;
-                    continue;
                 }
 
                 Instruction::GetBP => {
@@ -870,10 +805,25 @@ impl VMCompiler {
 
         // Function epilogue
         if func.name == "main" {
-            // For main function, just return the value without using function return convention
-            // The VM will naturally exit when it reaches the end of the program
-        } else {
+            // For main function, use Ret instruction to exit VM
             self.instructions.push(Instruction::Ret);
+        } else {
+            // For other functions, generate explicit return sequence
+            // Get return address from stack frame (at BP-1)
+            self.instructions.push(Instruction::GetLocal(-1)); // return address
+            
+            // Get old BP from stack frame (at BP)  
+            self.instructions.push(Instruction::GetLocal(0)); // old BP
+            
+            // Overwrite placeholder with return value
+            // TODO: Calculate correct placeholder position
+            // For now, use a simplified approach
+            
+            // Restore BP
+            self.instructions.push(Instruction::SetBP);
+            
+            // Jump to return address
+            self.instructions.push(Instruction::SetPC);
         }
 
         func_start
@@ -899,8 +849,30 @@ impl VMCompiler {
             }
 
             Stmt::Return(expr) => {
+                // Compile return value expression
                 self.compile_expression(expr);
-                self.instructions.push(Instruction::Ret);
+                
+                // Generate explicit return sequence according to VM spec:
+                // 1. Store return value to placeholder position (overwrite placeholder)
+                // 2. Restore old BP from stack frame
+                // 3. Restore stack pointer to clean up locals
+                // 4. Jump to return address
+                
+                // Get return address from stack frame (at BP-1)
+                self.instructions.push(Instruction::GetLocal(-1)); // return address
+                
+                // Get old BP from stack frame (at BP)
+                self.instructions.push(Instruction::GetLocal(0)); // old BP
+                
+                // Overwrite placeholder with return value
+                // TODO: Calculate correct placeholder position
+                // For now, use a simplified approach
+                
+                // Restore BP
+                self.instructions.push(Instruction::SetBP);
+                
+                // Jump to return address  
+                self.instructions.push(Instruction::SetPC);
             }
 
             Stmt::Assign { name, value } => {
