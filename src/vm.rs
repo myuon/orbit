@@ -630,7 +630,7 @@ impl VM {
                     // Create a new empty vector and push its index
                     let vector_index = self.vectors.len();
                     self.vectors.push(Vec::new());
-                    self.stack.push(Value::Number(vector_index as f64));
+                    self.stack.push(Value::VectorIndex(vector_index));
                 }
 
                 Instruction::VectorPush => {
@@ -641,15 +641,14 @@ impl VM {
                     let vector_index_value = self.stack.pop().unwrap();
                     let value = self.stack.pop().unwrap();
                     match vector_index_value {
-                        Value::Number(vector_index) => {
-                            let vector_index = vector_index as usize;
+                        Value::VectorIndex(vector_index) => {
                             if vector_index >= self.vectors.len() {
                                 return Err(format!("Invalid vector index: {}", vector_index));
                             }
                             self.vectors[vector_index].push(value);
                         }
                         _ => {
-                            return Err("VectorPush requires a number for vector index".to_string())
+                            return Err("VectorPush requires a vector index".to_string())
                         }
                     }
                 }
@@ -662,8 +661,7 @@ impl VM {
                     let element_index_value = self.stack.pop().unwrap();
                     let vector_index_value = self.stack.pop().unwrap();
                     match (vector_index_value, element_index_value) {
-                        (Value::Number(vector_index), Value::Number(element_index)) => {
-                            let vector_index = vector_index as usize;
+                        (Value::VectorIndex(vector_index), Value::Number(element_index)) => {
                             let element_index = element_index as usize;
                             if vector_index >= self.vectors.len() {
                                 return Err(format!("Invalid vector index: {}", vector_index));
@@ -675,7 +673,7 @@ impl VM {
                             self.stack.push(value);
                         }
                         _ => {
-                            return Err("VectorIndex requires numbers for both indices".to_string())
+                            return Err("VectorIndex requires vector index and element index (number)".to_string())
                         }
                     }
                 }
@@ -689,8 +687,7 @@ impl VM {
                     let element_index_value = self.stack.pop().unwrap();
                     let value = self.stack.pop().unwrap();
                     match (vector_index_value, element_index_value) {
-                        (Value::Number(vector_index), Value::Number(element_index)) => {
-                            let vector_index = vector_index as usize;
+                        (Value::VectorIndex(vector_index), Value::Number(element_index)) => {
                             let element_index = element_index as usize;
                             if vector_index >= self.vectors.len() {
                                 return Err(format!("Invalid vector index: {}", vector_index));
@@ -700,7 +697,7 @@ impl VM {
                             }
                             self.vectors[vector_index][element_index] = value;
                         }
-                        _ => return Err("VectorSet requires numbers for both indices".to_string()),
+                        _ => return Err("VectorSet requires vector index and element index (number)".to_string()),
                     }
                 }
 
@@ -708,7 +705,7 @@ impl VM {
                     // Create a new empty map and push its index
                     let map_index = self.maps.len();
                     self.maps.push(HashMap::new());
-                    self.stack.push(Value::Number(map_index as f64));
+                    self.stack.push(Value::MapIndex(map_index));
                 }
 
                 Instruction::MapIndex => {
@@ -719,8 +716,7 @@ impl VM {
                     let key_value = self.stack.pop().unwrap();
                     let map_index_value = self.stack.pop().unwrap();
                     match (map_index_value, key_value) {
-                        (Value::Number(map_index), Value::String(key)) => {
-                            let map_index = map_index as usize;
+                        (Value::MapIndex(map_index), Value::String(key)) => {
                             if map_index >= self.maps.len() {
                                 return Err(format!("Invalid map index: {}", map_index));
                             }
@@ -734,7 +730,7 @@ impl VM {
                             }
                         }
                         _ => {
-                            return Err("MapIndex requires a map index (number) and key (string)".to_string())
+                            return Err("MapIndex requires a map index and key (string)".to_string())
                         }
                     }
                 }
@@ -748,14 +744,13 @@ impl VM {
                     let key_value = self.stack.pop().unwrap();
                     let value = self.stack.pop().unwrap();
                     match (map_index_value, key_value) {
-                        (Value::Number(map_index), Value::String(key)) => {
-                            let map_index = map_index as usize;
+                        (Value::MapIndex(map_index), Value::String(key)) => {
                             if map_index >= self.maps.len() {
                                 return Err(format!("Invalid map index: {}", map_index));
                             }
                             self.maps[map_index].insert(key, value);
                         }
-                        _ => return Err("MapSet requires a map index (number) and key (string)".to_string()),
+                        _ => return Err("MapSet requires a map index and key (string)".to_string()),
                     }
                 }
             }
@@ -787,6 +782,8 @@ impl VM {
                 Value::Number(n) => Ok(n as i64),
                 Value::Boolean(b) => Ok(if b { 1 } else { 0 }),
                 Value::Address(addr) => Ok(addr as i64),
+                Value::VectorIndex(idx) => Ok(idx as i64),
+                Value::MapIndex(idx) => Ok(idx as i64),
                 _ => Ok(0),
             }
         }
@@ -798,6 +795,9 @@ impl VM {
         self.pc = 0;
         self.bp = 0;
         self.sp = 0;
+        self.vectors.clear();
+        self.maps.clear();
+        self.strings.clear();
         // Keep print_stacks and profiler settings unchanged
 
         // Reset profiling data if profiling is enabled

@@ -1,7 +1,6 @@
 use crate::ast::{Expr, FunParam, Program, Stmt};
 use crate::vm::{VMCompiler, VM};
 use anyhow::{bail, Result};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -14,15 +13,8 @@ pub enum Value {
         body: Vec<Stmt>,
         return_expr: Option<Box<Expr>>,
     },
-    Vector {
-        element_type: String,
-        elements: Vec<Value>,
-    },
-    Map {
-        key_type: String,
-        value_type: String,
-        entries: HashMap<String, Value>,
-    },
+    VectorIndex(usize),
+    MapIndex(usize),
 }
 
 impl std::fmt::Display for Value {
@@ -39,26 +31,8 @@ impl std::fmt::Display for Value {
             Value::String(s) => write!(f, "{}", s),
             Value::Address(addr) => write!(f, "@{}", addr),
             Value::Function { .. } => write!(f, "<function>"),
-            Value::Vector { elements, .. } => {
-                write!(f, "[")?;
-                for (i, elem) in elements.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", elem)?;
-                }
-                write!(f, "]")
-            }
-            Value::Map { entries, .. } => {
-                write!(f, "{{")?;
-                for (i, (key, value)) in entries.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}: {}", key, value)?;
-                }
-                write!(f, "}}")
-            }
+            Value::VectorIndex(index) => write!(f, "vector@{}", index),
+            Value::MapIndex(index) => write!(f, "map@{}", index),
         }
     }
 }
