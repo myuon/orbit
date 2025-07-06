@@ -1315,37 +1315,65 @@ impl VM {
                 }
 
                 Instruction::Syscall => {
-                    // Stack: [syscall_number] [args...]
-                    // For now, we'll implement a simple write syscall (syscall number 1)
-                    if self.stack.len() < 2 {
+                    // Stack: [return_placeholder] [syscall_number] [fd] [buffer] [length] (pushed left-to-right)
+                    // For syscall(1): write(fd, buffer, length)
+                    if self.stack.len() < 5 {
                         return Err("Stack underflow for Syscall".to_string());
                     }
                     
-                    let message_ref = self.stack.pop().unwrap();
+                    // Pop the 4 arguments (length, buffer, fd, syscall_number) in reverse order
+                    let length = self.stack.pop().unwrap();
+                    let buffer_ref = self.stack.pop().unwrap();
+                    let fd = self.stack.pop().unwrap();
                     let syscall_number = self.stack.pop().unwrap();
+                    
+                    // The return placeholder is left on the stack for the result
                     
                     match syscall_number {
                         Value::Number(1.0) => {
-                            // Write syscall
-                            match message_ref {
+                            // Write syscall: write(fd, buffer, length)
+                            
+                            // Validate fd is a number
+                            let _fd_num = match fd {
+                                Value::Number(n) => n,
+                                _ => return Err("Write syscall: fd must be a number".to_string()),
+                            };
+                            
+                            // Validate length is a number
+                            let length_num = match length {
+                                Value::Number(n) => n as usize,
+                                _ => return Err("Write syscall: length must be a number".to_string()),
+                            };
+                            
+                            // Get buffer content
+                            match buffer_ref {
                                 Value::HeapRef(heap_index) => {
                                     if heap_index.0 >= self.heap.len() {
                                         return Err(format!("Invalid heap index: {}", heap_index.0));
                                     }
                                     match &self.heap[heap_index.0] {
                                         HeapObject::String(s) => {
+                                            // Use the specified length or the string length, whichever is smaller
+                                            let actual_length = length_num.min(s.len());
+                                            let output = &s[..actual_length];
+                                            
                                             if let Some(ref mut captured) = self.captured_output {
-                                                captured.push_str(s);
+                                                captured.push_str(output);
                                             } else {
-                                                print!("{}", s);
+                                                print!("{}", output);
                                                 use std::io::Write;
                                                 std::io::stdout().flush().unwrap();
                                             }
+                                            
+                                            // Replace the return placeholder with the number of bytes written
+                                            if let Some(top) = self.stack.last_mut() {
+                                                *top = Value::Number(actual_length as f64);
+                                            }
                                         }
-                                        _ => return Err("Write syscall requires a string".to_string()),
+                                        _ => return Err("Write syscall: buffer must be a string".to_string()),
                                     }
                                 }
-                                _ => return Err("Write syscall requires a string reference".to_string()),
+                                _ => return Err("Write syscall: buffer must be a string reference".to_string()),
                             }
                         }
                         _ => {
