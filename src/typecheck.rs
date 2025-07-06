@@ -165,19 +165,21 @@ impl TypeChecker {
 
     /// Type check a complete program
     pub fn check_program(&mut self, program: &Program) -> Result<()> {
-        // First pass: register all function signatures
+        // First pass: register all struct types
         for decl in &program.declarations {
-            match decl {
-                Decl::Function(function) => {
-                    self.register_function(function)?;
-                }
-                Decl::Struct(struct_decl) => {
-                    self.register_struct(struct_decl)?;
-                }
+            if let Decl::Struct(struct_decl) = decl {
+                self.register_struct(struct_decl)?;
             }
         }
         
-        // Second pass: check function bodies
+        // Second pass: register all function signatures (now that structs are available)
+        for decl in &program.declarations {
+            if let Decl::Function(function) = decl {
+                self.register_function(function)?;
+            }
+        }
+        
+        // Third pass: check function bodies
         for decl in &program.declarations {
             self.check_declaration(decl)?;
         }
@@ -423,8 +425,8 @@ impl TypeChecker {
             param_types.push(param_type);
         }
 
-        // For now, assume all functions return Number (could be inferred later)
-        let return_type = Type::Number;
+        // Infer return type based on function body analysis
+        let return_type = self.infer_function_return_type(function);
 
         let function_type = Type::Function {
             param_types,
@@ -966,6 +968,64 @@ impl TypeChecker {
                     _ => bail!("Cannot call method '{}' on non-struct type: {}", method, object_type),
                 }
             }
+        }
+    }
+
+    /// Infer the return type of a function based on its body
+    fn infer_function_return_type(&self, function: &Function) -> Type {
+        // Look for return statements in the function body
+        for stmt in &function.body {
+            if let Some(return_type) = self.find_return_type_in_statement(stmt) {
+                return return_type;
+            }
+        }
+        
+        // Default to Number if no return statements found
+        Type::Number
+    }
+    
+    /// Recursively search for return statements and infer their types
+    fn find_return_type_in_statement(&self, stmt: &Stmt) -> Option<Type> {
+        match stmt {
+            Stmt::Return(expr) => {
+                // Try to infer the type of the return expression
+                match expr {
+                    Expr::StructNew { type_name, .. } => {
+                        // If returning a struct creation, return that struct type
+                        self.structs.get(type_name).cloned()
+                    }
+                    Expr::Number(_) => Some(Type::Number),
+                    Expr::Boolean(_) => Some(Type::Bool),
+                    Expr::String(_) => Some(Type::String),
+                    // For other expressions, we'd need more complex analysis
+                    _ => Some(Type::Number), // Default fallback
+                }
+            }
+            Stmt::If { then_branch, else_branch, .. } => {
+                // Check both branches for return statements
+                for stmt in then_branch {
+                    if let Some(return_type) = self.find_return_type_in_statement(stmt) {
+                        return Some(return_type);
+                    }
+                }
+                if let Some(else_stmts) = else_branch {
+                    for stmt in else_stmts {
+                        if let Some(return_type) = self.find_return_type_in_statement(stmt) {
+                            return Some(return_type);
+                        }
+                    }
+                }
+                None
+            }
+            Stmt::While { body, .. } => {
+                for stmt in body {
+                    if let Some(return_type) = self.find_return_type_in_statement(stmt) {
+                        return Some(return_type);
+                    }
+                }
+                None
+            }
+            _ => None,
         }
     }
 

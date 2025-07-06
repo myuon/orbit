@@ -46,19 +46,22 @@ impl Compiler {
         let tokens = self.tokenize(code)?;
         let program = self.parse(tokens)?;
 
-        // 1. Desugar phase: transform method calls to function calls
-        let mut desugarer = Desugarer::new();
-        let mut desugared_program = desugarer.desugar_program(program)?;
-
-        // 2. Type checking is always performed
-        // Create a single type checker instance to maintain state
+        // 1. Type inference phase: analyze types and set object_type information
         let mut type_checker = TypeChecker::new();
+        let mut program_with_type_info = program;
         
         // First register struct types and functions
-        type_checker.check_program(&desugared_program)?;
-        
-        // Then perform type inference to fill in container types
-        type_checker.infer_types(&mut desugared_program)?;
+        type_checker.check_program(&program_with_type_info)?;
+        // Then perform type inference to set object_type fields
+        type_checker.infer_types(&mut program_with_type_info)?;
+
+        // 2. Desugar phase: transform method calls to function calls using type info
+        let mut desugarer = Desugarer::new();
+        let mut desugared_program = desugarer.desugar_program(program_with_type_info)?;
+
+        // 3. Final type checking on desugared program
+        let mut final_type_checker = TypeChecker::new();
+        final_type_checker.check_program(&desugared_program)?;
 
         self.runtime.execute_program(&desugared_program)
     }

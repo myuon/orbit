@@ -240,21 +240,25 @@ impl Parser {
                                 self.parse_field_assign_stmt()
                             } else {
                                 let expr = self.parse_expression()?;
+                                self.consume(TokenType::Semicolon)?;
                                 Ok(Stmt::Expression(expr))
                             }
                         }
                         _ => {
                             let expr = self.parse_expression()?;
+                            self.consume(TokenType::Semicolon)?;
                             Ok(Stmt::Expression(expr))
                         }
                     }
                 } else {
                     let expr = self.parse_expression()?;
+                    self.consume(TokenType::Semicolon)?;
                     Ok(Stmt::Expression(expr))
                 }
             }
             _ => {
                 let expr = self.parse_expression()?;
+                self.consume(TokenType::Semicolon)?;
                 Ok(Stmt::Expression(expr))
             }
         }
