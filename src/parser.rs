@@ -489,6 +489,31 @@ impl Parser {
                         Ok(n)
                     }
                 }
+                // Handle built-in generic types
+                TokenType::Vec => {
+                    self.advance(); // consume 'vec'
+                    if matches!(self.current_token().token_type, TokenType::LeftParen) {
+                        self.advance(); // consume '('
+                        let arg_type = self.parse_type_name()?;
+                        self.consume(TokenType::RightParen)?;
+                        Ok(format!("vec({})", arg_type))
+                    } else {
+                        Ok("vec".to_string())
+                    }
+                }
+                TokenType::Map => {
+                    self.advance(); // consume 'map'
+                    if matches!(self.current_token().token_type, TokenType::LeftParen) {
+                        self.advance(); // consume '('
+                        let key_type = self.parse_type_name()?;
+                        self.consume(TokenType::Comma)?;
+                        let value_type = self.parse_type_name()?;
+                        self.consume(TokenType::RightParen)?;
+                        Ok(format!("map({}, {})", key_type, value_type))
+                    } else {
+                        Ok("map".to_string())
+                    }
+                }
                 _ => bail!("Expected type name"),
             }
         }

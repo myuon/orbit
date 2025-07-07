@@ -1,0 +1,10 @@
+fun process_vector(T: type, v: vec(T)): int do
+  return 42;
+end
+
+fun main() do
+  let numbers = new vec(int) { 10, 20, 30 };
+  let result = process_vector(type int, numbers);
+  
+  return result;
+end
