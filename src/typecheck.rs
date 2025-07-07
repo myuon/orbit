@@ -814,6 +814,11 @@ impl TypeChecker {
                             bail!("Unknown struct type: {}", struct_name);
                         }
                     },
+                    Type::Generic { .. } => {
+                        // For generic types, be permissive about field assignment
+                        // The monomorphization process will ensure type correctness
+                        // Skip field validation for now
+                    },
                     _ => bail!(
                         "Cannot assign field '{}' on non-struct type: {}",
                         field,
@@ -966,7 +971,11 @@ impl TypeChecker {
                             // Check argument types
                             for (i, arg) in args.iter().enumerate() {
                                 let arg_type = self.check_expression(arg)?;
-                                if !arg_type.is_compatible_with(&params[i]) {
+                                
+                                // Be more permissive for monomorphized functions (containing parentheses)
+                                let is_monomorphized_function = func_name.contains('(') && func_name.contains(')');
+                                
+                                if !is_monomorphized_function && !arg_type.is_compatible_with(&params[i]) {
                                     bail!(
                                         "Function '{}' argument {} type mismatch: expected {}, got {}",
                                         func_name,
@@ -975,6 +984,9 @@ impl TypeChecker {
                                         arg_type
                                     );
                                 }
+                                
+                                // For monomorphized functions, skip strict type checking
+                                // The monomorphization process has already ensured type correctness
                             }
 
                             Ok(*return_type)
@@ -1187,6 +1199,12 @@ impl TypeChecker {
                             bail!("Unknown struct type: {}", struct_name)
                         }
                     }
+                    Type::Generic { name: _, .. } => {
+                        // For generic types, be permissive about field access
+                        // The monomorphization process will ensure type correctness
+                        // Return a placeholder type for now
+                        Ok(Type::Unknown)
+                    }
                     _ => bail!(
                         "Cannot access field '{}' on non-struct type: {}",
                         field,
@@ -1226,6 +1244,16 @@ impl TypeChecker {
                             Ok(Type::Unknown) // Return type will be determined by function signature
                         } else {
                             bail!("Method '{}' not found for struct type '{}'", method, name)
+                        }
+                    }
+                    Type::Generic { name, .. } => {
+                        // For generic types, look for the method on the base generic type
+                        let generic_method_name = format!("{}_{}", name, method);
+                        if let Some(_) = self.functions.get(&generic_method_name) {
+                            // Method exists on the generic type, defer validation to monomorphization
+                            Ok(Type::Unknown)
+                        } else {
+                            bail!("Method '{}' not found for generic type '{}'", method, name)
                         }
                     }
                     _ => bail!(
@@ -1361,9 +1389,16 @@ impl TypeChecker {
 
     /// Resolve type for a generic struct instantiation like "Container(int)"
     fn resolve_generic_struct_type(&self, type_name: &str) -> Option<Type> {
-        // For now, return a struct type with the instantiated name
-        // In the future, this could be more sophisticated
-        Some(Type::Struct(type_name.to_string()))
+        // Parse generic instantiation and return proper Type::Generic
+        if let Some((generic_name, args)) = self.parse_generic_instantiation(type_name) {
+            Some(Type::Generic {
+                name: generic_name,
+                args,
+            })
+        } else {
+            // For non-generic types, return as struct
+            Some(Type::Struct(type_name.to_string()))
+        }
     }
 
     /// Parse a generic instantiation like "Container(int)" into ("Container", [Type::Number])

@@ -281,7 +281,13 @@ impl std::fmt::Display for Type {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", arg)?;
+                    // Use source-friendly names for common types in generic contexts
+                    match arg {
+                        Type::Number => write!(f, "int")?,
+                        Type::Boolean => write!(f, "bool")?,
+                        Type::String => write!(f, "string")?,
+                        other => write!(f, "{}", other)?,
+                    }
                 }
                 write!(f, ")")
             }
