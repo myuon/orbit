@@ -259,7 +259,8 @@ impl Monomorphizer {
     fn extract_type_from_expr(&self, expr: &Expr) -> Option<Type> {
         match expr {
             Expr::TypeExpr { type_name } => {
-                // Handle type expressions like "type int", "type [*]byte"
+                // For monomorphization, we need to preserve original type names
+                // So we'll create a custom type that maintains the source name
                 match type_name.as_str() {
                     "int" | "number" => Some(Type::Number),
                     "bool" | "boolean" => Some(Type::Boolean),
@@ -416,7 +417,20 @@ impl Monomorphizer {
             }).collect(),
         };
 
-        self.monomorphized_structs.insert(target.instantiated_name(), monomorphized);
+        self.monomorphized_structs.insert(target.instantiated_name(), monomorphized.clone());
+        
+        // Also register methods as standalone functions with mangled names
+        for method in &monomorphized.methods {
+            let mangled_name = format!("{}_{}", target.instantiated_name(), method.name);
+            let mangled_function = Function {
+                name: mangled_name.clone(),
+                type_params: method.type_params.clone(),
+                params: method.params.clone(),
+                body: method.body.clone(),
+            };
+            self.monomorphized_functions.insert(mangled_name, mangled_function);
+        }
+        
         Ok(())
     }
 
@@ -853,7 +867,13 @@ fn substitute_type_in_string(type_str: &str, substitutions: &HashMap<String, Typ
     
     // Simple string substitution for type parameters
     if let Some(replacement) = substitutions.get(type_str) {
-        replacement.to_string()
+        // Convert Type back to source-friendly string representation
+        match replacement {
+            Type::Number => "int".to_string(),    // Prefer "int" over "number"
+            Type::Boolean => "bool".to_string(),  // Prefer "bool" over "boolean"
+            Type::String => "string".to_string(), // Could be "string" or "[*]byte", use "string"
+            other => other.to_string(),
+        }
     } else {
         type_str.to_string()
     }

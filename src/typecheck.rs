@@ -1204,12 +1204,24 @@ impl TypeChecker {
                 let object_type = self.check_expression(object)?;
                 match object_type {
                     Type::Struct(name) => {
-                        // Method calls will be handled by name mangling
-                        // For now, return Unknown type - this will be refined later
-                        // when we implement proper method resolution
+                        // Handle generic struct instantiations
+                        if name.contains('(') && name.ends_with(')') {
+                            // This is a generic instantiation like "Container(int)"
+                            // Extract the base generic struct name
+                            if let Some(paren_pos) = name.find('(') {
+                                let base_name = &name[..paren_pos];
+                                let generic_method_name = format!("{}_{}", base_name, method);
+                                
+                                // Check if the generic method exists
+                                if let Some(_) = self.functions.get(&generic_method_name) {
+                                    // Method exists on the generic type, defer validation to monomorphization
+                                    return Ok(Type::Unknown);
+                                }
+                            }
+                        }
+                        
+                        // Standard method resolution for non-generic structs
                         let method_name = format!("{}_{}", name, method);
-
-                        // For now, just verify the method exists by checking if it's a registered function
                         if let Some(_) = self.functions.get(&method_name) {
                             Ok(Type::Unknown) // Return type will be determined by function signature
                         } else {
