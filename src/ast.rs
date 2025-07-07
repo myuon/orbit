@@ -127,6 +127,9 @@ pub enum Expr {
         args: Vec<Expr>,
         object_type: Option<String>, // Struct type name, filled by type checker
     },
+    TypeExpr {
+        type_name: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

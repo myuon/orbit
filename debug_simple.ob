@@ -1,8 +1,0 @@
-type Container = struct {
-    value: int
-};
-
-fun main() do
-    let c = new Container { .value = 42 };
-    return c.value;
-end

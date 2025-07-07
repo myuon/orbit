@@ -1607,6 +1607,9 @@ impl VMCompiler {
                     self.collect_string_constants_from_expr(value);
                 }
             }
+            Expr::TypeExpr { type_name } => {
+                self.get_or_create_string_constant(type_name);
+            }
             _ => {} // Other expressions don't contain strings
         }
     }
@@ -2174,6 +2177,13 @@ impl VMCompiler {
                     .push(Instruction::PushString(method.clone()));
                 self.instructions.push(Instruction::MethodCall(args.len()));
             }
+
+            Expr::TypeExpr { type_name } => {
+                // For now, type expressions are treated as string constants
+                // This is a placeholder - in a full implementation, we'd need proper type system integration
+                let heap_index = self.get_or_create_string_constant(type_name);
+                self.instructions.push(Instruction::PushHeapRef(heap_index));
+            }
         }
     }
 }
@@ -2300,6 +2310,11 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
             instructions.push(Instruction::PushString(method.clone()));
             // Method call with argument count
             instructions.push(Instruction::MethodCall(args.len()));
+        }
+
+        Expr::TypeExpr { type_name } => {
+            // For now, type expressions are treated as string constants
+            instructions.push(Instruction::PushString(type_name.clone()));
         }
     }
 }

@@ -942,9 +942,7 @@ impl Parser {
             TokenType::Type => {
                 self.advance(); // consume 'type'
                 let type_name = self.parse_type_name()?;
-                // For now, we'll represent type expressions as identifiers
-                // This will need to be handled properly in the type checker
-                Ok(Expr::Identifier(format!("type {}", type_name)))
+                Ok(Expr::TypeExpr { type_name })
             }
             _ => bail!("Unexpected token: {:?}", self.current_token().token_type),
         }

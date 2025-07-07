@@ -314,7 +314,7 @@ impl Desugarer {
             }
 
             // Leaf expressions that don't need desugaring
-            Expr::Number(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) => {
+            Expr::Number(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) | Expr::TypeExpr { .. } => {
                 Ok(expression)
             }
         }

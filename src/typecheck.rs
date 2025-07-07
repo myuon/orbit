@@ -375,8 +375,8 @@ impl TypeChecker {
 
     fn infer_expression_types(&mut self, expr: &mut Expr) -> Result<()> {
         match expr {
-            Expr::Number(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) => {
-                // No inference needed for literals and identifiers
+            Expr::Number(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) | Expr::TypeExpr { .. } => {
+                // No inference needed for literals, identifiers, and type expressions
                 Ok(())
             }
 
@@ -487,6 +487,13 @@ impl TypeChecker {
     fn register_function_with_name(&mut self, name: &str, function: &Function) -> Result<()> {
         // Determine parameter types
         let mut params = Vec::new();
+        
+        // First, add type parameters (they become part of the function signature)
+        for _type_param in &function.type_params {
+            params.push(Type::Unknown); // Type parameters are represented as Unknown for now
+        }
+        
+        // Then, add regular parameters
         for param in &function.params {
             let param_type = if let Some(type_name) = &param.type_name {
                 self.resolve_type(type_name)
@@ -819,6 +826,13 @@ impl TypeChecker {
             Expr::String(_) => Ok(Type::String),
 
             Expr::Identifier(name) => self.lookup_variable(name),
+
+            Expr::TypeExpr { type_name: _ } => {
+                // Type expressions represent types themselves
+                // For now, we'll treat them as a special unknown type
+                // In a full implementation, this would be a proper Type type
+                Ok(Type::Unknown)
+            }
 
             Expr::Binary { left, op, right } => {
                 let left_type = self.check_expression(left)?;

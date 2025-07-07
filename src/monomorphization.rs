@@ -250,7 +250,7 @@ impl Monomorphizer {
                 }
             }
             // Simple expressions don't need recursive processing
-            Expr::Number(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) => {}
+            Expr::Number(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) | Expr::TypeExpr { .. } => {}
         }
         Ok(())
     }
@@ -476,6 +476,7 @@ impl Monomorphizer {
             Expr::Boolean(b) => Ok(Expr::Boolean(*b)),
             Expr::String(s) => Ok(Expr::String(s.clone())),
             Expr::Identifier(name) => Ok(Expr::Identifier(name.clone())),
+            Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr { type_name: substitute_type_in_string(type_name, substitutions) }),
 
             // Complex expressions that may contain type information
             Expr::Binary { left, op, right } => {
@@ -678,6 +679,7 @@ impl Monomorphizer {
             Expr::Boolean(b) => Ok(Expr::Boolean(*b)),
             Expr::String(s) => Ok(Expr::String(s.clone())),
             Expr::Identifier(name) => Ok(Expr::Identifier(name.clone())),
+            Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr { type_name: type_name.clone() }),
 
             // Complex expressions
             Expr::Binary { left, op, right } => {
