@@ -9,7 +9,7 @@ Orbit is a statically typed programming language designed for high-performance c
 Orbit is designed with the following principles:
 
 - **Static Typing**: All types are known at compile time, enabling optimization and preventing runtime type errors
-- **Performance**: JIT compilation to native AArch64 code for maximum runtime performance
+- **Performance**: Efficient virtual machine execution with planned JIT compilation for maximum performance
 - **Safety**: Strong type system prevents common programming errors
 - **Simplicity**: Clean, readable syntax that is easy to learn and use
 - **Generics**: Powerful generic system for code reuse without performance overhead
@@ -17,7 +17,7 @@ Orbit is designed with the following principles:
 ## Key Features
 
 - **Static Type System**: Comprehensive type checking at compile time
-- **JIT Compilation**: Native code generation for AArch64 architecture
+- **Virtual Machine**: Efficient stack-based execution with comprehensive debugging support
 - **Generic Programming**: Generic types and functions with monomorphization
 - **Structured Programming**: Support for structs with methods
 - **Built-in Data Structures**: Native support for vectors, maps, and slices
@@ -34,14 +34,14 @@ The Orbit compiler follows a multi-stage compilation pipeline:
 4. **Desugaring**: Complex language constructs are simplified
 5. **Monomorphization**: Generic types and functions are instantiated
 6. **Code Generation**: IR (Intermediate Representation) is generated
-7. **Execution**: Either VM interpretation or JIT compilation to native code
+7. **Execution**: Virtual machine interpretation with comprehensive debugging and profiling support
 
 ## Runtime Execution
 
-Orbit supports two execution modes:
+Orbit currently supports virtual machine execution:
 
-- **Virtual Machine**: Stack-based interpreter for development and debugging
-- **JIT Compilation**: Direct compilation to native AArch64 machine code for production
+- **Virtual Machine**: Stack-based interpreter for development and production
+- **JIT Compilation**: (Planned) Direct compilation to native AArch64 machine code for maximum performance
 
 ## Language Status
 
@@ -51,13 +51,15 @@ Orbit is currently in active development. The core language features are impleme
 - Static typing with type inference
 - Functions with parameters and return types
 - Structs with methods
-- Generic types and functions
+- Generic types and functions with monomorphization
 - Control flow (if/else, while loops)
 - Built-in data structures (vectors, maps, slices)
 - Global variables
-- JIT compilation for AArch64
+- Virtual machine execution
+- Comprehensive debugging tools (IR dump, stack traces, profiling)
 
 ### Planned Features (Roadmap)
+- JIT compilation for AArch64
 - Garbage collection
 - Variable shadowing
 - Operator overloading
