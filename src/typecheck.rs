@@ -1,97 +1,61 @@
-use crate::ast::{BinaryOp, Decl, Expr, Function, IndexContainerType, Program, Stmt, StructDecl};
+use crate::ast::{BinaryOp, Decl, Expr, Function, IndexContainerType, Program, Stmt, StructDecl, Type};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Type {
-    Unknown,
-    Bool,
-    Number,
-    String,
-    Vector {
-        element_type: Box<Type>,
-    },
-    Map {
-        key_type: Box<Type>,
-        value_type: Box<Type>,
-    },
-    Pointer {
-        element_type: Box<Type>,
-    },
-    Function {
-        param_types: Vec<Type>,
-        return_type: Box<Type>,
-    },
-    Struct {
-        name: String,
-        fields: HashMap<String, Type>,
-    },
-}
-
-impl std::fmt::Display for Type {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Type::Unknown => write!(f, "unknown"),
-            Type::Bool => write!(f, "bool"),
-            Type::Number => write!(f, "number"),
-            Type::String => write!(f, "string"),
-            Type::Vector { element_type } => write!(f, "vec({})", element_type),
-            Type::Map {
-                key_type,
-                value_type,
-            } => write!(f, "map({}, {})", key_type, value_type),
-            Type::Pointer { element_type } => write!(f, "[*]{}", element_type),
-            Type::Function {
-                param_types,
-                return_type,
-            } => {
-                write!(f, "(")?;
-                for (i, param) in param_types.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", param)?;
-                }
-                write!(f, ") -> {}", return_type)
-            }
-            Type::Struct { name, .. } => write!(f, "{}", name),
-        }
-    }
-}
 
 impl Type {
     /// Parse a type string like "int", "vec(int)", "map(string, int)"
     pub fn from_string(type_str: &str) -> Type {
         match type_str {
-            "bool" => Type::Bool,
+            "bool" | "boolean" => Type::Boolean,
             "int" | "number" => Type::Number,
             "string" | "[*]byte" => Type::String, // Treat [*]byte as string
             "byte" => Type::Number,               // Individual bytes are numbers
             _ => {
                 if type_str.starts_with("vec(") && type_str.ends_with(')') {
                     let inner = &type_str[4..type_str.len() - 1];
-                    Type::Vector {
-                        element_type: Box::new(Type::from_string(inner)),
-                    }
+                    Type::Vector(Box::new(Type::from_string(inner)))
                 } else if type_str.starts_with("map(") && type_str.ends_with(')') {
                     let inner = &type_str[4..type_str.len() - 1];
                     if let Some(comma_pos) = inner.find(", ") {
                         let key_type = &inner[..comma_pos];
                         let value_type = &inner[comma_pos + 2..];
-                        Type::Map {
-                            key_type: Box::new(Type::from_string(key_type)),
-                            value_type: Box::new(Type::from_string(value_type)),
-                        }
+                        Type::Map(
+                            Box::new(Type::from_string(key_type)),
+                            Box::new(Type::from_string(value_type)),
+                        )
                     } else {
                         Type::Unknown
                     }
                 } else if type_str.starts_with("[*]") {
                     let inner = &type_str[3..];
-                    Type::Pointer {
-                        element_type: Box::new(Type::from_string(inner)),
+                    Type::Pointer(Box::new(Type::from_string(inner)))
+                } else if type_str.contains('(') && type_str.ends_with(')') {
+                    // Handle generic type instantiation: Type(arg1, arg2, ...)
+                    if let Some(paren_pos) = type_str.find('(') {
+                        let name = &type_str[..paren_pos];
+                        let args_str = &type_str[paren_pos + 1..type_str.len() - 1];
+                        
+                        if args_str.is_empty() {
+                            Type::Generic {
+                                name: name.to_string(),
+                                args: vec![],
+                            }
+                        } else {
+                            let args: Vec<Type> = args_str
+                                .split(", ")
+                                .map(|arg| Type::from_string(arg.trim()))
+                                .collect();
+                            Type::Generic {
+                                name: name.to_string(),
+                                args,
+                            }
+                        }
+                    } else {
+                        Type::Struct(type_str.to_string())
                     }
                 } else {
-                    Type::Unknown
+                    // Could be a struct name or type parameter
+                    Type::Struct(type_str.to_string())
                 }
             }
         }
@@ -102,26 +66,26 @@ impl Type {
         match (self, other) {
             // Only allow Unknown compatibility during type inference phase
             (Type::Unknown, _) | (_, Type::Unknown) => true,
-            (Type::Bool, Type::Bool) => true,
+            (Type::Boolean, Type::Boolean) => true,
             (Type::Number, Type::Number) => true,
             (Type::String, Type::String) => true,
-            (Type::Vector { element_type: e1 }, Type::Vector { element_type: e2 }) => {
-                e1.is_compatible_with(e2)
+            (Type::Vector(e1), Type::Vector(e2)) => e1.is_compatible_with(e2),
+            (Type::Pointer(e1), Type::Pointer(e2)) => e1.is_compatible_with(e2),
+            (Type::Map(k1, v1), Type::Map(k2, v2)) => {
+                k1.is_compatible_with(k2) && v1.is_compatible_with(v2)
             }
-            (Type::Pointer { element_type: e1 }, Type::Pointer { element_type: e2 }) => {
-                e1.is_compatible_with(e2)
+            (Type::Struct(n1), Type::Struct(n2)) => n1 == n2,
+            (Type::Function { params: p1, return_type: r1 }, Type::Function { params: p2, return_type: r2 }) => {
+                p1.len() == p2.len() 
+                    && p1.iter().zip(p2.iter()).all(|(t1, t2)| t1.is_compatible_with(t2))
+                    && r1.is_compatible_with(r2)
             }
-            (
-                Type::Map {
-                    key_type: k1,
-                    value_type: v1,
-                },
-                Type::Map {
-                    key_type: k2,
-                    value_type: v2,
-                },
-            ) => k1.is_compatible_with(k2) && v1.is_compatible_with(v2),
-            (Type::Struct { name: n1, .. }, Type::Struct { name: n2, .. }) => n1 == n2,
+            (Type::Generic { name: n1, args: a1 }, Type::Generic { name: n2, args: a2 }) => {
+                n1 == n2 
+                    && a1.len() == a2.len()
+                    && a1.iter().zip(a2.iter()).all(|(t1, t2)| t1.is_compatible_with(t2))
+            }
+            (Type::TypeParameter(n1), Type::TypeParameter(n2)) => n1 == n2,
             _ => false,
         }
     }
@@ -129,26 +93,26 @@ impl Type {
     /// Check strict type equality (no Unknown compatibility)
     pub fn is_exactly(&self, other: &Type) -> bool {
         match (self, other) {
-            (Type::Bool, Type::Bool) => true,
+            (Type::Boolean, Type::Boolean) => true,
             (Type::Number, Type::Number) => true,
             (Type::String, Type::String) => true,
-            (Type::Vector { element_type: e1 }, Type::Vector { element_type: e2 }) => {
-                e1.is_exactly(e2)
+            (Type::Vector(e1), Type::Vector(e2)) => e1.is_exactly(e2),
+            (Type::Pointer(e1), Type::Pointer(e2)) => e1.is_exactly(e2),
+            (Type::Map(k1, v1), Type::Map(k2, v2)) => {
+                k1.is_exactly(k2) && v1.is_exactly(v2)
             }
-            (Type::Pointer { element_type: e1 }, Type::Pointer { element_type: e2 }) => {
-                e1.is_exactly(e2)
+            (Type::Struct(n1), Type::Struct(n2)) => n1 == n2,
+            (Type::Function { params: p1, return_type: r1 }, Type::Function { params: p2, return_type: r2 }) => {
+                p1.len() == p2.len() 
+                    && p1.iter().zip(p2.iter()).all(|(t1, t2)| t1.is_exactly(t2))
+                    && r1.is_exactly(r2)
             }
-            (
-                Type::Map {
-                    key_type: k1,
-                    value_type: v1,
-                },
-                Type::Map {
-                    key_type: k2,
-                    value_type: v2,
-                },
-            ) => k1.is_exactly(k2) && v1.is_exactly(v2),
-            (Type::Struct { name: n1, .. }, Type::Struct { name: n2, .. }) => n1 == n2,
+            (Type::Generic { name: n1, args: a1 }, Type::Generic { name: n2, args: a2 }) => {
+                n1 == n2 
+                    && a1.len() == a2.len()
+                    && a1.iter().zip(a2.iter()).all(|(t1, t2)| t1.is_exactly(t2))
+            }
+            (Type::TypeParameter(n1), Type::TypeParameter(n2)) => n1 == n2,
             _ => false,
         }
     }
@@ -167,6 +131,12 @@ pub struct TypeChecker {
     functions: HashMap<String, Type>,
     /// Struct type registry
     structs: HashMap<String, Type>,
+    /// Struct field information (maps struct name to field types)
+    struct_fields: HashMap<String, HashMap<String, Type>>,
+    /// Generic type parameter environment (maps type parameter names to types)
+    type_params: HashMap<String, Type>,
+    /// Stack of type parameter environments for nested generic scopes
+    type_param_stack: Vec<HashMap<String, Type>>,
 }
 
 impl TypeChecker {
@@ -178,6 +148,48 @@ impl TypeChecker {
             current_return_type: None,
             functions: HashMap::new(),
             structs: HashMap::new(),
+            struct_fields: HashMap::new(),
+            type_params: HashMap::new(),
+            type_param_stack: Vec::new(),
+        }
+    }
+
+    /// Enter a new generic scope with the given type parameters
+    fn enter_generic_scope(&mut self, type_params: &[String]) {
+        // Save current type parameters
+        self.type_param_stack.push(self.type_params.clone());
+        
+        // Add new type parameters as TypeParameter types
+        for param in type_params {
+            self.type_params.insert(param.clone(), Type::TypeParameter(param.clone()));
+        }
+    }
+
+    /// Exit the current generic scope
+    fn exit_generic_scope(&mut self) {
+        if let Some(previous_params) = self.type_param_stack.pop() {
+            self.type_params = previous_params;
+        }
+    }
+
+    /// Resolve a type string to a concrete type, handling type parameters
+    fn resolve_type(&self, type_str: &str) -> Type {
+        // First check if it's a type parameter
+        if let Some(param_type) = self.type_params.get(type_str) {
+            return param_type.clone();
+        }
+        
+        // Try standard type parsing
+        let parsed_type = Type::from_string(type_str);
+        match parsed_type {
+            Type::Struct(name) => {
+                // Check if it's a registered struct type
+                self.structs
+                    .get(&name)
+                    .cloned()
+                    .unwrap_or(Type::Struct(name))
+            }
+            other => other,
         }
     }
 
@@ -338,7 +350,7 @@ impl TypeChecker {
                     Type::Vector { .. } => {
                         *container_type = Some(IndexContainerType::Vector);
                     }
-                    Type::Map { .. } => {
+                    Type::Map(_, _) => {
                         *container_type = Some(IndexContainerType::Map);
                     }
                     Type::Pointer { .. } => {
@@ -410,7 +422,7 @@ impl TypeChecker {
                     Type::Vector { .. } => {
                         *container_type = Some(IndexContainerType::Vector);
                     }
-                    Type::Map { .. } => {
+                    Type::Map(_, _) => {
                         *container_type = Some(IndexContainerType::Map);
                     }
                     Type::Pointer { .. } => {
@@ -457,7 +469,7 @@ impl TypeChecker {
 
                 // Set object type information based on object expression type
                 let obj_type = self.check_expression(object)?;
-                if let Type::Struct { name, .. } = obj_type {
+                if let Type::Struct(name) = obj_type {
                     *object_type = Some(name);
                 }
 
@@ -474,21 +486,21 @@ impl TypeChecker {
     /// Register a function signature with a specific name (for name mangling)
     fn register_function_with_name(&mut self, name: &str, function: &Function) -> Result<()> {
         // Determine parameter types
-        let mut param_types = Vec::new();
+        let mut params = Vec::new();
         for param in &function.params {
             let param_type = if let Some(type_name) = &param.type_name {
                 self.resolve_type(type_name)
             } else {
                 Type::Unknown // For now, allow unknown types
             };
-            param_types.push(param_type);
+            params.push(param_type);
         }
 
         // Infer return type based on function body analysis
         let return_type = self.infer_function_return_type(function);
 
         let function_type = Type::Function {
-            param_types,
+            params,
             return_type: Box::new(return_type),
         };
 
@@ -498,21 +510,41 @@ impl TypeChecker {
 
     /// Register a struct type for later type checking
     fn register_struct(&mut self, struct_decl: &StructDecl) -> Result<()> {
+        // For generic structs, we register the generic template
+        // The actual instantiation will happen during monomorphization
+        if !struct_decl.type_params.is_empty() {
+            // This is a generic struct - store as a generic type template
+            let struct_type = Type::Generic {
+                name: struct_decl.name.clone(),
+                args: struct_decl.type_params.iter()
+                    .map(|param| Type::TypeParameter(param.clone()))
+                    .collect(),
+            };
+            self.structs.insert(struct_decl.name.clone(), struct_type);
+            
+            // For generic structs, we need to enter generic scope to properly resolve field types
+            self.enter_generic_scope(&struct_decl.type_params);
+        } else {
+            // Regular struct - handle as before but with new Type enum structure
+            let struct_type = Type::Struct(struct_decl.name.clone());
+            self.structs.insert(struct_decl.name.clone(), struct_type);
+        }
+
+        // Store struct field information
         let mut fields = HashMap::new();
         for field in &struct_decl.fields {
             let field_type = self.resolve_type(&field.type_name);
             fields.insert(field.name.clone(), field_type);
         }
+        self.struct_fields.insert(struct_decl.name.clone(), fields);
 
-        let struct_type = Type::Struct {
-            name: struct_decl.name.clone(),
-            fields,
-        };
-
-        // Register the struct type in the type registry
-        self.structs.insert(struct_decl.name.clone(), struct_type);
+        // Exit generic scope if we entered it
+        if !struct_decl.type_params.is_empty() {
+            self.exit_generic_scope();
+        }
 
         // Register struct methods with name mangling
+        // For generic structs, these will also be generic function templates
         for method in &struct_decl.methods {
             let mangled_name = format!("{}_{}", struct_decl.name, method.name);
             self.register_function_with_name(&mangled_name, method)?;
@@ -521,20 +553,6 @@ impl TypeChecker {
         Ok(())
     }
 
-    /// Resolve a type name to a Type, checking struct registry
-    fn resolve_type(&self, type_name: &str) -> Type {
-        // First check if it's a built-in type
-        match Type::from_string(type_name) {
-            Type::Unknown => {
-                // Check if it's a registered struct type
-                self.structs
-                    .get(type_name)
-                    .cloned()
-                    .unwrap_or(Type::Unknown)
-            }
-            other => other,
-        }
-    }
 
     /// Type check a declaration
     fn check_declaration(&mut self, decl: &Decl) -> Result<()> {
@@ -551,6 +569,11 @@ impl TypeChecker {
 
     /// Type check a function
     fn check_function(&mut self, function: &Function) -> Result<()> {
+        // Enter generic scope if this function has type parameters
+        if !function.type_params.is_empty() {
+            self.enter_generic_scope(&function.type_params);
+        }
+
         // Create new scope for function
         let mut local_scope = HashMap::new();
 
@@ -576,6 +599,11 @@ impl TypeChecker {
 
         self.call_stack.pop();
         self.current_return_type = None;
+
+        // Exit generic scope if this function has type parameters
+        if !function.type_params.is_empty() {
+            self.exit_generic_scope();
+        }
 
         Ok(())
     }
@@ -622,7 +650,7 @@ impl TypeChecker {
                 else_branch,
             } => {
                 let condition_type = self.check_expression(condition)?;
-                if !condition_type.is_compatible_with(&Type::Bool) {
+                if !condition_type.is_compatible_with(&Type::Boolean) {
                     bail!("If condition must be boolean, got {}", condition_type);
                 }
 
@@ -640,7 +668,7 @@ impl TypeChecker {
 
             Stmt::While { condition, body } => {
                 let condition_type = self.check_expression(condition)?;
-                if !condition_type.is_compatible_with(&Type::Bool) {
+                if !condition_type.is_compatible_with(&Type::Boolean) {
                     bail!("While condition must be boolean, got {}", condition_type);
                 }
 
@@ -670,7 +698,7 @@ impl TypeChecker {
                 let vector_type = self.lookup_variable(vector)?;
 
                 match &vector_type {
-                    Type::Vector { element_type } => {
+                    Type::Vector(element_type) => {
                         if !value_type.is_compatible_with(element_type) {
                             bail!(
                                 "Vector push type mismatch: vector element type is {}, pushed {}",
@@ -696,7 +724,7 @@ impl TypeChecker {
 
                 // Just perform type checking, inference will be done separately
                 match &collection_type {
-                    Type::Vector { element_type } => {
+                    Type::Vector(element_type) => {
                         if !index_type.is_compatible_with(&Type::Number) {
                             bail!("Vector index must be number, got {}", index_type);
                         }
@@ -708,10 +736,7 @@ impl TypeChecker {
                             );
                         }
                     }
-                    Type::Map {
-                        key_type,
-                        value_type: map_value_type,
-                    } => {
+                    Type::Map(key_type, map_value_type) => {
                         if !index_type.is_compatible_with(key_type) {
                             bail!(
                                 "Map key type mismatch: expected {}, got {}",
@@ -727,7 +752,7 @@ impl TypeChecker {
                             );
                         }
                     }
-                    Type::Pointer { element_type } => {
+                    Type::Pointer(element_type) => {
                         if !index_type.is_compatible_with(&Type::Number) {
                             bail!("Pointer index must be number, got {}", index_type);
                         }
@@ -756,18 +781,24 @@ impl TypeChecker {
                 let value_type = self.check_expression(value)?;
 
                 match &object_type {
-                    Type::Struct { fields, .. } => match fields.get(field) {
-                        Some(field_type) => {
-                            if !value_type.is_compatible_with(field_type) {
-                                bail!(
-                                        "Field assignment type mismatch: field '{}' has type {}, assigned {}",
-                                        field,
-                                        field_type,
-                                        value_type
-                                    );
+                    Type::Struct(struct_name) => {
+                        if let Some(fields) = self.struct_fields.get(struct_name) {
+                            match fields.get(field) {
+                                Some(field_type) => {
+                                    if !value_type.is_compatible_with(field_type) {
+                                        bail!(
+                                            "Field assignment type mismatch: field '{}' has type {}, assigned {}",
+                                            field,
+                                            field_type,
+                                            value_type
+                                        );
+                                    }
+                                }
+                                None => bail!("Field '{}' not found in struct '{}'", field, struct_name),
                             }
+                        } else {
+                            bail!("Unknown struct type: {}", struct_name);
                         }
-                        None => bail!("Field '{}' not found in struct", field),
                     },
                     _ => bail!(
                         "Cannot assign field '{}' on non-struct type: {}",
@@ -784,7 +815,7 @@ impl TypeChecker {
     fn check_expression(&mut self, expr: &Expr) -> Result<Type> {
         match expr {
             Expr::Number(_) => Ok(Type::Number),
-            Expr::Boolean(_) => Ok(Type::Bool),
+            Expr::Boolean(_) => Ok(Type::Boolean),
             Expr::String(_) => Ok(Type::String),
 
             Expr::Identifier(name) => self.lookup_variable(name),
@@ -824,7 +855,7 @@ impl TypeChecker {
                     }
                     BinaryOp::Equal | BinaryOp::NotEqual => {
                         if left_type.is_compatible_with(&right_type) {
-                            Ok(Type::Bool)
+                            Ok(Type::Boolean)
                         } else {
                             bail!(
                                 "Comparison type mismatch: {} and {} are not comparable",
@@ -840,7 +871,7 @@ impl TypeChecker {
                         if left_type.is_compatible_with(&Type::Number)
                             && right_type.is_compatible_with(&Type::Number)
                         {
-                            Ok(Type::Bool)
+                            Ok(Type::Boolean)
                         } else {
                             bail!(
                                 "Comparison operation requires numbers: {} {} {}",
@@ -872,16 +903,16 @@ impl TypeChecker {
                     // Look up function signature and clone it to avoid borrow checker issues
                     if let Some(func_type) = self.functions.get(func_name).cloned() {
                         if let Type::Function {
-                            param_types,
+                            params,
                             return_type,
                         } = func_type
                         {
                             // Check argument count
-                            if args.len() != param_types.len() {
+                            if args.len() != params.len() {
                                 bail!(
                                     "Function '{}' expects {} arguments, got {}",
                                     func_name,
-                                    param_types.len(),
+                                    params.len(),
                                     args.len()
                                 );
                             }
@@ -889,12 +920,12 @@ impl TypeChecker {
                             // Check argument types
                             for (i, arg) in args.iter().enumerate() {
                                 let arg_type = self.check_expression(arg)?;
-                                if !arg_type.is_compatible_with(&param_types[i]) {
+                                if !arg_type.is_compatible_with(&params[i]) {
                                     bail!(
                                         "Function '{}' argument {} type mismatch: expected {}, got {}",
                                         func_name,
                                         i + 1,
-                                        param_types[i],
+                                        params[i],
                                         arg_type
                                     );
                                 }
@@ -935,9 +966,7 @@ impl TypeChecker {
                     }
                 }
 
-                Ok(Type::Vector {
-                    element_type: Box::new(element_type),
-                })
+                Ok(Type::Vector(Box::new(element_type)))
             }
 
             Expr::PointerNew {
@@ -958,9 +987,7 @@ impl TypeChecker {
                     }
                 }
 
-                Ok(Type::Pointer {
-                    element_type: Box::new(element_type),
-                })
+                Ok(Type::Pointer(Box::new(element_type)))
             }
 
             Expr::Index {
@@ -973,16 +1000,13 @@ impl TypeChecker {
 
                 // Just perform type checking, inference will be done separately
                 match &container_value_type {
-                    Type::Vector { element_type } => {
+                    Type::Vector(element_type) => {
                         if !index_type.is_compatible_with(&Type::Number) {
                             bail!("Vector index must be number, got {}", index_type);
                         }
                         Ok(*element_type.clone())
                     }
-                    Type::Map {
-                        key_type,
-                        value_type,
-                    } => {
+                    Type::Map(key_type, value_type) => {
                         if !index_type.is_compatible_with(key_type) {
                             bail!(
                                 "Map key type mismatch: expected {}, got {}",
@@ -992,7 +1016,7 @@ impl TypeChecker {
                         }
                         Ok(*value_type.clone())
                     }
-                    Type::Pointer { element_type } => {
+                    Type::Pointer(element_type) => {
                         if !index_type.is_compatible_with(&Type::Number) {
                             bail!("Pointer index must be number, got {}", index_type);
                         }
@@ -1038,24 +1062,25 @@ impl TypeChecker {
                     }
                 }
 
-                Ok(Type::Map {
-                    key_type: Box::new(key_type),
-                    value_type: Box::new(value_type),
-                })
+                Ok(Type::Map(Box::new(key_type), Box::new(value_type)))
             }
 
             Expr::StructNew { type_name, fields } => {
-                // Look up the struct type
-                let struct_type = match self.structs.get(type_name) {
-                    Some(Type::Struct {
-                        fields: struct_fields,
-                        ..
-                    }) => struct_fields.clone(),
-                    _ => bail!("Unknown struct type: {}", type_name),
+                // Look up the struct field information, handling generic instantiation
+                let struct_fields = match self.struct_fields.get(type_name) {
+                    Some(fields) => fields.clone(),
+                    None => {
+                        // Check if this is a generic struct instantiation like "Container(int)"
+                        if let Some(generic_fields) = self.resolve_generic_struct_fields(type_name) {
+                            generic_fields
+                        } else {
+                            bail!("Unknown struct type: {}", type_name)
+                        }
+                    }
                 };
 
                 // Check that all required fields are provided
-                for (field_name, _field_type) in &struct_type {
+                for (field_name, _field_type) in &struct_fields {
                     if !fields.iter().any(|(name, _)| name == field_name) {
                         bail!(
                             "Missing required field '{}' in struct '{}'",
@@ -1067,7 +1092,7 @@ impl TypeChecker {
 
                 // Check that all provided fields are valid and have correct types
                 for (field_name, field_value) in fields {
-                    let field_type = struct_type.get(field_name).ok_or_else(|| {
+                    let field_type = struct_fields.get(field_name).ok_or_else(|| {
                         anyhow::anyhow!("Unknown field '{}' in struct '{}'", field_name, type_name)
                     })?;
 
@@ -1082,19 +1107,40 @@ impl TypeChecker {
                     }
                 }
 
-                self.structs
-                    .get(type_name)
-                    .cloned()
-                    .ok_or_else(|| anyhow::anyhow!("Unknown struct type: {}", type_name))
+                // Return the appropriate struct type
+                match self.structs.get(type_name) {
+                    Some(struct_type) => Ok(struct_type.clone()),
+                    None => {
+                        // Handle generic struct instantiation
+                        if let Some(generic_type) = self.resolve_generic_struct_type(type_name) {
+                            Ok(generic_type)
+                        } else {
+                            bail!("Unknown struct type: {}", type_name)
+                        }
+                    }
+                }
             }
 
             Expr::FieldAccess { object, field } => {
                 let object_type = self.check_expression(object)?;
                 match object_type {
-                    Type::Struct { fields, .. } => fields
-                        .get(field)
-                        .cloned()
-                        .ok_or_else(|| anyhow::anyhow!("Field '{}' not found in struct", field)),
+                    Type::Struct(struct_name) => {
+                        // First try to find the struct fields directly
+                        if let Some(fields) = self.struct_fields.get(&struct_name) {
+                            fields
+                                .get(field)
+                                .cloned()
+                                .ok_or_else(|| anyhow::anyhow!("Field '{}' not found in struct '{}'", field, struct_name))
+                        } else if let Some(generic_fields) = self.resolve_generic_struct_fields(&struct_name) {
+                            // Handle generic struct instantiation field access
+                            generic_fields
+                                .get(field)
+                                .cloned()
+                                .ok_or_else(|| anyhow::anyhow!("Field '{}' not found in struct '{}'", field, struct_name))
+                        } else {
+                            bail!("Unknown struct type: {}", struct_name)
+                        }
+                    }
                     _ => bail!(
                         "Cannot access field '{}' on non-struct type: {}",
                         field,
@@ -1111,7 +1157,7 @@ impl TypeChecker {
             } => {
                 let object_type = self.check_expression(object)?;
                 match object_type {
-                    Type::Struct { name, .. } => {
+                    Type::Struct(name) => {
                         // Method calls will be handled by name mangling
                         // For now, return Unknown type - this will be refined later
                         // when we implement proper method resolution
@@ -1158,7 +1204,7 @@ impl TypeChecker {
                         self.structs.get(type_name).cloned()
                     }
                     Expr::Number(_) => Some(Type::Number),
-                    Expr::Boolean(_) => Some(Type::Bool),
+                    Expr::Boolean(_) => Some(Type::Boolean),
                     Expr::String(_) => Some(Type::String),
                     // For other expressions, we'd need more complex analysis
                     _ => Some(Type::Number), // Default fallback
@@ -1222,6 +1268,103 @@ impl TypeChecker {
 
         bail!("Undefined variable: {}", name)
     }
+
+    /// Resolve field information for a generic struct instantiation like "Container(int)"
+    fn resolve_generic_struct_fields(&self, type_name: &str) -> Option<HashMap<String, Type>> {
+        // Parse generic type instantiation
+        if let Some(generic_info) = self.parse_generic_instantiation(type_name) {
+            let (generic_name, concrete_args) = generic_info;
+            
+            // Find the generic struct declaration and get its type parameters
+            if let Some(struct_type) = self.structs.get(&generic_name) {
+                if let Type::Generic { name: _, args: type_params } = struct_type {
+                    // Create mapping from type parameter names to concrete types
+                    let mut type_mapping = HashMap::new();
+                    for (param, concrete_type) in type_params.iter().zip(concrete_args.iter()) {
+                        if let Type::TypeParameter(param_name) = param {
+                            type_mapping.insert(param_name.clone(), concrete_type.clone());
+                        }
+                    }
+                    
+                    // Find the generic struct fields and substitute type parameters
+                    if let Some(generic_fields) = self.struct_fields.get(&generic_name) {
+                        let mut concrete_fields = HashMap::new();
+                        for (field_name, field_type) in generic_fields {
+                            let concrete_field_type = self.substitute_type_with_mapping(field_type, &type_mapping);
+                            concrete_fields.insert(field_name.clone(), concrete_field_type);
+                        }
+                        return Some(concrete_fields);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Resolve type for a generic struct instantiation like "Container(int)"
+    fn resolve_generic_struct_type(&self, type_name: &str) -> Option<Type> {
+        // For now, return a struct type with the instantiated name
+        // In the future, this could be more sophisticated
+        Some(Type::Struct(type_name.to_string()))
+    }
+
+    /// Parse a generic instantiation like "Container(int)" into ("Container", [Type::Number])
+    fn parse_generic_instantiation(&self, type_name: &str) -> Option<(String, Vec<Type>)> {
+        if type_name.contains('(') && type_name.ends_with(')') {
+            if let Some(paren_pos) = type_name.find('(') {
+                let generic_name = &type_name[..paren_pos];
+                let args_str = &type_name[paren_pos + 1..type_name.len() - 1];
+                
+                if args_str.is_empty() {
+                    return Some((generic_name.to_string(), vec![]));
+                }
+                
+                let concrete_args: Vec<Type> = args_str
+                    .split(", ")
+                    .map(|arg| Type::from_string(arg.trim()))
+                    .collect();
+                
+                return Some((generic_name.to_string(), concrete_args));
+            }
+        }
+        None
+    }
+
+    /// Substitute type parameters in a type using a name-based mapping
+    fn substitute_type_with_mapping(&self, field_type: &Type, type_mapping: &HashMap<String, Type>) -> Type {
+        match field_type {
+            Type::TypeParameter(param_name) => {
+                // Look up the concrete type for this type parameter
+                type_mapping.get(param_name).cloned().unwrap_or_else(|| field_type.clone())
+            }
+            Type::Vector(elem_type) => {
+                Type::Vector(Box::new(self.substitute_type_with_mapping(elem_type, type_mapping)))
+            }
+            Type::Map(key_type, value_type) => {
+                Type::Map(
+                    Box::new(self.substitute_type_with_mapping(key_type, type_mapping)),
+                    Box::new(self.substitute_type_with_mapping(value_type, type_mapping)),
+                )
+            }
+            Type::Pointer(elem_type) => {
+                Type::Pointer(Box::new(self.substitute_type_with_mapping(elem_type, type_mapping)))
+            }
+            Type::Generic { name, args } => {
+                Type::Generic {
+                    name: name.clone(),
+                    args: args.iter().map(|arg| self.substitute_type_with_mapping(arg, type_mapping)).collect(),
+                }
+            }
+            Type::Function { params, return_type } => {
+                Type::Function {
+                    params: params.iter().map(|param| self.substitute_type_with_mapping(param, type_mapping)).collect(),
+                    return_type: Box::new(self.substitute_type_with_mapping(return_type, type_mapping)),
+                }
+            }
+            // For other types, return as-is
+            _ => field_type.clone(),
+        }
+    }
 }
 
 fn op_to_string(op: &BinaryOp) -> &'static str {
@@ -1251,7 +1394,7 @@ mod tests {
 
         // Test basic types
         assert_eq!(Type::from_string("int"), Type::Number);
-        assert_eq!(Type::from_string("bool"), Type::Bool);
+        assert_eq!(Type::from_string("bool"), Type::Boolean);
         assert_eq!(Type::from_string("string"), Type::String);
     }
 
@@ -1324,30 +1467,22 @@ mod tests {
         let pointer_type = Type::from_string("[*]int");
         assert!(matches!(pointer_type, Type::Pointer { .. }));
         
-        if let Type::Pointer { element_type } = pointer_type {
+        if let Type::Pointer(element_type) = pointer_type {
             assert!(matches!(element_type.as_ref(), Type::Number));
         }
     }
 
     #[test]
     fn test_pointer_type_display() {
-        let pointer_type = Type::Pointer {
-            element_type: Box::new(Type::Number),
-        };
+        let pointer_type = Type::Pointer(Box::new(Type::Number));
         assert_eq!(format!("{}", pointer_type), "[*]number");
     }
 
     #[test]
     fn test_pointer_type_compatibility() {
-        let pointer1 = Type::Pointer {
-            element_type: Box::new(Type::Number),
-        };
-        let pointer2 = Type::Pointer {
-            element_type: Box::new(Type::Number),
-        };
-        let different_pointer = Type::Pointer {
-            element_type: Box::new(Type::String),
-        };
+        let pointer1 = Type::Pointer(Box::new(Type::Number));
+        let pointer2 = Type::Pointer(Box::new(Type::Number));
+        let different_pointer = Type::Pointer(Box::new(Type::String));
 
         assert!(pointer1.is_compatible_with(&pointer2));
         assert!(!pointer1.is_compatible_with(&different_pointer));

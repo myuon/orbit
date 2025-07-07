@@ -899,14 +899,8 @@ impl Parser {
                     })
                 } else {
                     // Handle struct instantiation: new TypeName { .field = value, ... }
-                    let type_name = match &self.current_token().token_type {
-                        TokenType::Identifier(name) => {
-                            let n = name.clone();
-                            self.advance();
-                            n
-                        }
-                        _ => bail!("Expected type name after 'new'"),
-                    };
+                    // Support generic types: new Container(int) { .field = value, ... }
+                    let type_name = self.parse_type_name()?;
 
                     self.consume(TokenType::LeftBrace)?;
 

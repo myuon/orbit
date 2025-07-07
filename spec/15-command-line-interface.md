@@ -30,6 +30,8 @@ The compiler takes a single Orbit source file (`.ob` extension) as input and exe
 
 - `--dump-ir=<file>` - Dump the compiled intermediate representation (IR) to the specified file. The IR shows the VM bytecode instructions generated from the source code, useful for understanding compilation output and debugging compiler issues.
 
+- `--dump-monomorphized-code[=<file>]` - Dump the monomorphized code after generic instantiation. Shows how generic types and functions are instantiated with concrete types. If no file is specified, output goes to stdout. Useful for debugging generics and understanding the monomorphization process.
+
 #### Profiling Options
 
 - `--profile` - Enable execution profiling and print performance results to stdout. Collects timing information for instructions and function calls.
@@ -78,6 +80,20 @@ orbit program.ob --dump-ir=program.ir
 
 Compile the program and save the generated VM bytecode to `program.ir` for inspection.
 
+### Monomorphized Code Dump
+
+```bash
+orbit generic_program.ob --dump-monomorphized-code
+```
+
+Execute a program with generics and display the monomorphized code showing concrete type instantiations.
+
+```bash
+orbit generic_program.ob --dump-monomorphized-code=monomorphized.ob
+```
+
+Save the monomorphized code to a file for detailed analysis of how generics are instantiated.
+
 ### Profiling
 
 ```bash
@@ -125,6 +141,12 @@ orbit debug_program.ob --timeout=10s --print-stacks --dump-ir=crash.ir
 ```
 
 Debug a problematic program with timeout protection, full stack traces, and IR output for analysis.
+
+```bash
+orbit generic_program.ob --dump-monomorphized-code=mono.ob --dump-ir=debug.ir --profile
+```
+
+Analyze a generic program by dumping both the monomorphized source code and the generated IR, with profiling enabled.
 
 ## Exit Codes
 
@@ -221,6 +243,8 @@ The CLI parser is implemented in `src/main.rs` with the following structure:
 struct Config {
     filename: String,
     dump_ir: Option<String>,
+    dump_monomorphized_code: bool,
+    dump_monomorphized_code_output: Option<String>,
     print_stacks: bool,
     print_stacks_on_call: Option<String>,
     profile: bool,
@@ -258,6 +282,33 @@ The intermediate representation dump includes:
 - Numbered instruction listing
 - Function labels and boundaries
 - Comments explaining instruction purpose
+
+#### Monomorphized Code Output Format
+
+The monomorphized code dump shows the program after generic instantiation:
+
+- Comments indicating whether functions/structs are generic or monomorphized
+- Concrete type instantiations for generic types
+- Expanded function signatures with type parameters resolved
+- Clear mapping from original generic code to instantiated versions
+
+Example output:
+```
+// Generic struct: Container
+type Container(T: type) = struct {
+    value: T
+};
+
+// Monomorphized struct: Container(int)
+type Container(int) = struct {
+    value: int
+};
+
+// Monomorphized function: main
+fun main() do
+    // ... body ...
+end
+```
 
 #### Profiling Output Format
 
@@ -299,6 +350,8 @@ The implementation ensures that:
 - `--check` flag for syntax checking without execution
 - `--memory-limit` flag for setting memory usage limits
 - `--instruction-limit` flag for limiting instruction execution count
+- `--dump-monomorphization-stats` flag for detailed monomorphization statistics
+- `--no-monomorphize` flag to disable monomorphization for debugging
 
 ### Configuration Files
 
@@ -309,6 +362,8 @@ Future versions may support configuration files for default options:
 [debug]
 print_stacks = false
 default_dump_ir = "debug/"
+dump_monomorphized_code = false
+monomorphized_code_output_dir = "monomorphized/"
 
 [profile]
 enabled = false
@@ -317,6 +372,10 @@ output_dir = "profiling/"
 [execution]
 default_timeout = "60s"
 max_timeout = "300s"
+
+[compilation]
+enable_monomorphization = true
+dump_monomorphization_stats = false
 ```
 
 ## Standards Compliance

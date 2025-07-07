@@ -1,6 +1,7 @@
 use crate::ast::Program;
 use crate::desugar::Desugarer;
 use crate::lexer::Lexer;
+use crate::monomorphization::Monomorphizer;
 use crate::parser::Parser;
 use crate::runtime::{Runtime, Value};
 use crate::typecheck::TypeChecker;
@@ -24,6 +25,10 @@ pub struct CompilerOptions {
     pub profile_output: Option<String>,
     /// Enable automatic loading of standard library
     pub enable_load_std: bool,
+    /// Enable dumping monomorphized code
+    pub dump_monomorphized_code: bool,
+    /// Output file for monomorphized code dump
+    pub dump_monomorphized_code_output: Option<String>,
 }
 
 impl Default for CompilerOptions {
@@ -36,6 +41,8 @@ impl Default for CompilerOptions {
             enable_profiling: false,
             profile_output: None,
             enable_load_std: true,
+            dump_monomorphized_code: false,
+            dump_monomorphized_code_output: None,
         }
     }
 }
@@ -110,15 +117,36 @@ impl Compiler {
         // Then perform type inference to set object_type fields
         type_checker.infer_types(&mut program_with_type_info)?;
 
-        // 2. Desugar phase: transform method calls to function calls using type info
-        let mut desugarer = Desugarer::new();
-        let desugared_program = desugarer.desugar_program(program_with_type_info)?;
+        // 2. Monomorphization phase: collect and instantiate generic types
+        let mut monomorphizer = Monomorphizer::new();
+        monomorphizer.collect_targets(&program_with_type_info)?;
+        monomorphizer.monomorphize()?;
+        
+        // Generate the monomorphized program with concrete types
+        let monomorphized_program = monomorphizer.generate_monomorphized_program(&program_with_type_info)?;
 
-        // 3. Final type checking on desugared program
+        // Handle monomorphized code dumping if requested (early, before potential errors)
+        if self.options.dump_monomorphized_code {
+            let dump_output = self.format_monomorphized_program(&monomorphized_program);
+            if let Some(output_file) = &self.options.dump_monomorphized_code_output {
+                std::fs::write(output_file, &dump_output)
+                    .map_err(|e| anyhow::anyhow!("Failed to write monomorphized code dump: {}", e))?;
+            } else {
+                println!("=== Monomorphized Code ===");
+                println!("{}", dump_output);
+                println!(); // Add a blank line before continuing
+            }
+        }
+
+        // 3. Desugar phase: transform method calls to function calls using type info
+        let mut desugarer = Desugarer::new();
+        let desugared_program = desugarer.desugar_program(monomorphized_program)?;
+
+        // 4. Final type checking on desugared program
         let mut final_type_checker = TypeChecker::new();
         final_type_checker.check_program(&desugared_program)?;
 
-        // 4. Handle IR dumping if requested
+        // 5. Handle IR dumping if requested
         if self.options.dump_ir {
             let mut vm_compiler = VMCompiler::new();
             let _instructions = vm_compiler.compile_program(&desugared_program);
@@ -133,12 +161,12 @@ impl Compiler {
             }
         }
 
-        // 5. Enable profiling if requested
+        // 6. Enable profiling if requested
         if self.options.enable_profiling {
             self.runtime.enable_profiling();
         }
 
-        // 6. Execute the program
+        // 7. Execute the program
         let result = if self.options.print_stacks || self.options.print_stacks_on_call.is_some() {
             self.runtime
                 .execute_program_with_options(&desugared_program, self.options.print_stacks)
@@ -146,7 +174,7 @@ impl Compiler {
             self.runtime.execute_program(&desugared_program)
         };
 
-        // 7. Handle profiling output
+        // 8. Handle profiling output
         if self.options.enable_profiling {
             if let Some(output_file) = &self.options.profile_output {
                 self.runtime
@@ -175,6 +203,64 @@ impl Compiler {
     /// Get a mutable reference to the runtime for direct manipulation
     pub fn runtime_mut(&mut self) -> &mut Runtime {
         &mut self.runtime
+    }
+
+    /// Format a monomorphized program as readable code
+    fn format_monomorphized_program(&self, program: &Program) -> String {
+        let mut output = String::new();
+        
+        for decl in &program.declarations {
+            match decl {
+                crate::ast::Decl::Function(func) => {
+                    if !func.type_params.is_empty() {
+                        output.push_str(&format!("// Generic function: {}\n", func.name));
+                        output.push_str(&format!("fun {}(", func.name));
+                        for (i, param) in func.type_params.iter().enumerate() {
+                            if i > 0 { output.push_str(", "); }
+                            output.push_str(&format!("{}: type", param));
+                        }
+                        for param in &func.params {
+                            output.push_str(", ");
+                            output.push_str(&format!("{}: {}", param.name, param.type_name.as_ref().unwrap_or(&"unknown".to_string())));
+                        }
+                        output.push_str(") do\n    // ... body ...\nend\n\n");
+                    } else {
+                        output.push_str(&format!("// Monomorphized function: {}\n", func.name));
+                        output.push_str(&format!("fun {}(", func.name));
+                        for (i, param) in func.params.iter().enumerate() {
+                            if i > 0 { output.push_str(", "); }
+                            output.push_str(&format!("{}: {}", param.name, param.type_name.as_ref().unwrap_or(&"unknown".to_string())));
+                        }
+                        output.push_str(") do\n    // ... body ...\nend\n\n");
+                    }
+                }
+                crate::ast::Decl::Struct(struct_decl) => {
+                    if !struct_decl.type_params.is_empty() {
+                        output.push_str(&format!("// Generic struct: {}\n", struct_decl.name));
+                        output.push_str(&format!("type {}(", struct_decl.name));
+                        for (i, param) in struct_decl.type_params.iter().enumerate() {
+                            if i > 0 { output.push_str(", "); }
+                            output.push_str(&format!("{}: type", param));
+                        }
+                        output.push_str(") = struct {\n");
+                    } else {
+                        output.push_str(&format!("// Monomorphized struct: {}\n", struct_decl.name));
+                        output.push_str(&format!("type {} = struct {{\n", struct_decl.name));
+                    }
+                    
+                    for field in &struct_decl.fields {
+                        output.push_str(&format!("    {}: {}\n", field.name, field.type_name));
+                    }
+                    output.push_str("};\n\n");
+                }
+                crate::ast::Decl::GlobalVariable(var) => {
+                    output.push_str(&format!("// Global variable: {}\n", var.name));
+                    output.push_str(&format!("let {} = /* ... */;\n\n", var.name));
+                }
+            }
+        }
+        
+        output
     }
 }
 

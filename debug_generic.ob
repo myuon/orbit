@@ -1,0 +1,8 @@
+type Container(T: type) = struct {
+    value: T
+};
+
+fun main() do
+    let c = new Container(int) { .value = 42 };
+    return 0;
+end

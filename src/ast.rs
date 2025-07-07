@@ -72,7 +72,7 @@ pub enum BinaryOp {
     GreaterEqual,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IndexContainerType {
     Vector,
     Map,
@@ -230,7 +230,7 @@ pub enum Stmt {
 }
 
 // Type system for semantic analysis
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Unknown,
     Number,

@@ -36,6 +36,14 @@ struct Config {
     /// Set execution timeout (e.g., 10s, 5m, 30)
     #[arg(long, value_name = "TIME", value_parser = parse_timeout)]
     timeout: Option<u64>,
+
+    /// Enable dumping of monomorphized code
+    #[arg(long)]
+    dump_monomorphized_code: bool,
+
+    /// Dump monomorphized code to specified file
+    #[arg(long, value_name = "FILE")]
+    dump_monomorphized_code_output: Option<String>,
 }
 
 impl Config {
@@ -49,6 +57,8 @@ impl Config {
             enable_profiling: self.profile || self.profile_output.is_some(),
             profile_output: self.profile_output.clone(),
             enable_load_std: true,
+            dump_monomorphized_code: self.dump_monomorphized_code || self.dump_monomorphized_code_output.is_some(),
+            dump_monomorphized_code_output: self.dump_monomorphized_code_output.clone(),
         }
     }
 }
