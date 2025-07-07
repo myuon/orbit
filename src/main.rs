@@ -48,6 +48,7 @@ impl Config {
             print_stacks_on_call: self.print_stacks_on_call.clone(),
             enable_profiling: self.profile || self.profile_output.is_some(),
             profile_output: self.profile_output.clone(),
+            enable_load_std: true,
         }
     }
 }

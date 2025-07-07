@@ -22,6 +22,8 @@ pub struct CompilerOptions {
     pub enable_profiling: bool,
     /// Output file for profiling results
     pub profile_output: Option<String>,
+    /// Enable automatic loading of standard library
+    pub enable_load_std: bool,
 }
 
 impl Default for CompilerOptions {
@@ -33,6 +35,7 @@ impl Default for CompilerOptions {
             print_stacks_on_call: None,
             enable_profiling: false,
             profile_output: None,
+            enable_load_std: true,
         }
     }
 }
@@ -65,7 +68,8 @@ impl Compiler {
 
     /// Compile and execute Orbit source code, returning the last value
     pub fn execute(&mut self, code: &str) -> Result<Option<Value>> {
-        let tokens = self.tokenize(code)?;
+        let processed_code = self.preprocess_code(code)?;
+        let tokens = self.tokenize(&processed_code)?;
         let program = self.parse(tokens)?;
         self.execute_program(program)
     }
@@ -75,6 +79,24 @@ impl Compiler {
         let content = std::fs::read_to_string(filename)
             .map_err(|e| anyhow::anyhow!("Error reading file {}: {}", filename, e))?;
         self.execute(&content)
+    }
+
+    /// Preprocess the code by prepending standard library if enabled
+    fn preprocess_code(&self, code: &str) -> Result<String> {
+        if !self.options.enable_load_std {
+            return Ok(code.to_string());
+        }
+
+        let std_lib_path = "lib/std.io";
+        match std::fs::read_to_string(std_lib_path) {
+            Ok(std_content) => {
+                Ok(format!("{}\n{}", std_content, code))
+            }
+            Err(_) => {
+                // If std.io doesn't exist, just return the original code
+                Ok(code.to_string())
+            }
+        }
     }
 
     /// Execute a parsed program with all configured options
