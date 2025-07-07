@@ -137,6 +137,8 @@ pub struct TypeChecker {
     type_params: HashMap<String, Type>,
     /// Stack of type parameter environments for nested generic scopes
     type_param_stack: Vec<HashMap<String, Type>>,
+    /// Generic function declarations (maps function name to Function)
+    generic_functions: HashMap<String, Function>,
 }
 
 impl TypeChecker {
@@ -151,6 +153,7 @@ impl TypeChecker {
             struct_fields: HashMap::new(),
             type_params: HashMap::new(),
             type_param_stack: Vec::new(),
+            generic_functions: HashMap::new(),
         }
     }
 
@@ -480,6 +483,10 @@ impl TypeChecker {
 
     /// Register a function signature for later type checking
     fn register_function(&mut self, function: &Function) -> Result<()> {
+        // Store generic functions separately
+        if !function.type_params.is_empty() {
+            self.generic_functions.insert(function.name.clone(), function.clone());
+        }
         self.register_function_with_name(&function.name, function)
     }
 
@@ -912,6 +919,31 @@ impl TypeChecker {
                             self.check_expression(arg)?;
                         }
                         return Ok(Type::Number); // syscall returns a number (result code)
+                    }
+
+                    // Check if this is a generic function first
+                    if let Some(generic_func) = self.generic_functions.get(func_name) {
+                        // For generic functions, be more permissive during initial type checking
+                        // The actual type checking will happen after monomorphization
+                        
+                        // Still check argument count (type params + regular params)
+                        let expected_args = generic_func.type_params.len() + generic_func.params.len();
+                        if args.len() != expected_args {
+                            bail!(
+                                "Generic function '{}' expects {} arguments (including type arguments), got {}",
+                                func_name,
+                                expected_args,
+                                args.len()
+                            );
+                        }
+                        
+                        // For now, just check that the expressions are valid, don't enforce strict types
+                        for arg in args {
+                            self.check_expression(arg)?;
+                        }
+                        
+                        // Return the function's declared return type (if any), or Unknown
+                        return Ok(Type::Unknown); // Will be resolved after monomorphization
                     }
 
                     // Look up function signature and clone it to avoid borrow checker issues

@@ -258,8 +258,25 @@ impl Monomorphizer {
     /// Extract type from expression if it's a type expression
     fn extract_type_from_expr(&self, expr: &Expr) -> Option<Type> {
         match expr {
+            Expr::TypeExpr { type_name } => {
+                // Handle type expressions like "type int", "type [*]byte"
+                match type_name.as_str() {
+                    "int" | "number" => Some(Type::Number),
+                    "bool" | "boolean" => Some(Type::Boolean),
+                    "string" | "[*]byte" => Some(Type::String),
+                    _ => {
+                        // Try to parse as a generic type or struct type
+                        if let Some(generic_type) = self.parse_generic_type(type_name) {
+                            Some(generic_type)
+                        } else {
+                            // Assume it's a struct type
+                            Some(Type::Struct(type_name.clone()))
+                        }
+                    }
+                }
+            }
             Expr::Identifier(name) => {
-                // Only consider specific type expressions, not all identifiers
+                // Keep old handling for backward compatibility
                 match name.as_str() {
                     "type" => Some(Type::TypeParameter("type".to_string())),
                     "int" | "number" => Some(Type::Number),
@@ -690,6 +707,44 @@ impl Monomorphizer {
                 })
             }
             Expr::Call { callee, args } => {
+                // Check if this is a generic function call
+                if let Expr::Identifier(func_name) = callee.as_ref() {
+                    if self.generic_functions.contains_key(func_name) {
+                        // Extract type arguments from the beginning of args
+                        let mut type_args = Vec::new();
+                        let mut remaining_args = Vec::new();
+                        
+                        let generic_func = &self.generic_functions[func_name];
+                        let num_type_params = generic_func.type_params.len();
+                        
+                        // First n arguments should be type expressions
+                        for (i, arg) in args.iter().enumerate() {
+                            if i < num_type_params {
+                                if let Some(type_arg) = self.extract_type_from_expr(arg) {
+                                    type_args.push(type_arg);
+                                }
+                            } else {
+                                remaining_args.push(self.substitute_expression_globally(arg)?);
+                            }
+                        }
+                        
+                        // Generate the monomorphized function name
+                        if !type_args.is_empty() {
+                            let target = MonomorphizationTarget {
+                                symbol: func_name.clone(),
+                                args: type_args,
+                            };
+                            let monomorphized_name = target.instantiated_name();
+                            
+                            return Ok(Expr::Call {
+                                callee: Box::new(Expr::Identifier(monomorphized_name)),
+                                args: remaining_args,
+                            });
+                        }
+                    }
+                }
+                
+                // Default case: not a generic function call
                 Ok(Expr::Call {
                     callee: Box::new(self.substitute_expression_globally(callee)?),
                     args: args.iter().map(|arg| self.substitute_expression_globally(arg)).collect::<Result<Vec<_>>>()?,
