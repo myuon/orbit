@@ -2510,6 +2510,7 @@ mod tests {
         // Create main function: fun main() do return 42; end
         let main_func = Function {
             name: "main".to_string(),
+            type_params: vec![],
             params: vec![],
             body: vec![Stmt::Return(Expr::Number(42.0))],
         };
@@ -2539,6 +2540,7 @@ mod tests {
         // Create a simple function: fun add(x, y) do return x + y; end
         let add_func = Function {
             name: "add".to_string(),
+            type_params: vec![],
             params: vec![
                 FunParam {
                     name: "x".to_string(),
@@ -2559,6 +2561,7 @@ mod tests {
         // Create main function: fun main() do return add(2, 3); end
         let main_func = Function {
             name: "main".to_string(),
+            type_params: vec![],
             params: vec![],
             body: vec![Stmt::Return(Expr::Call {
                 callee: Box::new(Expr::Identifier("add".to_string())),

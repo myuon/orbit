@@ -160,6 +160,7 @@ pub struct GlobalVariable {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDecl {
     pub name: String,
+    pub type_params: Vec<String>, // Generic type parameters
     pub fields: Vec<StructField>,
     pub methods: Vec<Function>,
 }
@@ -169,6 +170,10 @@ pub struct StructDecl {
 pub enum TypeExpr {
     Simple(String),
     Pointer(Box<TypeExpr>),
+    Generic {
+        name: String,
+        args: Vec<TypeExpr>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -181,6 +186,7 @@ pub struct StructField {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub name: String,
+    pub type_params: Vec<String>, // Generic type parameters
     pub params: Vec<FunParam>,
     pub body: Vec<Stmt>,
 }
@@ -221,4 +227,62 @@ pub enum Stmt {
         field: String,
         value: Expr,
     },
+}
+
+// Type system for semantic analysis
+#[derive(Debug, Clone, PartialEq)]
+pub enum Type {
+    Unknown,
+    Number,
+    Boolean,
+    String,
+    Vector(Box<Type>),
+    Map(Box<Type>, Box<Type>),
+    Struct(String),
+    Pointer(Box<Type>),
+    Function {
+        params: Vec<Type>,
+        return_type: Box<Type>,
+    },
+    Generic {
+        name: String,
+        args: Vec<Type>,
+    },
+    TypeParameter(String),
+}
+
+impl std::fmt::Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Unknown => write!(f, "unknown"),
+            Type::Number => write!(f, "number"),
+            Type::Boolean => write!(f, "boolean"),
+            Type::String => write!(f, "string"),
+            Type::Vector(elem_type) => write!(f, "vec({})", elem_type),
+            Type::Map(key_type, value_type) => write!(f, "map({}, {})", key_type, value_type),
+            Type::Struct(name) => write!(f, "{}", name),
+            Type::Pointer(elem_type) => write!(f, "[*]{}", elem_type),
+            Type::Function { params, return_type } => {
+                write!(f, "fun(")?;
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", param)?;
+                }
+                write!(f, "): {}", return_type)
+            }
+            Type::Generic { name, args } => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
+            Type::TypeParameter(name) => write!(f, "{}", name),
+        }
+    }
 }

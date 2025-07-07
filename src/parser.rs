@@ -121,6 +121,7 @@ impl Parser {
 
         self.consume(TokenType::LeftParen)?;
         let mut params = Vec::new();
+        let mut type_params = Vec::new();
 
         if !matches!(self.current_token().token_type, TokenType::RightParen) {
             loop {
@@ -133,17 +134,26 @@ impl Parser {
                     _ => bail!("Expected parameter name"),
                 };
 
-                let type_name = if matches!(self.current_token().token_type, TokenType::Colon) {
+                if matches!(self.current_token().token_type, TokenType::Colon) {
                     self.advance();
-                    Some(self.parse_type_name()?)
+                    
+                    // Check if this is a type parameter (": type")
+                    if matches!(self.current_token().token_type, TokenType::Type) {
+                        self.advance(); // consume 'type'
+                        type_params.push(param_name);
+                    } else {
+                        let type_name = self.parse_type_name()?;
+                        params.push(FunParam {
+                            name: param_name,
+                            type_name: Some(type_name),
+                        });
+                    }
                 } else {
-                    None
-                };
-
-                params.push(FunParam {
-                    name: param_name,
-                    type_name,
-                });
+                    params.push(FunParam {
+                        name: param_name,
+                        type_name: None,
+                    });
+                }
 
                 if matches!(self.current_token().token_type, TokenType::Comma) {
                     self.advance();
@@ -154,6 +164,13 @@ impl Parser {
         }
 
         self.consume(TokenType::RightParen)?;
+        
+        // Parse optional return type annotation: : TypeName
+        if matches!(self.current_token().token_type, TokenType::Colon) {
+            self.advance(); // consume ':'
+            let _return_type = self.parse_type_name()?; // Parse but ignore for now
+        }
+        
         self.consume(TokenType::Do)?;
 
         let mut body = Vec::new();
@@ -168,7 +185,7 @@ impl Parser {
 
         self.consume(TokenType::End)?;
 
-        Ok(Function { name, params, body })
+        Ok(Function { name, type_params, params, body })
     }
 
     /// Parse a struct declaration
@@ -182,6 +199,46 @@ impl Parser {
                 n
             }
             _ => bail!("Expected struct name after 'type'"),
+        };
+
+        // Parse optional type parameters: (A: type, B: type)
+        let type_params = if matches!(self.current_token().token_type, TokenType::LeftParen) {
+            self.advance(); // consume '('
+            let mut params = Vec::new();
+            
+            while !matches!(self.current_token().token_type, TokenType::RightParen) {
+                if matches!(self.current_token().token_type, TokenType::Eof) {
+                    bail!("Unexpected end of file in type parameter list");
+                }
+                
+                // Parse type parameter name
+                let param_name = match &self.current_token().token_type {
+                    TokenType::Identifier(name) => {
+                        let n = name.clone();
+                        self.advance();
+                        n
+                    }
+                    _ => bail!("Expected type parameter name"),
+                };
+                
+                // Expect ': type'
+                self.consume(TokenType::Colon)?;
+                self.consume(TokenType::Type)?;
+                
+                params.push(param_name);
+                
+                // Handle comma or end of parameter list
+                if matches!(self.current_token().token_type, TokenType::Comma) {
+                    self.advance(); // consume ','
+                } else if !matches!(self.current_token().token_type, TokenType::RightParen) {
+                    bail!("Expected ',' or ')' in type parameter list");
+                }
+            }
+            
+            self.consume(TokenType::RightParen)?;
+            params
+        } else {
+            Vec::new()
         };
 
         self.consume(TokenType::Assign)?;
@@ -235,6 +292,7 @@ impl Parser {
 
         Ok(StructDecl {
             name,
+            type_params,
             fields,
             methods,
         })
@@ -401,7 +459,35 @@ impl Parser {
                 TokenType::Identifier(name) => {
                     let n = name.clone();
                     self.advance();
-                    Ok(n)
+                    
+                    // Check for generic instantiation: Type(arg1, arg2, ...)
+                    if matches!(self.current_token().token_type, TokenType::LeftParen) {
+                        self.advance(); // consume '('
+                        let mut args = Vec::new();
+                        
+                        while !matches!(self.current_token().token_type, TokenType::RightParen) {
+                            if matches!(self.current_token().token_type, TokenType::Eof) {
+                                bail!("Unexpected end of file in generic type arguments");
+                            }
+                            
+                            let arg_type = self.parse_type_name()?;
+                            args.push(arg_type);
+                            
+                            if matches!(self.current_token().token_type, TokenType::Comma) {
+                                self.advance(); // consume ','
+                            } else if !matches!(self.current_token().token_type, TokenType::RightParen) {
+                                bail!("Expected ',' or ')' in generic type arguments");
+                            }
+                        }
+                        
+                        self.consume(TokenType::RightParen)?;
+                        
+                        // Format as generic type: Type(arg1, arg2)
+                        let args_str = args.join(", ");
+                        Ok(format!("{}({})", n, args_str))
+                    } else {
+                        Ok(n)
+                    }
                 }
                 _ => bail!("Expected type name"),
             }
@@ -859,6 +945,13 @@ impl Parser {
                 self.consume(TokenType::RightParen)?;
                 Ok(expr)
             }
+            TokenType::Type => {
+                self.advance(); // consume 'type'
+                let type_name = self.parse_type_name()?;
+                // For now, we'll represent type expressions as identifiers
+                // This will need to be handled properly in the type checker
+                Ok(Expr::Identifier(format!("type {}", type_name)))
+            }
             _ => bail!("Unexpected token: {:?}", self.current_token().token_type),
         }
     }
@@ -910,6 +1003,76 @@ impl Parser {
 mod tests {
     use super::*;
     use crate::lexer::Lexer;
+
+    #[test]
+    fn test_generic_struct_parsing() {
+        let input = "type Container(T: type) = struct {
+            value: T,
+        };";
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse_program().unwrap();
+        
+        assert_eq!(result.declarations.len(), 1);
+        match &result.declarations[0] {
+            Decl::Struct(struct_decl) => {
+                assert_eq!(struct_decl.name, "Container");
+                assert_eq!(struct_decl.type_params.len(), 1);
+                assert_eq!(struct_decl.type_params[0], "T");
+                assert_eq!(struct_decl.fields.len(), 1);
+                assert_eq!(struct_decl.fields[0].name, "value");
+                assert_eq!(struct_decl.fields[0].type_name, "T");
+            }
+            _ => panic!("Expected struct declaration"),
+        }
+    }
+
+    #[test]
+    fn test_generic_function_parsing() {
+        let input = "fun identity(T: type, value: T): T do
+            return value;
+        end";
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse_program().unwrap();
+        
+        assert_eq!(result.declarations.len(), 1);
+        match &result.declarations[0] {
+            Decl::Function(function) => {
+                assert_eq!(function.name, "identity");
+                assert_eq!(function.type_params.len(), 1);
+                assert_eq!(function.type_params[0], "T");
+                assert_eq!(function.params.len(), 1);
+                assert_eq!(function.params[0].name, "value");
+                assert_eq!(function.params[0].type_name, Some("T".to_string()));
+            }
+            _ => panic!("Expected function declaration"),
+        }
+    }
+
+    #[test]
+    fn test_generic_type_instantiation_parsing() {
+        let input = "type Point = struct {
+            container: Container(int),
+        };";
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse_program().unwrap();
+        
+        assert_eq!(result.declarations.len(), 1);
+        match &result.declarations[0] {
+            Decl::Struct(struct_decl) => {
+                assert_eq!(struct_decl.name, "Point");
+                assert_eq!(struct_decl.fields.len(), 1);
+                assert_eq!(struct_decl.fields[0].name, "container");
+                assert_eq!(struct_decl.fields[0].type_name, "Container(int)");
+            }
+            _ => panic!("Expected struct declaration"),
+        }
+    }
 
     #[test]
     fn test_struct_with_methods_parsing() {

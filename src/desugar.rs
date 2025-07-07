@@ -41,6 +41,7 @@ impl Desugarer {
                     // Add the original struct declaration (without methods)
                     let desugared_struct = StructDecl {
                         name: struct_decl.name.clone(),
+                        type_params: struct_decl.type_params.clone(),
                         fields: struct_decl.fields.clone(),
                         methods: Vec::new(), // Remove methods after desugaring
                     };
@@ -65,6 +66,7 @@ impl Desugarer {
         let desugared_body = self.desugar_statements(function.body)?;
         Ok(Function {
             name: function.name,
+            type_params: function.type_params,
             params: function.params,
             body: desugared_body,
         })
@@ -77,6 +79,7 @@ impl Desugarer {
 
         Ok(Function {
             name: mangled_name,
+            type_params: method.type_params,
             params: method.params,
             body: desugared_body,
         })
@@ -390,9 +393,11 @@ mod tests {
         // Add a struct type to the desugarer for testing
         let point_struct = StructDecl {
             name: "Point".to_string(),
+            type_params: vec![],
             fields: vec![],
             methods: vec![Function {
                 name: "sum".to_string(),
+                type_params: vec![],
                 params: vec![],
                 body: vec![],
             }],
@@ -434,6 +439,7 @@ mod tests {
         // Create a struct with a method
         let method = Function {
             name: "sum".to_string(),
+            type_params: vec![],
             params: vec![FunParam {
                 name: "self".to_string(),
                 type_name: Some("Point".to_string()),

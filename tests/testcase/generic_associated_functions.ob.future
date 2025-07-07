@@ -1,0 +1,18 @@
+type Container(T: type) = struct {
+  value: T,
+
+  fun new(value: T): Container(T) do
+    return new Container(T) { .value = value };
+  end
+
+  fun zero(): Container(int) do
+    return new Container(int) { .value = 0 };
+  end
+};
+
+fun main() do
+  let c1 = Container(int).new(42);
+  let c2 = Container(int).zero();
+  
+  return c1.value + c2.value;
+end
