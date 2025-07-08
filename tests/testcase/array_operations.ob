@@ -1,0 +1,12 @@
+// Test array(T) type from std.io
+// This demonstrates basic usage of the array type structure
+fun main() do
+  let myArray = new array(int) { .length = 5 };
+  myArray[0] = 1;
+  myArray[1] = 2;
+  myArray[2] = 3;
+  myArray[3] = 4;
+  myArray[4] = 5;
+
+  return myArray.length + myArray[4];
+end
