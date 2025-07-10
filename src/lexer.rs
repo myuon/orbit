@@ -136,6 +136,7 @@ impl Lexer {
                         "type" => TokenType::Type,
                         "struct" => TokenType::Struct,
                         "pointer" => TokenType::Pointer,
+                        "alloc" => TokenType::Alloc,
                         _ => TokenType::Identifier(identifier),
                     };
                     return Token {

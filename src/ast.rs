@@ -48,6 +48,8 @@ pub enum TokenType {
     Dot,
     // Pointer keyword
     Pointer,
+    // Memory allocation
+    Alloc,
     Eof,
 }
 
@@ -99,10 +101,6 @@ pub enum Expr {
         element_type: String,
         initial_values: Vec<Expr>,
     },
-    PointerNew {
-        element_type: String,
-        initial_values: Vec<Expr>,
-    },
     Index {
         container: Box<Expr>,
         index: Box<Expr>,
@@ -114,6 +112,10 @@ pub enum Expr {
         initial_pairs: Vec<(Expr, Expr)>,
     },
     StructNew {
+        type_name: String,
+        fields: Vec<(String, Expr)>,
+    },
+    StructNewPattern {
         type_name: String,
         fields: Vec<(String, Expr)>,
     },
@@ -129,6 +131,14 @@ pub enum Expr {
     },
     TypeExpr {
         type_name: String,
+    },
+    Alloc {
+        element_type: String,
+        size: Box<Expr>,
+    },
+    PointerAlloc {
+        element_type: String,
+        initial_values: Vec<Expr>,
     },
 }
 

@@ -151,14 +151,48 @@ let dist = p.distance_from_origin();  // Method call expression
 
 ### Struct Construction
 
+#### Standard Struct Construction
+
 ```orbit
 let point = new Point { .x = 10, .y = 20 };
+```
+
+#### Pattern-Based Struct Construction
+
+The `new(struct)` pattern provides an explicit way to construct structs that prepares for future operator overloading support:
+
+```orbit
+let point = new(struct) Point { .x = 10, .y = 20 };
+```
+
+This syntax is equivalent to the standard construction but makes the struct instantiation explicit. This pattern is designed to support future constructor overloading where `new T { ... }` may invoke custom constructors while `new(struct) T { ... }` always performs direct struct instantiation.
+
+#### Example Usage in Methods
+
+```orbit
+type array(T: type) = struct {
+    data: [*]T,
+    length: int,
+
+    fun _new(length: int): array(T) do
+        return new(struct) array(T) { 
+            .data = new pointer(T) {}, 
+            .length = length 
+        };
+    end
+};
 ```
 
 ### Generic Type Construction
 
 ```orbit
 let pair = new Pair(int, [*]byte) {
+    .first = 42,
+    .second = "hello"
+};
+
+// Pattern-based construction also works with generics
+let pair_explicit = new(struct) Pair(int, [*]byte) {
     .first = 42,
     .second = "hello"
 };
@@ -170,6 +204,22 @@ let pair = new Pair(int, [*]byte) {
 let vec = new vec(int) {};
 let map = new map([*]byte, int) {};
 ```
+
+### Memory Allocation
+
+For pointer allocation, use the `alloc` function:
+
+```orbit
+let ptr = alloc(10);  // Allocates 10 elements, returns [*]byte
+```
+
+The `alloc` function:
+- Takes a size expression as argument
+- Returns a pointer type `[*]byte` 
+- Initializes all elements to zero
+- Provides heap-allocated memory
+
+**Note**: The `new(struct)` pattern applies only to user-defined struct types. Built-in types like `vec(T)` and `map(K, V)` use the standard `new` syntax. For memory allocation, use `alloc(size)` instead of `new pointer(T)` which is not supported.
 
 ## Type Cast Expressions
 

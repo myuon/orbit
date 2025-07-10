@@ -383,6 +383,11 @@ impl TypeChecker {
                 Ok(())
             }
 
+            Expr::Alloc { size, .. } => {
+                self.infer_expression_types(size)?;
+                Ok(())
+            }
+
             Expr::Binary { left, right, .. } => {
                 self.infer_expression_types(left)?;
                 self.infer_expression_types(right)?;
@@ -404,7 +409,7 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Expr::PointerNew { initial_values, .. } => {
+            Expr::PointerAlloc { initial_values, .. } => {
                 for value in initial_values {
                     self.infer_expression_types(value)?;
                 }
@@ -448,6 +453,13 @@ impl TypeChecker {
             }
 
             Expr::StructNew { fields, .. } => {
+                for (_, value) in fields {
+                    self.infer_expression_types(value)?;
+                }
+                Ok(())
+            }
+
+            Expr::StructNewPattern { fields, .. } => {
                 for (_, value) in fields {
                     self.infer_expression_types(value)?;
                 }
@@ -1027,7 +1039,7 @@ impl TypeChecker {
                 Ok(Type::Vector(Box::new(element_type)))
             }
 
-            Expr::PointerNew {
+            Expr::PointerAlloc {
                 element_type,
                 initial_values,
             } => {
@@ -1179,6 +1191,62 @@ impl TypeChecker {
                 }
             }
 
+            Expr::StructNewPattern { type_name, fields } => {
+                // Look up the struct field information, handling generic instantiation
+                let struct_fields = match self.struct_fields.get(type_name) {
+                    Some(fields) => fields.clone(),
+                    None => {
+                        // Check if this is a generic struct instantiation like "Container(int)"
+                        if let Some(generic_fields) = self.resolve_generic_struct_fields(type_name) {
+                            generic_fields
+                        } else {
+                            bail!("Unknown struct type: {}", type_name)
+                        }
+                    }
+                };
+
+                // Check that all required fields are provided
+                for (field_name, _field_type) in &struct_fields {
+                    if !fields.iter().any(|(name, _)| name == field_name) {
+                        bail!(
+                            "Missing required field '{}' in struct '{}'",
+                            field_name,
+                            type_name
+                        );
+                    }
+                }
+
+                // Check that all provided fields are valid and have correct types
+                for (field_name, field_value) in fields {
+                    let field_type = struct_fields.get(field_name).ok_or_else(|| {
+                        anyhow::anyhow!("Unknown field '{}' in struct '{}'", field_name, type_name)
+                    })?;
+
+                    let actual_type = self.check_expression(field_value)?;
+                    if !actual_type.is_compatible_with(field_type) {
+                        bail!(
+                            "Field '{}' type mismatch: expected {}, got {}",
+                            field_name,
+                            field_type,
+                            actual_type
+                        );
+                    }
+                }
+
+                // Return the appropriate struct type
+                match self.structs.get(type_name) {
+                    Some(struct_type) => Ok(struct_type.clone()),
+                    None => {
+                        // Handle generic struct instantiation
+                        if let Some(generic_type) = self.resolve_generic_struct_type(type_name) {
+                            Ok(generic_type)
+                        } else {
+                            bail!("Unknown struct type: {}", type_name)
+                        }
+                    }
+                }
+            }
+
             Expr::FieldAccess { object, field } => {
                 let object_type = self.check_expression(object)?;
                 match object_type {
@@ -1211,6 +1279,17 @@ impl TypeChecker {
                         object_type
                     ),
                 }
+            }
+
+            Expr::Alloc { element_type, size } => {
+                let element_type = self.resolve_type(element_type);
+                let size_type = self.check_expression(size)?;
+                
+                if !size_type.is_compatible_with(&Type::Number) {
+                    bail!("Allocation size must be a number, got {}", size_type);
+                }
+                
+                Ok(Type::Pointer(Box::new(element_type)))
             }
 
             Expr::MethodCall {
@@ -1287,6 +1366,10 @@ impl TypeChecker {
                 match expr {
                     Expr::StructNew { type_name, .. } => {
                         // If returning a struct creation, return that struct type
+                        self.structs.get(type_name).cloned()
+                    }
+                    Expr::StructNewPattern { type_name, .. } => {
+                        // If returning a struct creation with pattern, return that struct type
                         self.structs.get(type_name).cloned()
                     }
                     Expr::Number(_) => Some(Type::Number),

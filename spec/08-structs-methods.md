@@ -39,6 +39,8 @@ type Person = struct {
 
 ### Creating Struct Instances
 
+#### Standard Instantiation
+
 ```orbit
 let point = new Point { .x = 10, .y = 20 };
 let person = new Person { 
@@ -47,6 +49,26 @@ let person = new Person {
     .is_active = true 
 };
 ```
+
+#### Pattern-Based Instantiation
+
+The `new(struct)` pattern provides explicit struct construction:
+
+```orbit
+let point = new(struct) Point { .x = 10, .y = 20 };
+let person = new(struct) Person { 
+    .name = "Alice", 
+    .age = 30, 
+    .is_active = true 
+};
+```
+
+Both syntaxes are functionally equivalent in the current implementation. The `new(struct)` pattern is designed to prepare for future operator overloading support where:
+
+- `new TypeName { ... }` may invoke custom constructors
+- `new(struct) TypeName { ... }` always performs direct struct field initialization
+
+This distinction allows library authors to provide custom constructors while still offering access to raw struct construction when needed.
 
 ### Field Initialization
 
@@ -404,17 +426,51 @@ type Database = struct {
 - No inheritance (struct extension is planned)
 - No private fields (all fields are public)
 - No static methods
-- No constructors (other than struct literal syntax)
+- No custom constructors (beyond `new(struct)` pattern)
 - No destructors
-- No operator overloading for structs
+- No operator overloading for structs (though `new(struct)` prepares for this)
 
 ## Future Features
 
 Planned features for future versions:
 
+- **Constructor Overloading**: The `new(struct)` pattern prepares for future support where `new TypeName { ... }` can invoke custom constructors while `new(struct) TypeName { ... }` always performs direct field initialization
 - Struct inheritance/extension
 - Private fields and methods
 - Static methods
-- Custom constructors
-- Operator overloading
+- Operator overloading beyond constructors
 - Trait/interface system
+
+## Syntax Variants
+
+### Current Struct Construction
+
+Both syntaxes are currently supported and functionally equivalent:
+
+```orbit
+// Standard syntax
+let obj1 = new MyStruct { .field1 = value1, .field2 = value2 };
+
+// Pattern-based syntax (future-proof for constructor overloading)
+let obj2 = new(struct) MyStruct { .field1 = value1, .field2 = value2 };
+```
+
+The `new(struct)` pattern is recommended in library code where future constructor customization may be desired, as it guarantees direct struct field initialization regardless of future language features.
+
+**Important**: The `new(struct)` pattern applies only to user-defined struct types. Built-in types such as `vec(T)`, `map(K, V)`, and `pointer(T)` are not structs and should continue using the standard `new` syntax:
+
+```orbit
+// Correct: Use new(struct) for user-defined structs
+let point = new(struct) Point { .x = 10, .y = 20 };
+
+// Correct: Use new for built-in types (these are not structs)
+let vec = new vec(int) {};
+let map = new map(string, int) {};
+
+// Correct: Use alloc for memory allocation
+let ptr = alloc(10); // Allocates 10 elements
+
+// Incorrect: Do not use new(struct) with built-in types or alloc
+// let ptr = new(struct) pointer(int) {}; // This is wrong!
+// let ptr = new pointer(int) {};         // This is not supported!
+```

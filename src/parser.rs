@@ -782,7 +782,47 @@ impl Parser {
             TokenType::New => {
                 self.advance(); // consume 'new'
 
-                if matches!(self.current_token().token_type, TokenType::Vec) {
+                // Check for new(struct) pattern
+                if matches!(self.current_token().token_type, TokenType::LeftParen) {
+                    self.advance(); // consume '('
+                    if matches!(self.current_token().token_type, TokenType::Struct) {
+                        self.advance(); // consume 'struct'
+                        self.consume(TokenType::RightParen)?; // consume ')'
+                        
+                        let type_name = self.parse_type_name()?;
+                        self.consume(TokenType::LeftBrace)?;
+
+                        let mut fields = Vec::new();
+                        if !matches!(self.current_token().token_type, TokenType::RightBrace) {
+                            loop {
+                                self.consume(TokenType::Dot)?; // consume '.'
+                                let field_name = match &self.current_token().token_type {
+                                    TokenType::Identifier(name) => {
+                                        let n = name.clone();
+                                        self.advance();
+                                        n
+                                    }
+                                    _ => bail!("Expected field name after '.'"),
+                                };
+
+                                self.consume(TokenType::Assign)?; // consume '='
+                                let value = self.parse_expression()?;
+                                fields.push((field_name, value));
+
+                                if matches!(self.current_token().token_type, TokenType::Comma) {
+                                    self.advance();
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+
+                        self.consume(TokenType::RightBrace)?;
+                        return Ok(Expr::StructNewPattern { type_name, fields });
+                    } else {
+                        bail!("Expected 'struct' after 'new('");
+                    }
+                } else if matches!(self.current_token().token_type, TokenType::Vec) {
                     self.advance(); // consume 'vec'
                     self.consume(TokenType::LeftParen)?; // consume '('
 
@@ -815,42 +855,6 @@ impl Parser {
 
                     self.consume(TokenType::RightBrace)?; // consume '}'
                     Ok(Expr::VectorNew {
-                        element_type,
-                        initial_values,
-                    })
-                } else if matches!(self.current_token().token_type, TokenType::Pointer) {
-                    self.advance(); // consume 'pointer'
-                    self.consume(TokenType::LeftParen)?; // consume '('
-
-                    // Get the element type
-                    let element_type = match &self.current_token().token_type {
-                        TokenType::Identifier(type_name) => {
-                            let t = type_name.clone();
-                            self.advance();
-                            t
-                        }
-                        _ => bail!("Expected type name in pointer constructor"),
-                    };
-
-                    self.consume(TokenType::RightParen)?; // consume ')'
-                    self.consume(TokenType::LeftBrace)?; // consume '{'
-
-                    // Parse initial values (if any)
-                    let mut initial_values = Vec::new();
-                    if !matches!(self.current_token().token_type, TokenType::RightBrace) {
-                        loop {
-                            initial_values.push(self.parse_expression()?);
-
-                            if matches!(self.current_token().token_type, TokenType::Comma) {
-                                self.advance();
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-
-                    self.consume(TokenType::RightBrace)?; // consume '}'
-                    Ok(Expr::PointerNew {
                         element_type,
                         initial_values,
                     })
@@ -968,6 +972,20 @@ impl Parser {
                 self.advance(); // consume 'type'
                 let type_name = self.parse_type_name()?;
                 Ok(Expr::TypeExpr { type_name })
+            }
+            TokenType::Alloc => {
+                self.advance(); // consume 'alloc'
+                self.consume(TokenType::LeftParen)?; // consume '('
+                
+                // Parse size expression
+                let size = self.parse_expression()?;
+                
+                self.consume(TokenType::RightParen)?; // consume ')'
+                
+                Ok(Expr::Alloc {
+                    element_type: "byte".to_string(), // Default to byte allocation
+                    size: Box::new(size),
+                })
             }
             _ => bail!("Unexpected token: {:?}", self.current_token().token_type),
         }
@@ -1173,6 +1191,67 @@ type Point = struct {
             assert_eq!(struct_decl.fields[0].type_name, "[*]int");
         } else {
             panic!("Expected struct declaration");
+        }
+    }
+
+    #[test]
+    fn test_struct_new_pattern_parsing() {
+        let code = "new(struct) Point { .x = 10, .y = 20 }";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse().unwrap();
+
+        if let Expr::StructNewPattern { type_name, fields } = expr {
+            assert_eq!(type_name, "Point");
+            assert_eq!(fields.len(), 2);
+            assert_eq!(fields[0].0, "x");
+            assert_eq!(fields[1].0, "y");
+            if let Expr::Number(n) = fields[0].1 {
+                assert_eq!(n, 10.0);
+            } else {
+                panic!("Expected number expression for field value");
+            }
+            if let Expr::Number(n) = fields[1].1 {
+                assert_eq!(n, 20.0);
+            } else {
+                panic!("Expected number expression for field value");
+            }
+        } else {
+            panic!("Expected StructNewPattern expression, got: {:?}", expr);
+        }
+    }
+
+    #[test]
+    fn test_struct_new_pattern_vs_regular_new() {
+        // Test that both syntaxes work and produce different AST nodes
+        let code1 = "new Point { .x = 10, .y = 20 }";
+        let code2 = "new(struct) Point { .x = 10, .y = 20 }";
+        
+        let mut lexer1 = Lexer::new(code1);
+        let tokens1 = lexer1.tokenize().unwrap();
+        let mut parser1 = Parser::new(tokens1);
+        let expr1 = parser1.parse().unwrap();
+        
+        let mut lexer2 = Lexer::new(code2);
+        let tokens2 = lexer2.tokenize().unwrap();
+        let mut parser2 = Parser::new(tokens2);
+        let expr2 = parser2.parse().unwrap();
+
+        // First should be StructNew
+        if let Expr::StructNew { type_name, fields } = expr1 {
+            assert_eq!(type_name, "Point");
+            assert_eq!(fields.len(), 2);
+        } else {
+            panic!("Expected StructNew expression");
+        }
+
+        // Second should be StructNewPattern
+        if let Expr::StructNewPattern { type_name, fields } = expr2 {
+            assert_eq!(type_name, "Point");
+            assert_eq!(fields.len(), 2);
+        } else {
+            panic!("Expected StructNewPattern expression");
         }
     }
 }

@@ -251,7 +251,7 @@ impl Desugarer {
                     initial_values: desugared_values,
                 })
             }
-            Expr::PointerNew {
+            Expr::PointerAlloc {
                 element_type,
                 initial_values,
             } => {
@@ -259,7 +259,7 @@ impl Desugarer {
                 for value in initial_values {
                     desugared_values.push(self.desugar_expression(value)?);
                 }
-                Ok(Expr::PointerNew {
+                Ok(Expr::PointerAlloc {
                     element_type,
                     initial_values: desugared_values,
                 })
@@ -305,11 +305,30 @@ impl Desugarer {
                     fields: desugared_fields,
                 })
             }
+            Expr::StructNewPattern { type_name, fields } => {
+                let mut desugared_fields = Vec::new();
+                for (field_name, field_value) in fields {
+                    let desugared_value = self.desugar_expression(field_value)?;
+                    desugared_fields.push((field_name, desugared_value));
+                }
+                Ok(Expr::StructNewPattern {
+                    type_name,
+                    fields: desugared_fields,
+                })
+            }
             Expr::FieldAccess { object, field } => {
                 let desugared_object = self.desugar_expression(*object)?;
                 Ok(Expr::FieldAccess {
                     object: Box::new(desugared_object),
                     field,
+                })
+            }
+
+            Expr::Alloc { element_type, size } => {
+                let desugared_size = self.desugar_expression(*size)?;
+                Ok(Expr::Alloc {
+                    element_type,
+                    size: Box::new(desugared_size),
                 })
             }
 
@@ -384,7 +403,7 @@ impl Desugarer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::FunParam;
+    use crate::ast::{BinaryOp, FunParam};
 
     #[test]
     fn test_method_call_desugaring() {
@@ -483,6 +502,60 @@ mod tests {
             }
         } else {
             panic!("Expected function call result");
+        }
+    }
+
+    #[test]
+    fn test_struct_new_pattern_desugaring() {
+        let mut desugarer = Desugarer::new();
+
+        // Create a StructNewPattern expression with a nested expression
+        let struct_new_pattern = Expr::StructNewPattern {
+            type_name: "Point".to_string(),
+            fields: vec![
+                ("x".to_string(), Expr::Number(5.0)),
+                ("y".to_string(), Expr::Binary {
+                    left: Box::new(Expr::Number(2.0)),
+                    op: BinaryOp::Add,
+                    right: Box::new(Expr::Number(3.0)),
+                }),
+            ],
+        };
+
+        let result = desugarer.desugar_expression(struct_new_pattern).unwrap();
+
+        // Should desugar nested expressions while preserving the StructNewPattern structure
+        if let Expr::StructNewPattern { type_name, fields } = result {
+            assert_eq!(type_name, "Point");
+            assert_eq!(fields.len(), 2);
+            
+            // Check first field
+            assert_eq!(fields[0].0, "x");
+            if let Expr::Number(val) = &fields[0].1 {
+                assert_eq!(*val, 5.0);
+            } else {
+                panic!("Expected number in first field");
+            }
+            
+            // Check second field - the nested expression should be desugared
+            assert_eq!(fields[1].0, "y");
+            if let Expr::Binary { left, op, right } = &fields[1].1 {
+                assert_eq!(*op, BinaryOp::Add);
+                if let Expr::Number(left_val) = left.as_ref() {
+                    assert_eq!(*left_val, 2.0);
+                } else {
+                    panic!("Expected number in left operand");
+                }
+                if let Expr::Number(right_val) = right.as_ref() {
+                    assert_eq!(*right_val, 3.0);
+                } else {
+                    panic!("Expected number in right operand");
+                }
+            } else {
+                panic!("Expected binary expression in second field");
+            }
+        } else {
+            panic!("Expected StructNewPattern result");
         }
     }
 }

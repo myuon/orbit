@@ -83,7 +83,7 @@ pub enum Instruction {
     MapSet,
 
     // Pointer operations
-    PointerNew,
+    PointerAlloc,
     PointerIndex,
     PointerSet,
 
@@ -147,7 +147,7 @@ impl fmt::Display for Instruction {
             Instruction::MapNew => write!(f, "map_new"),
             Instruction::MapIndex => write!(f, "map_index"),
             Instruction::MapSet => write!(f, "map_set"),
-            Instruction::PointerNew => write!(f, "pointer_new"),
+            Instruction::PointerAlloc => write!(f, "pointer_new"),
             Instruction::PointerIndex => write!(f, "pointer_index"),
             Instruction::PointerSet => write!(f, "pointer_set"),
             Instruction::StringIndex => write!(f, "string_index"),
@@ -986,26 +986,19 @@ impl VM {
                     }
                 }
 
-                Instruction::PointerNew => {
-                    // Stack: [value_count] [value_1] ... [value_n]
+                Instruction::PointerAlloc => {
+                    // Stack: [size]
+                    // Allocate pointer with specified size initialized to zero
                     if self.stack.is_empty() {
-                        return Err("Stack underflow for PointerNew".to_string());
+                        return Err("Stack underflow for PointerAlloc".to_string());
                     }
-                    let value_count = match self.stack.pop().unwrap() {
+                    let size = match self.stack.pop().unwrap() {
                         Value::Number(n) => n as usize,
-                        _ => return Err("PointerNew requires a number for value count".to_string()),
+                        _ => return Err("PointerAlloc requires a number for size".to_string()),
                     };
 
-                    if self.stack.len() < value_count {
-                        return Err("Stack underflow for PointerNew values".to_string());
-                    }
-
-                    let mut values = Vec::new();
-                    for _ in 0..value_count {
-                        values.push(self.stack.pop().unwrap());
-                    }
-                    values.reverse(); // Stack is LIFO, so reverse to get original order
-
+                    // Create pointer with specified size, initialized to zero
+                    let values = vec![Value::Number(0.0); size];
                     let heap_index = self.heap.len();
                     self.heap.push(HeapObject::Pointer(values));
                     self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
@@ -1596,7 +1589,7 @@ impl VMCompiler {
                     self.collect_string_constants_from_expr(value);
                 }
             }
-            Expr::PointerNew { initial_values, .. } => {
+            Expr::PointerAlloc { initial_values, .. } => {
                 for value in initial_values {
                     self.collect_string_constants_from_expr(value);
                 }
@@ -2090,14 +2083,14 @@ impl VMCompiler {
                 self.instructions.push(Instruction::VectorNew);
             }
 
-            Expr::PointerNew { initial_values, .. } => {
+            Expr::PointerAlloc { initial_values, .. } => {
                 // Push initial values onto stack first
                 for value in initial_values {
                     self.compile_expression(value);
                 }
                 // Push the count of initial values
                 self.instructions.push(Instruction::Push(initial_values.len() as i64));
-                self.instructions.push(Instruction::PointerNew);
+                self.instructions.push(Instruction::PointerAlloc);
             }
 
             Expr::Index {
@@ -2151,6 +2144,24 @@ impl VMCompiler {
                 self.instructions.push(Instruction::StructNew);
             }
 
+            Expr::StructNewPattern { type_name, fields } => {
+                // Verify struct exists
+                if !self.structs.contains_key(type_name) {
+                    panic!("Unknown struct type: {}", type_name);
+                }
+
+                // Push field values and names onto stack
+                for (field_name, field_value) in fields {
+                    self.instructions
+                        .push(Instruction::PushString(field_name.clone()));
+                    self.compile_expression(field_value);
+                }
+                // Push field count
+                self.instructions
+                    .push(Instruction::Push(fields.len() as i64));
+                self.instructions.push(Instruction::StructNew);
+            }
+
             Expr::FieldAccess { object, field } => {
                 self.compile_expression(object);
                 self.instructions
@@ -2176,6 +2187,13 @@ impl VMCompiler {
                 self.instructions
                     .push(Instruction::PushString(method.clone()));
                 self.instructions.push(Instruction::MethodCall(args.len()));
+            }
+
+            Expr::Alloc { element_type: _, size } => {
+                // Compile the size expression
+                self.compile_expression(size);
+                // Allocate pointer with specified size
+                self.instructions.push(Instruction::PointerAlloc);
             }
 
             Expr::TypeExpr { type_name } => {
@@ -2257,7 +2275,7 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
             instructions.push(Instruction::Push(0));
         }
 
-        Expr::PointerNew { .. } => {
+        Expr::PointerAlloc { .. } => {
             // For now, just push 0 - pointers need more complex handling
             instructions.push(Instruction::Push(0));
         }
@@ -2272,6 +2290,23 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
         }
 
         Expr::StructNew {
+            type_name: _,
+            fields,
+        } => {
+            // Note: struct type checking should be done at type check time
+            // For standalone compilation, we assume struct is valid
+
+            // Push field values and names onto stack
+            for (field_name, field_value) in fields {
+                instructions.push(Instruction::PushString(field_name.clone()));
+                compile_expr_recursive(field_value, instructions);
+            }
+            // Push field count
+            instructions.push(Instruction::Push(fields.len() as i64));
+            instructions.push(Instruction::StructNew);
+        }
+
+        Expr::StructNewPattern {
             type_name: _,
             fields,
         } => {
@@ -2310,6 +2345,13 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
             instructions.push(Instruction::PushString(method.clone()));
             // Method call with argument count
             instructions.push(Instruction::MethodCall(args.len()));
+        }
+
+        Expr::Alloc { element_type: _, size } => {
+            // Compile the size expression
+            compile_expr_recursive(size, instructions);
+            // Allocate pointer with specified size
+            instructions.push(Instruction::PointerAlloc);
         }
 
         Expr::TypeExpr { type_name } => {
@@ -2492,6 +2534,42 @@ mod tests {
                 Instruction::Add,
                 Instruction::Push(4),
                 Instruction::Mul,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_alloc_expression_compilation() {
+        use crate::ast::Expr;
+
+        // Test alloc with constant size: alloc int 10
+        let expr = Expr::Alloc {
+            element_type: "int".to_string(),
+            size: Box::new(Expr::Number(10.0)),
+        };
+        let instructions = compile_expression(&expr);
+        assert_eq!(
+            instructions,
+            vec![Instruction::Push(10), Instruction::PointerAlloc]
+        );
+
+        // Test alloc with expression size: alloc byte (5 + 3)
+        let expr = Expr::Alloc {
+            element_type: "byte".to_string(),
+            size: Box::new(Expr::Binary {
+                left: Box::new(Expr::Number(5.0)),
+                op: crate::ast::BinaryOp::Add,
+                right: Box::new(Expr::Number(3.0)),
+            }),
+        };
+        let instructions = compile_expression(&expr);
+        assert_eq!(
+            instructions,
+            vec![
+                Instruction::Push(5),
+                Instruction::Push(3),
+                Instruction::Add,
+                Instruction::PointerAlloc
             ]
         );
     }
