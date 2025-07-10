@@ -38,7 +38,7 @@ impl Lexer {
         }
     }
 
-    fn read_number(&mut self) -> f64 {
+    fn read_number(&mut self) -> i64 {
         let mut num_str = String::new();
 
         while let Some(ch) = self.current_char {
@@ -50,7 +50,7 @@ impl Lexer {
             }
         }
 
-        num_str.parse().unwrap_or(0.0)
+        num_str.parse().unwrap_or(0)
     }
 
     fn read_string(&mut self) -> String {
@@ -111,7 +111,7 @@ impl Lexer {
                     let pos = self.position;
                     let num = self.read_number();
                     return Token {
-                        token_type: TokenType::Number(num),
+                        token_type: TokenType::Int(num),
                         position: pos,
                     };
                 }
@@ -341,7 +341,7 @@ impl Lexer {
                         // This is a float literal starting with a dot
                         let num = self.read_number();
                         return Token {
-                            token_type: TokenType::Number(num),
+                            token_type: TokenType::Int(num),
                             position: pos,
                         };
                     } else {

@@ -20,7 +20,7 @@ pub enum HeapObject {
 /// Values in the Orbit runtime system
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
-    Number(f64),
+    Int(i64),
     Boolean(bool),
     Address(usize),
     HeapRef(HeapIndex),
@@ -29,13 +29,7 @@ pub enum Value {
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::Number(n) => {
-                if n.fract() == 0.0 {
-                    write!(f, "{}", *n as i64)
-                } else {
-                    write!(f, "{}", n)
-                }
-            }
+            Value::Int(n) => write!(f, "{}", n),
             Value::Boolean(b) => write!(f, "{}", b),
             Value::Address(addr) => write!(f, "@{}", addr),
             Value::HeapRef(index) => write!(f, "heap@{}", index.0),
@@ -108,7 +102,7 @@ impl Runtime {
         self.vm.load_program(instructions);
 
         match self.vm.execute() {
-            Ok(result) => Ok(Some(Value::Number(result as f64))),
+            Ok(result) => Ok(Some(Value::Int(result))),
             Err(err) => bail!("VM execution error: {}", err),
         }
     }
@@ -129,7 +123,7 @@ impl Runtime {
         self.vm.load_program(instructions);
 
         match self.vm.execute() {
-            Ok(result) => Ok(Some(Value::Number(result as f64))),
+            Ok(result) => Ok(Some(Value::Int(result))),
             Err(err) => bail!("VM execution error: {}", err),
         }
     }

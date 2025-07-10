@@ -1,6 +1,6 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
-    Number(f64),
+    Int(i64),
     Boolean(bool),
     String(String),
     Identifier(String),
@@ -84,7 +84,7 @@ pub enum IndexContainerType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Number(f64),
+    Int(i64),
     Boolean(bool),
     String(String),
     Identifier(String),
@@ -246,7 +246,7 @@ pub enum Stmt {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Unknown,
-    Number,
+    Int,
     Boolean,
     String,
     Vector(Box<Type>),
@@ -268,7 +268,7 @@ impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Type::Unknown => write!(f, "unknown"),
-            Type::Number => write!(f, "number"),
+            Type::Int => write!(f, "int"),
             Type::Boolean => write!(f, "boolean"),
             Type::String => write!(f, "string"),
             Type::Vector(elem_type) => write!(f, "vec({})", elem_type),
@@ -293,7 +293,7 @@ impl std::fmt::Display for Type {
                     }
                     // Use source-friendly names for common types in generic contexts
                     match arg {
-                        Type::Number => write!(f, "int")?,
+                        Type::Int => write!(f, "int")?,
                         Type::Boolean => write!(f, "bool")?,
                         Type::String => write!(f, "string")?,
                         other => write!(f, "{}", other)?,

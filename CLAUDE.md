@@ -141,9 +141,9 @@ Follow the implementation phases outlined in `TASK.md`:
 #[test]
 fn test_arithmetic_operations() {
     let test_cases = vec![
-        ("2 + 3", Value::Number(5.0)),
-        ("4 * 5", Value::Number(20.0)),
-        ("10 / 2", Value::Number(5.0)),
+        ("2 + 3", Value::Int(5.0)),
+        ("4 * 5", Value::Int(20.0)),
+        ("10 / 2", Value::Int(5.0)),
     ];
 
     let runtime = Runtime::new();

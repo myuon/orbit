@@ -223,7 +223,11 @@ impl Compiler {
                             output.push_str(", ");
                             output.push_str(&format!("{}: {}", param.name, param.type_name.as_ref().unwrap_or(&"unknown".to_string())));
                         }
-                        output.push_str(") do\n    // ... body ...\nend\n\n");
+                        output.push_str(") do\n");
+                        for stmt in &func.body {
+                            output.push_str(&format!("    {}\n", self.format_statement(stmt, 1)));
+                        }
+                        output.push_str("end\n\n");
                     } else {
                         output.push_str(&format!("// Monomorphized function: {}\n", func.name));
                         output.push_str(&format!("fun {}(", func.name));
@@ -231,7 +235,11 @@ impl Compiler {
                             if i > 0 { output.push_str(", "); }
                             output.push_str(&format!("{}: {}", param.name, param.type_name.as_ref().unwrap_or(&"unknown".to_string())));
                         }
-                        output.push_str(") do\n    // ... body ...\nend\n\n");
+                        output.push_str(") do\n");
+                        for stmt in &func.body {
+                            output.push_str(&format!("    {}\n", self.format_statement(stmt, 1)));
+                        }
+                        output.push_str("end\n\n");
                     }
                 }
                 crate::ast::Decl::Struct(struct_decl) => {
@@ -261,6 +269,146 @@ impl Compiler {
         }
         
         output
+    }
+
+    /// Format a statement as readable code with proper indentation
+    fn format_statement(&self, stmt: &crate::ast::Stmt, indent_level: usize) -> String {
+        let indent = "    ".repeat(indent_level);
+        match stmt {
+            crate::ast::Stmt::Let { name, value } => {
+                format!("{}let {} = {};", indent, name, self.format_expression(value))
+            }
+            crate::ast::Stmt::Expression(expr) => {
+                format!("{}{};", indent, self.format_expression(expr))
+            }
+            crate::ast::Stmt::Return(expr) => {
+                format!("{}return {};", indent, self.format_expression(expr))
+            }
+            crate::ast::Stmt::Assign { name, value } => {
+                format!("{}{} = {};", indent, name, self.format_expression(value))
+            }
+            crate::ast::Stmt::IndexAssign { container, index, value, container_type: _ } => {
+                format!("{}{}[{}] = {};", indent, container, self.format_expression(index), self.format_expression(value))
+            }
+            crate::ast::Stmt::FieldAssign { object, field, value } => {
+                format!("{}{}.{} = {};", indent, self.format_expression(object), field, self.format_expression(value))
+            }
+            crate::ast::Stmt::If { condition, then_branch, else_branch } => {
+                let mut result = format!("{}if {} do\n", indent, self.format_expression(condition));
+                for stmt in then_branch {
+                    result.push_str(&format!("{}\n", self.format_statement(stmt, indent_level + 1)));
+                }
+                if let Some(else_branch) = else_branch {
+                    result.push_str(&format!("{}else do\n", indent));
+                    for stmt in else_branch {
+                        result.push_str(&format!("{}\n", self.format_statement(stmt, indent_level + 1)));
+                    }
+                }
+                result.push_str(&format!("{}end", indent));
+                result
+            }
+            crate::ast::Stmt::While { condition, body } => {
+                let mut result = format!("{}while {} do\n", indent, self.format_expression(condition));
+                for stmt in body {
+                    result.push_str(&format!("{}\n", self.format_statement(stmt, indent_level + 1)));
+                }
+                result.push_str(&format!("{}end", indent));
+                result
+            }
+            crate::ast::Stmt::VectorPush { vector, value } => {
+                format!("{}{}.push({});", indent, vector, self.format_expression(value))
+            }
+        }
+    }
+
+    /// Format an expression as readable code
+    fn format_expression(&self, expr: &crate::ast::Expr) -> String {
+        match expr {
+            crate::ast::Expr::Int(n) => n.to_string(),
+            crate::ast::Expr::String(s) => format!("\"{}\"", s),
+            crate::ast::Expr::Boolean(b) => b.to_string(),
+            crate::ast::Expr::Identifier(name) => name.clone(),
+            crate::ast::Expr::Binary { left, op, right } => {
+                format!("{} {} {}", self.format_expression(left), self.format_binary_op(op), self.format_expression(right))
+            }
+            crate::ast::Expr::Call { callee, args } => {
+                let args_str = args.iter()
+                    .map(|arg| self.format_expression(arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}({})", self.format_expression(callee), args_str)
+            }
+            crate::ast::Expr::Index { container, index, container_type: _ } => {
+                format!("{}[{}]", self.format_expression(container), self.format_expression(index))
+            }
+            crate::ast::Expr::FieldAccess { object, field } => {
+                format!("{}.{}", self.format_expression(object), field)
+            }
+            crate::ast::Expr::StructNew { type_name, fields } => {
+                let fields_str = fields.iter()
+                    .map(|(name, expr)| format!(".{} = {}", name, self.format_expression(expr)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("new {} {{ {} }}", type_name, fields_str)
+            }
+            crate::ast::Expr::StructNewPattern { type_name, fields } => {
+                let fields_str = fields.iter()
+                    .map(|(name, expr)| format!(".{} = {}", name, self.format_expression(expr)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("new(struct) {} {{ {} }}", type_name, fields_str)
+            }
+            crate::ast::Expr::VectorNew { element_type, initial_values } => {
+                let elements_str = initial_values.iter()
+                    .map(|elem| self.format_expression(elem))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("vec({}, {})", element_type, elements_str)
+            }
+            crate::ast::Expr::MapNew { key_type, value_type, initial_pairs } => {
+                let entries_str = initial_pairs.iter()
+                    .map(|(key, value)| format!("{}: {}", self.format_expression(key), self.format_expression(value)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("map({}, {}, {})", key_type, value_type, entries_str)
+            }
+            crate::ast::Expr::Alloc { element_type, size } => {
+                format!("alloc({}, {})", element_type, self.format_expression(size))
+            }
+            crate::ast::Expr::MethodCall { object, method, args, object_type: _ } => {
+                let args_str = args.iter()
+                    .map(|arg| self.format_expression(arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}.{}({})", self.format_expression(object), method, args_str)
+            }
+            crate::ast::Expr::TypeExpr { type_name } => {
+                type_name.clone()
+            }
+            crate::ast::Expr::PointerAlloc { element_type, initial_values } => {
+                let values_str = initial_values.iter()
+                    .map(|val| self.format_expression(val))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("pointer({}, {})", element_type, values_str)
+            }
+        }
+    }
+
+    /// Format a binary operator
+    fn format_binary_op(&self, op: &crate::ast::BinaryOp) -> &'static str {
+        match op {
+            crate::ast::BinaryOp::Add => "+",
+            crate::ast::BinaryOp::Subtract => "-",
+            crate::ast::BinaryOp::Multiply => "*",
+            crate::ast::BinaryOp::Divide => "/",
+            crate::ast::BinaryOp::Equal => "==",
+            crate::ast::BinaryOp::NotEqual => "!=",
+            crate::ast::BinaryOp::Less => "<",
+            crate::ast::BinaryOp::LessEqual => "<=",
+            crate::ast::BinaryOp::Greater => ">",
+            crate::ast::BinaryOp::GreaterEqual => ">=",
+        }
     }
 }
 

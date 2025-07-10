@@ -22,7 +22,7 @@ impl MonomorphizationTarget {
             let args_str = self.args
                 .iter()
                 .map(|t| match t {
-                    Type::Number => "int".to_string(),  // Keep as "int" not "number"
+                    Type::Int => "int".to_string(),  // Keep as "int" not "number"
                     Type::Boolean => "bool".to_string(), // Keep as "bool" not "boolean"
                     _ => t.to_string(),
                 })
@@ -272,7 +272,7 @@ impl Monomorphizer {
                 self.collect_targets_from_expr(size)?;
             }
             // Simple expressions don't need recursive processing
-            Expr::Number(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) | Expr::TypeExpr { .. } => {}
+            Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) | Expr::TypeExpr { .. } => {}
         }
         Ok(())
     }
@@ -284,7 +284,7 @@ impl Monomorphizer {
                 // For monomorphization, we need to preserve original type names
                 // So we'll create a custom type that maintains the source name
                 match type_name.as_str() {
-                    "int" | "number" => Some(Type::Number),
+                    "int" | "number" => Some(Type::Int),
                     "bool" | "boolean" => Some(Type::Boolean),
                     "string" | "[*]byte" => Some(Type::String),
                     _ => {
@@ -302,7 +302,7 @@ impl Monomorphizer {
                 // Keep old handling for backward compatibility
                 match name.as_str() {
                     "type" => Some(Type::TypeParameter("type".to_string())),
-                    "int" | "number" => Some(Type::Number),
+                    "int" | "number" => Some(Type::Int),
                     "bool" | "boolean" => Some(Type::Boolean),
                     "string" => Some(Type::String),
                     _ => None, // Don't assume all identifiers are types
@@ -525,7 +525,7 @@ impl Monomorphizer {
     fn substitute_expression(&mut self, expression: &Expr, substitutions: &HashMap<String, Type>) -> Result<Expr> {
         match expression {
             // Simple expressions that don't need substitution
-            Expr::Number(n) => Ok(Expr::Number(*n)),
+            Expr::Int(n) => Ok(Expr::Int(*n)),
             Expr::Boolean(b) => Ok(Expr::Boolean(*b)),
             Expr::String(s) => Ok(Expr::String(s.clone())),
             Expr::Identifier(name) => Ok(Expr::Identifier(name.clone())),
@@ -742,7 +742,7 @@ impl Monomorphizer {
     fn substitute_expression_globally(&self, expression: &Expr) -> Result<Expr> {
         match expression {
             // Simple expressions that don't need substitution
-            Expr::Number(n) => Ok(Expr::Number(*n)),
+            Expr::Int(n) => Ok(Expr::Int(*n)),
             Expr::Boolean(b) => Ok(Expr::Boolean(*b)),
             Expr::String(s) => Ok(Expr::String(s.clone())),
             Expr::Identifier(name) => Ok(Expr::Identifier(name.clone())),
@@ -904,7 +904,7 @@ fn substitute_type_in_string(type_str: &str, substitutions: &HashMap<String, Typ
             let args_str = args
                 .iter()
                 .map(|t| match t {
-                    Type::Number => "int".to_string(),  // Keep as "int" not "number"
+                    Type::Int => "int".to_string(),  // Keep as "int" not "number"
                     Type::Boolean => "bool".to_string(), // Keep as "bool" not "boolean" 
                     _ => t.to_string(),
                 })
@@ -919,7 +919,7 @@ fn substitute_type_in_string(type_str: &str, substitutions: &HashMap<String, Typ
     if let Some(replacement) = substitutions.get(type_str) {
         // Convert Type back to source-friendly string representation
         match replacement {
-            Type::Number => "int".to_string(),    // Prefer "int" over "number"
+            Type::Int => "int".to_string(),    // Prefer "int" over "number"
             Type::Boolean => "bool".to_string(),  // Prefer "bool" over "boolean"
             Type::String => "string".to_string(), // Could be "string" or "[*]byte", use "string"
             other => other.to_string(),
@@ -938,7 +938,7 @@ mod tests {
     fn test_monomorphization_target_naming() {
         let target = MonomorphizationTarget {
             symbol: "Container".to_string(),
-            args: vec![Type::Number, Type::String],
+            args: vec![Type::Int, Type::String],
         };
         assert_eq!(target.instantiated_name(), "Container(int, string)");
     }

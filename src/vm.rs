@@ -273,7 +273,7 @@ impl VM {
                 }
 
                 Instruction::Push(value) => {
-                    self.stack.push(Value::Number(*value as f64));
+                    self.stack.push(Value::Int(*value));
                 }
 
                 Instruction::PushString(s) => {
@@ -304,8 +304,8 @@ impl VM {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => {
-                            self.stack.push(Value::Number(a + b));
+                        (Value::Int(a), Value::Int(b)) => {
+                            self.stack.push(Value::Int(a + b));
                         }
                         _ => return Err("Add operation requires numbers".to_string()),
                     }
@@ -318,8 +318,8 @@ impl VM {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => {
-                            self.stack.push(Value::Number(a - b));
+                        (Value::Int(a), Value::Int(b)) => {
+                            self.stack.push(Value::Int(a - b));
                         }
                         _ => return Err("Subtract operation requires numbers".to_string()),
                     }
@@ -332,8 +332,8 @@ impl VM {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => {
-                            self.stack.push(Value::Number(a * b));
+                        (Value::Int(a), Value::Int(b)) => {
+                            self.stack.push(Value::Int(a * b));
                         }
                         _ => return Err("Multiply operation requires numbers".to_string()),
                     }
@@ -346,11 +346,11 @@ impl VM {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => {
-                            if b == 0.0 {
+                        (Value::Int(a), Value::Int(b)) => {
+                            if b == 0 {
                                 return Err("Division by zero".to_string());
                             }
-                            self.stack.push(Value::Number(a / b));
+                            self.stack.push(Value::Int(a / b));
                         }
                         _ => return Err("Divide operation requires numbers".to_string()),
                     }
@@ -363,11 +363,11 @@ impl VM {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => {
-                            if b == 0.0 {
+                        (Value::Int(a), Value::Int(b)) => {
+                            if b == 0 {
                                 return Err("Modulo by zero".to_string());
                             }
-                            self.stack.push(Value::Number(a % b));
+                            self.stack.push(Value::Int(a % b));
                         }
                         _ => return Err("Modulo operation requires numbers".to_string()),
                     }
@@ -380,7 +380,7 @@ impl VM {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     match (a, b) {
-                        (Value::Address(addr), Value::Number(offset)) => {
+                        (Value::Address(addr), Value::Int(offset)) => {
                             self.stack.push(Value::Address(addr + offset as usize));
                         }
                         _ => return Err("AddressAdd requires Address + Number".to_string()),
@@ -394,7 +394,7 @@ impl VM {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     match (a, b) {
-                        (Value::Address(addr), Value::Number(offset)) => {
+                        (Value::Address(addr), Value::Int(offset)) => {
                             self.stack.push(Value::Address(addr - offset as usize));
                         }
                         _ => return Err("AddressSub requires Address - Number".to_string()),
@@ -417,7 +417,7 @@ impl VM {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => {
+                        (Value::Int(a), Value::Int(b)) => {
                             self.stack.push(Value::Boolean(a < b));
                         }
                         _ => return Err("Less than operation requires numbers".to_string()),
@@ -431,7 +431,7 @@ impl VM {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => {
+                        (Value::Int(a), Value::Int(b)) => {
                             self.stack.push(Value::Boolean(a <= b));
                         }
                         _ => {
@@ -447,7 +447,7 @@ impl VM {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => {
+                        (Value::Int(a), Value::Int(b)) => {
                             self.stack.push(Value::Boolean(a > b));
                         }
                         _ => return Err("Greater than operation requires numbers".to_string()),
@@ -461,7 +461,7 @@ impl VM {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     match (a, b) {
-                        (Value::Number(a), Value::Number(b)) => {
+                        (Value::Int(a), Value::Int(b)) => {
                             self.stack.push(Value::Boolean(a >= b));
                         }
                         _ => {
@@ -481,8 +481,8 @@ impl VM {
                         Value::Boolean(b) => {
                             self.stack.push(Value::Boolean(!b));
                         }
-                        Value::Number(n) => {
-                            self.stack.push(Value::Boolean(n == 0.0));
+                        Value::Int(n) => {
+                            self.stack.push(Value::Boolean(n == 0));
                         }
                         _ => return Err("Not operation requires boolean or number".to_string()),
                     }
@@ -499,7 +499,7 @@ impl VM {
                     }
                     let value = self.stack.pop().unwrap();
                     let should_jump = match value {
-                        Value::Number(n) => n == 0.0,
+                        Value::Int(n) => n == 0,
                         Value::Boolean(b) => !b,
                         _ => false,
                     };
@@ -558,7 +558,7 @@ impl VM {
 
                     // Extend stack if needed for positive offsets
                     while self.stack.len() <= index {
-                        self.stack.push(Value::Number(0.0));
+                        self.stack.push(Value::Int(0));
                     }
 
                     self.stack[index] = value;
@@ -620,7 +620,7 @@ impl VM {
                     let address = self.stack.pop().unwrap();
                     if self.bp == 0 {
                         return match self.stack.pop().unwrap() {
-                            Value::Number(v) => Ok(v as i64),
+                            Value::Int(v) => Ok(v as i64),
                             _ => Err("Ret requires a number".to_string()),
                         };
                     }
@@ -646,7 +646,7 @@ impl VM {
                         Value::Address(addr) => {
                             self.bp = addr;
                         }
-                        Value::Number(n) => {
+                        Value::Int(n) => {
                             self.bp = n as usize;
                         }
                         _ => return Err("SetBP requires an address or number".to_string()),
@@ -666,17 +666,17 @@ impl VM {
                         Value::Address(addr) => {
                             if addr > self.stack.len() {
                                 // Extend stack
-                                self.stack.resize(addr, Value::Number(0.0));
+                                self.stack.resize(addr, Value::Int(0));
                             } else {
                                 // Truncate stack
                                 self.stack.truncate(addr);
                             }
                         }
-                        Value::Number(n) => {
+                        Value::Int(n) => {
                             let new_sp = n as usize;
                             if new_sp > self.stack.len() {
                                 // Extend stack
-                                self.stack.resize(new_sp, Value::Number(0.0));
+                                self.stack.resize(new_sp, Value::Int(0));
                             } else {
                                 // Truncate stack
                                 self.stack.truncate(new_sp);
@@ -699,7 +699,7 @@ impl VM {
                         Value::Address(addr) => {
                             self.pc = addr;
                         }
-                        Value::Number(n) => {
+                        Value::Int(n) => {
                             self.pc = n as usize;
                         }
                         _ => return Err("SetPC requires an address or number".to_string()),
@@ -823,7 +823,7 @@ impl VM {
                     let element_index_value = self.stack.pop().unwrap();
                     let vector_ref = self.stack.pop().unwrap();
                     match (vector_ref, element_index_value) {
-                        (Value::HeapRef(heap_index), Value::Number(element_index)) => {
+                        (Value::HeapRef(heap_index), Value::Int(element_index)) => {
                             let element_index = element_index as usize;
                             if heap_index.0 >= self.heap.len() {
                                 return Err(format!("Invalid heap index: {}", heap_index.0));
@@ -864,7 +864,7 @@ impl VM {
                     let element_index_value = self.stack.pop().unwrap();
                     let value = self.stack.pop().unwrap();
                     match (vector_ref, element_index_value) {
-                        (Value::HeapRef(heap_index), Value::Number(element_index)) => {
+                        (Value::HeapRef(heap_index), Value::Int(element_index)) => {
                             let element_index = element_index as usize;
                             if heap_index.0 >= self.heap.len() {
                                 return Err(format!("Invalid heap index: {}", heap_index.0));
@@ -995,7 +995,7 @@ impl VM {
                     
                     let element_type_ref = self.stack.pop().unwrap();
                     let size = match self.stack.pop().unwrap() {
-                        Value::Number(n) => n as usize,
+                        Value::Int(n) => n as usize,
                         _ => return Err("PointerAlloc requires a number for size".to_string()),
                     };
 
@@ -1018,7 +1018,7 @@ impl VM {
                     let total_size = element_size * size;
 
                     // Create pointer with total_size bytes, initialized to zero
-                    let values = vec![Value::Number(0.0); total_size];
+                    let values = vec![Value::Int(0); total_size];
                     let heap_index = self.heap.len();
                     self.heap.push(HeapObject::Pointer(values));
                     self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
@@ -1032,7 +1032,7 @@ impl VM {
                     let element_index_value = self.stack.pop().unwrap();
                     let pointer_ref = self.stack.pop().unwrap();
                     match (pointer_ref, element_index_value) {
-                        (Value::HeapRef(heap_index), Value::Number(element_index)) => {
+                        (Value::HeapRef(heap_index), Value::Int(element_index)) => {
                             let element_index = element_index as usize;
                             if heap_index.0 >= self.heap.len() {
                                 return Err(format!("Invalid heap index: {}", heap_index.0));
@@ -1064,7 +1064,7 @@ impl VM {
                     let element_index_value = self.stack.pop().unwrap();
                     let value = self.stack.pop().unwrap();
                     match (pointer_ref, element_index_value) {
-                        (Value::HeapRef(heap_index), Value::Number(element_index)) => {
+                        (Value::HeapRef(heap_index), Value::Int(element_index)) => {
                             let element_index = element_index as usize;
                             if heap_index.0 >= self.heap.len() {
                                 return Err(format!("Invalid heap index: {}", heap_index.0));
@@ -1073,7 +1073,7 @@ impl VM {
                                 HeapObject::Pointer(arr) => {
                                     if element_index >= arr.len() {
                                         // Extend the array if needed
-                                        arr.resize(element_index + 1, Value::Number(0.0));
+                                        arr.resize(element_index + 1, Value::Int(0));
                                     }
                                     arr[element_index] = value;
                                 }
@@ -1092,7 +1092,7 @@ impl VM {
                     let element_index_value = self.stack.pop().unwrap();
                     let string_ref = self.stack.pop().unwrap();
                     match (string_ref, element_index_value) {
-                        (Value::HeapRef(heap_index), Value::Number(element_index)) => {
+                        (Value::HeapRef(heap_index), Value::Int(element_index)) => {
                             let element_index = element_index as usize;
                             if heap_index.0 >= self.heap.len() {
                                 return Err(format!("Invalid heap index: {}", heap_index.0));
@@ -1108,7 +1108,7 @@ impl VM {
                                         ));
                                     }
                                     // Return the byte value as a number
-                                    self.stack.push(Value::Number(bytes[element_index] as f64));
+                                    self.stack.push(Value::Int(bytes[element_index] as i64));
                                 }
                                 _ => return Err("StringIndex requires a string heap object".to_string()),
                             }
@@ -1122,7 +1122,7 @@ impl VM {
                         return Err("Stack underflow for StructNew".to_string());
                     }
                     let field_count = match self.stack.pop().unwrap() {
-                        Value::Number(n) => n as usize,
+                        Value::Int(n) => n as usize,
                         _ => return Err("StructNew requires a number for field count".to_string()),
                     };
 
@@ -1306,11 +1306,11 @@ impl VM {
                     let return_address = self.pc + 1;
 
                     // Set up new frame
-                    self.stack.push(Value::Number(-1.0)); // placeholder for return value
-                    self.stack.push(Value::Number(return_address as f64));
-                    self.stack.push(Value::Number(old_bp as f64));
+                    self.stack.push(Value::Int(-1)); // placeholder for return value
+                    self.stack.push(Value::Int(return_address as i64));
+                    self.stack.push(Value::Int(old_bp as i64));
                     self.stack
-                        .push(Value::Number((self.stack.len() - argc - 1) as f64));
+                        .push(Value::Int((self.stack.len() - argc - 1) as i64));
 
                     self.bp = self.stack.len() - 1;
 
@@ -1343,18 +1343,18 @@ impl VM {
                     // The return placeholder is left on the stack for the result
                     
                     match syscall_number {
-                        Value::Number(1.0) => {
+                        Value::Int(1) => {
                             // Write syscall: write(fd, buffer, length)
                             
                             // Validate fd is a number
                             let _fd_num = match fd {
-                                Value::Number(n) => n,
+                                Value::Int(n) => n,
                                 _ => return Err("Write syscall: fd must be a number".to_string()),
                             };
                             
                             // Validate length is a number
                             let length_num = match length {
-                                Value::Number(n) => n as usize,
+                                Value::Int(n) => n as usize,
                                 _ => return Err("Write syscall: length must be a number".to_string()),
                             };
                             
@@ -1380,7 +1380,7 @@ impl VM {
                                             
                                             // Replace the return placeholder with the number of bytes written
                                             if let Some(top) = self.stack.last_mut() {
-                                                *top = Value::Number(actual_length as f64);
+                                                *top = Value::Int(actual_length as i64);
                                             }
                                         }
                                         _ => return Err("Write syscall: buffer must be a string".to_string()),
@@ -1423,7 +1423,7 @@ impl VM {
         } else {
             let value = self.stack.pop().unwrap();
             match value {
-                Value::Number(n) => Ok(n as i64),
+                Value::Int(n) => Ok(n as i64),
                 Value::Boolean(b) => Ok(if b { 1 } else { 0 }),
                 Value::Address(addr) => Ok(addr as i64),
                 Value::HeapRef(heap_index) => Ok(heap_index.0 as i64),
@@ -2010,7 +2010,7 @@ impl VMCompiler {
     /// Compile an expression to VM bytecode
     fn compile_expression(&mut self, expr: &Expr) {
         match expr {
-            Expr::Number(value) => {
+            Expr::Int(value) => {
                 self.instructions.push(Instruction::Push(*value as i64));
             }
 
@@ -2256,7 +2256,7 @@ pub fn compile_expression(expr: &Expr) -> Vec<Instruction> {
 
 fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
     match expr {
-        Expr::Number(value) => {
+        Expr::Int(value) => {
             instructions.push(Instruction::Push(*value as i64));
         }
 
@@ -2537,7 +2537,7 @@ mod tests {
         use crate::ast::{BinaryOp, Expr};
 
         // Test simple literal
-        let expr = Expr::Number(42.0);
+        let expr = Expr::Int(42);
         let instructions = compile_expression(&expr);
         assert_eq!(instructions, vec![Instruction::Push(42)]);
 
@@ -2548,9 +2548,9 @@ mod tests {
 
         // Test binary expression: 2 + 3
         let expr = Expr::Binary {
-            left: Box::new(Expr::Number(2.0)),
+            left: Box::new(Expr::Int(2)),
             op: BinaryOp::Add,
-            right: Box::new(Expr::Number(3.0)),
+            right: Box::new(Expr::Int(3)),
         };
         let instructions = compile_expression(&expr);
         assert_eq!(
@@ -2561,12 +2561,12 @@ mod tests {
         // Test complex expression: (2 + 3) * 4
         let expr = Expr::Binary {
             left: Box::new(Expr::Binary {
-                left: Box::new(Expr::Number(2.0)),
+                left: Box::new(Expr::Int(2)),
                 op: BinaryOp::Add,
-                right: Box::new(Expr::Number(3.0)),
+                right: Box::new(Expr::Int(3)),
             }),
             op: BinaryOp::Multiply,
-            right: Box::new(Expr::Number(4.0)),
+            right: Box::new(Expr::Int(4)),
         };
         let instructions = compile_expression(&expr);
         assert_eq!(
@@ -2588,7 +2588,7 @@ mod tests {
         // Test alloc with constant size: alloc int 10
         let expr = Expr::Alloc {
             element_type: "int".to_string(),
-            size: Box::new(Expr::Number(10.0)),
+            size: Box::new(Expr::Int(10)),
         };
         let instructions = compile_expression(&expr);
         assert_eq!(
@@ -2600,9 +2600,9 @@ mod tests {
         let expr = Expr::Alloc {
             element_type: "byte".to_string(),
             size: Box::new(Expr::Binary {
-                left: Box::new(Expr::Number(5.0)),
+                left: Box::new(Expr::Int(5)),
                 op: crate::ast::BinaryOp::Add,
-                right: Box::new(Expr::Number(3.0)),
+                right: Box::new(Expr::Int(3)),
             }),
         };
         let instructions = compile_expression(&expr);
@@ -2624,12 +2624,12 @@ mod tests {
 
         // Test 2 + 3 * 4 (should be 14 with proper precedence)
         let expr = Expr::Binary {
-            left: Box::new(Expr::Number(2.0)),
+            left: Box::new(Expr::Int(2)),
             op: BinaryOp::Add,
             right: Box::new(Expr::Binary {
-                left: Box::new(Expr::Number(3.0)),
+                left: Box::new(Expr::Int(3)),
                 op: BinaryOp::Multiply,
-                right: Box::new(Expr::Number(4.0)),
+                right: Box::new(Expr::Int(4)),
             }),
         };
 
@@ -2649,7 +2649,7 @@ mod tests {
             name: "main".to_string(),
             type_params: vec![],
             params: vec![],
-            body: vec![Stmt::Return(Expr::Number(42.0))],
+            body: vec![Stmt::Return(Expr::Int(42))],
         };
 
         let program = Program {
@@ -2702,7 +2702,7 @@ mod tests {
             params: vec![],
             body: vec![Stmt::Return(Expr::Call {
                 callee: Box::new(Expr::Identifier("add".to_string())),
-                args: vec![Expr::Number(2.0), Expr::Number(3.0)],
+                args: vec![Expr::Int(2), Expr::Int(3)],
             })],
         };
 

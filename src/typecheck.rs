@@ -7,9 +7,9 @@ impl Type {
     pub fn from_string(type_str: &str) -> Type {
         match type_str {
             "bool" | "boolean" => Type::Boolean,
-            "int" | "number" => Type::Number,
+            "int" | "number" => Type::Int,
             "string" | "[*]byte" => Type::String, // Treat [*]byte as string
-            "byte" => Type::Number,               // Individual bytes are numbers
+            "byte" => Type::Int,               // Individual bytes are numbers
             _ => {
                 if type_str.starts_with("vec(") && type_str.ends_with(')') {
                     let inner = &type_str[4..type_str.len() - 1];
@@ -67,7 +67,7 @@ impl Type {
             // Only allow Unknown compatibility during type inference phase
             (Type::Unknown, _) | (_, Type::Unknown) => true,
             (Type::Boolean, Type::Boolean) => true,
-            (Type::Number, Type::Number) => true,
+            (Type::Int, Type::Int) => true,
             (Type::String, Type::String) => true,
             (Type::Vector(e1), Type::Vector(e2)) => e1.is_compatible_with(e2),
             (Type::Pointer(e1), Type::Pointer(e2)) => e1.is_compatible_with(e2),
@@ -94,7 +94,7 @@ impl Type {
     pub fn is_exactly(&self, other: &Type) -> bool {
         match (self, other) {
             (Type::Boolean, Type::Boolean) => true,
-            (Type::Number, Type::Number) => true,
+            (Type::Int, Type::Int) => true,
             (Type::String, Type::String) => true,
             (Type::Vector(e1), Type::Vector(e2)) => e1.is_exactly(e2),
             (Type::Pointer(e1), Type::Pointer(e2)) => e1.is_exactly(e2),
@@ -378,7 +378,7 @@ impl TypeChecker {
 
     fn infer_expression_types(&mut self, expr: &mut Expr) -> Result<()> {
         match expr {
-            Expr::Number(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) | Expr::TypeExpr { .. } => {
+            Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) | Expr::TypeExpr { .. } => {
                 // No inference needed for literals, identifiers, and type expressions
                 Ok(())
             }
@@ -751,7 +751,7 @@ impl TypeChecker {
                 // Just perform type checking, inference will be done separately
                 match &collection_type {
                     Type::Vector(element_type) => {
-                        if !index_type.is_compatible_with(&Type::Number) {
+                        if !index_type.is_compatible_with(&Type::Int) {
                             bail!("Vector index must be number, got {}", index_type);
                         }
                         if !value_type.is_compatible_with(element_type) {
@@ -779,7 +779,7 @@ impl TypeChecker {
                         }
                     }
                     Type::Pointer(element_type) => {
-                        if !index_type.is_compatible_with(&Type::Number) {
+                        if !index_type.is_compatible_with(&Type::Int) {
                             bail!("Pointer index must be number, got {}", index_type);
                         }
                         if !value_type.is_compatible_with(element_type) {
@@ -845,7 +845,7 @@ impl TypeChecker {
     /// Type check an expression and return its type
     fn check_expression(&mut self, expr: &Expr) -> Result<Type> {
         match expr {
-            Expr::Number(_) => Ok(Type::Number),
+            Expr::Int(_) => Ok(Type::Int),
             Expr::Boolean(_) => Ok(Type::Boolean),
             Expr::String(_) => Ok(Type::String),
 
@@ -869,19 +869,19 @@ impl TypeChecker {
                             && right_type.is_compatible_with(&Type::String)
                         {
                             Ok(Type::String)
-                        } else if left_type.is_compatible_with(&Type::Number)
-                            && right_type.is_compatible_with(&Type::Number)
+                        } else if left_type.is_compatible_with(&Type::Int)
+                            && right_type.is_compatible_with(&Type::Int)
                         {
-                            Ok(Type::Number)
+                            Ok(Type::Int)
                         } else {
                             bail!("Addition operation type mismatch: {} + {} (can only add numbers or concatenate strings)", left_type, right_type);
                         }
                     }
                     BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide => {
-                        if left_type.is_compatible_with(&Type::Number)
-                            && right_type.is_compatible_with(&Type::Number)
+                        if left_type.is_compatible_with(&Type::Int)
+                            && right_type.is_compatible_with(&Type::Int)
                         {
-                            Ok(Type::Number)
+                            Ok(Type::Int)
                         } else {
                             bail!(
                                 "Arithmetic operation type mismatch: {} {} {} (requires numbers)",
@@ -906,8 +906,8 @@ impl TypeChecker {
                     | BinaryOp::Greater
                     | BinaryOp::LessEqual
                     | BinaryOp::GreaterEqual => {
-                        if left_type.is_compatible_with(&Type::Number)
-                            && right_type.is_compatible_with(&Type::Number)
+                        if left_type.is_compatible_with(&Type::Int)
+                            && right_type.is_compatible_with(&Type::Int)
                         {
                             Ok(Type::Boolean)
                         } else {
@@ -935,7 +935,7 @@ impl TypeChecker {
                         for arg in args {
                             self.check_expression(arg)?;
                         }
-                        return Ok(Type::Number); // syscall returns a number (result code)
+                        return Ok(Type::Int); // syscall returns a number (result code)
                     }
 
                     // Check if this is a generic function first
@@ -1071,7 +1071,7 @@ impl TypeChecker {
                 // Just perform type checking, inference will be done separately
                 match &container_value_type {
                     Type::Vector(element_type) => {
-                        if !index_type.is_compatible_with(&Type::Number) {
+                        if !index_type.is_compatible_with(&Type::Int) {
                             bail!("Vector index must be number, got {}", index_type);
                         }
                         Ok(*element_type.clone())
@@ -1087,17 +1087,17 @@ impl TypeChecker {
                         Ok(*value_type.clone())
                     }
                     Type::Pointer(element_type) => {
-                        if !index_type.is_compatible_with(&Type::Number) {
+                        if !index_type.is_compatible_with(&Type::Int) {
                             bail!("Pointer index must be number, got {}", index_type);
                         }
                         Ok(*element_type.clone())
                     }
                     Type::String => {
                         // String is [*]byte, so indexing returns a byte (number)
-                        if !index_type.is_compatible_with(&Type::Number) {
+                        if !index_type.is_compatible_with(&Type::Int) {
                             bail!("String index must be number, got {}", index_type);
                         }
-                        Ok(Type::Number) // byte is represented as number
+                        Ok(Type::Int) // byte is represented as number
                     }
                     _ => bail!("Cannot index non-vector/map/pointer/string type: {}", container_value_type),
                 }
@@ -1285,7 +1285,7 @@ impl TypeChecker {
                 let element_type = self.resolve_type(element_type);
                 let size_type = self.check_expression(size)?;
                 
-                if !size_type.is_compatible_with(&Type::Number) {
+                if !size_type.is_compatible_with(&Type::Int) {
                     bail!("Allocation size must be a number, got {}", size_type);
                 }
                 
@@ -1343,17 +1343,6 @@ impl TypeChecker {
                 }
             }
 
-            Expr::Alloc { element_type, size } => {
-                // Check that size is a number
-                let size_type = self.check_expression(size)?;
-                if !size_type.is_compatible_with(&Type::Number) {
-                    bail!("Alloc size must be a number, got {}", size_type);
-                }
-
-                // Return pointer type [*]element_type
-                let parsed_element_type = Type::from_string(element_type);
-                Ok(Type::Pointer(Box::new(parsed_element_type)))
-            }
         }
     }
 
@@ -1367,7 +1356,7 @@ impl TypeChecker {
         }
 
         // Default to Number if no return statements found
-        Type::Number
+        Type::Int
     }
 
     /// Recursively search for return statements and infer their types
@@ -1384,11 +1373,11 @@ impl TypeChecker {
                         // If returning a struct creation with pattern, return that struct type
                         self.structs.get(type_name).cloned()
                     }
-                    Expr::Number(_) => Some(Type::Number),
+                    Expr::Int(_) => Some(Type::Int),
                     Expr::Boolean(_) => Some(Type::Boolean),
                     Expr::String(_) => Some(Type::String),
                     // For other expressions, we'd need more complex analysis
-                    _ => Some(Type::Number), // Default fallback
+                    _ => Some(Type::Int), // Default fallback
                 }
             }
             Stmt::If {
@@ -1496,7 +1485,7 @@ impl TypeChecker {
         }
     }
 
-    /// Parse a generic instantiation like "Container(int)" into ("Container", [Type::Number])
+    /// Parse a generic instantiation like "Container(int)" into ("Container", [Type::Int])
     fn parse_generic_instantiation(&self, type_name: &str) -> Option<(String, Vec<Type>)> {
         if type_name.contains('(') && type_name.ends_with(')') {
             if let Some(paren_pos) = type_name.find('(') {
@@ -1581,7 +1570,7 @@ mod tests {
         let _checker = TypeChecker::new();
 
         // Test basic types
-        assert_eq!(Type::from_string("int"), Type::Number);
+        assert_eq!(Type::from_string("int"), Type::Int);
         assert_eq!(Type::from_string("bool"), Type::Boolean);
         assert_eq!(Type::from_string("string"), Type::String);
     }
@@ -1656,20 +1645,20 @@ mod tests {
         assert!(matches!(pointer_type, Type::Pointer { .. }));
         
         if let Type::Pointer(element_type) = pointer_type {
-            assert!(matches!(element_type.as_ref(), Type::Number));
+            assert!(matches!(element_type.as_ref(), Type::Int));
         }
     }
 
     #[test]
     fn test_pointer_type_display() {
-        let pointer_type = Type::Pointer(Box::new(Type::Number));
+        let pointer_type = Type::Pointer(Box::new(Type::Int));
         assert_eq!(format!("{}", pointer_type), "[*]number");
     }
 
     #[test]
     fn test_pointer_type_compatibility() {
-        let pointer1 = Type::Pointer(Box::new(Type::Number));
-        let pointer2 = Type::Pointer(Box::new(Type::Number));
+        let pointer1 = Type::Pointer(Box::new(Type::Int));
+        let pointer2 = Type::Pointer(Box::new(Type::Int));
         let different_pointer = Type::Pointer(Box::new(Type::String));
 
         assert!(pointer1.is_compatible_with(&pointer2));

@@ -662,10 +662,10 @@ impl Parser {
 
     fn parse_primary(&mut self) -> Result<Expr> {
         match &self.current_token().token_type {
-            TokenType::Number(value) => {
+            TokenType::Int(value) => {
                 let num = *value;
                 self.advance();
-                Ok(Expr::Number(num))
+                Ok(Expr::Int(num))
             }
             TokenType::Boolean(value) => {
                 let bool_val = *value;
@@ -1212,13 +1212,13 @@ type Point = struct {
             assert_eq!(fields.len(), 2);
             assert_eq!(fields[0].0, "x");
             assert_eq!(fields[1].0, "y");
-            if let Expr::Number(n) = fields[0].1 {
-                assert_eq!(n, 10.0);
+            if let Expr::Int(n) = fields[0].1 {
+                assert_eq!(n, 10);
             } else {
                 panic!("Expected number expression for field value");
             }
-            if let Expr::Number(n) = fields[1].1 {
-                assert_eq!(n, 20.0);
+            if let Expr::Int(n) = fields[1].1 {
+                assert_eq!(n, 20);
             } else {
                 panic!("Expected number expression for field value");
             }

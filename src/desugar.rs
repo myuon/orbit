@@ -333,7 +333,7 @@ impl Desugarer {
             }
 
             // Leaf expressions that don't need desugaring
-            Expr::Number(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) | Expr::TypeExpr { .. } => {
+            Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) | Expr::TypeExpr { .. } => {
                 Ok(expression)
             }
         }
@@ -513,11 +513,11 @@ mod tests {
         let struct_new_pattern = Expr::StructNewPattern {
             type_name: "Point".to_string(),
             fields: vec![
-                ("x".to_string(), Expr::Number(5.0)),
+                ("x".to_string(), Expr::Int(5)),
                 ("y".to_string(), Expr::Binary {
-                    left: Box::new(Expr::Number(2.0)),
+                    left: Box::new(Expr::Int(2)),
                     op: BinaryOp::Add,
-                    right: Box::new(Expr::Number(3.0)),
+                    right: Box::new(Expr::Int(3)),
                 }),
             ],
         };
@@ -531,8 +531,8 @@ mod tests {
             
             // Check first field
             assert_eq!(fields[0].0, "x");
-            if let Expr::Number(val) = &fields[0].1 {
-                assert_eq!(*val, 5.0);
+            if let Expr::Int(val) = &fields[0].1 {
+                assert_eq!(*val, 5);
             } else {
                 panic!("Expected number in first field");
             }
@@ -541,13 +541,13 @@ mod tests {
             assert_eq!(fields[1].0, "y");
             if let Expr::Binary { left, op, right } = &fields[1].1 {
                 assert_eq!(*op, BinaryOp::Add);
-                if let Expr::Number(left_val) = left.as_ref() {
-                    assert_eq!(*left_val, 2.0);
+                if let Expr::Int(left_val) = left.as_ref() {
+                    assert_eq!(*left_val, 2);
                 } else {
                     panic!("Expected number in left operand");
                 }
-                if let Expr::Number(right_val) = right.as_ref() {
-                    assert_eq!(*right_val, 3.0);
+                if let Expr::Int(right_val) = right.as_ref() {
+                    assert_eq!(*right_val, 3);
                 } else {
                     panic!("Expected number in right operand");
                 }
