@@ -25,6 +25,10 @@ pub struct CompilerOptions {
     pub profile_output: Option<String>,
     /// Enable automatic loading of standard library
     pub enable_load_std: bool,
+    /// Enable dumping desugared code
+    pub dump_desugared_code: bool,
+    /// Output file for desugared code dump
+    pub dump_desugared_code_output: Option<String>,
     /// Enable dumping monomorphized code
     pub dump_monomorphized_code: bool,
     /// Output file for monomorphized code dump
@@ -41,6 +45,8 @@ impl Default for CompilerOptions {
             enable_profiling: false,
             profile_output: None,
             enable_load_std: true,
+            dump_desugared_code: false,
+            dump_desugared_code_output: None,
             dump_monomorphized_code: false,
             dump_monomorphized_code_output: None,
         }
@@ -142,6 +148,19 @@ impl Compiler {
         let mut desugarer = Desugarer::new();
         let desugared_program = desugarer.desugar_program(monomorphized_program)?;
 
+        // Handle desugared code dumping if requested
+        if self.options.dump_desugared_code {
+            let dump_output = self.format_desugared_program(&desugared_program);
+            if let Some(output_file) = &self.options.dump_desugared_code_output {
+                std::fs::write(output_file, &dump_output)
+                    .map_err(|e| anyhow::anyhow!("Failed to write desugared code dump: {}", e))?;
+            } else {
+                println!("=== Desugared Code ===");
+                println!("{}", dump_output);
+                println!(); // Add a blank line before continuing
+            }
+        }
+
         // 4. Final type checking on desugared program
         let mut final_type_checker = TypeChecker::new();
         final_type_checker.check_program(&desugared_program)?;
@@ -203,6 +222,54 @@ impl Compiler {
     /// Get a mutable reference to the runtime for direct manipulation
     pub fn runtime_mut(&mut self) -> &mut Runtime {
         &mut self.runtime
+    }
+
+    /// Format a desugared program as readable code
+    fn format_desugared_program(&self, program: &Program) -> String {
+        let mut output = String::new();
+        output.push_str("// === Desugared Code Output ===\n");
+        output.push_str("// This shows the program after desugaring transformations\n\n");
+        
+        for decl in &program.declarations {
+            match decl {
+                crate::ast::Decl::Function(func) => {
+                    output.push_str(&format!("// Function: {}\n", func.name));
+                    output.push_str(&format!("fun {}(", func.name));
+                    for (i, param) in func.params.iter().enumerate() {
+                        if i > 0 { output.push_str(", "); }
+                        output.push_str(&format!("{}: {}", param.name, param.type_name.as_ref().unwrap_or(&"unknown".to_string())));
+                    }
+                    output.push_str(") do\n");
+                    for stmt in &func.body {
+                        output.push_str(&format!("    {}\n", self.format_statement(stmt, 1)));
+                    }
+                    output.push_str("end\n\n");
+                }
+                crate::ast::Decl::Struct(struct_decl) => {
+                    output.push_str(&format!("// Struct: {}\n", struct_decl.name));
+                    output.push_str(&format!("type {}", struct_decl.name));
+                    if !struct_decl.type_params.is_empty() {
+                        output.push('(');
+                        for (i, param) in struct_decl.type_params.iter().enumerate() {
+                            if i > 0 { output.push_str(", "); }
+                            output.push_str(&format!("{}: type", param));
+                        }
+                        output.push(')');
+                    }
+                    output.push_str(" = struct {\n");
+                    for field in &struct_decl.fields {
+                        output.push_str(&format!("    {}: {},\n", field.name, field.type_name));
+                    }
+                    output.push_str("};\n\n");
+                }
+                crate::ast::Decl::GlobalVariable(var) => {
+                    output.push_str(&format!("// Global variable: {}\n", var.name));
+                    output.push_str(&format!("let {} = {};\n\n", var.name, self.format_expression(&var.value)));
+                }
+            }
+        }
+        
+        output
     }
 
     /// Format a monomorphized program as readable code

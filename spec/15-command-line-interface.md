@@ -30,6 +30,8 @@ The compiler takes a single Orbit source file (`.ob` extension) as input and exe
 
 - `--dump-ir=<file>` - Dump the compiled intermediate representation (IR) to the specified file. The IR shows the VM bytecode instructions generated from the source code, useful for understanding compilation output and debugging compiler issues.
 
+- `--dump-desugared-code[=<file>]` - Dump the desugared code after the desugaring phase. Shows how syntactic sugar and complex constructs are simplified into basic forms. If no file is specified, output goes to stdout. Useful for understanding how high-level constructs are transformed and debugging the desugaring process.
+
 - `--dump-monomorphized-code[=<file>]` - Dump the monomorphized code after generic instantiation. Shows how generic types and functions are instantiated with concrete types. If no file is specified, output goes to stdout. Useful for debugging generics and understanding the monomorphization process.
 
 #### Profiling Options
@@ -79,6 +81,20 @@ orbit program.ob --dump-ir=program.ir
 ```
 
 Compile the program and save the generated VM bytecode to `program.ir` for inspection.
+
+### Desugared Code Dump
+
+```bash
+orbit program.ob --dump-desugared-code
+```
+
+Execute the program and display the desugared code showing how syntactic sugar is simplified.
+
+```bash
+orbit program.ob --dump-desugared-code=desugared.ob
+```
+
+Save the desugared code to a file for detailed analysis of how complex constructs are transformed.
 
 ### Monomorphized Code Dump
 
@@ -147,6 +163,12 @@ orbit generic_program.ob --dump-monomorphized-code=mono.ob --dump-ir=debug.ir --
 ```
 
 Analyze a generic program by dumping both the monomorphized source code and the generated IR, with profiling enabled.
+
+```bash
+orbit complex_program.ob --dump-desugared-code=desugared.ob --dump-monomorphized-code=mono.ob --dump-ir=debug.ir
+```
+
+Full compilation pipeline analysis: dump the desugared code, monomorphized code, and final IR for comprehensive debugging.
 
 ## Exit Codes
 
@@ -243,6 +265,8 @@ The CLI parser is implemented in `src/main.rs` with the following structure:
 struct Config {
     filename: String,
     dump_ir: Option<String>,
+    dump_desugared_code: bool,
+    dump_desugared_code_output: Option<String>,
     dump_monomorphized_code: bool,
     dump_monomorphized_code_output: Option<String>,
     print_stacks: bool,
@@ -282,6 +306,35 @@ The intermediate representation dump includes:
 - Numbered instruction listing
 - Function labels and boundaries
 - Comments explaining instruction purpose
+
+#### Desugared Code Output Format
+
+The desugared code dump shows the program after syntactic sugar removal and construct simplification:
+
+- Comments indicating transformation stages
+- Simplified control flow structures (e.g., while loops instead of for loops)
+- Expanded method calls into function calls with explicit self parameters
+- Converted syntactic sugar into basic language constructs
+- Clear mapping from original syntax to desugared form
+
+Example output:
+```
+// Original: for-loop syntax (if supported)
+// for i in 1..10 do ... end
+
+// Desugared: while-loop equivalent
+let i = 1;
+while i < 10 do
+    // ... body ...
+    i = i + 1;
+end
+
+// Original: method call syntax
+// myVector.push(42)
+
+// Desugared: function call
+push(myVector, 42)
+```
 
 #### Monomorphized Code Output Format
 
@@ -352,6 +405,8 @@ The implementation ensures that:
 - `--instruction-limit` flag for limiting instruction execution count
 - `--dump-monomorphization-stats` flag for detailed monomorphization statistics
 - `--no-monomorphize` flag to disable monomorphization for debugging
+- `--no-desugar` flag to disable desugaring for debugging
+- `--dump-desugar-stats` flag for detailed desugaring transformation statistics
 
 ### Configuration Files
 
@@ -362,6 +417,8 @@ Future versions may support configuration files for default options:
 [debug]
 print_stacks = false
 default_dump_ir = "debug/"
+dump_desugared_code = false
+desugared_code_output_dir = "desugared/"
 dump_monomorphized_code = false
 monomorphized_code_output_dir = "monomorphized/"
 
