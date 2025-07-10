@@ -1267,11 +1267,19 @@ impl TypeChecker {
                             bail!("Unknown struct type: {}", struct_name)
                         }
                     }
-                    Type::Generic { name: _, .. } => {
-                        // For generic types, be permissive about field access
-                        // The monomorphization process will ensure type correctness
-                        // Return a placeholder type for now
-                        Ok(Type::Unknown)
+                    Type::Generic { name, args } => {
+                        // For generic types, resolve the field type using the concrete type arguments
+                        let type_name = format!("{}({})", name, 
+                            args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "));
+                        
+                        if let Some(generic_fields) = self.resolve_generic_struct_fields(&type_name) {
+                            generic_fields
+                                .get(field)
+                                .cloned()
+                                .ok_or_else(|| anyhow::anyhow!("Field '{}' not found in generic struct '{}'", field, type_name))
+                        } else {
+                            bail!("Cannot resolve fields for generic type: {}", type_name)
+                        }
                     }
                     _ => bail!(
                         "Cannot access field '{}' on non-struct type: {}",
@@ -1536,6 +1544,14 @@ impl TypeChecker {
                 Type::Function {
                     params: params.iter().map(|param| self.substitute_type_with_mapping(param, type_mapping)).collect(),
                     return_type: Box::new(self.substitute_type_with_mapping(return_type, type_mapping)),
+                }
+            }
+            Type::Struct(struct_name) => {
+                // Check if the struct name is actually a type parameter
+                if let Some(concrete_type) = type_mapping.get(struct_name) {
+                    concrete_type.clone()
+                } else {
+                    field_type.clone()
                 }
             }
             // For other types, return as-is
