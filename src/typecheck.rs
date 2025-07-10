@@ -1342,6 +1342,18 @@ impl TypeChecker {
                     ),
                 }
             }
+
+            Expr::Alloc { element_type, size } => {
+                // Check that size is a number
+                let size_type = self.check_expression(size)?;
+                if !size_type.is_compatible_with(&Type::Number) {
+                    bail!("Alloc size must be a number, got {}", size_type);
+                }
+
+                // Return pointer type [*]element_type
+                let parsed_element_type = Type::from_string(element_type);
+                Ok(Type::Pointer(Box::new(parsed_element_type)))
+            }
         }
     }
 

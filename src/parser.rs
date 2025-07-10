@@ -977,13 +977,18 @@ impl Parser {
                 self.advance(); // consume 'alloc'
                 self.consume(TokenType::LeftParen)?; // consume '('
                 
+                // Parse element type
+                let element_type = self.parse_type_name()?;
+                
+                self.consume(TokenType::Comma)?; // consume ','
+                
                 // Parse size expression
                 let size = self.parse_expression()?;
                 
                 self.consume(TokenType::RightParen)?; // consume ')'
                 
                 Ok(Expr::Alloc {
-                    element_type: "byte".to_string(), // Default to byte allocation
+                    element_type,
                     size: Box::new(size),
                 })
             }

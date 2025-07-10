@@ -987,18 +987,38 @@ impl VM {
                 }
 
                 Instruction::PointerAlloc => {
-                    // Stack: [size]
-                    // Allocate pointer with specified size initialized to zero
-                    if self.stack.is_empty() {
+                    // Stack: [element_type_string] [size]
+                    // Allocate pointer with specified type and size
+                    if self.stack.len() < 2 {
                         return Err("Stack underflow for PointerAlloc".to_string());
                     }
+                    
+                    let element_type_ref = self.stack.pop().unwrap();
                     let size = match self.stack.pop().unwrap() {
                         Value::Number(n) => n as usize,
                         _ => return Err("PointerAlloc requires a number for size".to_string()),
                     };
 
-                    // Create pointer with specified size, initialized to zero
-                    let values = vec![Value::Number(0.0); size];
+                    // Extract element type name from heap string
+                    let element_type = match element_type_ref {
+                        Value::HeapRef(heap_index) => {
+                            if heap_index.0 >= self.heap.len() {
+                                return Err(format!("Invalid heap index: {}", heap_index.0));
+                            }
+                            match &self.heap[heap_index.0] {
+                                HeapObject::String(s) => s.clone(),
+                                _ => return Err("PointerAlloc requires a string for element type".to_string()),
+                            }
+                        }
+                        _ => return Err("PointerAlloc requires a heap reference for element type".to_string()),
+                    };
+
+                    // Calculate sizeof(element_type) * size
+                    let element_size = self.sizeof_type(&element_type);
+                    let total_size = element_size * size;
+
+                    // Create pointer with total_size bytes, initialized to zero
+                    let values = vec![Value::Number(0.0); total_size];
                     let heap_index = self.heap.len();
                     self.heap.push(HeapObject::Pointer(values));
                     self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
@@ -1436,6 +1456,25 @@ impl VM {
     /// Dump profiling results to a file
     pub fn dump_profile_to_file(&self, filename: &str) -> Result<(), std::io::Error> {
         self.profiler.save_report_to_file(filename)
+    }
+
+    /// Calculate the size in bytes for a given type
+    fn sizeof_type(&self, type_name: &str) -> usize {
+        match type_name {
+            "bool" | "boolean" => 1,
+            "byte" => 1,
+            "int" | "number" => 8, // Using 8 bytes for numbers
+            "string" => 8, // String is a pointer, so 8 bytes
+            _ => {
+                if type_name.starts_with("[*]") {
+                    8 // Pointer types are 8 bytes
+                } else {
+                    // For struct types or unknown types, default to 8 bytes
+                    // In a full implementation, this would look up the struct size
+                    8
+                }
+            }
+        }
     }
 }
 
@@ -2189,10 +2228,12 @@ impl VMCompiler {
                 self.instructions.push(Instruction::MethodCall(args.len()));
             }
 
-            Expr::Alloc { element_type: _, size } => {
+            Expr::Alloc { element_type, size } => {
                 // Compile the size expression
                 self.compile_expression(size);
-                // Allocate pointer with specified size
+                // Push element type as string for VM to calculate sizeof
+                self.instructions.push(Instruction::PushString(element_type.clone()));
+                // Allocate pointer with specified type and size
                 self.instructions.push(Instruction::PointerAlloc);
             }
 
@@ -2347,10 +2388,12 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
             instructions.push(Instruction::MethodCall(args.len()));
         }
 
-        Expr::Alloc { element_type: _, size } => {
+        Expr::Alloc { element_type, size } => {
             // Compile the size expression
             compile_expr_recursive(size, instructions);
-            // Allocate pointer with specified size
+            // Push element type as string for VM to calculate sizeof
+            instructions.push(Instruction::PushString(element_type.clone()));
+            // Allocate pointer with specified type and size
             instructions.push(Instruction::PointerAlloc);
         }
 
@@ -2550,7 +2593,7 @@ mod tests {
         let instructions = compile_expression(&expr);
         assert_eq!(
             instructions,
-            vec![Instruction::Push(10), Instruction::PointerAlloc]
+            vec![Instruction::Push(10), Instruction::PushString("int".to_string()), Instruction::PointerAlloc]
         );
 
         // Test alloc with expression size: alloc byte (5 + 3)
@@ -2569,6 +2612,7 @@ mod tests {
                 Instruction::Push(5),
                 Instruction::Push(3),
                 Instruction::Add,
+                Instruction::PushString("byte".to_string()),
                 Instruction::PointerAlloc
             ]
         );
