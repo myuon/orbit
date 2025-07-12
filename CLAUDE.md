@@ -13,6 +13,7 @@ Orbit is a statically typed programming language with JIT compilation for AArch6
 - `cargo test --message-format=short` - Run unit tests (ALWAYS run after making changes)
 - `cargo test test_orbit_files --message-format=short` - Run integration tests with .ob files
 - `cargo run <file.ob>` - Execute an Orbit source file
+- `cargo fmt` - Format code before committing (run before git commit)
 
 ## Project Architecture
 
@@ -115,6 +116,7 @@ The `zig_refs/orbit-mode/` directory contains a VS Code extension with syntax hi
 - **Specifications**: Use the language specification in `spec/` for authoritative language definition
 - **Comments**: Add comments to explain "why" something is done, not "what" is being done, especially for non-standard implementations
 - **Git Commits**: Use Conventional Commit format (e.g., `feat: add new feature`, `fix(parser): resolve parsing issue`)
+- **Code Formatting**: Always run `cargo fmt` before creating git commits to ensure consistent code style
 - **Language**: All source code, comments, and commit messages should be in English
 - **Debug Files**: Always create temporary debug files in `./tmp/` directory, not in the project root. Clean up after debugging.
 
