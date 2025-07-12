@@ -6,12 +6,3 @@ type array(T: type) = struct {
     return new(struct) array(T) { .data = alloc(T, length), .length = length };
   end
 };
-
-type IntArray = struct {
-  data: [*]int,
-  length: int,
-
-  fun _new(length: int): IntArray do
-    return new(struct) IntArray { .data = alloc(int, length), .length = length };
-  end
-};

@@ -1,5 +1,3 @@
-// Test IntArray type from std.io
-// This demonstrates basic usage of the IntArray type structure
 fun main() do
   let myArray = new array(int) { .data = alloc(int, 5), .length = 5 };
   let data = myArray.data;
