@@ -63,7 +63,20 @@ impl Desugarer {
 
     /// Desugar a function by transforming method calls in its body
     fn desugar_function(&mut self, function: Function) -> Result<Function> {
-        let desugared_body = self.desugar_statements(function.body)?;
+        let mut desugared_body = self.desugar_statements(function.body)?;
+
+        // Add return 0; if the last statement is not a return
+        if !desugared_body.is_empty() {
+            if let Some(last_stmt) = desugared_body.last() {
+                if !matches!(last_stmt, Stmt::Return(_)) {
+                    desugared_body.push(Stmt::Return(Expr::Int(0)));
+                }
+            }
+        } else {
+            // If function body is empty, add return 0;
+            desugared_body.push(Stmt::Return(Expr::Int(0)));
+        }
+
         Ok(Function {
             name: function.name,
             type_params: function.type_params,
@@ -75,7 +88,19 @@ impl Desugarer {
     /// Convert a struct method to a standalone function with mangled name
     fn desugar_method(&mut self, struct_name: &str, method: Function) -> Result<Function> {
         let mangled_name = format!("{}_{}", struct_name, method.name);
-        let desugared_body = self.desugar_statements(method.body)?;
+        let mut desugared_body = self.desugar_statements(method.body)?;
+
+        // Add return 0; if the last statement is not a return
+        if !desugared_body.is_empty() {
+            if let Some(last_stmt) = desugared_body.last() {
+                if !matches!(last_stmt, Stmt::Return(_)) {
+                    desugared_body.push(Stmt::Return(Expr::Int(0)));
+                }
+            }
+        } else {
+            // If method body is empty, add return 0;
+            desugared_body.push(Stmt::Return(Expr::Int(0)));
+        }
 
         Ok(Function {
             name: mangled_name,
@@ -561,6 +586,84 @@ mod tests {
             }
         } else {
             panic!("Expected StructNewPattern result");
+        }
+    }
+
+    #[test]
+    fn test_function_auto_return_zero() {
+        let mut desugarer = Desugarer::new();
+
+        // Create a function without explicit return
+        let function = Function {
+            name: "test_func".to_string(),
+            type_params: vec![],
+            params: vec![],
+            body: vec![Stmt::Let {
+                name: "x".to_string(),
+                value: Expr::Int(42),
+            }],
+        };
+
+        let result = desugarer.desugar_function(function).unwrap();
+
+        // Should have added return 0; at the end
+        assert_eq!(result.body.len(), 2);
+        if let Stmt::Return(Expr::Int(0)) = &result.body[1] {
+            // Expected behavior
+        } else {
+            panic!("Expected return 0; to be added");
+        }
+    }
+
+    #[test]
+    fn test_function_with_existing_return() {
+        let mut desugarer = Desugarer::new();
+
+        // Create a function with explicit return
+        let function = Function {
+            name: "test_func".to_string(),
+            type_params: vec![],
+            params: vec![],
+            body: vec![
+                Stmt::Let {
+                    name: "x".to_string(),
+                    value: Expr::Int(42),
+                },
+                Stmt::Return(Expr::Int(42)),
+            ],
+        };
+
+        let result = desugarer.desugar_function(function).unwrap();
+
+        // Should NOT have added another return
+        assert_eq!(result.body.len(), 2);
+        if let Stmt::Return(Expr::Int(42)) = &result.body[1] {
+            // Expected behavior - original return preserved
+        } else {
+            panic!("Expected original return to be preserved");
+        }
+    }
+
+    #[test]
+    fn test_empty_function_gets_return_zero() {
+        let mut desugarer = Desugarer::new();
+
+        // Create an empty function
+        let function = Function {
+            name: "empty_func".to_string(),
+            type_params: vec![],
+            params: vec![],
+            body: vec![],
+        };
+
+        let result = desugarer.desugar_function(function).unwrap();
+
+        // Should have added return 0;
+        assert_eq!(result.body.len(), 1);
+        if let Stmt::Return(Expr::Int(0)) = &result.body[0] {
+            // Expected behavior
+        } else {
+            panic!("Expected return 0; to be added to empty function");
         }
     }
 }
