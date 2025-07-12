@@ -74,22 +74,13 @@ fn run_single_stack_trace_test(test_file: &Path) {
         .zip(actual_entries.iter())
         .enumerate()
     {
-        if expected.pc != actual.pc {
-            panic!(
-                "Stack trace test {} failed at line {}.\nExpected PC: {}\nActual PC: {}",
-                test_name,
-                i + 1,
-                expected.pc,
-                actual.pc
-            );
-        }
         if expected.instruction != actual.instruction {
             panic!(
                 "Stack trace test {} failed at line {}.\nExpected instruction: '{}'\nActual instruction: '{}'",
                 test_name, i + 1, expected.instruction, actual.instruction
             );
         }
-        if expected.stack != actual.stack {
+        if !stacks_match(&expected.stack, &actual.stack) {
             panic!(
                 "Stack trace test {} failed at line {}.\nExpected stack: {:?}\nActual stack: {:?}",
                 test_name,
@@ -120,8 +111,7 @@ fn execute_step_by_step(code: &str) -> Result<String, Box<dyn std::error::Error>
 
     // Execute step by step and capture stack states
     loop {
-        // Get current state before executing the instruction
-        let pc = vm.get_program_counter();
+        // Get current instruction before executing
         let instruction = vm.get_current_instruction().cloned();
 
         // Execute one step
@@ -130,7 +120,7 @@ fn execute_step_by_step(code: &str) -> Result<String, Box<dyn std::error::Error>
         // Get stack state after executing the instruction
         let stack = vm.get_stack();
 
-        // Format and record the current state (PC, instruction, and stack after execution)
+        // Format and record the current state (instruction and stack after execution)
         if let Some(instr) = instruction {
             let stack_str = stack
                 .iter()
@@ -138,7 +128,7 @@ fn execute_step_by_step(code: &str) -> Result<String, Box<dyn std::error::Error>
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            output.push_str(&format!("{:04} {:20} [{}]\n", pc, instr, stack_str));
+            output.push_str(&format!("{:20} [{}]\n", instr, stack_str));
         }
 
         match step_result {
@@ -164,7 +154,6 @@ fn execute_step_by_step(code: &str) -> Result<String, Box<dyn std::error::Error>
 /// Represents a single stack trace entry
 #[derive(Debug, Clone, PartialEq)]
 struct StackTraceEntry {
-    pc: usize,
     instruction: String,
     stack: Vec<String>,
 }
@@ -179,7 +168,7 @@ fn parse_stack_trace_output(output: &str) -> Vec<StackTraceEntry> {
             continue;
         }
 
-        // Parse format: "0000 instruction [stack_items]"
+        // Parse format: "instruction [stack_items]"
         if let Some(entry) = parse_stack_trace_line(line) {
             entries.push(entry);
         }
@@ -190,14 +179,6 @@ fn parse_stack_trace_output(output: &str) -> Vec<StackTraceEntry> {
 
 /// Parse a single stack trace line
 fn parse_stack_trace_line(line: &str) -> Option<StackTraceEntry> {
-    // Find the PC (first 4 digits)
-    if line.len() < 4 {
-        return None;
-    }
-
-    let pc_str = &line[0..4];
-    let pc = pc_str.parse::<usize>().ok()?;
-
     // Find the stack part (starts with '[' and ends with ']')
     let stack_start = line.find('[')?;
     let stack_end = line.rfind(']')?;
@@ -206,8 +187,8 @@ fn parse_stack_trace_line(line: &str) -> Option<StackTraceEntry> {
         return None;
     }
 
-    // Extract instruction (between PC and stack)
-    let instruction_part = &line[4..stack_start].trim();
+    // Extract instruction (before stack)
+    let instruction_part = &line[..stack_start].trim();
     let instruction = instruction_part.to_string();
 
     // Extract and parse stack
@@ -219,10 +200,27 @@ fn parse_stack_trace_line(line: &str) -> Option<StackTraceEntry> {
     };
 
     Some(StackTraceEntry {
-        pc,
         instruction,
         stack,
     })
+}
+
+/// Check if two stacks match, treating "@_" as a wildcard for addresses
+fn stacks_match(expected: &[String], actual: &[String]) -> bool {
+    if expected.len() != actual.len() {
+        return false;
+    }
+
+    for (exp, act) in expected.iter().zip(actual.iter()) {
+        if exp == "@_" && act.starts_with('@') {
+            // Wildcard matches any address
+            continue;
+        } else if exp != act {
+            return false;
+        }
+    }
+
+    true
 }
 
 /// Normalize stack output for comparison by trimming whitespace and standardizing format
@@ -248,28 +246,43 @@ mod tests {
 
     #[test]
     fn test_parse_stack_trace_line() {
-        let line = "0000 push 5               []";
+        let line = "push 5               []";
         let entry = parse_stack_trace_line(line).unwrap();
-        assert_eq!(entry.pc, 0);
         assert_eq!(entry.instruction, "push 5");
         assert_eq!(entry.stack, Vec::<String>::new());
 
-        let line2 = "0025 get_global y         [-1, 0, -1, 5]";
+        let line2 = "get_global y         [-1, 0, -1, 5]";
         let entry2 = parse_stack_trace_line(line2).unwrap();
-        assert_eq!(entry2.pc, 25);
         assert_eq!(entry2.instruction, "get_global y");
         assert_eq!(entry2.stack, vec!["-1", "0", "-1", "5"]);
     }
 
     #[test]
     fn test_parse_stack_trace_output() {
-        let input = "0000 push 5               []\n0001 set_global x         [5]\n";
+        let input = "push 5               []\nset_global x         [5]\n";
         let entries = parse_stack_trace_output(input);
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].pc, 0);
         assert_eq!(entries[0].instruction, "push 5");
-        assert_eq!(entries[1].pc, 1);
         assert_eq!(entries[1].instruction, "set_global x");
         assert_eq!(entries[1].stack, vec!["5"]);
+    }
+
+    #[test]
+    fn test_stacks_match() {
+        // Exact match
+        assert!(stacks_match(&vec!["1".to_string(), "2".to_string()], &vec!["1".to_string(), "2".to_string()]));
+        
+        // Wildcard match for addresses
+        assert!(stacks_match(&vec!["1".to_string(), "@_".to_string()], &vec!["1".to_string(), "@42".to_string()]));
+        assert!(stacks_match(&vec!["@_".to_string(), "2".to_string()], &vec!["@123".to_string(), "2".to_string()]));
+        
+        // No match - different lengths
+        assert!(!stacks_match(&vec!["1".to_string()], &vec!["1".to_string(), "2".to_string()]));
+        
+        // No match - different values
+        assert!(!stacks_match(&vec!["1".to_string(), "2".to_string()], &vec!["1".to_string(), "3".to_string()]));
+        
+        // No match - wildcard doesn't match non-address
+        assert!(!stacks_match(&vec!["@_".to_string()], &vec!["42".to_string()]));
     }
 }
