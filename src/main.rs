@@ -65,9 +65,11 @@ impl Config {
             enable_profiling: self.profile || self.profile_output.is_some(),
             profile_output: self.profile_output.clone(),
             enable_load_std: true,
-            dump_desugared_code: self.dump_desugared_code || self.dump_desugared_code_output.is_some(),
+            dump_desugared_code: self.dump_desugared_code
+                || self.dump_desugared_code_output.is_some(),
             dump_desugared_code_output: self.dump_desugared_code_output.clone(),
-            dump_monomorphized_code: self.dump_monomorphized_code || self.dump_monomorphized_code_output.is_some(),
+            dump_monomorphized_code: self.dump_monomorphized_code
+                || self.dump_monomorphized_code_output.is_some(),
             dump_monomorphized_code_output: self.dump_monomorphized_code_output.clone(),
         }
     }

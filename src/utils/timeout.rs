@@ -11,11 +11,14 @@ where
 {
     if let Some(timeout_secs) = timeout_secs {
         let timeout_duration = Duration::from_secs(timeout_secs);
-        
+
         // Use tokio::time::timeout for async timeout functionality
         match tokio::time::timeout(timeout_duration, future).await {
             Ok(result) => result,
-            Err(_) => Err(format!("Execution timed out after {} seconds", timeout_secs)),
+            Err(_) => Err(format!(
+                "Execution timed out after {} seconds",
+                timeout_secs
+            )),
         }
     } else {
         future.await

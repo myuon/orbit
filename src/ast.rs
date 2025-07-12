@@ -183,10 +183,7 @@ pub struct StructDecl {
 pub enum TypeExpr {
     Simple(String),
     Pointer(Box<TypeExpr>),
-    Generic {
-        name: String,
-        args: Vec<TypeExpr>,
-    },
+    Generic { name: String, args: Vec<TypeExpr> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -275,7 +272,10 @@ impl std::fmt::Display for Type {
             Type::Map(key_type, value_type) => write!(f, "map({}, {})", key_type, value_type),
             Type::Struct(name) => write!(f, "{}", name),
             Type::Pointer(elem_type) => write!(f, "[*]{}", elem_type),
-            Type::Function { params, return_type } => {
+            Type::Function {
+                params,
+                return_type,
+            } => {
                 write!(f, "fun(")?;
                 for (i, param) in params.iter().enumerate() {
                     if i > 0 {

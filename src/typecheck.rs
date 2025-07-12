@@ -1187,8 +1187,7 @@ impl TypeChecker {
                 // Look up the struct field information, handling generic instantiation
                 let struct_fields = if type_name.contains('(') && type_name.ends_with(')') {
                     // This looks like a generic instantiation - always use resolve_generic_struct_fields
-                    if let Some(generic_fields) = self.resolve_generic_struct_fields(type_name)
-                    {
+                    if let Some(generic_fields) = self.resolve_generic_struct_fields(type_name) {
                         generic_fields
                     } else {
                         bail!("Unknown generic struct type: {}", type_name)
@@ -1249,8 +1248,7 @@ impl TypeChecker {
                 // Look up the struct field information, handling generic instantiation
                 let struct_fields = if type_name.contains('(') && type_name.ends_with(')') {
                     // This looks like a generic instantiation - always use resolve_generic_struct_fields
-                    if let Some(generic_fields) = self.resolve_generic_struct_fields(type_name)
-                    {
+                    if let Some(generic_fields) = self.resolve_generic_struct_fields(type_name) {
                         generic_fields
                     } else {
                         bail!("Unknown generic struct type: {}", type_name)
@@ -1557,11 +1555,15 @@ impl TypeChecker {
                     }
                 }
             }
-            
+
             // Fallback: if the generic struct is not found, try to find it among all structs
             // This handles cases where the type checker runs multiple times and state is lost
             for (struct_name, struct_type) in &self.structs {
-                if let Type::Generic { name, args: type_params } = struct_type {
+                if let Type::Generic {
+                    name,
+                    args: type_params,
+                } = struct_type
+                {
                     if name == &generic_name {
                         // Found the generic struct under a different key
                         let mut type_mapping = HashMap::new();
@@ -1583,17 +1585,20 @@ impl TypeChecker {
                     }
                 }
             }
-            
+
             // Final fallback: hardcoded knowledge for common generic types
             if generic_name == "array" && concrete_args.len() == 1 {
                 // For array(T), we know the structure: { data: [*]T, length: int }
                 let element_type = &concrete_args[0];
                 let mut concrete_fields = HashMap::new();
-                concrete_fields.insert("data".to_string(), Type::Pointer(Box::new(element_type.clone())));
+                concrete_fields.insert(
+                    "data".to_string(),
+                    Type::Pointer(Box::new(element_type.clone())),
+                );
                 concrete_fields.insert("length".to_string(), Type::Int);
                 return Some(concrete_fields);
             }
-            
+
             if generic_name == "Pair" && concrete_args.len() == 2 {
                 // For Pair(A, B), we know the structure: { first: A, second: B }
                 let first_type = &concrete_args[0];
@@ -1603,7 +1608,7 @@ impl TypeChecker {
                 concrete_fields.insert("second".to_string(), second_type.clone());
                 return Some(concrete_fields);
             }
-            
+
             if generic_name == "Container" && concrete_args.len() == 1 {
                 // For Container(T), we know the structure: { value: T }
                 let value_type = &concrete_args[0];
@@ -1611,7 +1616,7 @@ impl TypeChecker {
                 concrete_fields.insert("value".to_string(), value_type.clone());
                 return Some(concrete_fields);
             }
-            
+
             // General fallback: try to find any struct whose name contains the generic name
             // This is a last resort when the proper generic resolution fails
             for (struct_name, _) in &self.structs {
@@ -1626,11 +1631,13 @@ impl TypeChecker {
                                 Type::TypeParameter(_) if concrete_args.len() == 1 => {
                                     concrete_args[0].clone()
                                 }
-                                Type::Struct(type_name) if concrete_args.len() == 1 && type_name.len() == 1 => {
+                                Type::Struct(type_name)
+                                    if concrete_args.len() == 1 && type_name.len() == 1 =>
+                                {
                                     // Single letter type parameter
                                     concrete_args[0].clone()
                                 }
-                                _ => field_type.clone()
+                                _ => field_type.clone(),
                             };
                             concrete_fields.insert(field_name.clone(), concrete_field_type);
                         }

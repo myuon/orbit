@@ -333,9 +333,11 @@ impl Desugarer {
             }
 
             // Leaf expressions that don't need desugaring
-            Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) | Expr::TypeExpr { .. } => {
-                Ok(expression)
-            }
+            Expr::Int(_)
+            | Expr::Boolean(_)
+            | Expr::String(_)
+            | Expr::Identifier(_)
+            | Expr::TypeExpr { .. } => Ok(expression),
         }
     }
 
@@ -514,11 +516,14 @@ mod tests {
             type_name: "Point".to_string(),
             fields: vec![
                 ("x".to_string(), Expr::Int(5)),
-                ("y".to_string(), Expr::Binary {
-                    left: Box::new(Expr::Int(2)),
-                    op: BinaryOp::Add,
-                    right: Box::new(Expr::Int(3)),
-                }),
+                (
+                    "y".to_string(),
+                    Expr::Binary {
+                        left: Box::new(Expr::Int(2)),
+                        op: BinaryOp::Add,
+                        right: Box::new(Expr::Int(3)),
+                    },
+                ),
             ],
         };
 
@@ -528,7 +533,7 @@ mod tests {
         if let Expr::StructNewPattern { type_name, fields } = result {
             assert_eq!(type_name, "Point");
             assert_eq!(fields.len(), 2);
-            
+
             // Check first field
             assert_eq!(fields[0].0, "x");
             if let Expr::Int(val) = &fields[0].1 {
@@ -536,7 +541,7 @@ mod tests {
             } else {
                 panic!("Expected number in first field");
             }
-            
+
             // Check second field - the nested expression should be desugared
             assert_eq!(fields[1].0, "y");
             if let Expr::Binary { left, op, right } = &fields[1].1 {

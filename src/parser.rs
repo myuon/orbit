@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOp, Decl, Expr, FunParam, Function, GlobalVariable, Program, Stmt, StructDecl, StructField, Token,
-    TokenType,
+    BinaryOp, Decl, Expr, FunParam, Function, GlobalVariable, Program, Stmt, StructDecl,
+    StructField, Token, TokenType,
 };
 use anyhow::{bail, Result};
 
@@ -136,7 +136,7 @@ impl Parser {
 
                 if matches!(self.current_token().token_type, TokenType::Colon) {
                     self.advance();
-                    
+
                     // Check if this is a type parameter (": type")
                     if matches!(self.current_token().token_type, TokenType::Type) {
                         self.advance(); // consume 'type'
@@ -164,13 +164,13 @@ impl Parser {
         }
 
         self.consume(TokenType::RightParen)?;
-        
+
         // Parse optional return type annotation: : TypeName
         if matches!(self.current_token().token_type, TokenType::Colon) {
             self.advance(); // consume ':'
             let _return_type = self.parse_type_name()?; // Parse but ignore for now
         }
-        
+
         self.consume(TokenType::Do)?;
 
         let mut body = Vec::new();
@@ -185,7 +185,12 @@ impl Parser {
 
         self.consume(TokenType::End)?;
 
-        Ok(Function { name, type_params, params, body })
+        Ok(Function {
+            name,
+            type_params,
+            params,
+            body,
+        })
     }
 
     /// Parse a struct declaration
@@ -205,12 +210,12 @@ impl Parser {
         let type_params = if matches!(self.current_token().token_type, TokenType::LeftParen) {
             self.advance(); // consume '('
             let mut params = Vec::new();
-            
+
             while !matches!(self.current_token().token_type, TokenType::RightParen) {
                 if matches!(self.current_token().token_type, TokenType::Eof) {
                     bail!("Unexpected end of file in type parameter list");
                 }
-                
+
                 // Parse type parameter name
                 let param_name = match &self.current_token().token_type {
                     TokenType::Identifier(name) => {
@@ -220,13 +225,13 @@ impl Parser {
                     }
                     _ => bail!("Expected type parameter name"),
                 };
-                
+
                 // Expect ': type'
                 self.consume(TokenType::Colon)?;
                 self.consume(TokenType::Type)?;
-                
+
                 params.push(param_name);
-                
+
                 // Handle comma or end of parameter list
                 if matches!(self.current_token().token_type, TokenType::Comma) {
                     self.advance(); // consume ','
@@ -234,7 +239,7 @@ impl Parser {
                     bail!("Expected ',' or ')' in type parameter list");
                 }
             }
-            
+
             self.consume(TokenType::RightParen)?;
             params
         } else {
@@ -451,7 +456,7 @@ impl Parser {
             self.advance(); // consume '['
             self.consume(TokenType::Star)?; // consume '*'
             self.consume(TokenType::RightBracket)?; // consume ']'
-            
+
             let inner_type = self.parse_type_name()?;
             Ok(format!("[*]{}", inner_type))
         } else {
@@ -459,29 +464,32 @@ impl Parser {
                 TokenType::Identifier(name) => {
                     let n = name.clone();
                     self.advance();
-                    
+
                     // Check for generic instantiation: Type(arg1, arg2, ...)
                     if matches!(self.current_token().token_type, TokenType::LeftParen) {
                         self.advance(); // consume '('
                         let mut args = Vec::new();
-                        
+
                         while !matches!(self.current_token().token_type, TokenType::RightParen) {
                             if matches!(self.current_token().token_type, TokenType::Eof) {
                                 bail!("Unexpected end of file in generic type arguments");
                             }
-                            
+
                             let arg_type = self.parse_type_name()?;
                             args.push(arg_type);
-                            
+
                             if matches!(self.current_token().token_type, TokenType::Comma) {
                                 self.advance(); // consume ','
-                            } else if !matches!(self.current_token().token_type, TokenType::RightParen) {
+                            } else if !matches!(
+                                self.current_token().token_type,
+                                TokenType::RightParen
+                            ) {
                                 bail!("Expected ',' or ')' in generic type arguments");
                             }
                         }
-                        
+
                         self.consume(TokenType::RightParen)?;
-                        
+
                         // Format as generic type: Type(arg1, arg2)
                         let args_str = args.join(", ");
                         Ok(format!("{}({})", n, args_str))
@@ -788,7 +796,7 @@ impl Parser {
                     if matches!(self.current_token().token_type, TokenType::Struct) {
                         self.advance(); // consume 'struct'
                         self.consume(TokenType::RightParen)?; // consume ')'
-                        
+
                         let type_name = self.parse_type_name()?;
                         self.consume(TokenType::LeftBrace)?;
 
@@ -976,17 +984,17 @@ impl Parser {
             TokenType::Alloc => {
                 self.advance(); // consume 'alloc'
                 self.consume(TokenType::LeftParen)?; // consume '('
-                
+
                 // Parse element type
                 let element_type = self.parse_type_name()?;
-                
+
                 self.consume(TokenType::Comma)?; // consume ','
-                
+
                 // Parse size expression
                 let size = self.parse_expression()?;
-                
+
                 self.consume(TokenType::RightParen)?; // consume ')'
-                
+
                 Ok(Expr::Alloc {
                     element_type,
                     size: Box::new(size),
@@ -1053,7 +1061,7 @@ mod tests {
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
         let result = parser.parse_program().unwrap();
-        
+
         assert_eq!(result.declarations.len(), 1);
         match &result.declarations[0] {
             Decl::Struct(struct_decl) => {
@@ -1077,7 +1085,7 @@ mod tests {
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
         let result = parser.parse_program().unwrap();
-        
+
         assert_eq!(result.declarations.len(), 1);
         match &result.declarations[0] {
             Decl::Function(function) => {
@@ -1101,7 +1109,7 @@ mod tests {
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
         let result = parser.parse_program().unwrap();
-        
+
         assert_eq!(result.declarations.len(), 1);
         match &result.declarations[0] {
             Decl::Struct(struct_decl) => {
@@ -1232,12 +1240,12 @@ type Point = struct {
         // Test that both syntaxes work and produce different AST nodes
         let code1 = "new Point { .x = 10, .y = 20 }";
         let code2 = "new(struct) Point { .x = 10, .y = 20 }";
-        
+
         let mut lexer1 = Lexer::new(code1);
         let tokens1 = lexer1.tokenize().unwrap();
         let mut parser1 = Parser::new(tokens1);
         let expr1 = parser1.parse().unwrap();
-        
+
         let mut lexer2 = Lexer::new(code2);
         let tokens2 = lexer2.tokenize().unwrap();
         let mut parser2 = Parser::new(tokens2);

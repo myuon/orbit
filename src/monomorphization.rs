@@ -19,10 +19,11 @@ impl MonomorphizationTarget {
             self.symbol.clone()
         } else {
             // Use the original type names as they appear in source code
-            let args_str = self.args
+            let args_str = self
+                .args
                 .iter()
                 .map(|t| match t {
-                    Type::Int => "int".to_string(),  // Keep as "int" not "number"
+                    Type::Int => "int".to_string(),      // Keep as "int" not "number"
                     Type::Boolean => "bool".to_string(), // Keep as "bool" not "boolean"
                     _ => t.to_string(),
                 })
@@ -32,7 +33,6 @@ impl MonomorphizationTarget {
         }
     }
 }
-
 
 /// The monomorphization engine
 pub struct Monomorphizer {
@@ -60,18 +60,19 @@ impl Monomorphizer {
         }
     }
 
-
     /// Register a generic function for later monomorphization
     pub fn register_generic_function(&mut self, function: Function) {
         if !function.type_params.is_empty() {
-            self.generic_functions.insert(function.name.clone(), function);
+            self.generic_functions
+                .insert(function.name.clone(), function);
         }
     }
 
     /// Register a generic struct for later monomorphization
     pub fn register_generic_struct(&mut self, struct_decl: StructDecl) {
         if !struct_decl.type_params.is_empty() {
-            self.generic_structs.insert(struct_decl.name.clone(), struct_decl);
+            self.generic_structs
+                .insert(struct_decl.name.clone(), struct_decl);
         }
     }
 
@@ -132,7 +133,11 @@ impl Monomorphizer {
             Stmt::Return(expr) => {
                 self.collect_targets_from_expr(expr)?;
             }
-            Stmt::If { condition, then_branch, else_branch } => {
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 self.collect_targets_from_expr(condition)?;
                 for stmt in then_branch {
                     self.collect_targets_from_stmt(stmt)?;
@@ -180,7 +185,7 @@ impl Monomorphizer {
                             type_args.push(type_arg);
                         }
                     }
-                    
+
                     // Only add as monomorphization target if we have type arguments
                     // AND the function is actually registered as generic
                     if !type_args.is_empty() && self.generic_functions.contains_key(name) {
@@ -190,7 +195,7 @@ impl Monomorphizer {
                         });
                     }
                 }
-                
+
                 // Recursively check callee and arguments
                 self.collect_targets_from_expr(callee)?;
                 for arg in args {
@@ -203,14 +208,11 @@ impl Monomorphizer {
                     if let Type::Generic { name, args } = generic_type {
                         // Only add as target if the struct is actually registered as generic
                         if self.generic_structs.contains_key(&name) {
-                            self.add_target(MonomorphizationTarget {
-                                symbol: name,
-                                args,
-                            });
+                            self.add_target(MonomorphizationTarget { symbol: name, args });
                         }
                     }
                 }
-                
+
                 // Recursively check field expressions
                 for (_, field_expr) in fields {
                     self.collect_targets_from_expr(field_expr)?;
@@ -222,14 +224,11 @@ impl Monomorphizer {
                     if let Type::Generic { name, args } = generic_type {
                         // Only add as target if the struct is actually registered as generic
                         if self.generic_structs.contains_key(&name) {
-                            self.add_target(MonomorphizationTarget {
-                                symbol: name,
-                                args,
-                            });
+                            self.add_target(MonomorphizationTarget { symbol: name, args });
                         }
                     }
                 }
-                
+
                 // Recursively check field expressions
                 for (_, field_expr) in fields {
                     self.collect_targets_from_expr(field_expr)?;
@@ -255,7 +254,9 @@ impl Monomorphizer {
                 self.collect_targets_from_expr(left)?;
                 self.collect_targets_from_expr(right)?;
             }
-            Expr::Index { container, index, .. } => {
+            Expr::Index {
+                container, index, ..
+            } => {
                 self.collect_targets_from_expr(container)?;
                 self.collect_targets_from_expr(index)?;
             }
@@ -272,7 +273,11 @@ impl Monomorphizer {
                 self.collect_targets_from_expr(size)?;
             }
             // Simple expressions don't need recursive processing
-            Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Identifier(_) | Expr::TypeExpr { .. } => {}
+            Expr::Int(_)
+            | Expr::Boolean(_)
+            | Expr::String(_)
+            | Expr::Identifier(_)
+            | Expr::TypeExpr { .. } => {}
         }
         Ok(())
     }
@@ -319,19 +324,19 @@ impl Monomorphizer {
             if let Some(paren_pos) = type_str.find('(') {
                 let name = &type_str[..paren_pos];
                 let args_str = &type_str[paren_pos + 1..type_str.len() - 1];
-                
+
                 if args_str.is_empty() {
                     return Some(Type::Generic {
                         name: name.to_string(),
                         args: vec![],
                     });
                 }
-                
+
                 let args: Vec<Type> = args_str
                     .split(", ")
                     .map(|arg| Type::from_string(arg.trim()))
                     .collect();
-                
+
                 return Some(Type::Generic {
                     name: name.to_string(),
                     args,
@@ -364,7 +369,11 @@ impl Monomorphizer {
     }
 
     /// Monomorphize a generic function
-    fn monomorphize_function(&mut self, target: &MonomorphizationTarget, function: &Function) -> Result<()> {
+    fn monomorphize_function(
+        &mut self,
+        target: &MonomorphizationTarget,
+        function: &Function,
+    ) -> Result<()> {
         // Create type substitution map
         let mut substitutions = HashMap::new();
         if target.args.len() != function.type_params.len() {
@@ -384,21 +393,31 @@ impl Monomorphizer {
         let monomorphized = Function {
             name: target.instantiated_name(),
             type_params: Vec::new(), // Monomorphized functions have no type parameters
-            params: function.params.iter().map(|param| {
-                crate::ast::FunParam {
+            params: function
+                .params
+                .iter()
+                .map(|param| crate::ast::FunParam {
                     name: param.name.clone(),
-                    type_name: param.type_name.as_ref().map(|t| substitute_type_in_string(t, &substitutions)),
-                }
-            }).collect(),
+                    type_name: param
+                        .type_name
+                        .as_ref()
+                        .map(|t| substitute_type_in_string(t, &substitutions)),
+                })
+                .collect(),
             body: self.substitute_statements(&function.body, &substitutions)?,
         };
 
-        self.monomorphized_functions.insert(target.instantiated_name(), monomorphized);
+        self.monomorphized_functions
+            .insert(target.instantiated_name(), monomorphized);
         Ok(())
     }
 
     /// Monomorphize a generic struct
-    fn monomorphize_struct(&mut self, target: &MonomorphizationTarget, struct_decl: &StructDecl) -> Result<()> {
+    fn monomorphize_struct(
+        &mut self,
+        target: &MonomorphizationTarget,
+        struct_decl: &StructDecl,
+    ) -> Result<()> {
         // Create type substitution map
         let mut substitutions = HashMap::new();
         if target.args.len() != struct_decl.type_params.len() {
@@ -418,29 +437,43 @@ impl Monomorphizer {
         let monomorphized = StructDecl {
             name: target.instantiated_name(),
             type_params: Vec::new(), // Monomorphized structs have no type parameters
-            fields: struct_decl.fields.iter().map(|field| {
-                crate::ast::StructField {
+            fields: struct_decl
+                .fields
+                .iter()
+                .map(|field| crate::ast::StructField {
                     name: field.name.clone(),
                     type_name: substitute_type_in_string(&field.type_name, &substitutions),
-                }
-            }).collect(),
-            methods: struct_decl.methods.iter().map(|method| {
-                Function {
-                    name: method.name.clone(),
-                    type_params: method.type_params.clone(), // Methods might have their own type params
-                    params: method.params.iter().map(|param| {
-                        crate::ast::FunParam {
-                            name: param.name.clone(),
-                            type_name: param.type_name.as_ref().map(|t| substitute_type_in_string(t, &substitutions)),
-                        }
-                    }).collect(),
-                    body: self.substitute_statements(&method.body, &substitutions).unwrap_or_else(|_| method.body.clone()),
-                }
-            }).collect(),
+                })
+                .collect(),
+            methods: struct_decl
+                .methods
+                .iter()
+                .map(|method| {
+                    Function {
+                        name: method.name.clone(),
+                        type_params: method.type_params.clone(), // Methods might have their own type params
+                        params: method
+                            .params
+                            .iter()
+                            .map(|param| crate::ast::FunParam {
+                                name: param.name.clone(),
+                                type_name: param
+                                    .type_name
+                                    .as_ref()
+                                    .map(|t| substitute_type_in_string(t, &substitutions)),
+                            })
+                            .collect(),
+                        body: self
+                            .substitute_statements(&method.body, &substitutions)
+                            .unwrap_or_else(|_| method.body.clone()),
+                    }
+                })
+                .collect(),
         };
 
-        self.monomorphized_structs.insert(target.instantiated_name(), monomorphized.clone());
-        
+        self.monomorphized_structs
+            .insert(target.instantiated_name(), monomorphized.clone());
+
         // Also register methods as standalone functions with mangled names
         for method in &monomorphized.methods {
             let mangled_name = format!("{}_{}", target.instantiated_name(), method.name);
@@ -450,166 +483,213 @@ impl Monomorphizer {
                 params: method.params.clone(),
                 body: method.body.clone(),
             };
-            self.monomorphized_functions.insert(mangled_name, mangled_function);
+            self.monomorphized_functions
+                .insert(mangled_name, mangled_function);
         }
-        
+
         Ok(())
     }
 
     /// Substitute type parameters in statement list
-    fn substitute_statements(&mut self, statements: &[Stmt], substitutions: &HashMap<String, Type>) -> Result<Vec<Stmt>> {
-        statements.iter().map(|stmt| self.substitute_statement(stmt, substitutions)).collect()
+    fn substitute_statements(
+        &mut self,
+        statements: &[Stmt],
+        substitutions: &HashMap<String, Type>,
+    ) -> Result<Vec<Stmt>> {
+        statements
+            .iter()
+            .map(|stmt| self.substitute_statement(stmt, substitutions))
+            .collect()
     }
 
     /// Substitute type parameters in a single statement
-    fn substitute_statement(&mut self, statement: &Stmt, substitutions: &HashMap<String, Type>) -> Result<Stmt> {
+    fn substitute_statement(
+        &mut self,
+        statement: &Stmt,
+        substitutions: &HashMap<String, Type>,
+    ) -> Result<Stmt> {
         match statement {
-            Stmt::Let { name, value } => {
-                Ok(Stmt::Let {
-                    name: name.clone(),
-                    value: self.substitute_expression(value, substitutions)?,
-                })
-            }
-            Stmt::Expression(expr) => {
-                Ok(Stmt::Expression(self.substitute_expression(expr, substitutions)?))
-            }
-            Stmt::Return(expr) => {
-                Ok(Stmt::Return(self.substitute_expression(expr, substitutions)?))
-            }
-            Stmt::If { condition, then_branch, else_branch } => {
-                Ok(Stmt::If {
-                    condition: self.substitute_expression(condition, substitutions)?,
-                    then_branch: self.substitute_statements(then_branch, substitutions)?,
-                    else_branch: else_branch.as_ref().map(|branch| {
-                        self.substitute_statements(branch, substitutions)
-                    }).transpose()?,
-                })
-            }
-            Stmt::While { condition, body } => {
-                Ok(Stmt::While {
-                    condition: self.substitute_expression(condition, substitutions)?,
-                    body: self.substitute_statements(body, substitutions)?,
-                })
-            }
-            Stmt::Assign { name, value } => {
-                Ok(Stmt::Assign {
-                    name: name.clone(),
-                    value: self.substitute_expression(value, substitutions)?,
-                })
-            }
-            Stmt::VectorPush { vector, value } => {
-                Ok(Stmt::VectorPush {
-                    vector: vector.clone(),
-                    value: self.substitute_expression(value, substitutions)?,
-                })
-            }
-            Stmt::IndexAssign { container, index, value, container_type } => {
-                Ok(Stmt::IndexAssign {
-                    container: container.clone(),
-                    index: self.substitute_expression(index, substitutions)?,
-                    value: self.substitute_expression(value, substitutions)?,
-                    container_type: *container_type,
-                })
-            }
-            Stmt::FieldAssign { object, field, value } => {
-                Ok(Stmt::FieldAssign {
-                    object: self.substitute_expression(object, substitutions)?,
-                    field: field.clone(),
-                    value: self.substitute_expression(value, substitutions)?,
-                })
-            }
+            Stmt::Let { name, value } => Ok(Stmt::Let {
+                name: name.clone(),
+                value: self.substitute_expression(value, substitutions)?,
+            }),
+            Stmt::Expression(expr) => Ok(Stmt::Expression(
+                self.substitute_expression(expr, substitutions)?,
+            )),
+            Stmt::Return(expr) => Ok(Stmt::Return(
+                self.substitute_expression(expr, substitutions)?,
+            )),
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => Ok(Stmt::If {
+                condition: self.substitute_expression(condition, substitutions)?,
+                then_branch: self.substitute_statements(then_branch, substitutions)?,
+                else_branch: else_branch
+                    .as_ref()
+                    .map(|branch| self.substitute_statements(branch, substitutions))
+                    .transpose()?,
+            }),
+            Stmt::While { condition, body } => Ok(Stmt::While {
+                condition: self.substitute_expression(condition, substitutions)?,
+                body: self.substitute_statements(body, substitutions)?,
+            }),
+            Stmt::Assign { name, value } => Ok(Stmt::Assign {
+                name: name.clone(),
+                value: self.substitute_expression(value, substitutions)?,
+            }),
+            Stmt::VectorPush { vector, value } => Ok(Stmt::VectorPush {
+                vector: vector.clone(),
+                value: self.substitute_expression(value, substitutions)?,
+            }),
+            Stmt::IndexAssign {
+                container,
+                index,
+                value,
+                container_type,
+            } => Ok(Stmt::IndexAssign {
+                container: container.clone(),
+                index: self.substitute_expression(index, substitutions)?,
+                value: self.substitute_expression(value, substitutions)?,
+                container_type: *container_type,
+            }),
+            Stmt::FieldAssign {
+                object,
+                field,
+                value,
+            } => Ok(Stmt::FieldAssign {
+                object: self.substitute_expression(object, substitutions)?,
+                field: field.clone(),
+                value: self.substitute_expression(value, substitutions)?,
+            }),
         }
     }
 
     /// Substitute type parameters in an expression
-    fn substitute_expression(&mut self, expression: &Expr, substitutions: &HashMap<String, Type>) -> Result<Expr> {
+    fn substitute_expression(
+        &mut self,
+        expression: &Expr,
+        substitutions: &HashMap<String, Type>,
+    ) -> Result<Expr> {
         match expression {
             // Simple expressions that don't need substitution
             Expr::Int(n) => Ok(Expr::Int(*n)),
             Expr::Boolean(b) => Ok(Expr::Boolean(*b)),
             Expr::String(s) => Ok(Expr::String(s.clone())),
             Expr::Identifier(name) => Ok(Expr::Identifier(name.clone())),
-            Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr { type_name: substitute_type_in_string(type_name, substitutions) }),
-            Expr::Alloc { element_type, size } => {
-                Ok(Expr::Alloc {
-                    element_type: substitute_type_in_string(element_type, substitutions),
-                    size: Box::new(self.substitute_expression(size, substitutions)?),
-                })
-            }
+            Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr {
+                type_name: substitute_type_in_string(type_name, substitutions),
+            }),
+            Expr::Alloc { element_type, size } => Ok(Expr::Alloc {
+                element_type: substitute_type_in_string(element_type, substitutions),
+                size: Box::new(self.substitute_expression(size, substitutions)?),
+            }),
 
             // Complex expressions that may contain type information
-            Expr::Binary { left, op, right } => {
-                Ok(Expr::Binary {
-                    left: Box::new(self.substitute_expression(left, substitutions)?),
-                    op: *op,
-                    right: Box::new(self.substitute_expression(right, substitutions)?),
-                })
-            }
+            Expr::Binary { left, op, right } => Ok(Expr::Binary {
+                left: Box::new(self.substitute_expression(left, substitutions)?),
+                op: *op,
+                right: Box::new(self.substitute_expression(right, substitutions)?),
+            }),
             Expr::Call { callee, args } => {
                 // This is where we might discover new monomorphization targets
                 Ok(Expr::Call {
                     callee: Box::new(self.substitute_expression(callee, substitutions)?),
-                    args: args.iter().map(|arg| self.substitute_expression(arg, substitutions)).collect::<Result<Vec<_>>>()?,
+                    args: args
+                        .iter()
+                        .map(|arg| self.substitute_expression(arg, substitutions))
+                        .collect::<Result<Vec<_>>>()?,
                 })
             }
-            Expr::VectorNew { element_type, initial_values } => {
-                Ok(Expr::VectorNew {
-                    element_type: substitute_type_in_string(element_type, substitutions),
-                    initial_values: initial_values.iter().map(|val| self.substitute_expression(val, substitutions)).collect::<Result<Vec<_>>>()?,
-                })
-            }
-            Expr::PointerAlloc { element_type, initial_values } => {
-                Ok(Expr::PointerAlloc {
-                    element_type: substitute_type_in_string(element_type, substitutions),
-                    initial_values: initial_values.iter().map(|val| self.substitute_expression(val, substitutions)).collect::<Result<Vec<_>>>()?,
-                })
-            }
-            Expr::Index { container, index, container_type } => {
-                Ok(Expr::Index {
-                    container: Box::new(self.substitute_expression(container, substitutions)?),
-                    index: Box::new(self.substitute_expression(index, substitutions)?),
-                    container_type: *container_type,
-                })
-            }
-            Expr::MapNew { key_type, value_type, initial_pairs } => {
-                Ok(Expr::MapNew {
-                    key_type: substitute_type_in_string(key_type, substitutions),
-                    value_type: substitute_type_in_string(value_type, substitutions),
-                    initial_pairs: initial_pairs.iter().map(|(k, v)| {
-                        Ok((self.substitute_expression(k, substitutions)?, self.substitute_expression(v, substitutions)?))
-                    }).collect::<Result<Vec<_>>>()?,
-                })
-            }
-            Expr::StructNew { type_name, fields } => {
-                Ok(Expr::StructNew {
-                    type_name: substitute_type_in_string(type_name, substitutions),
-                    fields: fields.iter().map(|(name, expr)| {
-                        Ok((name.clone(), self.substitute_expression(expr, substitutions)?))
-                    }).collect::<Result<Vec<_>>>()?,
-                })
-            }
-            Expr::StructNewPattern { type_name, fields } => {
-                Ok(Expr::StructNewPattern {
-                    type_name: substitute_type_in_string(type_name, substitutions),
-                    fields: fields.iter().map(|(name, expr)| {
-                        Ok((name.clone(), self.substitute_expression(expr, substitutions)?))
-                    }).collect::<Result<Vec<_>>>()?,
-                })
-            }
-            Expr::FieldAccess { object, field } => {
-                Ok(Expr::FieldAccess {
-                    object: Box::new(self.substitute_expression(object, substitutions)?),
-                    field: field.clone(),
-                })
-            }
-            Expr::MethodCall { object, method, args, object_type } => {
-                Ok(Expr::MethodCall {
-                    object: Box::new(self.substitute_expression(object, substitutions)?),
-                    method: method.clone(),
-                    args: args.iter().map(|arg| self.substitute_expression(arg, substitutions)).collect::<Result<Vec<_>>>()?,
-                    object_type: object_type.clone(),
-                })
-            }
+            Expr::VectorNew {
+                element_type,
+                initial_values,
+            } => Ok(Expr::VectorNew {
+                element_type: substitute_type_in_string(element_type, substitutions),
+                initial_values: initial_values
+                    .iter()
+                    .map(|val| self.substitute_expression(val, substitutions))
+                    .collect::<Result<Vec<_>>>()?,
+            }),
+            Expr::PointerAlloc {
+                element_type,
+                initial_values,
+            } => Ok(Expr::PointerAlloc {
+                element_type: substitute_type_in_string(element_type, substitutions),
+                initial_values: initial_values
+                    .iter()
+                    .map(|val| self.substitute_expression(val, substitutions))
+                    .collect::<Result<Vec<_>>>()?,
+            }),
+            Expr::Index {
+                container,
+                index,
+                container_type,
+            } => Ok(Expr::Index {
+                container: Box::new(self.substitute_expression(container, substitutions)?),
+                index: Box::new(self.substitute_expression(index, substitutions)?),
+                container_type: *container_type,
+            }),
+            Expr::MapNew {
+                key_type,
+                value_type,
+                initial_pairs,
+            } => Ok(Expr::MapNew {
+                key_type: substitute_type_in_string(key_type, substitutions),
+                value_type: substitute_type_in_string(value_type, substitutions),
+                initial_pairs: initial_pairs
+                    .iter()
+                    .map(|(k, v)| {
+                        Ok((
+                            self.substitute_expression(k, substitutions)?,
+                            self.substitute_expression(v, substitutions)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            }),
+            Expr::StructNew { type_name, fields } => Ok(Expr::StructNew {
+                type_name: substitute_type_in_string(type_name, substitutions),
+                fields: fields
+                    .iter()
+                    .map(|(name, expr)| {
+                        Ok((
+                            name.clone(),
+                            self.substitute_expression(expr, substitutions)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            }),
+            Expr::StructNewPattern { type_name, fields } => Ok(Expr::StructNewPattern {
+                type_name: substitute_type_in_string(type_name, substitutions),
+                fields: fields
+                    .iter()
+                    .map(|(name, expr)| {
+                        Ok((
+                            name.clone(),
+                            self.substitute_expression(expr, substitutions)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            }),
+            Expr::FieldAccess { object, field } => Ok(Expr::FieldAccess {
+                object: Box::new(self.substitute_expression(object, substitutions)?),
+                field: field.clone(),
+            }),
+            Expr::MethodCall {
+                object,
+                method,
+                args,
+                object_type,
+            } => Ok(Expr::MethodCall {
+                object: Box::new(self.substitute_expression(object, substitutions)?),
+                method: method.clone(),
+                args: args
+                    .iter()
+                    .map(|arg| self.substitute_expression(arg, substitutions))
+                    .collect::<Result<Vec<_>>>()?,
+                object_type: object_type.clone(),
+            }),
         }
     }
 
@@ -675,66 +755,67 @@ impl Monomorphizer {
 
     /// Substitute generic type instantiations globally (without type parameter substitutions)
     fn substitute_statements_globally(&self, statements: &[Stmt]) -> Result<Vec<Stmt>> {
-        statements.iter().map(|stmt| self.substitute_statement_globally(stmt)).collect()
+        statements
+            .iter()
+            .map(|stmt| self.substitute_statement_globally(stmt))
+            .collect()
     }
 
     /// Substitute generic type instantiations in a single statement globally
     fn substitute_statement_globally(&self, statement: &Stmt) -> Result<Stmt> {
         match statement {
-            Stmt::Let { name, value } => {
-                Ok(Stmt::Let {
-                    name: name.clone(),
-                    value: self.substitute_expression_globally(value)?,
-                })
-            }
+            Stmt::Let { name, value } => Ok(Stmt::Let {
+                name: name.clone(),
+                value: self.substitute_expression_globally(value)?,
+            }),
             Stmt::Expression(expr) => {
                 Ok(Stmt::Expression(self.substitute_expression_globally(expr)?))
             }
-            Stmt::Return(expr) => {
-                Ok(Stmt::Return(self.substitute_expression_globally(expr)?))
-            }
-            Stmt::If { condition, then_branch, else_branch } => {
-                Ok(Stmt::If {
-                    condition: self.substitute_expression_globally(condition)?,
-                    then_branch: self.substitute_statements_globally(then_branch)?,
-                    else_branch: else_branch.as_ref().map(|branch| {
-                        self.substitute_statements_globally(branch)
-                    }).transpose()?,
-                })
-            }
-            Stmt::While { condition, body } => {
-                Ok(Stmt::While {
-                    condition: self.substitute_expression_globally(condition)?,
-                    body: self.substitute_statements_globally(body)?,
-                })
-            }
-            Stmt::Assign { name, value } => {
-                Ok(Stmt::Assign {
-                    name: name.clone(),
-                    value: self.substitute_expression_globally(value)?,
-                })
-            }
-            Stmt::VectorPush { vector, value } => {
-                Ok(Stmt::VectorPush {
-                    vector: vector.clone(),
-                    value: self.substitute_expression_globally(value)?,
-                })
-            }
-            Stmt::IndexAssign { container, index, value, container_type } => {
-                Ok(Stmt::IndexAssign {
-                    container: container.clone(),
-                    index: self.substitute_expression_globally(index)?,
-                    value: self.substitute_expression_globally(value)?,
-                    container_type: *container_type,
-                })
-            }
-            Stmt::FieldAssign { object, field, value } => {
-                Ok(Stmt::FieldAssign {
-                    object: self.substitute_expression_globally(object)?,
-                    field: field.clone(),
-                    value: self.substitute_expression_globally(value)?,
-                })
-            }
+            Stmt::Return(expr) => Ok(Stmt::Return(self.substitute_expression_globally(expr)?)),
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => Ok(Stmt::If {
+                condition: self.substitute_expression_globally(condition)?,
+                then_branch: self.substitute_statements_globally(then_branch)?,
+                else_branch: else_branch
+                    .as_ref()
+                    .map(|branch| self.substitute_statements_globally(branch))
+                    .transpose()?,
+            }),
+            Stmt::While { condition, body } => Ok(Stmt::While {
+                condition: self.substitute_expression_globally(condition)?,
+                body: self.substitute_statements_globally(body)?,
+            }),
+            Stmt::Assign { name, value } => Ok(Stmt::Assign {
+                name: name.clone(),
+                value: self.substitute_expression_globally(value)?,
+            }),
+            Stmt::VectorPush { vector, value } => Ok(Stmt::VectorPush {
+                vector: vector.clone(),
+                value: self.substitute_expression_globally(value)?,
+            }),
+            Stmt::IndexAssign {
+                container,
+                index,
+                value,
+                container_type,
+            } => Ok(Stmt::IndexAssign {
+                container: container.clone(),
+                index: self.substitute_expression_globally(index)?,
+                value: self.substitute_expression_globally(value)?,
+                container_type: *container_type,
+            }),
+            Stmt::FieldAssign {
+                object,
+                field,
+                value,
+            } => Ok(Stmt::FieldAssign {
+                object: self.substitute_expression_globally(object)?,
+                field: field.clone(),
+                value: self.substitute_expression_globally(value)?,
+            }),
         }
     }
 
@@ -746,22 +827,20 @@ impl Monomorphizer {
             Expr::Boolean(b) => Ok(Expr::Boolean(*b)),
             Expr::String(s) => Ok(Expr::String(s.clone())),
             Expr::Identifier(name) => Ok(Expr::Identifier(name.clone())),
-            Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr { type_name: type_name.clone() }),
-            Expr::Alloc { element_type, size } => {
-                Ok(Expr::Alloc {
-                    element_type: substitute_type_in_string_globally(element_type),
-                    size: Box::new(self.substitute_expression_globally(size)?),
-                })
-            }
+            Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr {
+                type_name: type_name.clone(),
+            }),
+            Expr::Alloc { element_type, size } => Ok(Expr::Alloc {
+                element_type: substitute_type_in_string_globally(element_type),
+                size: Box::new(self.substitute_expression_globally(size)?),
+            }),
 
             // Complex expressions
-            Expr::Binary { left, op, right } => {
-                Ok(Expr::Binary {
-                    left: Box::new(self.substitute_expression_globally(left)?),
-                    op: *op,
-                    right: Box::new(self.substitute_expression_globally(right)?),
-                })
-            }
+            Expr::Binary { left, op, right } => Ok(Expr::Binary {
+                left: Box::new(self.substitute_expression_globally(left)?),
+                op: *op,
+                right: Box::new(self.substitute_expression_globally(right)?),
+            }),
             Expr::Call { callee, args } => {
                 // Check if this is a generic function call
                 if let Expr::Identifier(func_name) = callee.as_ref() {
@@ -769,10 +848,10 @@ impl Monomorphizer {
                         // Extract type arguments from the beginning of args
                         let mut type_args = Vec::new();
                         let mut remaining_args = Vec::new();
-                        
+
                         let generic_func = &self.generic_functions[func_name];
                         let num_type_params = generic_func.type_params.len();
-                        
+
                         // First n arguments should be type expressions
                         for (i, arg) in args.iter().enumerate() {
                             if i < num_type_params {
@@ -783,7 +862,7 @@ impl Monomorphizer {
                                 remaining_args.push(self.substitute_expression_globally(arg)?);
                             }
                         }
-                        
+
                         // Generate the monomorphized function name
                         if !type_args.is_empty() {
                             let target = MonomorphizationTarget {
@@ -791,7 +870,7 @@ impl Monomorphizer {
                                 args: type_args,
                             };
                             let monomorphized_name = target.instantiated_name();
-                            
+
                             return Ok(Expr::Call {
                                 callee: Box::new(Expr::Identifier(monomorphized_name)),
                                 args: remaining_args,
@@ -799,71 +878,98 @@ impl Monomorphizer {
                         }
                     }
                 }
-                
+
                 // Default case: not a generic function call
                 Ok(Expr::Call {
                     callee: Box::new(self.substitute_expression_globally(callee)?),
-                    args: args.iter().map(|arg| self.substitute_expression_globally(arg)).collect::<Result<Vec<_>>>()?,
+                    args: args
+                        .iter()
+                        .map(|arg| self.substitute_expression_globally(arg))
+                        .collect::<Result<Vec<_>>>()?,
                 })
             }
-            Expr::VectorNew { element_type, initial_values } => {
-                Ok(Expr::VectorNew {
-                    element_type: substitute_type_in_string_globally(element_type),
-                    initial_values: initial_values.iter().map(|val| self.substitute_expression_globally(val)).collect::<Result<Vec<_>>>()?,
-                })
-            }
-            Expr::PointerAlloc { element_type, initial_values } => {
-                Ok(Expr::PointerAlloc {
-                    element_type: substitute_type_in_string_globally(element_type),
-                    initial_values: initial_values.iter().map(|val| self.substitute_expression_globally(val)).collect::<Result<Vec<_>>>()?,
-                })
-            }
-            Expr::Index { container, index, container_type } => {
-                Ok(Expr::Index {
-                    container: Box::new(self.substitute_expression_globally(container)?),
-                    index: Box::new(self.substitute_expression_globally(index)?),
-                    container_type: *container_type,
-                })
-            }
-            Expr::MapNew { key_type, value_type, initial_pairs } => {
-                Ok(Expr::MapNew {
-                    key_type: substitute_type_in_string_globally(key_type),
-                    value_type: substitute_type_in_string_globally(value_type),
-                    initial_pairs: initial_pairs.iter().map(|(k, v)| {
-                        Ok((self.substitute_expression_globally(k)?, self.substitute_expression_globally(v)?))
-                    }).collect::<Result<Vec<_>>>()?,
-                })
-            }
-            Expr::StructNew { type_name, fields } => {
-                Ok(Expr::StructNew {
-                    type_name: substitute_type_in_string_globally(type_name),
-                    fields: fields.iter().map(|(name, expr)| {
+            Expr::VectorNew {
+                element_type,
+                initial_values,
+            } => Ok(Expr::VectorNew {
+                element_type: substitute_type_in_string_globally(element_type),
+                initial_values: initial_values
+                    .iter()
+                    .map(|val| self.substitute_expression_globally(val))
+                    .collect::<Result<Vec<_>>>()?,
+            }),
+            Expr::PointerAlloc {
+                element_type,
+                initial_values,
+            } => Ok(Expr::PointerAlloc {
+                element_type: substitute_type_in_string_globally(element_type),
+                initial_values: initial_values
+                    .iter()
+                    .map(|val| self.substitute_expression_globally(val))
+                    .collect::<Result<Vec<_>>>()?,
+            }),
+            Expr::Index {
+                container,
+                index,
+                container_type,
+            } => Ok(Expr::Index {
+                container: Box::new(self.substitute_expression_globally(container)?),
+                index: Box::new(self.substitute_expression_globally(index)?),
+                container_type: *container_type,
+            }),
+            Expr::MapNew {
+                key_type,
+                value_type,
+                initial_pairs,
+            } => Ok(Expr::MapNew {
+                key_type: substitute_type_in_string_globally(key_type),
+                value_type: substitute_type_in_string_globally(value_type),
+                initial_pairs: initial_pairs
+                    .iter()
+                    .map(|(k, v)| {
+                        Ok((
+                            self.substitute_expression_globally(k)?,
+                            self.substitute_expression_globally(v)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            }),
+            Expr::StructNew { type_name, fields } => Ok(Expr::StructNew {
+                type_name: substitute_type_in_string_globally(type_name),
+                fields: fields
+                    .iter()
+                    .map(|(name, expr)| {
                         Ok((name.clone(), self.substitute_expression_globally(expr)?))
-                    }).collect::<Result<Vec<_>>>()?,
-                })
-            }
-            Expr::StructNewPattern { type_name, fields } => {
-                Ok(Expr::StructNewPattern {
-                    type_name: substitute_type_in_string_globally(type_name),
-                    fields: fields.iter().map(|(name, expr)| {
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            }),
+            Expr::StructNewPattern { type_name, fields } => Ok(Expr::StructNewPattern {
+                type_name: substitute_type_in_string_globally(type_name),
+                fields: fields
+                    .iter()
+                    .map(|(name, expr)| {
                         Ok((name.clone(), self.substitute_expression_globally(expr)?))
-                    }).collect::<Result<Vec<_>>>()?,
-                })
-            }
-            Expr::FieldAccess { object, field } => {
-                Ok(Expr::FieldAccess {
-                    object: Box::new(self.substitute_expression_globally(object)?),
-                    field: field.clone(),
-                })
-            }
-            Expr::MethodCall { object, method, args, object_type } => {
-                Ok(Expr::MethodCall {
-                    object: Box::new(self.substitute_expression_globally(object)?),
-                    method: method.clone(),
-                    args: args.iter().map(|arg| self.substitute_expression_globally(arg)).collect::<Result<Vec<_>>>()?,
-                    object_type: object_type.clone(),
-                })
-            }
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            }),
+            Expr::FieldAccess { object, field } => Ok(Expr::FieldAccess {
+                object: Box::new(self.substitute_expression_globally(object)?),
+                field: field.clone(),
+            }),
+            Expr::MethodCall {
+                object,
+                method,
+                args,
+                object_type,
+            } => Ok(Expr::MethodCall {
+                object: Box::new(self.substitute_expression_globally(object)?),
+                method: method.clone(),
+                args: args
+                    .iter()
+                    .map(|arg| self.substitute_expression_globally(arg))
+                    .collect::<Result<Vec<_>>>()?,
+                object_type: object_type.clone(),
+            }),
         }
     }
 }
@@ -882,11 +988,11 @@ fn substitute_type_in_string(type_str: &str, substitutions: &HashMap<String, Typ
         if let Some(paren_pos) = type_str.find('(') {
             let name = &type_str[..paren_pos];
             let args_str = &type_str[paren_pos + 1..type_str.len() - 1];
-            
+
             if args_str.is_empty() {
                 return name.to_string();
             }
-            
+
             let args: Vec<Type> = args_str
                 .split(", ")
                 .map(|arg| {
@@ -899,27 +1005,27 @@ fn substitute_type_in_string(type_str: &str, substitutions: &HashMap<String, Typ
                     }
                 })
                 .collect();
-            
+
             // Keep the original format with substituted types using source syntax
             let args_str = args
                 .iter()
                 .map(|t| match t {
-                    Type::Int => "int".to_string(),  // Keep as "int" not "number"
-                    Type::Boolean => "bool".to_string(), // Keep as "bool" not "boolean" 
+                    Type::Int => "int".to_string(),      // Keep as "int" not "number"
+                    Type::Boolean => "bool".to_string(), // Keep as "bool" not "boolean"
                     _ => t.to_string(),
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            
+
             return format!("{}({})", name, args_str);
         }
     }
-    
+
     // Simple string substitution for type parameters
     if let Some(replacement) = substitutions.get(type_str) {
         // Convert Type back to source-friendly string representation
         match replacement {
-            Type::Int => "int".to_string(),    // Prefer "int" over "number"
+            Type::Int => "int".to_string(),       // Prefer "int" over "number"
             Type::Boolean => "bool".to_string(),  // Prefer "bool" over "boolean"
             Type::String => "string".to_string(), // Could be "string" or "[*]byte", use "string"
             other => other.to_string(),
@@ -943,11 +1049,10 @@ mod tests {
         assert_eq!(target.instantiated_name(), "Container(int, string)");
     }
 
-
     #[test]
     fn test_monomorphizer_registration() {
         let mut monomorphizer = Monomorphizer::new();
-        
+
         let generic_function = Function {
             name: "identity".to_string(),
             type_params: vec!["T".to_string()],

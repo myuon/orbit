@@ -1,4 +1,6 @@
-use crate::ast::{BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, Program, Stmt, StructDecl};
+use crate::ast::{
+    BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, Program, Stmt, StructDecl,
+};
 use crate::profiler::{InstructionTimer, Profiler};
 use crate::runtime::{HeapIndex, HeapObject, Value};
 use std::collections::HashMap;
@@ -87,7 +89,7 @@ pub enum Instruction {
     PointerIndex,
     PointerSet,
 
-    // String operations  
+    // String operations
     StringIndex,
 
     // Struct operations
@@ -170,7 +172,7 @@ pub struct VM {
     pub print_stacks: bool, // whether to print stack state during execution
     print_stacks_on_call: Option<String>, // print stacks only when calling this function
     heap: Vec<HeapObject>,  // unified heap storage
-    globals: HashMap<String, Value>,  // global variables
+    globals: HashMap<String, Value>, // global variables
     // Output capture for testing
     pub captured_output: Option<String>,
     // Profiling
@@ -564,12 +566,10 @@ impl VM {
                     self.stack[index] = value;
                 }
 
-                Instruction::GetGlobal(name) => {
-                    match self.globals.get(name) {
-                        Some(value) => self.stack.push(value.clone()),
-                        None => return Err(format!("Undefined global variable: {}", name)),
-                    }
-                }
+                Instruction::GetGlobal(name) => match self.globals.get(name) {
+                    Some(value) => self.stack.push(value.clone()),
+                    None => return Err(format!("Undefined global variable: {}", name)),
+                },
 
                 Instruction::SetGlobal(name) => {
                     if self.stack.is_empty() {
@@ -618,9 +618,10 @@ impl VM {
 
                 Instruction::Ret => {
                     // Determine the return type based on current stack state and BP
-                    
+
                     // For main function: BP should be at initial value and stack should be simple
-                    if self.bp <= 3 {  // Initial BP setup makes BP around 3
+                    if self.bp <= 3 {
+                        // Initial BP setup makes BP around 3
                         // Main function return
                         if !self.stack.is_empty() {
                             let return_value = self.stack.pop().unwrap();
@@ -635,35 +636,35 @@ impl VM {
                         // Regular function return - need to do full stack frame restoration
                         // Stack currently has: [...frame...] [return_value]
                         // BP points to: [old_bp]
-                        // BP-1 points to: [return_addr] 
+                        // BP-1 points to: [return_addr]
                         // BP-2 points to: [last_arg]
                         // ...
                         // We need to restore stack to put return_value in place of the placeholder
-                        
+
                         if self.stack.is_empty() {
                             return Err("Stack underflow for function return".to_string());
                         }
-                        
+
                         let return_value = self.stack.pop().unwrap();
-                        
+
                         // Get return address from BP-2
                         if self.bp >= 2 && self.bp < self.stack.len() + 1 {
                             let return_addr = self.stack[self.bp - 2].clone();
-                            
+
                             // Get old BP from BP-1
                             let old_bp = match self.stack[self.bp - 1] {
                                 Value::Address(addr) => addr,
                                 Value::Int(n) => n as usize,
                                 _ => return Err("Invalid old BP type".to_string()),
                             };
-                            
+
                             // Restore stack to caller frame and put return value on top
                             self.stack.truncate(self.bp - 1); // Remove current frame
-                            self.stack.push(return_value);    // Place return value
-                            
+                            self.stack.push(return_value); // Place return value
+
                             // Restore BP
                             self.bp = old_bp;
-                            
+
                             // Jump to return address
                             match return_addr {
                                 Value::Address(addr) => {
@@ -1036,7 +1037,7 @@ impl VM {
                     if self.stack.len() < 2 {
                         return Err("Stack underflow for PointerAlloc".to_string());
                     }
-                    
+
                     let element_type_ref = self.stack.pop().unwrap();
                     let size = match self.stack.pop().unwrap() {
                         Value::Int(n) => n as usize,
@@ -1051,10 +1052,16 @@ impl VM {
                             }
                             match &self.heap[heap_index.0] {
                                 HeapObject::String(s) => s.clone(),
-                                _ => return Err("PointerAlloc requires a string for element type".to_string()),
+                                _ => {
+                                    return Err("PointerAlloc requires a string for element type"
+                                        .to_string())
+                                }
                             }
                         }
-                        _ => return Err("PointerAlloc requires a heap reference for element type".to_string()),
+                        _ => {
+                            return Err("PointerAlloc requires a heap reference for element type"
+                                .to_string())
+                        }
                     };
 
                     // Calculate sizeof(element_type) * size
@@ -1092,10 +1099,18 @@ impl VM {
                                     }
                                     self.stack.push(arr[element_index].clone());
                                 }
-                                _ => return Err("PointerIndex requires a pointer heap object".to_string()),
+                                _ => {
+                                    return Err(
+                                        "PointerIndex requires a pointer heap object".to_string()
+                                    )
+                                }
                             }
                         }
-                        _ => return Err("PointerIndex requires a heap reference and number".to_string()),
+                        _ => {
+                            return Err(
+                                "PointerIndex requires a heap reference and number".to_string()
+                            )
+                        }
                     }
                 }
 
@@ -1121,10 +1136,18 @@ impl VM {
                                     }
                                     arr[element_index] = value;
                                 }
-                                _ => return Err("PointerSet requires a pointer heap object".to_string()),
+                                _ => {
+                                    return Err(
+                                        "PointerSet requires a pointer heap object".to_string()
+                                    )
+                                }
                             }
                         }
-                        _ => return Err("PointerSet requires a heap reference and number".to_string()),
+                        _ => {
+                            return Err(
+                                "PointerSet requires a heap reference and number".to_string()
+                            )
+                        }
                     }
                 }
 
@@ -1154,10 +1177,18 @@ impl VM {
                                     // Return the byte value as a number
                                     self.stack.push(Value::Int(bytes[element_index] as i64));
                                 }
-                                _ => return Err("StringIndex requires a string heap object".to_string()),
+                                _ => {
+                                    return Err(
+                                        "StringIndex requires a string heap object".to_string()
+                                    )
+                                }
                             }
                         }
-                        _ => return Err("StringIndex requires a heap reference and number".to_string()),
+                        _ => {
+                            return Err(
+                                "StringIndex requires a heap reference and number".to_string()
+                            )
+                        }
                     }
                 }
                 Instruction::StructNew => {
@@ -1377,43 +1408,48 @@ impl VM {
                     if self.stack.len() < 5 {
                         return Err("Stack underflow for Syscall".to_string());
                     }
-                    
+
                     // Pop the 4 arguments (length, buffer, fd, syscall_number) in reverse order
                     let length = self.stack.pop().unwrap();
                     let buffer_ref = self.stack.pop().unwrap();
                     let fd = self.stack.pop().unwrap();
                     let syscall_number = self.stack.pop().unwrap();
-                    
+
                     // The return placeholder is left on the stack for the result
-                    
+
                     match syscall_number {
                         Value::Int(1) => {
                             // Write syscall: write(fd, buffer, length)
-                            
+
                             // Validate fd is a number
                             let _fd_num = match fd {
                                 Value::Int(n) => n,
                                 _ => return Err("Write syscall: fd must be a number".to_string()),
                             };
-                            
+
                             // Validate length is a number
                             let length_num = match length {
                                 Value::Int(n) => n as usize,
-                                _ => return Err("Write syscall: length must be a number".to_string()),
+                                _ => {
+                                    return Err("Write syscall: length must be a number".to_string())
+                                }
                             };
-                            
+
                             // Get buffer content
                             match buffer_ref {
                                 Value::HeapRef(heap_index) => {
                                     if heap_index.0 >= self.heap.len() {
-                                        return Err(format!("Invalid heap index: {}", heap_index.0));
+                                        return Err(format!(
+                                            "Invalid heap index: {}",
+                                            heap_index.0
+                                        ));
                                     }
                                     match &self.heap[heap_index.0] {
                                         HeapObject::String(s) => {
                                             // Use the specified length or the string length, whichever is smaller
                                             let actual_length = length_num.min(s.len());
                                             let output = &s[..actual_length];
-                                            
+
                                             if let Some(ref mut captured) = self.captured_output {
                                                 captured.push_str(output);
                                             } else {
@@ -1421,16 +1457,22 @@ impl VM {
                                                 use std::io::Write;
                                                 std::io::stdout().flush().unwrap();
                                             }
-                                            
+
                                             // Replace the return placeholder with the number of bytes written
                                             if let Some(top) = self.stack.last_mut() {
                                                 *top = Value::Int(actual_length as i64);
                                             }
                                         }
-                                        _ => return Err("Write syscall: buffer must be a string".to_string()),
+                                        _ => {
+                                            return Err("Write syscall: buffer must be a string"
+                                                .to_string())
+                                        }
                                     }
                                 }
-                                _ => return Err("Write syscall: buffer must be a string reference".to_string()),
+                                _ => {
+                                    return Err("Write syscall: buffer must be a string reference"
+                                        .to_string())
+                                }
                             }
                         }
                         _ => {
@@ -1508,7 +1550,7 @@ impl VM {
             "bool" | "boolean" => 1,
             "byte" => 1,
             "int" | "number" => 8, // Using 8 bytes for numbers
-            "string" => 8, // String is a pointer, so 8 bytes
+            "string" => 8,         // String is a pointer, so 8 bytes
             _ => {
                 if type_name.starts_with("[*]") {
                     8 // Pointer types are 8 bytes
@@ -1532,7 +1574,7 @@ pub struct VMCompiler {
     functions: HashMap<String, Function>,
     structs: HashMap<String, StructDecl>,
     string_constants: HashMap<String, usize>, // string -> heap index mapping
-    string_constant_list: Vec<String>, // ordered list of string constants
+    string_constant_list: Vec<String>,        // ordered list of string constants
 }
 
 impl VMCompiler {
@@ -1566,7 +1608,7 @@ impl VMCompiler {
     pub fn get_string_constants(&self) -> &[String] {
         &self.string_constant_list
     }
-    
+
     /// Collect string constants from a declaration
     fn collect_string_constants_from_decl(&mut self, decl: &Decl) {
         match decl {
@@ -1587,7 +1629,7 @@ impl VMCompiler {
             }
         }
     }
-    
+
     /// Collect string constants from a statement
     fn collect_string_constants_from_stmt(&mut self, stmt: &Stmt) {
         match stmt {
@@ -1603,7 +1645,11 @@ impl VMCompiler {
             Stmt::Expression(expr) => {
                 self.collect_string_constants_from_expr(expr);
             }
-            Stmt::If { condition, then_branch, else_branch } => {
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 self.collect_string_constants_from_expr(condition);
                 for stmt in then_branch {
                     self.collect_string_constants_from_stmt(stmt);
@@ -1633,7 +1679,7 @@ impl VMCompiler {
             }
         }
     }
-    
+
     /// Collect string constants from an expression
     fn collect_string_constants_from_expr(&mut self, expr: &Expr) {
         match expr {
@@ -1658,7 +1704,9 @@ impl VMCompiler {
             Expr::FieldAccess { object, .. } => {
                 self.collect_string_constants_from_expr(object);
             }
-            Expr::Index { container, index, .. } => {
+            Expr::Index {
+                container, index, ..
+            } => {
                 self.collect_string_constants_from_expr(container);
                 self.collect_string_constants_from_expr(index);
             }
@@ -1729,12 +1777,12 @@ impl VMCompiler {
         self.string_constants.clear();
         self.string_constant_list.clear();
         let mut all_methods: Vec<Function> = Vec::new();
-        
+
         // Pre-scan for string constants
         for decl in &program.declarations {
             self.collect_string_constants_from_decl(decl);
         }
-        
+
         for decl in &program.declarations {
             if let Decl::Struct(struct_decl) = decl {
                 self.structs
@@ -1780,19 +1828,21 @@ impl VMCompiler {
         self.local_vars.clear();
         self.local_offset = 0;
         self.current_function_param_count = 0;
-        
+
         // Initialize string constants in heap first
         for string_constant in &self.string_constant_list {
-            self.instructions.push(Instruction::PushString(string_constant.clone()));
+            self.instructions
+                .push(Instruction::PushString(string_constant.clone()));
             self.instructions.push(Instruction::Pop); // Discard the HeapRef from stack
         }
-        
+
         // Initialize global variables second
         for global_var in &global_variables {
             self.compile_expression(&global_var.value);
-            self.instructions.push(Instruction::SetGlobal(global_var.name.clone()));
+            self.instructions
+                .push(Instruction::SetGlobal(global_var.name.clone()));
         }
-        
+
         self.instructions.push(Instruction::Push(-1)); // placeholder for return value
         self.instructions.push(Instruction::Push(0)); // placeholder for return address
         self.instructions.push(Instruction::Push(-1)); // placeholder for old BP
@@ -2134,7 +2184,6 @@ impl VMCompiler {
                 }
 
                 if let Expr::Identifier(func_name) = callee.as_ref() {
-
                     // 3. Push current PC + offset (return address)
                     // PC will be at Call instruction, so return address is PC + 1
                     self.instructions.push(Instruction::GetPC);
@@ -2169,7 +2218,8 @@ impl VMCompiler {
                     self.compile_expression(value);
                 }
                 // Push the count of initial values
-                self.instructions.push(Instruction::Push(initial_values.len() as i64));
+                self.instructions
+                    .push(Instruction::Push(initial_values.len() as i64));
                 self.instructions.push(Instruction::PointerAlloc);
             }
 
@@ -2273,7 +2323,8 @@ impl VMCompiler {
                 // Compile the size expression
                 self.compile_expression(size);
                 // Push element type as string for VM to calculate sizeof
-                self.instructions.push(Instruction::PushString(element_type.clone()));
+                self.instructions
+                    .push(Instruction::PushString(element_type.clone()));
                 // Allocate pointer with specified type and size
                 self.instructions.push(Instruction::PointerAlloc);
             }
@@ -2634,7 +2685,11 @@ mod tests {
         let instructions = compile_expression(&expr);
         assert_eq!(
             instructions,
-            vec![Instruction::Push(10), Instruction::PushString("int".to_string()), Instruction::PointerAlloc]
+            vec![
+                Instruction::Push(10),
+                Instruction::PushString("int".to_string()),
+                Instruction::PointerAlloc
+            ]
         );
 
         // Test alloc with expression size: alloc byte (5 + 3)
