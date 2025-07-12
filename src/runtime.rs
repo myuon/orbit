@@ -545,64 +545,12 @@ impl VM {
             }
 
             Instruction::Ret => {
-                // Determine the return type based on current stack state and BP
-
-                // For main function: BP should be at initial value and stack should be simple
-                if self.bp <= 3 {
-                    // Initial BP setup makes BP around 3
-                    // Main function return
-                    if !self.stack.is_empty() {
-                        let return_value = self.stack.pop().unwrap();
-                        return match return_value {
-                            Value::Int(v) => Ok(ControlFlow::Exit(v as i64)),
-                            _ => Err("Program must return a number".to_string()),
-                        };
-                    } else {
-                        return Err("Stack underflow for main function return".to_string());
+                let return_addr = self.stack.pop();
+                match return_addr {
+                    Some(Value::Address(addr)) => {
+                        self.pc = addr;
                     }
-                } else {
-                    // Regular function return - need to do full stack frame restoration
-                    // Stack currently has: [...frame...] [return_value]
-                    // BP points to: [old_bp]
-                    // BP-1 points to: [return_addr]
-                    // BP-2 points to: [last_arg]
-                    // ...
-                    // We need to restore stack to put return_value in place of the placeholder
-
-                    if self.stack.is_empty() {
-                        return Err("Stack underflow for function return".to_string());
-                    }
-
-                    let return_value = self.stack.pop().unwrap();
-
-                    // Get return address from BP-2
-                    if self.bp >= 2 && self.bp < self.stack.len() + 1 {
-                        let return_addr = self.stack[self.bp - 2].clone();
-
-                        // Get old BP from BP-1
-                        let old_bp = match self.stack[self.bp - 1] {
-                            Value::Address(addr) => addr,
-                            Value::Int(n) => n as usize,
-                            _ => return Err("Invalid old BP type".to_string()),
-                        };
-
-                        // Restore stack to caller frame and put return value on top
-                        self.stack.truncate(self.bp - 1); // Remove current frame
-                        self.stack.push(return_value); // Place return value
-
-                        // Restore BP
-                        self.bp = old_bp;
-
-                        // Jump to return address
-                        match return_addr {
-                            Value::Address(addr) => {
-                                self.pc = addr;
-                            }
-                            _ => return Err("Return address must be an address".to_string()),
-                        }
-                    } else {
-                        return Err("Invalid BP for function return".to_string());
-                    }
+                    _ => return Err("Return address must be an address".to_string()),
                 }
             }
 

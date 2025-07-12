@@ -289,8 +289,6 @@ impl CodeGenerator {
 
         self.instructions.push(Instruction::Push(-1)); // placeholder for return value
         self.instructions.push(Instruction::Push(0)); // placeholder for return address
-        self.instructions.push(Instruction::Push(-1)); // placeholder for old BP
-        self.instructions.push(Instruction::Push(3));
         self.instructions.push(Instruction::SetBP);
         self.instructions
             .push(Instruction::Call("main".to_string()));
@@ -323,15 +321,7 @@ impl CodeGenerator {
             self.compile_statement(stmt);
         }
 
-        // Default return value if no explicit return
-        // For main function, default return should also be handled specially
-        if func.name == "main" {
-            self.instructions.push(Instruction::Push(-1));
-            self.instructions.push(Instruction::Ret);
-        } else {
-            self.instructions.push(Instruction::Push(-1));
-            self.emit_return_sequence();
-        }
+        self.emit_return_sequence();
 
         func_start
     }
@@ -358,6 +348,10 @@ impl CodeGenerator {
     fn emit_return_sequence(&mut self) {
         // Leave return value on stack and just call Ret
         // Let Ret handle the complex stack frame restoration
+        self.instructions.push(Instruction::SetLocal(-6)); // FIXME
+        self.instructions.push(Instruction::GetBP);
+        self.instructions.push(Instruction::SetSP);
+        self.instructions.push(Instruction::SetBP);
         self.instructions.push(Instruction::Ret);
     }
 
@@ -383,14 +377,7 @@ impl CodeGenerator {
             Stmt::Return(expr) => {
                 // Compile return value expression
                 self.compile_expression(expr);
-
-                // Check if this is the main function
-                if self.current_function_name == "main" {
-                    // For main function, just return without complex frame handling
-                    self.instructions.push(Instruction::Ret);
-                } else {
-                    self.emit_return_sequence();
-                }
+                self.emit_return_sequence();
             }
 
             Stmt::Assign { name, value } => {
@@ -645,7 +632,9 @@ impl CodeGenerator {
                     self.instructions.push(Instruction::Call(func_name.clone()));
 
                     // After function return, the return value is on top of stack
-                    // No need to pop arguments - they are handled by the function's stack frame
+                    for _ in 0..args.len() {
+                        self.instructions.push(Instruction::Pop);
+                    }
                 } else {
                     panic!("Function calls with complex callees not supported yet");
                 }
