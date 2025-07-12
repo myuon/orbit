@@ -1,11 +1,11 @@
 use crate::ast::Program;
+use crate::codegen::CodeGenerator;
 use crate::desugar::Desugarer;
 use crate::lexer::Lexer;
 use crate::monomorphization::Monomorphizer;
 use crate::parser::Parser;
 use crate::runtime::{Runtime, Value};
 use crate::typecheck::TypeChecker;
-use crate::vm::VMCompiler;
 use anyhow::Result;
 
 /// Compiler configuration options
@@ -167,7 +167,7 @@ impl Compiler {
 
         // 5. Handle IR dumping if requested
         if self.options.dump_ir {
-            let mut vm_compiler = VMCompiler::new();
+            let mut vm_compiler = CodeGenerator::new();
             let _instructions = vm_compiler.compile_program(&desugared_program);
 
             if let Some(dump_ir_output) = &self.options.dump_ir_output {
@@ -229,7 +229,7 @@ impl Compiler {
         let processed_code = self.preprocess_code(code)?;
         let tokens = self.tokenize(&processed_code)?;
         let program = self.parse(tokens)?;
-        
+
         // Follow the same compilation pipeline as execute_program
         // 1. Type inference phase
         let mut type_checker = TypeChecker::new();
@@ -241,7 +241,8 @@ impl Compiler {
         let mut monomorphizer = Monomorphizer::new();
         monomorphizer.collect_targets(&program_with_type_info)?;
         monomorphizer.monomorphize()?;
-        let monomorphized_program = monomorphizer.generate_monomorphized_program(&program_with_type_info)?;
+        let monomorphized_program =
+            monomorphizer.generate_monomorphized_program(&program_with_type_info)?;
 
         // 3. Desugar phase
         let mut desugarer = Desugarer::new();
@@ -252,9 +253,9 @@ impl Compiler {
         final_type_checker.check_program(&desugared_program)?;
 
         // 5. Compile to VM bytecode
-        let mut vm_compiler = VMCompiler::new();
+        let mut vm_compiler = CodeGenerator::new();
         let instructions = vm_compiler.compile_program(&desugared_program);
-        
+
         Ok(instructions)
     }
 
