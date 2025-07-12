@@ -617,19 +617,63 @@ impl VM {
                 }
 
                 Instruction::Ret => {
-                    let address = self.stack.pop().unwrap();
-                    if self.bp == 0 {
-                        return match self.stack.pop().unwrap() {
-                            Value::Int(v) => Ok(v as i64),
-                            _ => Err("Ret requires a number".to_string()),
-                        };
-                    }
-
-                    match address {
-                        Value::Address(addr) => {
-                            self.pc = addr;
+                    // Determine the return type based on current stack state and BP
+                    
+                    // For main function: BP should be at initial value and stack should be simple
+                    if self.bp <= 3 {  // Initial BP setup makes BP around 3
+                        // Main function return
+                        if !self.stack.is_empty() {
+                            let return_value = self.stack.pop().unwrap();
+                            return match return_value {
+                                Value::Int(v) => Ok(v as i64),
+                                _ => Err("Program must return a number".to_string()),
+                            };
+                        } else {
+                            return Err("Stack underflow for main function return".to_string());
                         }
-                        _ => return Err("Ret requires an address".to_string()),
+                    } else {
+                        // Regular function return - need to do full stack frame restoration
+                        // Stack currently has: [...frame...] [return_value]
+                        // BP points to: [old_bp]
+                        // BP-1 points to: [return_addr] 
+                        // BP-2 points to: [last_arg]
+                        // ...
+                        // We need to restore stack to put return_value in place of the placeholder
+                        
+                        if self.stack.is_empty() {
+                            return Err("Stack underflow for function return".to_string());
+                        }
+                        
+                        let return_value = self.stack.pop().unwrap();
+                        
+                        // Get return address from BP-2
+                        if self.bp >= 2 && self.bp < self.stack.len() + 1 {
+                            let return_addr = self.stack[self.bp - 2].clone();
+                            
+                            // Get old BP from BP-1
+                            let old_bp = match self.stack[self.bp - 1] {
+                                Value::Address(addr) => addr,
+                                Value::Int(n) => n as usize,
+                                _ => return Err("Invalid old BP type".to_string()),
+                            };
+                            
+                            // Restore stack to caller frame and put return value on top
+                            self.stack.truncate(self.bp - 1); // Remove current frame
+                            self.stack.push(return_value);    // Place return value
+                            
+                            // Restore BP
+                            self.bp = old_bp;
+                            
+                            // Jump to return address
+                            match return_addr {
+                                Value::Address(addr) => {
+                                    self.pc = addr;
+                                }
+                                _ => return Err("Return address must be an address".to_string()),
+                            }
+                        } else {
+                            return Err("Invalid BP for function return".to_string());
+                        }
                     }
                 }
 
@@ -1786,10 +1830,14 @@ impl VMCompiler {
         }
 
         // Default return value if no explicit return
-        self.instructions.push(Instruction::Push(-1));
-
-        // Function epilogue
-        self.emit_return_sequence();
+        // For main function, default return should also be handled specially
+        if func.name == "main" {
+            self.instructions.push(Instruction::Push(-1));
+            self.instructions.push(Instruction::Ret);
+        } else {
+            self.instructions.push(Instruction::Push(-1));
+            self.emit_return_sequence();
+        }
 
         func_start
     }
@@ -1812,21 +1860,10 @@ impl VMCompiler {
         }
     }
 
-    /// Emit return sequence for non-main functions
+    /// Emit return sequence for non-main functions  
     fn emit_return_sequence(&mut self) {
-        // Get return address from stack frame (at BP-3)
-        let return_address_offset = -(self.current_function_param_count as i32 + 3);
-        self.instructions
-            .push(Instruction::SetLocal(return_address_offset));
-
-        self.instructions.push(Instruction::GetBP);
-
-        self.instructions.push(Instruction::SetSP);
-
-        // Restore BP
-        self.instructions.push(Instruction::SetBP);
-
-        // Jump to return address (return value stays on stack)
+        // Leave return value on stack and just call Ret
+        // Let Ret handle the complex stack frame restoration
         self.instructions.push(Instruction::Ret);
     }
 
@@ -1853,7 +1890,13 @@ impl VMCompiler {
                 // Compile return value expression
                 self.compile_expression(expr);
 
-                self.emit_return_sequence();
+                // Check if this is the main function
+                if self.current_function_name == "main" {
+                    // For main function, just return without complex frame handling
+                    self.instructions.push(Instruction::Ret);
+                } else {
+                    self.emit_return_sequence();
+                }
             }
 
             Stmt::Assign { name, value } => {
@@ -2108,10 +2151,8 @@ impl VMCompiler {
                     // 6. Jump to function
                     self.instructions.push(Instruction::Call(func_name.clone()));
 
-                    // 7. Pop return value from stack
-                    for _ in 0..args.len() {
-                        self.instructions.push(Instruction::Pop);
-                    }
+                    // After function return, the return value is on top of stack
+                    // No need to pop arguments - they are handled by the function's stack frame
                 } else {
                     panic!("Function calls with complex callees not supported yet");
                 }

@@ -9,5 +9,5 @@ fun main() do
   data[3] = 4;
   data[4] = 5;
 
-  return myArray.length;
+  return myArray.length + data[3];
 end
