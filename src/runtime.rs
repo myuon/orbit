@@ -538,6 +538,21 @@ impl VM {
 
                 if let Some(addr) = target_addr {
                     self.pc = addr;
+                    
+                    // Print instruction and stack state after execution if enabled
+                    if self.print_stacks {
+                        println!(
+                            "{:04} {:20} [{}]",
+                            pc_before_execution,
+                            format!("{}", instruction),
+                            self.stack
+                                .iter()
+                                .map(|x| x.to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
+                    
                     return Ok(ControlFlow::Continue);
                 } else {
                     return Err(format!("Function not found: {}", func_name));

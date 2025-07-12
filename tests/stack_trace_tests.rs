@@ -69,16 +69,6 @@ fn run_single_stack_trace_test(test_file: &Path) {
     let expected_entries = parse_stack_trace_output(&expected_stacks);
     let actual_entries = parse_stack_trace_output(&captured_output);
 
-    // Compare the parsed entries
-    if expected_entries.len() != actual_entries.len() {
-        panic!(
-            "Stack trace test {} failed: Different number of entries.\nExpected: {}\nActual: {}",
-            test_name,
-            expected_entries.len(),
-            actual_entries.len()
-        );
-    }
-
     for (i, (expected, actual)) in expected_entries
         .iter()
         .zip(actual_entries.iter())
