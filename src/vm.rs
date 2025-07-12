@@ -90,7 +90,6 @@ pub enum Instruction {
     StructNew,
     StructFieldGet,
     StructFieldSet,
-    MethodCall(usize), // Method call with argument count
 
     // System calls
     Syscall,
@@ -150,7 +149,6 @@ impl fmt::Display for Instruction {
             Instruction::StructNew => write!(f, "struct_new"),
             Instruction::StructFieldGet => write!(f, "struct_field_get"),
             Instruction::StructFieldSet => write!(f, "struct_field_set"),
-            Instruction::MethodCall(argc) => write!(f, "method_call {}", argc),
             Instruction::Syscall => write!(f, "syscall"),
         }
     }

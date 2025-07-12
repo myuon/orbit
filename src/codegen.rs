@@ -738,24 +738,8 @@ impl CodeGenerator {
                 self.instructions.push(Instruction::StructFieldGet);
             }
 
-            Expr::MethodCall {
-                object,
-                method,
-                args,
-                ..
-            } => {
-                // Method calls are compiled as function calls with name mangling
-                // First, determine the object type to construct the method name
-                // For now, we'll need to get the struct type at runtime
-                for arg in args {
-                    self.compile_expression(arg);
-                }
-                self.compile_expression(object);
-
-                // Push the method name - the actual mangled name will be resolved at runtime
-                self.instructions
-                    .push(Instruction::PushString(method.clone()));
-                self.instructions.push(Instruction::MethodCall(args.len()));
+            Expr::MethodCall { .. } => {
+                panic!("MethodCall should have been desugared before code generation");
             }
 
             Expr::Alloc { element_type, size } => {
@@ -901,22 +885,8 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
             instructions.push(Instruction::StructFieldGet);
         }
 
-        Expr::MethodCall {
-            object,
-            method,
-            args,
-            object_type: _,
-        } => {
-            // Compile arguments first
-            for arg in args {
-                compile_expr_recursive(arg, instructions);
-            }
-            // Compile object
-            compile_expr_recursive(object, instructions);
-            // Push method name
-            instructions.push(Instruction::PushString(method.clone()));
-            // Method call with argument count
-            instructions.push(Instruction::MethodCall(args.len()));
+        Expr::MethodCall { .. } => {
+            panic!("MethodCall should have been desugared before code generation");
         }
 
         Expr::Alloc { element_type, size } => {
