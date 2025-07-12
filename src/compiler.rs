@@ -224,6 +224,40 @@ impl Compiler {
         &mut self.runtime
     }
 
+    /// Compile Orbit source code to VM instructions without executing
+    pub fn compile_to_instructions(&mut self, code: &str) -> Result<Vec<crate::vm::Instruction>> {
+        let processed_code = self.preprocess_code(code)?;
+        let tokens = self.tokenize(&processed_code)?;
+        let program = self.parse(tokens)?;
+        
+        // Follow the same compilation pipeline as execute_program
+        // 1. Type inference phase
+        let mut type_checker = TypeChecker::new();
+        let mut program_with_type_info = program;
+        type_checker.check_program(&program_with_type_info)?;
+        type_checker.infer_types(&mut program_with_type_info)?;
+
+        // 2. Monomorphization phase
+        let mut monomorphizer = Monomorphizer::new();
+        monomorphizer.collect_targets(&program_with_type_info)?;
+        monomorphizer.monomorphize()?;
+        let monomorphized_program = monomorphizer.generate_monomorphized_program(&program_with_type_info)?;
+
+        // 3. Desugar phase
+        let mut desugarer = Desugarer::new();
+        let desugared_program = desugarer.desugar_program(monomorphized_program)?;
+
+        // 4. Final type checking
+        let mut final_type_checker = TypeChecker::new();
+        final_type_checker.check_program(&desugared_program)?;
+
+        // 5. Compile to VM bytecode
+        let mut vm_compiler = VMCompiler::new();
+        let instructions = vm_compiler.compile_program(&desugared_program);
+        
+        Ok(instructions)
+    }
+
     /// Format a desugared program as readable code
     fn format_desugared_program(&self, program: &Program) -> String {
         let mut output = String::new();
