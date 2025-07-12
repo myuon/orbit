@@ -250,20 +250,7 @@ impl VM {
 
     pub fn step(&mut self) -> Result<ControlFlow, String> {
         let instruction = &self.program[self.pc];
-
-        // Print instruction and stack state if enabled
-        if self.print_stacks {
-            println!(
-                "{:04} {:20} [{}]",
-                self.pc,
-                format!("{}", instruction),
-                self.stack
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
+        let pc_before_execution = self.pc;
 
         // Start timing if profiling is enabled
         let timer = InstructionTimer::start(self.profiler.enabled);
@@ -485,6 +472,21 @@ impl VM {
 
             Instruction::Jump(addr) => {
                 self.pc = *addr;
+                
+                // Print instruction and stack state after execution if enabled
+                if self.print_stacks {
+                    println!(
+                        "{:04} {:20} [{}]",
+                        pc_before_execution,
+                        format!("{}", instruction),
+                        self.stack
+                            .iter()
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
+                
                 return Ok(ControlFlow::Continue);
             }
 
@@ -500,8 +502,25 @@ impl VM {
                 };
                 if should_jump {
                     self.pc = *addr;
-                    return Ok(ControlFlow::Continue);
+                } else {
+                    self.pc += 1;
                 }
+                
+                // Print instruction and stack state after execution if enabled
+                if self.print_stacks {
+                    println!(
+                        "{:04} {:20} [{}]",
+                        pc_before_execution,
+                        format!("{}", instruction),
+                        self.stack
+                            .iter()
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
+                
+                return Ok(ControlFlow::Continue);
             }
 
             Instruction::GetLocal(offset) => {
@@ -1441,6 +1460,20 @@ impl VM {
         }
 
         self.pc += 1;
+
+        // Print instruction and stack state after execution if enabled
+        if self.print_stacks {
+            println!(
+                "{:04} {:20} [{}]",
+                pc_before_execution,
+                format!("{}", instruction),
+                self.stack
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
 
         Ok(ControlFlow::Continue)
     }

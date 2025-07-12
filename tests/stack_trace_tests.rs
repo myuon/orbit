@@ -121,10 +121,15 @@ fn execute_step_by_step(code: &str) -> Result<String, Box<dyn std::error::Error>
     loop {
         // Get current state before executing the instruction
         let pc = vm.get_program_counter();
-        let instruction = vm.get_current_instruction();
+        let instruction = vm.get_current_instruction().cloned();
+
+        // Execute one step
+        let step_result = vm.step();
+        
+        // Get stack state after executing the instruction
         let stack = vm.get_stack();
 
-        // Format and record the current state (PC, instruction, and stack)
+        // Format and record the current state (PC, instruction, and stack after execution)
         if let Some(instr) = instruction {
             let stack_str = stack
                 .iter()
@@ -134,9 +139,6 @@ fn execute_step_by_step(code: &str) -> Result<String, Box<dyn std::error::Error>
 
             output.push_str(&format!("{:04} {:20} [{}]\n", pc, instr, stack_str));
         }
-
-        // Execute one step
-        let step_result = vm.step();
 
         match step_result {
             Ok(ControlFlow::Continue) => {
