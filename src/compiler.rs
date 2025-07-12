@@ -268,7 +268,6 @@ impl Compiler {
         for decl in &program.declarations {
             match decl {
                 crate::ast::Decl::Function(func) => {
-                    output.push_str(&format!("// Function: {}\n", func.name));
                     output.push_str(&format!("fun {}(", func.name));
                     for (i, param) in func.params.iter().enumerate() {
                         if i > 0 {
@@ -282,12 +281,11 @@ impl Compiler {
                     }
                     output.push_str(") do\n");
                     for stmt in &func.body {
-                        output.push_str(&format!("    {}\n", self.format_statement(stmt, 1)));
+                        output.push_str(&format!("{}\n", self.format_statement(stmt, 1)));
                     }
                     output.push_str("end\n\n");
                 }
                 crate::ast::Decl::Struct(struct_decl) => {
-                    output.push_str(&format!("// Struct: {}\n", struct_decl.name));
                     output.push_str(&format!("type {}", struct_decl.name));
                     if !struct_decl.type_params.is_empty() {
                         output.push('(');
@@ -306,7 +304,6 @@ impl Compiler {
                     output.push_str("};\n\n");
                 }
                 crate::ast::Decl::GlobalVariable(var) => {
-                    output.push_str(&format!("// Global variable: {}\n", var.name));
                     output.push_str(&format!(
                         "let {} = {};\n\n",
                         var.name,
@@ -327,7 +324,6 @@ impl Compiler {
             match decl {
                 crate::ast::Decl::Function(func) => {
                     if !func.type_params.is_empty() {
-                        output.push_str(&format!("// Generic function: {}\n", func.name));
                         output.push_str(&format!("fun {}(", func.name));
                         for (i, param) in func.type_params.iter().enumerate() {
                             if i > 0 {
@@ -349,7 +345,6 @@ impl Compiler {
                         }
                         output.push_str("end\n\n");
                     } else {
-                        output.push_str(&format!("// Monomorphized function: {}\n", func.name));
                         output.push_str(&format!("fun {}(", func.name));
                         for (i, param) in func.params.iter().enumerate() {
                             if i > 0 {
@@ -363,14 +358,13 @@ impl Compiler {
                         }
                         output.push_str(") do\n");
                         for stmt in &func.body {
-                            output.push_str(&format!("    {}\n", self.format_statement(stmt, 1)));
+                            output.push_str(&format!("{}\n", self.format_statement(stmt, 1)));
                         }
                         output.push_str("end\n\n");
                     }
                 }
                 crate::ast::Decl::Struct(struct_decl) => {
                     if !struct_decl.type_params.is_empty() {
-                        output.push_str(&format!("// Generic struct: {}\n", struct_decl.name));
                         output.push_str(&format!("type {}(", struct_decl.name));
                         for (i, param) in struct_decl.type_params.iter().enumerate() {
                             if i > 0 {
@@ -380,8 +374,6 @@ impl Compiler {
                         }
                         output.push_str(") = struct {\n");
                     } else {
-                        output
-                            .push_str(&format!("// Monomorphized struct: {}\n", struct_decl.name));
                         output.push_str(&format!("type {} = struct {{\n", struct_decl.name));
                     }
 
@@ -391,7 +383,6 @@ impl Compiler {
                     output.push_str("};\n\n");
                 }
                 crate::ast::Decl::GlobalVariable(var) => {
-                    output.push_str(&format!("// Global variable: {}\n", var.name));
                     output.push_str(&format!("let {} = /* ... */;\n\n", var.name));
                 }
             }
