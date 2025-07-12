@@ -1,0 +1,13 @@
+type Point = struct {
+  x: int,
+  y: int,
+
+  fun sum(self: Point) do
+    return self.x + self.y;
+  end
+};
+
+fun main() do
+  let p = new Point { .x = 10, .y = 20 };
+  return Point_sum(p);
+end

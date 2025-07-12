@@ -1,0 +1,26 @@
+type Counter = struct {
+  value: int,
+
+  fun increment(self: Counter) do
+    self.value = self.value + 1;
+  end
+
+  fun get_value(self: Counter) do
+    return self.value;
+  end
+
+  fun create_with_value(value: int) do
+    return new Counter { .value = value };
+  end
+};
+
+fun main() do
+  let c1 = new Counter { .value = 5 };
+  c1.increment();
+  let result1 = c1.get_value();
+  
+  let c2 = Counter_create_with_value(10);
+  let result2 = c2.get_value();
+  
+  return result1 + result2;
+end

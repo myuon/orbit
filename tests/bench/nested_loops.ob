@@ -1,0 +1,18 @@
+// Nested loops benchmark
+// Matrix-like computation with nested loops
+fun main() do
+  let size = 1000;
+  let total = 0;
+  let i = 1;
+  
+  while i <= size do
+    let j = 1;
+    while j <= size do
+      total = total + (i * j);
+      j = j + 1;
+    end
+    i = i + 1;
+  end
+  
+  return total;
+end

@@ -1,0 +1,15 @@
+type Container(T: type) = struct {
+  value: T,
+};
+
+type Box(T: type) = struct {
+  item: T,
+};
+
+fun main() do
+  let nested = new Box(Container(int)) { 
+    .item = new Container(int) { .value = 100 } 
+  };
+  
+  return nested.item.value;
+end

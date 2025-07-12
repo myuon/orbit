@@ -1,0 +1,14 @@
+fun get_first(A: type, B: type, a: A, b: B): A do
+  return a;
+end
+
+fun get_second(A: type, B: type, a: A, b: B): B do
+  return b;
+end
+
+fun main() do
+  let a = get_first(type int, type [*]byte, 1, "Hello, ");
+  let b = get_second(type [*]byte, type int, "World!", 3);
+
+  return a + b;
+end

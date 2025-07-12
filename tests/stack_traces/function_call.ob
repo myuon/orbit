@@ -1,0 +1,8 @@
+fun multiply(a, b) do
+  return a * b;
+end
+
+fun main() do
+  let result = multiply(3, 4);
+  return result + 2;
+end

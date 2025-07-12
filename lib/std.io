@@ -1,0 +1,8 @@
+type array(T: type) = struct {
+  data: [*]T,
+  length: int,
+
+  fun _new(length: int): array(T) do
+    return new(struct) array(T) { .data = alloc(T, length), .length = length };
+  end
+};

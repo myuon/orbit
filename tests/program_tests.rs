@@ -1,0 +1,201 @@
+use std::fs;
+use std::path::Path;
+
+use orbit::{execute_code, execute_code_with_output};
+
+#[test]
+fn test_program_files() {
+    let testcase_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("testcase");
+
+    // Test success cases
+    let mut success_test_files = Vec::new();
+    if let Ok(entries) = fs::read_dir(&testcase_dir) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("ob") {
+                    success_test_files.push(path);
+                }
+            }
+        }
+    }
+
+    assert!(
+        !success_test_files.is_empty(),
+        "No .ob test files found in tests/testcase directory"
+    );
+
+    for test_file in success_test_files {
+        run_single_program_test(&test_file);
+    }
+
+    // Test error cases
+    let errors_dir = testcase_dir.join("errors");
+    if errors_dir.exists() {
+        let mut error_test_files = Vec::new();
+        if let Ok(entries) = fs::read_dir(&errors_dir) {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("ob") {
+                        error_test_files.push(path);
+                    }
+                }
+            }
+        }
+
+        for test_file in error_test_files {
+            run_single_error_test(&test_file);
+        }
+    }
+}
+
+fn run_single_program_test(test_file: &Path) {
+    let test_name = test_file.file_stem().unwrap().to_str().unwrap();
+    println!("Running program test: {}", test_name);
+
+    let expected_result_file = test_file.with_extension("result");
+    let expected_stdout_file = test_file.with_extension("stdout");
+
+    // Check if we have a .result file (new format) or fallback to .stdout (old format)
+    let (expected_result, has_result_file) = if expected_result_file.exists() {
+        let content = fs::read_to_string(&expected_result_file)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to read expected result file {}: {}",
+                    expected_result_file.display(),
+                    e
+                )
+            })
+            .trim()
+            .to_string();
+        (content, true)
+    } else if expected_stdout_file.exists() {
+        // Fallback to old format for backward compatibility
+        let content = fs::read_to_string(&expected_stdout_file)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to read expected stdout file {}: {}",
+                    expected_stdout_file.display(),
+                    e
+                )
+            })
+            .trim()
+            .to_string();
+        (content, false)
+    } else {
+        panic!(
+            "No expected output file found for test {}: neither {} nor {} exists",
+            test_name,
+            expected_result_file.display(),
+            expected_stdout_file.display()
+        );
+    };
+
+    let expected_stdout = if has_result_file && expected_stdout_file.exists() {
+        Some(
+            fs::read_to_string(&expected_stdout_file)
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to read expected stdout file {}: {}",
+                        expected_stdout_file.display(),
+                        e
+                    )
+                })
+                .trim()
+                .to_string(),
+        )
+    } else {
+        None
+    };
+
+    let test_content = fs::read_to_string(test_file)
+        .unwrap_or_else(|e| panic!("Failed to read test file {}: {}", test_file.display(), e));
+
+    // Execute the orbit code with output capture
+    let (result, captured_stdout) = execute_code_with_output(&test_content)
+        .unwrap_or_else(|e| panic!("Test {} failed with error: {}", test_name, e));
+
+    // Check the return value
+    let actual_result = match result {
+        Some(value) => value.to_string(),
+        None => String::new(),
+    };
+
+    assert_eq!(
+        actual_result.trim(),
+        expected_result,
+        "Test {} failed (return value).\nExpected result: '{}'\nActual result: '{}'",
+        test_name,
+        expected_result,
+        actual_result.trim()
+    );
+
+    // Check stdout if we have expected stdout
+    if let Some(expected_stdout) = expected_stdout {
+        assert_eq!(
+            captured_stdout.trim(),
+            expected_stdout,
+            "Test {} failed (stdout).\nExpected stdout: '{}'\nActual stdout: '{}'",
+            test_name,
+            expected_stdout,
+            captured_stdout.trim()
+        );
+    }
+
+    println!("✓ Program test {} passed", test_name);
+}
+
+fn run_single_error_test(test_file: &Path) {
+    let test_name = test_file.file_stem().unwrap().to_str().unwrap();
+    println!("Running error test: {}", test_name);
+
+    let expected_error_file = test_file.with_extension("stderr");
+
+    if !expected_error_file.exists() {
+        panic!(
+            "Expected error file not found: {}",
+            expected_error_file.display()
+        );
+    }
+
+    let expected_error_fragment = fs::read_to_string(&expected_error_file)
+        .unwrap_or_else(|e| {
+            panic!(
+                "Failed to read expected error file {}: {}",
+                expected_error_file.display(),
+                e
+            )
+        })
+        .trim()
+        .to_string();
+
+    let test_content = fs::read_to_string(test_file)
+        .unwrap_or_else(|e| panic!("Failed to read test file {}: {}", test_file.display(), e));
+
+    // Execute the orbit code directly using the library
+    let result = execute_code(&test_content);
+
+    // Check if execution failed as expected
+    match result {
+        Ok(value) => {
+            panic!(
+                "Error test {} unexpectedly succeeded with result: {:?}",
+                test_name, value
+            );
+        }
+        Err(error) => {
+            let error_message = error.to_string();
+            if !error_message.contains(&expected_error_fragment) {
+                panic!(
+                    "Error test {} failed.\nExpected error to contain: '{}'\nActual error: '{}'",
+                    test_name, expected_error_fragment, error_message
+                );
+            }
+        }
+    }
+
+    println!("✓ Error test {} passed", test_name);
+}

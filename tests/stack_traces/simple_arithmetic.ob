@@ -1,0 +1,6 @@
+let x = 5;
+let y = 10;
+
+fun main() do
+  return x + y;
+end

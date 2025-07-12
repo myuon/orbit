@@ -1,0 +1,11 @@
+fun main() do
+  let myArray = new array(int) { .data = alloc(int, 5), .length = 5 };
+  let data = myArray.data;
+  data[0] = 1;
+  data[1] = 2;
+  data[2] = 3;
+  data[3] = 4;
+  data[4] = 5;
+
+  return myArray.length + data[3];
+end

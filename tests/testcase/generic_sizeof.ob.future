@@ -1,0 +1,10 @@
+fun size_of_type(T: type): int do
+  return sizeof T;
+end
+
+fun main() do
+  let int_size = size_of_type(type int);
+  let byte_size = size_of_type(type byte);
+  
+  return int_size + byte_size;
+end
