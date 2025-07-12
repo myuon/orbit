@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use orbit::runtime::{ControlFlow, VM};
 use orbit::Compiler;
 
 #[test]
@@ -72,15 +73,24 @@ fn run_single_stack_trace_test(test_file: &Path) {
     if expected_entries.len() != actual_entries.len() {
         panic!(
             "Stack trace test {} failed: Different number of entries.\nExpected: {}\nActual: {}",
-            test_name, expected_entries.len(), actual_entries.len()
+            test_name,
+            expected_entries.len(),
+            actual_entries.len()
         );
     }
 
-    for (i, (expected, actual)) in expected_entries.iter().zip(actual_entries.iter()).enumerate() {
+    for (i, (expected, actual)) in expected_entries
+        .iter()
+        .zip(actual_entries.iter())
+        .enumerate()
+    {
         if expected.pc != actual.pc {
             panic!(
                 "Stack trace test {} failed at line {}.\nExpected PC: {}\nActual PC: {}",
-                test_name, i + 1, expected.pc, actual.pc
+                test_name,
+                i + 1,
+                expected.pc,
+                actual.pc
             );
         }
         if expected.instruction != actual.instruction {
@@ -92,7 +102,10 @@ fn run_single_stack_trace_test(test_file: &Path) {
         if expected.stack != actual.stack {
             panic!(
                 "Stack trace test {} failed at line {}.\nExpected stack: {:?}\nActual stack: {:?}",
-                test_name, i + 1, expected.stack, actual.stack
+                test_name,
+                i + 1,
+                expected.stack,
+                actual.stack
             );
         }
     }
@@ -102,8 +115,6 @@ fn run_single_stack_trace_test(test_file: &Path) {
 
 /// Execute code step by step and capture stack trace information
 fn execute_step_by_step(code: &str) -> Result<String, Box<dyn std::error::Error>> {
-    use orbit::vm::{ControlFlow, VM};
-
     // Use the Compiler to handle the full compilation pipeline
     let mut compiler = Compiler::new();
 
@@ -125,7 +136,7 @@ fn execute_step_by_step(code: &str) -> Result<String, Box<dyn std::error::Error>
 
         // Execute one step
         let step_result = vm.step();
-        
+
         // Get stack state after executing the instruction
         let stack = vm.get_stack();
 
@@ -171,19 +182,19 @@ struct StackTraceEntry {
 /// Parse stack trace output into structured entries
 fn parse_stack_trace_output(output: &str) -> Vec<StackTraceEntry> {
     let mut entries = Vec::new();
-    
+
     for line in output.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
-        
+
         // Parse format: "0000 instruction [stack_items]"
         if let Some(entry) = parse_stack_trace_line(line) {
             entries.push(entry);
         }
     }
-    
+
     entries
 }
 
@@ -193,33 +204,30 @@ fn parse_stack_trace_line(line: &str) -> Option<StackTraceEntry> {
     if line.len() < 4 {
         return None;
     }
-    
+
     let pc_str = &line[0..4];
     let pc = pc_str.parse::<usize>().ok()?;
-    
+
     // Find the stack part (starts with '[' and ends with ']')
     let stack_start = line.find('[')?;
     let stack_end = line.rfind(']')?;
-    
+
     if stack_start >= stack_end {
         return None;
     }
-    
+
     // Extract instruction (between PC and stack)
     let instruction_part = &line[4..stack_start].trim();
     let instruction = instruction_part.to_string();
-    
+
     // Extract and parse stack
     let stack_str = &line[stack_start + 1..stack_end];
     let stack = if stack_str.trim().is_empty() {
         Vec::new()
     } else {
-        stack_str
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .collect()
+        stack_str.split(',').map(|s| s.trim().to_string()).collect()
     };
-    
+
     Some(StackTraceEntry {
         pc,
         instruction,
