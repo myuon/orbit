@@ -53,6 +53,17 @@ Orbit is a statically typed programming language with JIT compilation for AArch6
 - **Commits**: Use Conventional Commit format (e.g., `feat:`, `fix:`)
 - **Debug**: Create temp files in `./tmp/`, not project root
 
+## Debugging
+
+Useful debugging options for development:
+
+- `--dump-ir` / `--dump-ir-output=<file>` - Dump VM bytecode instructions
+- `--dump-desugared-code` / `--dump-desugared-code-output=<file>` - Show simplified code after desugaring
+- `--dump-monomorphized-code` / `--dump-monomorphized-code-output=<file>` - Show code after generic instantiation
+- `--print-stacks` - Show stack state after each VM instruction
+- `--print-stacks-on-call=<function>` - Show stack traces for specific function
+- `--profile` / `--profile-output=<file>` - Enable execution profiling
+
 ## Migration Phases
 
 1. **Phase 1**: AST, lexer, parser

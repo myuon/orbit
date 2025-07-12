@@ -28,11 +28,17 @@ The compiler takes a single Orbit source file (`.ob` extension) as input and exe
 
 #### IR and Compilation Options
 
-- `--dump-ir=<file>` - Dump the compiled intermediate representation (IR) to the specified file. The IR shows the VM bytecode instructions generated from the source code, useful for understanding compilation output and debugging compiler issues.
+- `--dump-ir` - Enable dumping of compiled intermediate representation (IR) to stdout.
 
-- `--dump-desugared-code[=<file>]` - Dump the desugared code after the desugaring phase. Shows how syntactic sugar and complex constructs are simplified into basic forms. If no file is specified, output goes to stdout. Useful for understanding how high-level constructs are transformed and debugging the desugaring process.
+- `--dump-ir-output=<file>` - Dump the compiled intermediate representation (IR) to the specified file. The IR shows the VM bytecode instructions generated from the source code, useful for understanding compilation output and debugging compiler issues.
 
-- `--dump-monomorphized-code[=<file>]` - Dump the monomorphized code after generic instantiation. Shows how generic types and functions are instantiated with concrete types. If no file is specified, output goes to stdout. Useful for debugging generics and understanding the monomorphization process.
+- `--dump-desugared-code` - Enable dumping of desugared code to stdout. Shows how syntactic sugar and complex constructs are simplified into basic forms.
+
+- `--dump-desugared-code-output=<file>` - Dump the desugared code to the specified file. Useful for understanding how high-level constructs are transformed and debugging the desugaring process.
+
+- `--dump-monomorphized-code` - Enable dumping of monomorphized code to stdout. Shows how generic types and functions are instantiated with concrete types.
+
+- `--dump-monomorphized-code-output=<file>` - Dump the monomorphized code to the specified file. Useful for debugging generics and understanding the monomorphization process.
 
 #### Profiling Options
 
@@ -77,10 +83,16 @@ Show stack traces only when the `fibonacci` function is called, reducing output 
 ### IR Dump
 
 ```bash
-orbit program.ob --dump-ir=program.ir
+orbit program.ob --dump-ir-output=program.ir
 ```
 
 Compile the program and save the generated VM bytecode to `program.ir` for inspection.
+
+```bash
+orbit program.ob --dump-ir
+```
+
+Compile the program and display the generated VM bytecode to stdout.
 
 ### Desugared Code Dump
 
@@ -91,7 +103,7 @@ orbit program.ob --dump-desugared-code
 Execute the program and display the desugared code showing how syntactic sugar is simplified.
 
 ```bash
-orbit program.ob --dump-desugared-code=desugared.ob
+orbit program.ob --dump-desugared-code-output=desugared.ob
 ```
 
 Save the desugared code to a file for detailed analysis of how complex constructs are transformed.
@@ -105,7 +117,7 @@ orbit generic_program.ob --dump-monomorphized-code
 Execute a program with generics and display the monomorphized code showing concrete type instantiations.
 
 ```bash
-orbit generic_program.ob --dump-monomorphized-code=monomorphized.ob
+orbit generic_program.ob --dump-monomorphized-code-output=monomorphized.ob
 ```
 
 Save the monomorphized code to a file for detailed analysis of how generics are instantiated.
@@ -147,25 +159,25 @@ Use a 30-second timeout (time unit defaults to seconds when not specified).
 ### Combined Options
 
 ```bash
-orbit complex_program.ob --dump-ir=debug.ir --print-stacks-on-call=main --profile --timeout=60s
+orbit complex_program.ob --dump-ir-output=debug.ir --print-stacks-on-call=main --profile --timeout=60s
 ```
 
 Combine multiple debugging and analysis options for comprehensive program analysis with a 60-second timeout.
 
 ```bash
-orbit debug_program.ob --timeout=10s --print-stacks --dump-ir=crash.ir
+orbit debug_program.ob --timeout=10s --print-stacks --dump-ir-output=crash.ir
 ```
 
 Debug a problematic program with timeout protection, full stack traces, and IR output for analysis.
 
 ```bash
-orbit generic_program.ob --dump-monomorphized-code=mono.ob --dump-ir=debug.ir --profile
+orbit generic_program.ob --dump-monomorphized-code-output=mono.ob --dump-ir-output=debug.ir --profile
 ```
 
 Analyze a generic program by dumping both the monomorphized source code and the generated IR, with profiling enabled.
 
 ```bash
-orbit complex_program.ob --dump-desugared-code=desugared.ob --dump-monomorphized-code=mono.ob --dump-ir=debug.ir
+orbit complex_program.ob --dump-desugared-code-output=desugared.ob --dump-monomorphized-code-output=mono.ob --dump-ir-output=debug.ir
 ```
 
 Full compilation pipeline analysis: dump the desugared code, monomorphized code, and final IR for comprehensive debugging.
