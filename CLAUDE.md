@@ -17,17 +17,24 @@ Orbit is a statically typed programming language with JIT compilation for AArch6
 ## Architecture
 
 ### Compiler Pipeline
-1. **Lexing** (`lexer.rs`) → **Parsing** (`parser.rs`) → **Type Checking** (`typecheck.rs`)
-2. **Desugaring** (`desugar.rs`) → **Monomorphization** (`monomorphization.rs`)
-3. **Code Generation** (`codegen.rs`) → **Execution** (`vm.rs` or `jit.rs`)
+
+1. **Lexing** (`lexer.rs`)
+2. **Parsing** (`parser.rs`)
+3. **Type Checking** (`typecheck.rs`)
+4. **Monomorphization** (`monomorphization.rs`)
+5. **Desugaring** (`desugar.rs`)
+6. **Code Generation** (`codegen.rs`)
+7. **Execution** (`vm.rs` or `jit.rs`)
 
 ### Key Modules
+
 - **Core**: `ast.rs`, `lexer.rs`, `parser.rs` - Language definition and parsing
 - **Analysis**: `typecheck.rs`, `desugar.rs`, `monomorphization.rs` - Static analysis
 - **Execution**: `codegen.rs`, `vm.rs`, `runtime.rs` - Code generation and runtime
 - **Interface**: `lib.rs`, `main.rs`, `compiler.rs` - Entry points and orchestration
 
 ### Language Features
+
 - Static typing with inference, generics, structs with methods
 - Built-in data structures (vectors, maps, slices), global variables
 - Control flow (if/else, while loops), JIT compilation
@@ -47,7 +54,8 @@ Orbit is a statically typed programming language with JIT compilation for AArch6
 - **Debug**: Create temp files in `./tmp/`, not project root
 
 ## Migration Phases
+
 1. **Phase 1**: AST, lexer, parser
-2. **Phase 2**: Type checker, desugaring, monomorphization  
+2. **Phase 2**: Type checker, desugaring, monomorphization
 3. **Phase 3**: VM, runtime, JIT compiler
 4. **Phase 4**: TUI debugger, test migration
