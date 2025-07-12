@@ -4,7 +4,9 @@ This file provides guidance to Claude Code when working with the Orbit compiler 
 
 ## Overview
 
-Orbit is a statically typed programming language with JIT compilation for AArch64. Currently migrating from Zig (`zig_refs/`) to Rust (`src/`). See `TASK.md` for migration plan.
+Orbit is a statically typed programming language with JIT compilation for AArch64. Currently migrating from Zig (`zig_refs/`) to Rust (`src/`).
+
+**Language Specification**: Complete language specification is in `spec/` directory. All language features and behaviors are documented there. Implementation must follow the specification.
 
 ## Commands
 
@@ -49,9 +51,10 @@ Orbit is a statically typed programming language with JIT compilation for AArch6
 
 - **Testing**: Always run `cargo test` after changes; use table-driven testing
 - **Code Quality**: Run `cargo fmt` before commits; use `similarity-rs src/` for duplication detection
-- **Migration**: Use `zig_refs/` as reference; follow phases in `TASK.md`
+- **Migration**: Use `zig_refs/` as reference
 - **Commits**: Use Conventional Commit format (e.g., `feat:`, `fix:`)
 - **Debug**: Create temp files in `./tmp/`, not project root
+- **Specifications**: New language features MUST be documented in `spec/` before implementation. When implementation differs from spec, fix implementation to match spec.
 
 ## Debugging
 

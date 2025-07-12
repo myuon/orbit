@@ -257,9 +257,75 @@ fun string_compare(a: [*]byte, b: [*]byte): int do
 end
 ```
 
+## System Calls
+
+Orbit provides low-level system interaction through syscalls. These are implemented at the runtime level and allow direct system operations.
+
+### Write Syscall
+
+The write syscall (syscall number 1) outputs data to a file descriptor:
+
+```orbit
+// syscall(1, fd, buffer, length) -> bytes_written
+// Syscall function signature (conceptual):
+// fun syscall(number: int, fd: int, buffer: [*]byte, length: int): int
+
+// Example usage for writing to stdout (fd = 1):
+let message = "Hello, World!";
+let bytes_written = syscall(1, 1, message, 13);
+```
+
+#### Parameters
+- `syscall_number`: Always 1 for write syscall
+- `fd`: File descriptor (1 for stdout, 2 for stderr)
+- `buffer`: Reference to string data to write
+- `length`: Number of bytes to write
+
+#### Return Value
+Returns the actual number of bytes written, which may be less than requested if the buffer is shorter than the specified length.
+
+#### Implementation Details
+- The syscall validates that the file descriptor is a number
+- The buffer must be a string reference (heap-allocated string)
+- The actual write length is the minimum of the requested length and the string length
+- Output is written to stdout and flushed immediately
+- In test environments, output may be captured for verification
+
+### Usage Examples
+
+```orbit
+// Write a simple message
+let msg = "Hello";
+let result = syscall(1, 1, msg, 5);  // Writes "Hello", returns 5
+
+// Partial write (length > string length)
+let short = "Hi";
+let result = syscall(1, 1, short, 10);  // Writes "Hi", returns 2
+
+// Write to stderr
+let error_msg = "Error occurred";
+let result = syscall(1, 2, error_msg, 13);  // Writes to stderr
+```
+
+### Error Conditions
+
+The write syscall returns errors for:
+- Invalid file descriptor (must be a number)
+- Invalid buffer (must be a string reference)
+- Invalid length (must be a number)
+- Invalid heap references
+
+### Future Syscalls
+
+Additional syscalls are planned for future implementation:
+- Read syscall (syscall number 0)
+- File operations (open, close)
+- Process management
+- Memory operations
+
 ## I/O Operations (Future)
 
-Currently, Orbit has limited I/O capabilities. Planned I/O operations include:
+Currently, Orbit has limited I/O capabilities beyond syscalls. Planned I/O operations include:
 
 ### Console I/O (Planned)
 ```orbit
