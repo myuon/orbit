@@ -93,7 +93,7 @@ pub struct VM {
     pub print_stacks: bool, // whether to print stack state during execution
     print_stacks_on_call: Option<String>, // print stacks only when calling this function
     heap: Vec<HeapObject>,  // unified heap storage
-    globals: HashMap<String, Value>, // global variables
+    globals: Vec<Value>,    // global variables
     // Output capture for testing
     pub captured_output: Option<String>,
     // Profiling
@@ -123,7 +123,7 @@ impl VM {
             print_stacks,
             print_stacks_on_call: None,
             heap: Vec::new(),
-            globals: HashMap::new(),
+            globals: Vec::new(),
             captured_output: None,
             profiler: Profiler::new_with_enabled(enable_profiling),
         }
@@ -143,7 +143,7 @@ impl VM {
             print_stacks,
             print_stacks_on_call,
             heap: Vec::new(),
-            globals: HashMap::new(),
+            globals: Vec::new(),
             captured_output: None,
             profiler: Profiler::new_with_enabled(enable_profiling),
         }
@@ -494,17 +494,23 @@ impl VM {
                 self.stack[index] = value;
             }
 
-            Instruction::GetGlobal(name) => match self.globals.get(name) {
-                Some(value) => self.stack.push(value.clone()),
-                None => return Err(format!("Undefined global variable: {}", name)),
-            },
+            Instruction::GetGlobal(index) => {
+                if *index >= self.globals.len() {
+                    return Err(format!("Global variable index out of bounds: {}", index));
+                }
+                self.stack.push(self.globals[*index].clone());
+            }
 
-            Instruction::SetGlobal(name) => {
+            Instruction::SetGlobal(index) => {
                 if self.stack.is_empty() {
                     return Err("Stack underflow for SetGlobal".to_string());
                 }
                 let value = self.stack.pop().unwrap();
-                self.globals.insert(name.clone(), value);
+                // Extend globals vector if needed
+                while self.globals.len() <= *index {
+                    self.globals.push(Value::Int(0)); // Default value
+                }
+                self.globals[*index] = value;
             }
 
             Instruction::Call(func_name) => {

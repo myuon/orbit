@@ -19,6 +19,8 @@ pub struct CodeGenerator {
     structs: HashMap<String, StructDecl>,
     string_constants: HashMap<String, usize>, // string -> heap index mapping
     string_constant_list: Vec<String>,        // ordered list of string constants
+    global_vars: HashMap<String, usize>,      // global variable name -> index mapping
+    global_var_count: usize,                  // counter for global variable indices
 }
 
 impl CodeGenerator {
@@ -33,6 +35,8 @@ impl CodeGenerator {
             structs: HashMap::new(),
             string_constants: HashMap::new(),
             string_constant_list: Vec::new(),
+            global_vars: HashMap::new(),
+            global_var_count: 0,
         }
     }
 
@@ -51,6 +55,18 @@ impl CodeGenerator {
     /// Get the list of string constants for VM initialization
     pub fn get_string_constants(&self) -> &[String] {
         &self.string_constant_list
+    }
+
+    /// Get or create a global variable index
+    fn get_or_create_global_var_index(&mut self, name: &str) -> usize {
+        if let Some(&index) = self.global_vars.get(name) {
+            index
+        } else {
+            let index = self.global_var_count;
+            self.global_vars.insert(name.to_string(), index);
+            self.global_var_count += 1;
+            index
+        }
     }
 
     /// Collect string constants from a declaration
@@ -283,8 +299,8 @@ impl CodeGenerator {
         // Initialize global variables second
         for global_var in &global_variables {
             self.compile_expression(&global_var.value);
-            self.instructions
-                .push(Instruction::SetGlobal(global_var.name.clone()));
+            let global_index = self.get_or_create_global_var_index(&global_var.name);
+            self.instructions.push(Instruction::SetGlobal(global_index));
         }
 
         self.instructions.push(Instruction::Push(-1)); // placeholder for return value
@@ -392,7 +408,8 @@ impl CodeGenerator {
                     self.instructions.push(Instruction::SetLocal(offset));
                 } else {
                     // Try to assign to global variable
-                    self.instructions.push(Instruction::SetGlobal(name.clone()));
+                    let global_index = self.get_or_create_global_var_index(name);
+                    self.instructions.push(Instruction::SetGlobal(global_index));
                 }
             }
 
@@ -567,7 +584,8 @@ impl CodeGenerator {
                     );
                 } else {
                     // Try to access as global variable
-                    self.instructions.push(Instruction::GetGlobal(name.clone()));
+                    let global_index = self.get_or_create_global_var_index(name);
+                    self.instructions.push(Instruction::GetGlobal(global_index));
                 }
             }
 

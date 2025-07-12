@@ -199,10 +199,7 @@ fn parse_stack_trace_line(line: &str) -> Option<StackTraceEntry> {
         stack_str.split(',').map(|s| s.trim().to_string()).collect()
     };
 
-    Some(StackTraceEntry {
-        instruction,
-        stack,
-    })
+    Some(StackTraceEntry { instruction, stack })
 }
 
 /// Check if two stacks match, treating "@_" as a wildcard for addresses
@@ -270,19 +267,37 @@ mod tests {
     #[test]
     fn test_stacks_match() {
         // Exact match
-        assert!(stacks_match(&vec!["1".to_string(), "2".to_string()], &vec!["1".to_string(), "2".to_string()]));
-        
+        assert!(stacks_match(
+            &vec!["1".to_string(), "2".to_string()],
+            &vec!["1".to_string(), "2".to_string()]
+        ));
+
         // Wildcard match for addresses
-        assert!(stacks_match(&vec!["1".to_string(), "@_".to_string()], &vec!["1".to_string(), "@42".to_string()]));
-        assert!(stacks_match(&vec!["@_".to_string(), "2".to_string()], &vec!["@123".to_string(), "2".to_string()]));
-        
+        assert!(stacks_match(
+            &vec!["1".to_string(), "@_".to_string()],
+            &vec!["1".to_string(), "@42".to_string()]
+        ));
+        assert!(stacks_match(
+            &vec!["@_".to_string(), "2".to_string()],
+            &vec!["@123".to_string(), "2".to_string()]
+        ));
+
         // No match - different lengths
-        assert!(!stacks_match(&vec!["1".to_string()], &vec!["1".to_string(), "2".to_string()]));
-        
+        assert!(!stacks_match(
+            &vec!["1".to_string()],
+            &vec!["1".to_string(), "2".to_string()]
+        ));
+
         // No match - different values
-        assert!(!stacks_match(&vec!["1".to_string(), "2".to_string()], &vec!["1".to_string(), "3".to_string()]));
-        
+        assert!(!stacks_match(
+            &vec!["1".to_string(), "2".to_string()],
+            &vec!["1".to_string(), "3".to_string()]
+        ));
+
         // No match - wildcard doesn't match non-address
-        assert!(!stacks_match(&vec!["@_".to_string()], &vec!["42".to_string()]));
+        assert!(!stacks_match(
+            &vec!["@_".to_string()],
+            &vec!["42".to_string()]
+        ));
     }
 }

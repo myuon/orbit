@@ -38,8 +38,8 @@ pub enum Instruction {
     SetLocal(i32),
 
     // Global variables
-    GetGlobal(String),
-    SetGlobal(String),
+    GetGlobal(usize),
+    SetGlobal(usize),
 
     // Function calls
     Call(String),
@@ -119,8 +119,8 @@ impl fmt::Display for Instruction {
             Instruction::JumpIfZero(addr) => write!(f, "jump_if_zero {}", addr),
             Instruction::GetLocal(offset) => write!(f, "get_local {}", offset),
             Instruction::SetLocal(offset) => write!(f, "set_local {}", offset),
-            Instruction::GetGlobal(name) => write!(f, "get_global {}", name),
-            Instruction::SetGlobal(name) => write!(f, "set_global {}", name),
+            Instruction::GetGlobal(index) => write!(f, "get_global {}", index),
+            Instruction::SetGlobal(index) => write!(f, "set_global {}", index),
             Instruction::Call(func_name) => write!(f, "call {}", func_name),
             Instruction::Ret => write!(f, "ret"),
             Instruction::GetBP => write!(f, "get_bp"),
