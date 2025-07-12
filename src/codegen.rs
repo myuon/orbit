@@ -769,6 +769,7 @@ pub fn compile_expression(expr: &Expr) -> Vec<Instruction> {
     instructions
 }
 
+// FIXME: This function has a lot of TODOs
 fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
     match expr {
         Expr::Int(value) => {

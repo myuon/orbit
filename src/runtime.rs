@@ -538,7 +538,7 @@ impl VM {
 
                 if let Some(addr) = target_addr {
                     self.pc = addr;
-                    
+
                     // Print instruction and stack state after execution if enabled
                     if self.print_stacks {
                         println!(
@@ -552,7 +552,7 @@ impl VM {
                                 .join(", ")
                         );
                     }
-                    
+
                     return Ok(ControlFlow::Continue);
                 } else {
                     return Err(format!("Function not found: {}", func_name));
@@ -573,7 +573,12 @@ impl VM {
                             return Err("Stack underflow for Ret".to_string());
                         }
                     }
-                    _ => return Err("Return address must be an address".to_string()),
+                    value => {
+                        return Err(format!(
+                            "Return address must be an address, but got {:?} [{}]",
+                            value, self.pc,
+                        ))
+                    }
                 }
             }
 
@@ -1185,7 +1190,6 @@ impl VM {
                 }
             }
 
-
             Instruction::Syscall => {
                 // Stack: [return_placeholder] [syscall_number] [fd] [buffer] [length] (pushed left-to-right)
                 // For syscall(1): write(fd, buffer, length)
@@ -1237,10 +1241,8 @@ impl VM {
                                             std::io::stdout().flush().unwrap();
                                         }
 
-                                        // Replace the return placeholder with the number of bytes written
-                                        if let Some(top) = self.stack.last_mut() {
-                                            *top = Value::Int(actual_length as i64);
-                                        }
+                                        // Push the actual number of bytes written as return value
+                                        self.stack.push(Value::Int(actual_length as i64));
                                     }
                                     _ => {
                                         return Err(
