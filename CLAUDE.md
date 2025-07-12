@@ -28,15 +28,27 @@ Orbit is a statically typed programming language with JIT compilation for AArch6
 
 ### Core Compiler Pipeline
 
-The compiler follows a traditional multi-stage pipeline:
+The compiler follows a traditional multi-stage pipeline with modular architecture:
 
 1. **Lexing** (`src/lexer.rs`) - Tokenizes source code
 2. **Parsing** (`src/parser.rs`) - Builds AST from tokens
 3. **Type Checking** (`src/typecheck.rs`) - Validates types and semantics
 4. **Desugaring** (`src/desugar.rs`) - Simplifies complex constructs
 5. **Monomorphization** (`src/monomorphization.rs`) - Instantiates generic types
-6. **Compilation** (`src/compiler.rs`) - Orchestrates the pipeline and generates IR
-7. **Execution** - Either VM execution (`src/vm.rs`) or JIT compilation (`src/jit.rs`)
+6. **Code Generation** (`src/codegen.rs`) - Generates VM bytecode from AST
+7. **Compilation** (`src/compiler.rs`) - Orchestrates the pipeline and generates IR
+8. **Execution** - Either VM execution (`src/vm.rs`) or JIT compilation (`src/jit.rs`)
+
+### Module Organization
+
+The codebase is organized into focused, single-responsibility modules:
+
+- **Core Language**: `ast.rs`, `lexer.rs`, `parser.rs` - Language definition and parsing
+- **Analysis**: `typecheck.rs`, `desugar.rs`, `monomorphization.rs` - Static analysis and transformations  
+- **Code Generation**: `codegen.rs` - VM bytecode generation with `CodeGenerator` struct
+- **VM System**: `vm.rs` - Instruction definitions and virtual machine types
+- **Runtime**: `runtime.rs` - Value types and runtime operations
+- **Orchestration**: `compiler.rs` - Main compilation pipeline coordination
 
 ### Key Files
 
@@ -48,9 +60,10 @@ The compiler follows a traditional multi-stage pipeline:
 - `src/lexer.rs` - Tokenizer for numbers and arithmetic operators
 - `src/parser.rs` - Parser that builds AST from tokens
 - `src/runtime.rs` - Runtime system with Value type and expression evaluation
+- `src/codegen.rs` - Code generator that produces VM bytecode from AST
 - `src/compiler.rs` - Main compiler orchestration (to be implemented)
 - `src/jit.rs` - JIT compiler for AArch64 native code generation (to be implemented)
-- `src/vm.rs` - Stack-based virtual machine for interpretation (to be implemented)
+- `src/vm.rs` - VM instruction definitions and bytecode representation
 
 **Reference Zig Implementation:**
 
