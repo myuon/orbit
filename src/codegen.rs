@@ -288,11 +288,17 @@ impl CodeGenerator {
         }
 
         self.instructions.push(Instruction::Push(-1)); // placeholder for return value
-        self.instructions.push(Instruction::Push(0)); // placeholder for return address
+        self.instructions.push(Instruction::Push(-1)); // placeholder for old BP
+        self.instructions.push(Instruction::Push(-1)); // placeholder for return address
+
+        // Set BP
+        self.instructions.push(Instruction::Push(3));
         self.instructions.push(Instruction::SetBP);
+
+        // Call main
         self.instructions
             .push(Instruction::Call("main".to_string()));
-        self.instructions.push(Instruction::Ret);
+        self.emit_return_sequence();
 
         // 3. 各関数をコンパイル（ラベルと本体を一緒に）
         for func in &functions {
@@ -346,9 +352,9 @@ impl CodeGenerator {
 
     /// Emit return sequence for non-main functions  
     fn emit_return_sequence(&mut self) {
-        // Leave return value on stack and just call Ret
-        // Let Ret handle the complex stack frame restoration
-        self.instructions.push(Instruction::SetLocal(-6)); // FIXME
+        self.instructions.push(Instruction::SetLocal(
+            -(self.current_function_param_count as i32 + 3),
+        ));
         self.instructions.push(Instruction::GetBP);
         self.instructions.push(Instruction::SetSP);
         self.instructions.push(Instruction::SetBP);

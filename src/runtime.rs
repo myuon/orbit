@@ -550,6 +550,14 @@ impl VM {
                     Some(Value::Address(addr)) => {
                         self.pc = addr;
                     }
+                    Some(Value::Int(n)) if n == -1 => {
+                        let value = self.stack.pop();
+                        if let Some(Value::Int(n)) = value {
+                            return Ok(ControlFlow::Exit(n));
+                        } else {
+                            return Err("Stack underflow for Ret".to_string());
+                        }
+                    }
                     _ => return Err("Return address must be an address".to_string()),
                 }
             }
