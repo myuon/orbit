@@ -50,6 +50,8 @@ pub enum Instruction {
     SetBP,
     GetSP,
     SetSP,
+    GetHP,
+    SetHP,
     GetPC,
     SetPC,
 
@@ -63,6 +65,8 @@ pub enum Instruction {
     HeapAlloc, // Allocate new heap object
     HeapGet,   // Get value from heap object
     HeapSet,   // Set value in heap object
+    HeapGetOffset, // Get value from heap at base + offset
+    HeapSetOffset, // Set value in heap at base + offset
 
     // String operations
     StringNew,
@@ -127,6 +131,8 @@ impl fmt::Display for Instruction {
             Instruction::SetBP => write!(f, "set_bp"),
             Instruction::GetSP => write!(f, "get_sp"),
             Instruction::SetSP => write!(f, "set_sp"),
+            Instruction::GetHP => write!(f, "get_hp"),
+            Instruction::SetHP => write!(f, "set_hp"),
             Instruction::GetPC => write!(f, "get_pc"),
             Instruction::SetPC => write!(f, "set_pc"),
             Instruction::Label(name) => write!(f, "{}:", name),
@@ -134,6 +140,8 @@ impl fmt::Display for Instruction {
             Instruction::HeapAlloc => write!(f, "heap_alloc"),
             Instruction::HeapGet => write!(f, "heap_get"),
             Instruction::HeapSet => write!(f, "heap_set"),
+            Instruction::HeapGetOffset => write!(f, "heap_get_offset"),
+            Instruction::HeapSetOffset => write!(f, "heap_set_offset"),
             Instruction::StringNew => write!(f, "string_new"),
             Instruction::VectorNew => write!(f, "vector_new"),
             Instruction::VectorPush => write!(f, "vector_push"),

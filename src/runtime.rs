@@ -17,6 +17,7 @@ pub enum HeapObject {
     Map(HashMap<String, Value>),
     Struct(HashMap<String, Value>),
     Pointer(Vec<Value>), // Pointer is essentially an array of values
+    RawValue(Value), // Raw value storage for heap memory management
 }
 
 /// Values in the Orbit runtime system
@@ -74,6 +75,7 @@ impl std::fmt::Display for HeapObject {
                         .join(", ")
                 )
             }
+            HeapObject::RawValue(v) => write!(f, "{}", v),
         }
     }
 }
@@ -89,6 +91,7 @@ pub struct VM {
     pc: usize, // program counter
     bp: usize, // base pointer for stack frame
     sp: usize, // stack pointer
+    hp: usize, // heap pointer
     program: Vec<Instruction>,
     pub print_stacks: bool, // whether to print stack state during execution
     print_stacks_on_call: Option<String>, // print stacks only when calling this function
@@ -119,6 +122,7 @@ impl VM {
             pc: 0,
             bp: 0,
             sp: 0,
+            hp: 0,
             program: Vec::new(),
             print_stacks,
             print_stacks_on_call: None,
@@ -139,6 +143,7 @@ impl VM {
             pc: 0,
             bp: 0,
             sp: 0,
+            hp: 0,
             program: Vec::new(),
             print_stacks,
             print_stacks_on_call,
@@ -641,6 +646,26 @@ impl VM {
                 }
             }
 
+            Instruction::GetHP => {
+                self.stack.push(Value::Address(self.hp));
+            }
+
+            Instruction::SetHP => {
+                if self.stack.is_empty() {
+                    return Err("Stack underflow for SetHP".to_string());
+                }
+                let value = self.stack.pop().unwrap();
+                match value {
+                    Value::Address(addr) => {
+                        self.hp = addr;
+                    }
+                    Value::Int(n) => {
+                        self.hp = n as usize;
+                    }
+                    _ => return Err("SetHP requires an address or number".to_string()),
+                }
+            }
+
             Instruction::GetPC => {
                 self.stack.push(Value::Address(self.pc));
             }
@@ -666,15 +691,39 @@ impl VM {
             }
 
             Instruction::HeapAlloc => {
-                // Allocate a new heap object (type determined by stack content)
-                // For now, this is a placeholder - specific allocation is handled by typed instructions
-                let heap_index = self.heap.len();
-                self.heap.push(HeapObject::String(String::new())); // Default placeholder
-                self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
+                // Stack: [size] - allocate size values on heap
+                if self.stack.is_empty() {
+                    return Err("Stack underflow for HeapAlloc".to_string());
+                }
+                let size_value = self.stack.pop().unwrap();
+                let size = match size_value {
+                    Value::Int(n) => n as usize,
+                    _ => return Err("HeapAlloc requires a size (number)".to_string()),
+                };
+
+                // Allocate space on heap starting at current HP
+                let heap_start_index = self.hp;
+                
+                // Extend heap to accommodate the allocation if needed
+                while self.heap.len() < self.hp + size {
+                    self.heap.push(HeapObject::RawValue(Value::Int(0))); // Initialize with zero
+                }
+                
+                // Initialize allocated space with default values (zeros)
+                for i in 0..size {
+                    self.heap[self.hp + i] = HeapObject::RawValue(Value::Int(0));
+                }
+                
+                // Push heap reference to the start of allocated region
+                self.stack.push(Value::HeapRef(HeapIndex(heap_start_index)));
+                
+                // Update HP to point after allocated region
+                self.hp += size;
             }
 
             Instruction::HeapGet => {
-                // Get value from heap object - implementation depends on object type
+                // Stack: [heap_ref] -> [value]
+                // Get value from heap at specified index
                 if self.stack.is_empty() {
                     return Err("Stack underflow for HeapGet".to_string());
                 }
@@ -684,28 +733,93 @@ impl VM {
                         if heap_index.0 >= self.heap.len() {
                             return Err(format!("Invalid heap index: {}", heap_index.0));
                         }
-                        // For now, just push the heap ref back - specific get operations handled by typed instructions
-                        self.stack.push(Value::HeapRef(heap_index));
+                        match &self.heap[heap_index.0] {
+                            HeapObject::RawValue(value) => {
+                                self.stack.push(value.clone());
+                            }
+                            _ => return Err("HeapGet: heap object is not a raw value".to_string()),
+                        }
                     }
                     _ => return Err("HeapGet requires a heap reference".to_string()),
                 }
             }
 
             Instruction::HeapSet => {
-                // Set value in heap object - implementation depends on object type
+                // Stack: [value] [heap_ref] -> []
+                // Set value in heap at specified index
                 if self.stack.len() < 2 {
                     return Err("Stack underflow for HeapSet".to_string());
                 }
                 let heap_ref = self.stack.pop().unwrap();
-                let _value = self.stack.pop().unwrap();
+                let value = self.stack.pop().unwrap();
                 match heap_ref {
                     Value::HeapRef(heap_index) => {
                         if heap_index.0 >= self.heap.len() {
                             return Err(format!("Invalid heap index: {}", heap_index.0));
                         }
-                        // For now, just discard - specific set operations handled by typed instructions
+                        // Set the value as a RawValue in the heap
+                        self.heap[heap_index.0] = HeapObject::RawValue(value);
                     }
                     _ => return Err("HeapSet requires a heap reference".to_string()),
+                }
+            }
+
+            Instruction::HeapGetOffset => {
+                // Stack: [offset] [heap_ref] -> [value]
+                // Get value from heap at base + offset
+                if self.stack.len() < 2 {
+                    return Err("Stack underflow for HeapGetOffset".to_string());
+                }
+                let offset_value = self.stack.pop().unwrap();
+                let heap_ref = self.stack.pop().unwrap();
+                
+                let offset = match offset_value {
+                    Value::Int(n) => n as usize,
+                    _ => return Err("HeapGetOffset requires an offset (number)".to_string()),
+                };
+                
+                match heap_ref {
+                    Value::HeapRef(heap_index) => {
+                        let target_index = heap_index.0 + offset;
+                        if target_index >= self.heap.len() {
+                            return Err(format!("Invalid heap index: {}", target_index));
+                        }
+                        match &self.heap[target_index] {
+                            HeapObject::RawValue(value) => {
+                                self.stack.push(value.clone());
+                            }
+                            _ => return Err("HeapGetOffset: heap object is not a raw value".to_string()),
+                        }
+                    }
+                    _ => return Err("HeapGetOffset requires a heap reference".to_string()),
+                }
+            }
+
+            Instruction::HeapSetOffset => {
+                // Stack: [value] [offset] [heap_ref] -> []
+                // Set value in heap at base + offset
+                if self.stack.len() < 3 {
+                    return Err("Stack underflow for HeapSetOffset".to_string());
+                }
+                let heap_ref = self.stack.pop().unwrap();
+                let offset_value = self.stack.pop().unwrap();
+                let value = self.stack.pop().unwrap();
+                
+                let offset = match offset_value {
+                    Value::Int(n) => n as usize,
+                    _ => return Err("HeapSetOffset requires an offset (number)".to_string()),
+                };
+                
+                match heap_ref {
+                    Value::HeapRef(heap_index) => {
+                        let target_index = heap_index.0 + offset;
+                        if target_index >= self.heap.len() {
+                            return Err(format!("Invalid heap index: {}", target_index));
+                        }
+                        // Set the value as a RawValue in the heap
+                        self.heap[target_index] = HeapObject::RawValue(value);
+                    }
+                    _ => return Err("HeapSetOffset requires a heap reference".to_string()),
                 }
             }
 
@@ -1335,6 +1449,7 @@ impl VM {
         self.pc = 0;
         self.bp = 0;
         self.sp = 0;
+        self.hp = 0;
         self.heap.clear();
         // Keep print_stacks and profiler settings unchanged
         // Reset captured output if it was enabled
@@ -1475,5 +1590,133 @@ impl Runtime {
     /// Get captured output and clear the buffer
     pub fn take_captured_output(&mut self) -> Option<String> {
         self.vm.take_captured_output()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vm::Instruction;
+
+    #[test]
+    fn test_heap_memory_allocation() {
+        let mut vm = VM::new();
+        
+        // Test HeapAlloc: allocate 3 values on heap
+        vm.load_program(vec![
+            Instruction::Push(3),      // size = 3
+            Instruction::HeapAlloc,    // allocate 3 heap slots, pushes heap_ref
+        ]);
+        
+        // Execute step by step to check intermediate state
+        while vm.pc < vm.program.len() {
+            vm.step().unwrap();
+        }
+        
+        // Check that heap has been allocated
+        assert_eq!(vm.heap.len(), 3);
+        assert_eq!(vm.hp, 3);
+        
+        // The final result should be a heap reference as exit code
+        // Check that all heap objects are initialized as RawValue(Int(0))
+        for i in 0..3 {
+            if let HeapObject::RawValue(Value::Int(val)) = &vm.heap[i] {
+                assert_eq!(*val, 0);
+            } else {
+                panic!("Expected RawValue(Int(0)) at heap[{}]", i);
+            }
+        }
+    }
+
+    #[test]
+    fn test_heap_get_set() {
+        let mut vm = VM::new();
+        
+        // Test HeapGet/HeapSet with allocated memory
+        vm.load_program(vec![
+            Instruction::Push(2),           // size = 2
+            Instruction::HeapAlloc,         // allocate 2 heap slots -> [heap_ref]
+            
+            // Set value at index 0: duplicate heap_ref, then set
+            Instruction::Push(42),          // [heap_ref, 42]
+            Instruction::GetLocal(0),       // [heap_ref, 42, heap_ref] - duplicate heap_ref
+            Instruction::HeapSet,           // [heap_ref] - set heap[0] = 42
+            
+            // Get value from index 0
+            Instruction::GetLocal(0),       // [heap_ref, heap_ref] - duplicate heap_ref  
+            Instruction::HeapGet,           // [heap_ref, 42] - get value from heap[0]
+            Instruction::Nop,               // prevent program from consuming stack as return value
+        ]);
+        
+        // Execute step by step
+        while vm.pc < vm.program.len() {
+            vm.step().unwrap();
+        }
+        
+        let stack = vm.get_stack();
+        // Stack should contain: [heap_ref, retrieved_value]
+        assert_eq!(stack.len(), 2);
+        
+        // Check that we got the value back
+        if let Value::Int(value) = &stack[1] {
+            assert_eq!(*value, 42);
+        } else {
+            panic!("Expected Int(42), got {:?}", stack[1]);
+        }
+        
+        // Check heap content
+        if let HeapObject::RawValue(Value::Int(stored_value)) = &vm.heap[0] {
+            assert_eq!(*stored_value, 42);
+        } else {
+            panic!("Expected RawValue(Int(42))");
+        }
+    }
+
+    #[test]
+    fn test_heap_offset_operations() {
+        let mut vm = VM::new();
+        
+        // Test HeapGetOffset/HeapSetOffset
+        vm.load_program(vec![
+            Instruction::Push(3),           // size = 3
+            Instruction::HeapAlloc,         // allocate 3 heap slots -> [heap_ref]
+            
+            // Set value at offset 1 (heap[1] = 100)
+            // Stack order for HeapSetOffset: [value] [offset] [heap_ref]
+            Instruction::Push(100),         // [heap_ref, 100]
+            Instruction::Push(1),           // [heap_ref, 100, 1]
+            Instruction::GetLocal(0),       // [heap_ref, 100, 1, heap_ref]
+            Instruction::HeapSetOffset,     // [heap_ref] - set heap[base + 1] = 100
+            
+            // Get value from offset 1
+            // Stack order for HeapGetOffset: [heap_ref] [offset] (offset at top)
+            Instruction::GetLocal(0),       // [heap_ref, heap_ref]
+            Instruction::Push(1),           // [heap_ref, heap_ref, 1]
+            Instruction::HeapGetOffset,     // [heap_ref, 100] - get value from heap[base + 1]
+            Instruction::Nop,               // prevent program from consuming stack as return value
+        ]);
+        
+        // Execute step by step
+        while vm.pc < vm.program.len() {
+            vm.step().unwrap();
+        }
+        
+        let stack = vm.get_stack();
+        // Stack should contain: [heap_ref, retrieved_value]
+        assert_eq!(stack.len(), 2);
+        
+        // Check that we got the value back
+        if let Value::Int(value) = &stack[1] {
+            assert_eq!(*value, 100);
+        } else {
+            panic!("Expected Int(100), got {:?}", stack[1]);
+        }
+        
+        // Check heap content at index 1
+        if let HeapObject::RawValue(Value::Int(stored_value)) = &vm.heap[1] {
+            assert_eq!(*stored_value, 100);
+        } else {
+            panic!("Expected RawValue(Int(100)) at heap[1]");
+        }
     }
 }
