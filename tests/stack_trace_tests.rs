@@ -64,15 +64,38 @@ fn run_single_stack_trace_test(test_file: &Path) {
     let captured_output = execute_step_by_step(&test_content)
         .unwrap_or_else(|e| panic!("Stack trace test {} failed with error: {}", test_name, e));
 
-    // Normalize the captured output by removing trailing whitespace and standardizing line endings
-    let actual_stacks = normalize_stack_output(&captured_output);
-    let expected_stacks = normalize_stack_output(&expected_stacks);
+    // Parse both expected and actual outputs
+    let expected_entries = parse_stack_trace_output(&expected_stacks);
+    let actual_entries = parse_stack_trace_output(&captured_output);
 
-    assert_eq!(
-        actual_stacks, expected_stacks,
-        "Stack trace test {} failed.\nExpected stacks:\n{}\nActual stacks:\n{}",
-        test_name, expected_stacks, actual_stacks
-    );
+    // Compare the parsed entries
+    if expected_entries.len() != actual_entries.len() {
+        panic!(
+            "Stack trace test {} failed: Different number of entries.\nExpected: {}\nActual: {}",
+            test_name, expected_entries.len(), actual_entries.len()
+        );
+    }
+
+    for (i, (expected, actual)) in expected_entries.iter().zip(actual_entries.iter()).enumerate() {
+        if expected.pc != actual.pc {
+            panic!(
+                "Stack trace test {} failed at line {}.\nExpected PC: {}\nActual PC: {}",
+                test_name, i + 1, expected.pc, actual.pc
+            );
+        }
+        if expected.instruction != actual.instruction {
+            panic!(
+                "Stack trace test {} failed at line {}.\nExpected instruction: '{}'\nActual instruction: '{}'",
+                test_name, i + 1, expected.instruction, actual.instruction
+            );
+        }
+        if expected.stack != actual.stack {
+            panic!(
+                "Stack trace test {} failed at line {}.\nExpected stack: {:?}\nActual stack: {:?}",
+                test_name, i + 1, expected.stack, actual.stack
+            );
+        }
+    }
 
     println!("✓ Stack trace test {} passed", test_name);
 }
@@ -96,17 +119,21 @@ fn execute_step_by_step(code: &str) -> Result<String, Box<dyn std::error::Error>
 
     // Execute step by step and capture stack states
     loop {
-        // Get current stack state before executing the instruction
+        // Get current state before executing the instruction
+        let pc = vm.get_program_counter();
+        let instruction = vm.get_current_instruction();
         let stack = vm.get_stack();
 
-        // Format and record only the stack state
-        let stack_str = stack
-            .iter()
-            .map(|v| v.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
+        // Format and record the current state (PC, instruction, and stack)
+        if let Some(instr) = instruction {
+            let stack_str = stack
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
 
-        output.push_str(&format!("[{}]\n", stack_str));
+            output.push_str(&format!("{:04} {:20} [{}]\n", pc, instr, stack_str));
+        }
 
         // Execute one step
         let step_result = vm.step();
@@ -131,6 +158,73 @@ fn execute_step_by_step(code: &str) -> Result<String, Box<dyn std::error::Error>
     Ok(output)
 }
 
+/// Represents a single stack trace entry
+#[derive(Debug, Clone, PartialEq)]
+struct StackTraceEntry {
+    pc: usize,
+    instruction: String,
+    stack: Vec<String>,
+}
+
+/// Parse stack trace output into structured entries
+fn parse_stack_trace_output(output: &str) -> Vec<StackTraceEntry> {
+    let mut entries = Vec::new();
+    
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        
+        // Parse format: "0000 instruction [stack_items]"
+        if let Some(entry) = parse_stack_trace_line(line) {
+            entries.push(entry);
+        }
+    }
+    
+    entries
+}
+
+/// Parse a single stack trace line
+fn parse_stack_trace_line(line: &str) -> Option<StackTraceEntry> {
+    // Find the PC (first 4 digits)
+    if line.len() < 4 {
+        return None;
+    }
+    
+    let pc_str = &line[0..4];
+    let pc = pc_str.parse::<usize>().ok()?;
+    
+    // Find the stack part (starts with '[' and ends with ']')
+    let stack_start = line.find('[')?;
+    let stack_end = line.rfind(']')?;
+    
+    if stack_start >= stack_end {
+        return None;
+    }
+    
+    // Extract instruction (between PC and stack)
+    let instruction_part = &line[4..stack_start].trim();
+    let instruction = instruction_part.to_string();
+    
+    // Extract and parse stack
+    let stack_str = &line[stack_start + 1..stack_end];
+    let stack = if stack_str.trim().is_empty() {
+        Vec::new()
+    } else {
+        stack_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect()
+    };
+    
+    Some(StackTraceEntry {
+        pc,
+        instruction,
+        stack,
+    })
+}
+
 /// Normalize stack output for comparison by trimming whitespace and standardizing format
 fn normalize_stack_output(output: &str) -> String {
     output
@@ -150,5 +244,32 @@ mod tests {
         let input = "  Stack: [1, 2, 3]  \n  \n  Stack: [4, 5]  \n";
         let expected = "Stack: [1, 2, 3]\nStack: [4, 5]";
         assert_eq!(normalize_stack_output(input), expected);
+    }
+
+    #[test]
+    fn test_parse_stack_trace_line() {
+        let line = "0000 push 5               []";
+        let entry = parse_stack_trace_line(line).unwrap();
+        assert_eq!(entry.pc, 0);
+        assert_eq!(entry.instruction, "push 5");
+        assert_eq!(entry.stack, Vec::<String>::new());
+
+        let line2 = "0025 get_global y         [-1, 0, -1, 5]";
+        let entry2 = parse_stack_trace_line(line2).unwrap();
+        assert_eq!(entry2.pc, 25);
+        assert_eq!(entry2.instruction, "get_global y");
+        assert_eq!(entry2.stack, vec!["-1", "0", "-1", "5"]);
+    }
+
+    #[test]
+    fn test_parse_stack_trace_output() {
+        let input = "0000 push 5               []\n0001 set_global x         [5]\n";
+        let entries = parse_stack_trace_output(input);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].pc, 0);
+        assert_eq!(entries[0].instruction, "push 5");
+        assert_eq!(entries[1].pc, 1);
+        assert_eq!(entries[1].instruction, "set_global x");
+        assert_eq!(entries[1].stack, vec!["5"]);
     }
 }
