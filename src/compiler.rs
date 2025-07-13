@@ -18,6 +18,8 @@ pub struct CompilerOptions {
     pub dump_ir_output: Option<String>,
     /// Enable stack printing during execution
     pub print_stacks: bool,
+    /// Enable heap visualization during execution
+    pub print_heaps: bool,
     /// Enable stack printing for specific function calls
     pub print_stacks_on_call: Option<String>,
     /// Enable profiling
@@ -48,6 +50,7 @@ impl Default for CompilerOptions {
             dump_ir: false,
             dump_ir_output: None,
             print_stacks: false,
+            print_heaps: false,
             print_stacks_on_call: None,
             enable_profiling: false,
             profile_output: None,
@@ -77,9 +80,10 @@ impl Compiler {
 
     /// Create a new compiler instance with specific options
     pub fn new_with_options(options: CompilerOptions) -> Self {
-        let runtime = if options.print_stacks || options.print_stacks_on_call.is_some() {
-            Runtime::new_with_call_tracing(
+        let runtime = if options.print_stacks || options.print_heaps || options.print_stacks_on_call.is_some() {
+            Runtime::new_with_debug_options(
                 options.print_stacks,
+                options.print_heaps,
                 options.print_stacks_on_call.clone(),
             )
         } else {

@@ -94,6 +94,7 @@ pub struct VM {
     hp: usize, // heap pointer
     program: Vec<Instruction>,
     pub print_stacks: bool, // whether to print stack state during execution
+    pub print_heaps: bool,  // whether to print heap state during execution
     print_stacks_on_call: Option<String>, // print stacks only when calling this function
     heap: Vec<HeapObject>,  // unified heap storage
     globals: Vec<Value>,    // global variables
@@ -105,18 +106,18 @@ pub struct VM {
 
 impl VM {
     pub fn new() -> Self {
-        Self::with_options(false, false)
+        Self::with_options(false, false, false)
     }
 
     pub fn new_with_stack_printing(print_stacks: bool) -> Self {
-        Self::with_options(print_stacks, false)
+        Self::with_options(print_stacks, false, false)
     }
 
     pub fn new_with_profiling(enable_profiling: bool) -> Self {
-        Self::with_options(false, enable_profiling)
+        Self::with_options(false, false, enable_profiling)
     }
 
-    pub fn with_options(print_stacks: bool, enable_profiling: bool) -> Self {
+    pub fn with_options(print_stacks: bool, print_heaps: bool, enable_profiling: bool) -> Self {
         Self {
             stack: Vec::new(),
             pc: 0,
@@ -125,6 +126,7 @@ impl VM {
             hp: 0,
             program: Vec::new(),
             print_stacks,
+            print_heaps,
             print_stacks_on_call: None,
             heap: Vec::new(),
             globals: Vec::new(),
@@ -135,6 +137,7 @@ impl VM {
 
     pub fn with_all_options(
         print_stacks: bool,
+        print_heaps: bool,
         print_stacks_on_call: Option<String>,
         enable_profiling: bool,
     ) -> Self {
@@ -146,6 +149,7 @@ impl VM {
             hp: 0,
             program: Vec::new(),
             print_stacks,
+            print_heaps,
             print_stacks_on_call,
             heap: Vec::new(),
             globals: Vec::new(),
@@ -475,6 +479,9 @@ impl VM {
                     );
                 }
 
+                // Print heap visualization if enabled
+                self.print_heap_visualization(pc_before_execution, instruction);
+
                 return Ok(ControlFlow::Continue);
             }
 
@@ -508,6 +515,9 @@ impl VM {
                             .join(", ")
                     );
                 }
+
+                // Print heap visualization if enabled
+                self.print_heap_visualization(pc_before_execution, instruction);
 
                 return Ok(ControlFlow::Continue);
             }
@@ -631,6 +641,9 @@ impl VM {
                                 .join(", ")
                         );
                     }
+
+                    // Print heap visualization if enabled
+                    self.print_heap_visualization(pc_before_execution, instruction);
 
                     return Ok(ControlFlow::Continue);
                 } else {
@@ -1416,6 +1429,9 @@ impl VM {
             );
         }
 
+        // Print heap visualization if enabled
+        self.print_heap_visualization(pc_before_execution, instruction);
+
         Ok(ControlFlow::Continue)
     }
 
@@ -1547,6 +1563,35 @@ impl VM {
         
         String::from_utf8(bytes).map_err(|_| "Invalid UTF-8 in string".to_string())
     }
+
+    /// Print heap visualization using block characters
+    fn print_heap_visualization(&self, pc_before_execution: usize, instruction: &Instruction) {
+        if !self.print_heaps {
+            return;
+        }
+
+        // Block characters for memory usage visualization
+        const BLOCKS: &[char] = &[' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+        
+        print!("{:04} {:20} heap[", pc_before_execution, format!("{}", instruction));
+        
+        // Always show 8 blocks (representing 64 cells total), regardless of heap size
+        for block_index in 0..8 {
+            let block_start = block_index * 8;
+            
+            // Check how many cells in this 8-cell block are actually used
+            let occupied_count = if block_start < self.heap.len() {
+                std::cmp::min(self.heap.len() - block_start, 8)
+            } else {
+                0
+            };
+            
+            // Map 0-8 occupied cells to block characters (0-8 index)
+            print!("{}", BLOCKS[occupied_count]);
+        }
+        
+        println!("] (len={})", self.heap.len());
+    }
 }
 
 pub struct Runtime {
@@ -1560,7 +1605,17 @@ impl Runtime {
 
     pub fn new_with_call_tracing(print_stacks: bool, print_stacks_on_call: Option<String>) -> Self {
         Runtime {
-            vm: VM::with_all_options(print_stacks, print_stacks_on_call, false),
+            vm: VM::with_all_options(print_stacks, false, print_stacks_on_call, false),
+        }
+    }
+
+    pub fn new_with_debug_options(
+        print_stacks: bool,
+        print_heaps: bool,
+        print_stacks_on_call: Option<String>,
+    ) -> Self {
+        Runtime {
+            vm: VM::with_all_options(print_stacks, print_heaps, print_stacks_on_call, false),
         }
     }
 

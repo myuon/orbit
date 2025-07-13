@@ -21,6 +21,10 @@ struct Config {
     #[arg(long)]
     print_stacks: bool,
 
+    /// Print heap visualization during execution
+    #[arg(long)]
+    print_heaps: bool,
+
     /// Print stack traces only when calling specific function
     #[arg(long, value_name = "FUNCTION")]
     print_stacks_on_call: Option<String>,
@@ -73,6 +77,7 @@ impl Config {
             dump_ir: self.dump_ir || self.dump_ir_output.is_some(),
             dump_ir_output: self.dump_ir_output.clone(),
             print_stacks: self.print_stacks,
+            print_heaps: self.print_heaps,
             print_stacks_on_call: self.print_stacks_on_call.clone(),
             enable_profiling: self.profile || self.profile_output.is_some(),
             profile_output: self.profile_output.clone(),

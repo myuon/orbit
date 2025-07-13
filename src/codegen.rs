@@ -50,7 +50,7 @@ impl CodeGenerator {
             for existing_string in &self.string_constant_list {
                 current_addr += existing_string.len() + 1; // +1 for null terminator
             }
-            
+
             self.string_constants.insert(s.to_string(), current_addr);
             self.string_constant_list.push(s.to_string());
             current_addr
@@ -571,7 +571,8 @@ impl CodeGenerator {
 
             Expr::String(value) => {
                 let string_addr = self.get_or_create_string_constant(value);
-                self.instructions.push(Instruction::PushAddress(string_addr));
+                self.instructions
+                    .push(Instruction::PushAddress(string_addr));
             }
 
             Expr::Byte(value) => {
@@ -781,7 +782,8 @@ impl CodeGenerator {
                 // For now, type expressions are treated as string constants
                 // This is a placeholder - in a full implementation, we'd need proper type system integration
                 let string_addr = self.get_or_create_string_constant(type_name);
-                self.instructions.push(Instruction::PushAddress(string_addr));
+                self.instructions
+                    .push(Instruction::PushAddress(string_addr));
             }
         }
     }
