@@ -310,7 +310,7 @@ impl CodeGenerator {
 
         self.instructions.push(Instruction::Push(-1)); // placeholder for return value
         self.instructions.push(Instruction::Push(-1)); // placeholder for old BP
-        self.instructions.push(Instruction::Push(-1)); // placeholder for return address
+        self.instructions.push(Instruction::PushAddress(0)); // placeholder for return address
 
         // Set BP
         self.instructions.push(Instruction::Push(3));
