@@ -276,6 +276,7 @@ impl Monomorphizer {
             Expr::Int(_)
             | Expr::Boolean(_)
             | Expr::String(_)
+            | Expr::Byte(_)
             | Expr::Identifier(_)
             | Expr::TypeExpr { .. } => {}
         }
@@ -577,6 +578,7 @@ impl Monomorphizer {
             Expr::Int(n) => Ok(Expr::Int(*n)),
             Expr::Boolean(b) => Ok(Expr::Boolean(*b)),
             Expr::String(s) => Ok(Expr::String(s.clone())),
+            Expr::Byte(b) => Ok(Expr::Byte(*b)),
             Expr::Identifier(name) => Ok(Expr::Identifier(name.clone())),
             Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr {
                 type_name: substitute_type_in_string(type_name, substitutions),
@@ -826,6 +828,7 @@ impl Monomorphizer {
             Expr::Int(n) => Ok(Expr::Int(*n)),
             Expr::Boolean(b) => Ok(Expr::Boolean(*b)),
             Expr::String(s) => Ok(Expr::String(s.clone())),
+            Expr::Byte(b) => Ok(Expr::Byte(*b)),
             Expr::Identifier(name) => Ok(Expr::Identifier(name.clone())),
             Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr {
                 type_name: type_name.clone(),

@@ -569,6 +569,10 @@ impl CodeGenerator {
                 self.instructions.push(Instruction::PushHeapRef(heap_index));
             }
 
+            Expr::Byte(value) => {
+                self.instructions.push(Instruction::Push(*value as i64));
+            }
+
             Expr::Identifier(name) => {
                 if let Some(&offset) = self.local_vars.get(name) {
                     self.instructions.push(Instruction::GetLocal(offset));
@@ -798,6 +802,10 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
 
         Expr::String(value) => {
             instructions.push(Instruction::PushString(value.clone()));
+        }
+
+        Expr::Byte(value) => {
+            instructions.push(Instruction::Push(*value as i64));
         }
 
         Expr::Binary { left, op, right } => {

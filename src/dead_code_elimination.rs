@@ -334,7 +334,7 @@ impl DeadCodeEliminator {
                 self.mark_type_reachable(type_name);
             }
             // Leaf expressions don't have dependencies
-            Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) => {}
+            Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Byte(_) => {}
         }
         Ok(())
     }

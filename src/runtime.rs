@@ -25,6 +25,7 @@ pub enum HeapObject {
 pub enum Value {
     Int(i64),
     Boolean(bool),
+    Byte(u8),
     Address(usize),
     HeapRef(HeapIndex),
 }
@@ -34,6 +35,7 @@ impl std::fmt::Display for Value {
         match self {
             Value::Int(n) => write!(f, "{}", n),
             Value::Boolean(b) => write!(f, "{}", b),
+            Value::Byte(b) => write!(f, "{}", b),
             Value::Address(addr) => write!(f, "@{}", addr),
             Value::HeapRef(index) => write!(f, "heap@{}", index.0),
         }
@@ -216,7 +218,16 @@ impl VM {
                     (Value::Int(a), Value::Int(b)) => {
                         self.stack.push(Value::Int(a + b));
                     }
-                    _ => return Err("Add operation requires numbers".to_string()),
+                    (Value::Int(a), Value::Byte(b)) => {
+                        self.stack.push(Value::Int(a + b as i64));
+                    }
+                    (Value::Byte(a), Value::Int(b)) => {
+                        self.stack.push(Value::Int(a as i64 + b));
+                    }
+                    (Value::Byte(a), Value::Byte(b)) => {
+                        self.stack.push(Value::Int(a as i64 + b as i64));
+                    }
+                    _ => return Err("Add operation requires numbers or bytes".to_string()),
                 }
             }
 
@@ -230,7 +241,16 @@ impl VM {
                     (Value::Int(a), Value::Int(b)) => {
                         self.stack.push(Value::Int(a - b));
                     }
-                    _ => return Err("Subtract operation requires numbers".to_string()),
+                    (Value::Int(a), Value::Byte(b)) => {
+                        self.stack.push(Value::Int(a - b as i64));
+                    }
+                    (Value::Byte(a), Value::Int(b)) => {
+                        self.stack.push(Value::Int(a as i64 - b));
+                    }
+                    (Value::Byte(a), Value::Byte(b)) => {
+                        self.stack.push(Value::Int(a as i64 - b as i64));
+                    }
+                    _ => return Err("Subtract operation requires numbers or bytes".to_string()),
                 }
             }
 
@@ -244,7 +264,16 @@ impl VM {
                     (Value::Int(a), Value::Int(b)) => {
                         self.stack.push(Value::Int(a * b));
                     }
-                    _ => return Err("Multiply operation requires numbers".to_string()),
+                    (Value::Int(a), Value::Byte(b)) => {
+                        self.stack.push(Value::Int(a * b as i64));
+                    }
+                    (Value::Byte(a), Value::Int(b)) => {
+                        self.stack.push(Value::Int(a as i64 * b));
+                    }
+                    (Value::Byte(a), Value::Byte(b)) => {
+                        self.stack.push(Value::Int(a as i64 * b as i64));
+                    }
+                    _ => return Err("Multiply operation requires numbers or bytes".to_string()),
                 }
             }
 
@@ -261,7 +290,25 @@ impl VM {
                         }
                         self.stack.push(Value::Int(a / b));
                     }
-                    _ => return Err("Divide operation requires numbers".to_string()),
+                    (Value::Int(a), Value::Byte(b)) => {
+                        if b == 0 {
+                            return Err("Division by zero".to_string());
+                        }
+                        self.stack.push(Value::Int(a / b as i64));
+                    }
+                    (Value::Byte(a), Value::Int(b)) => {
+                        if b == 0 {
+                            return Err("Division by zero".to_string());
+                        }
+                        self.stack.push(Value::Int(a as i64 / b));
+                    }
+                    (Value::Byte(a), Value::Byte(b)) => {
+                        if b == 0 {
+                            return Err("Division by zero".to_string());
+                        }
+                        self.stack.push(Value::Int(a as i64 / b as i64));
+                    }
+                    _ => return Err("Divide operation requires numbers or bytes".to_string()),
                 }
             }
 
@@ -329,7 +376,16 @@ impl VM {
                     (Value::Int(a), Value::Int(b)) => {
                         self.stack.push(Value::Boolean(a < b));
                     }
-                    _ => return Err("Less than operation requires numbers".to_string()),
+                    (Value::Int(a), Value::Byte(b)) => {
+                        self.stack.push(Value::Boolean(a < b as i64));
+                    }
+                    (Value::Byte(a), Value::Int(b)) => {
+                        self.stack.push(Value::Boolean((a as i64) < b));
+                    }
+                    (Value::Byte(a), Value::Byte(b)) => {
+                        self.stack.push(Value::Boolean(a < b));
+                    }
+                    _ => return Err("Less than operation requires numbers or bytes".to_string()),
                 }
             }
 
@@ -387,7 +443,10 @@ impl VM {
                     Value::Int(n) => {
                         self.stack.push(Value::Boolean(n == 0));
                     }
-                    _ => return Err("Not operation requires boolean or number".to_string()),
+                    Value::Byte(b) => {
+                        self.stack.push(Value::Boolean(b == 0));
+                    }
+                    _ => return Err("Not operation requires boolean, number, or byte".to_string()),
                 }
             }
 
@@ -419,6 +478,7 @@ impl VM {
                 let should_jump = match value {
                     Value::Int(n) => n == 0,
                     Value::Boolean(b) => !b,
+                    Value::Byte(b) => b == 0,
                     _ => false,
                 };
                 if should_jump {
@@ -578,10 +638,13 @@ impl VM {
                     }
                     Some(Value::Int(n)) if n == -1 => {
                         let value = self.stack.pop();
-                        if let Some(Value::Int(n)) = value {
-                            return Ok(ControlFlow::Exit(n));
-                        } else {
-                            return Err("Stack underflow for Ret".to_string());
+                        match value {
+                            Some(Value::Int(n)) => return Ok(ControlFlow::Exit(n)),
+                            Some(Value::Byte(b)) => return Ok(ControlFlow::Exit(b as i64)),
+                            Some(Value::Boolean(b)) => return Ok(ControlFlow::Exit(if b { 1 } else { 0 })),
+                            Some(Value::Address(addr)) => return Ok(ControlFlow::Exit(addr as i64)),
+                            Some(Value::HeapRef(heap_index)) => return Ok(ControlFlow::Exit(heap_index.0 as i64)),
+                            None => return Err("Stack underflow for Ret".to_string()),
                         }
                     }
                     value => {
@@ -1173,8 +1236,8 @@ impl VM {
                                         bytes.len()
                                     ));
                                 }
-                                // Return the byte value as a number
-                                self.stack.push(Value::Int(bytes[element_index] as i64));
+                                // Return the byte value as a byte
+                                self.stack.push(Value::Byte(bytes[element_index]));
                             }
                             _ => {
                                 return Err("StringIndex requires a string heap object".to_string())
@@ -1441,6 +1504,7 @@ impl VM {
             match value {
                 Value::Int(n) => Ok(n as i64),
                 Value::Boolean(b) => Ok(if b { 1 } else { 0 }),
+                Value::Byte(b) => Ok(b as i64),
                 Value::Address(addr) => Ok(addr as i64),
                 Value::HeapRef(heap_index) => Ok(heap_index.0 as i64),
             }

@@ -685,6 +685,11 @@ impl Parser {
                 self.advance();
                 Ok(Expr::String(string_val))
             }
+            TokenType::Byte(value) => {
+                let byte_val = *value;
+                self.advance();
+                Ok(Expr::Byte(byte_val))
+            }
             TokenType::Identifier(name) => {
                 let identifier = name.clone();
                 self.advance();

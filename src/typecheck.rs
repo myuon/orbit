@@ -5,13 +5,22 @@ use anyhow::{bail, Result};
 use std::collections::HashMap;
 
 impl Type {
+    /// Check if this type is numeric (int or byte)
+    pub fn is_numeric(&self) -> bool {
+        matches!(self, Type::Int | Type::Byte)
+    }
+
+    /// Check if this type is numeric or unknown (for type inference)
+    pub fn is_numeric_or_unknown(&self) -> bool {
+        matches!(self, Type::Int | Type::Byte | Type::Unknown)
+    }
     /// Parse a type string like "int", "vec(int)", "map(string, int)"
     pub fn from_string(type_str: &str) -> Type {
         match type_str {
             "bool" | "boolean" => Type::Boolean,
             "int" | "number" => Type::Int,
             "string" | "[*]byte" => Type::String, // Treat [*]byte as string
-            "byte" => Type::Int,                  // Individual bytes are numbers
+            "byte" => Type::Byte,
             _ => {
                 if type_str.starts_with("vec(") && type_str.ends_with(')') {
                     let inner = &type_str[4..type_str.len() - 1];
@@ -71,6 +80,7 @@ impl Type {
             (Type::Boolean, Type::Boolean) => true,
             (Type::Int, Type::Int) => true,
             (Type::String, Type::String) => true,
+            (Type::Byte, Type::Byte) => true,
             (Type::Vector(e1), Type::Vector(e2)) => e1.is_compatible_with(e2),
             (Type::Pointer(e1), Type::Pointer(e2)) => e1.is_compatible_with(e2),
             (Type::Map(k1, v1), Type::Map(k2, v2)) => {
@@ -406,6 +416,7 @@ impl TypeChecker {
             Expr::Int(_)
             | Expr::Boolean(_)
             | Expr::String(_)
+            | Expr::Byte(_)
             | Expr::Identifier(_)
             | Expr::TypeExpr { .. } => {
                 // No inference needed for literals, identifiers, and type expressions
@@ -889,6 +900,7 @@ impl TypeChecker {
             Expr::Int(_) => Ok(Type::Int),
             Expr::Boolean(_) => Ok(Type::Boolean),
             Expr::String(_) => Ok(Type::String),
+            Expr::Byte(_) => Ok(Type::Byte),
 
             Expr::Identifier(name) => self.lookup_variable(name),
 
@@ -910,22 +922,18 @@ impl TypeChecker {
                             && right_type.is_compatible_with(&Type::String)
                         {
                             Ok(Type::String)
-                        } else if left_type.is_compatible_with(&Type::Int)
-                            && right_type.is_compatible_with(&Type::Int)
-                        {
-                            Ok(Type::Int)
+                        } else if left_type.is_numeric_or_unknown() && right_type.is_numeric_or_unknown() {
+                            Ok(Type::Int) // arithmetic with bytes always promotes to int
                         } else {
-                            bail!("Addition operation type mismatch: {} + {} (can only add numbers or concatenate strings)", left_type, right_type);
+                            bail!("Addition operation type mismatch: {} + {} (can only add numbers/bytes or concatenate strings)", left_type, right_type);
                         }
                     }
                     BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide => {
-                        if left_type.is_compatible_with(&Type::Int)
-                            && right_type.is_compatible_with(&Type::Int)
-                        {
-                            Ok(Type::Int)
+                        if left_type.is_numeric_or_unknown() && right_type.is_numeric_or_unknown() {
+                            Ok(Type::Int) // arithmetic with bytes always promotes to int
                         } else {
                             bail!(
-                                "Arithmetic operation type mismatch: {} {} {} (requires numbers)",
+                                "Arithmetic operation type mismatch: {} {} {} (requires numbers or bytes)",
                                 left_type,
                                 op_to_string(op),
                                 right_type
@@ -947,13 +955,11 @@ impl TypeChecker {
                     | BinaryOp::Greater
                     | BinaryOp::LessEqual
                     | BinaryOp::GreaterEqual => {
-                        if left_type.is_compatible_with(&Type::Int)
-                            && right_type.is_compatible_with(&Type::Int)
-                        {
+                        if left_type.is_numeric_or_unknown() && right_type.is_numeric_or_unknown() {
                             Ok(Type::Boolean)
                         } else {
                             bail!(
-                                "Comparison operation requires numbers: {} {} {}",
+                                "Comparison operation requires numbers or bytes: {} {} {}",
                                 left_type,
                                 op_to_string(op),
                                 right_type
@@ -1138,11 +1144,11 @@ impl TypeChecker {
                         Ok(*element_type.clone())
                     }
                     Type::String => {
-                        // String is [*]byte, so indexing returns a byte (number)
+                        // String is [*]byte, so indexing returns a byte
                         if !index_type.is_compatible_with(&Type::Int) {
                             bail!("String index must be number, got {}", index_type);
                         }
-                        Ok(Type::Int) // byte is represented as number
+                        Ok(Type::Byte) // string indexing returns byte
                     }
                     _ => bail!(
                         "Cannot index non-vector/map/pointer/string type: {}",
@@ -1459,6 +1465,7 @@ impl TypeChecker {
                     Expr::Int(_) => Some(Type::Int),
                     Expr::Boolean(_) => Some(Type::Boolean),
                     Expr::String(_) => Some(Type::String),
+                    Expr::Byte(_) => Some(Type::Byte),
                     // For other expressions, we'd need more complex analysis
                     _ => Some(Type::Int), // Default fallback
                 }

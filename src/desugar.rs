@@ -361,6 +361,7 @@ impl Desugarer {
             Expr::Int(_)
             | Expr::Boolean(_)
             | Expr::String(_)
+            | Expr::Byte(_)
             | Expr::Identifier(_)
             | Expr::TypeExpr { .. } => Ok(expression),
         }

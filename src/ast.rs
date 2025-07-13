@@ -3,6 +3,7 @@ pub enum TokenType {
     Int(i64),
     Boolean(bool),
     String(String),
+    Byte(u8),
     Identifier(String),
     Let,
     Assign,
@@ -87,6 +88,7 @@ pub enum Expr {
     Int(i64),
     Boolean(bool),
     String(String),
+    Byte(u8),
     Identifier(String),
     Binary {
         left: Box<Expr>,
@@ -246,6 +248,7 @@ pub enum Type {
     Int,
     Boolean,
     String,
+    Byte,
     Vector(Box<Type>),
     Map(Box<Type>, Box<Type>),
     Struct(String),
@@ -268,6 +271,7 @@ impl std::fmt::Display for Type {
             Type::Int => write!(f, "int"),
             Type::Boolean => write!(f, "boolean"),
             Type::String => write!(f, "string"),
+            Type::Byte => write!(f, "byte"),
             Type::Vector(elem_type) => write!(f, "vec({})", elem_type),
             Type::Map(key_type, value_type) => write!(f, "map({}, {})", key_type, value_type),
             Type::Struct(name) => write!(f, "{}", name),
@@ -296,6 +300,7 @@ impl std::fmt::Display for Type {
                         Type::Int => write!(f, "int")?,
                         Type::Boolean => write!(f, "bool")?,
                         Type::String => write!(f, "string")?,
+                        Type::Byte => write!(f, "byte")?,
                         other => write!(f, "{}", other)?,
                     }
                 }
