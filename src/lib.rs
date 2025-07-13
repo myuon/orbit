@@ -1,6 +1,7 @@
 pub mod ast;
 pub mod codegen;
 pub mod compiler;
+pub mod dead_code_elimination;
 pub mod desugar;
 pub mod lexer;
 pub mod monomorphization;

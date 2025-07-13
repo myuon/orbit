@@ -62,9 +62,9 @@ pub enum Instruction {
     Nop,
 
     // Heap operations
-    HeapAlloc, // Allocate new heap object
-    HeapGet,   // Get value from heap object
-    HeapSet,   // Set value in heap object
+    HeapAlloc,     // Allocate new heap object
+    HeapGet,       // Get value from heap object
+    HeapSet,       // Set value in heap object
     HeapGetOffset, // Get value from heap at base + offset
     HeapSetOffset, // Set value in heap at base + offset
 

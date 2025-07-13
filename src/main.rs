@@ -52,6 +52,18 @@ struct Config {
     /// Dump monomorphized code to specified file
     #[arg(long, value_name = "FILE")]
     dump_monomorphized_code_output: Option<String>,
+
+    /// Enable dumping of dead code elimination results
+    #[arg(long)]
+    dump_dce_code: bool,
+
+    /// Dump dead code elimination results to specified file
+    #[arg(long, value_name = "FILE")]
+    dump_dce_code_output: Option<String>,
+
+    /// Disable dead code elimination for debugging
+    #[arg(long)]
+    no_dead_code_elimination: bool,
 }
 
 impl Config {
@@ -71,6 +83,9 @@ impl Config {
             dump_monomorphized_code: self.dump_monomorphized_code
                 || self.dump_monomorphized_code_output.is_some(),
             dump_monomorphized_code_output: self.dump_monomorphized_code_output.clone(),
+            dump_dce_code: self.dump_dce_code || self.dump_dce_code_output.is_some(),
+            dump_dce_code_output: self.dump_dce_code_output.clone(),
+            no_dead_code_elimination: self.no_dead_code_elimination,
         }
     }
 }

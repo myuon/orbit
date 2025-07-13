@@ -33,8 +33,9 @@ The Orbit compiler follows a multi-stage compilation pipeline:
 3. **Type Checking**: Type analysis and validation
 4. **Desugaring**: Complex language constructs are simplified
 5. **Monomorphization**: Generic types and functions are instantiated
-6. **Code Generation**: IR (Intermediate Representation) is generated
-7. **Execution**: Virtual machine interpretation with comprehensive debugging and profiling support
+6. **Dead Code Elimination**: Unused functions and types are removed based on dependency analysis
+7. **Code Generation**: IR (Intermediate Representation) is generated
+8. **Execution**: Virtual machine interpretation with comprehensive debugging and profiling support
 
 ## Runtime Execution
 

@@ -23,15 +23,16 @@ Orbit is a statically typed programming language with JIT compilation for AArch6
 1. **Lexing** (`lexer.rs`)
 2. **Parsing** (`parser.rs`)
 3. **Type Checking** (`typecheck.rs`)
-4. **Monomorphization** (`monomorphization.rs`)
-5. **Desugaring** (`desugar.rs`)
-6. **Code Generation** (`codegen.rs`)
-7. **Execution** (`vm.rs` or `jit.rs`)
+4. **Desugaring** (`desugar.rs`)
+5. **Monomorphization** (`monomorphization.rs`)
+6. **Dead Code Elimination** (`dead_code_elimination.rs`) - Removes unused functions and types
+7. **Code Generation** (`codegen.rs`)
+8. **Execution** (`vm.rs` or `jit.rs`)
 
 ### Key Modules
 
 - **Core**: `ast.rs`, `lexer.rs`, `parser.rs` - Language definition and parsing
-- **Analysis**: `typecheck.rs`, `desugar.rs`, `monomorphization.rs` - Static analysis
+- **Analysis**: `typecheck.rs`, `desugar.rs`, `monomorphization.rs`, `dead_code_elimination.rs` - Static analysis
 - **Execution**: `codegen.rs`, `vm.rs`, `runtime.rs` - Code generation and runtime
 - **Interface**: `lib.rs`, `main.rs`, `compiler.rs` - Entry points and orchestration
 
@@ -63,6 +64,8 @@ Useful debugging options for development:
 - `--dump-ir` / `--dump-ir-output=<file>` - Dump VM bytecode instructions
 - `--dump-desugared-code` / `--dump-desugared-code-output=<file>` - Show simplified code after desugaring
 - `--dump-monomorphized-code` / `--dump-monomorphized-code-output=<file>` - Show code after generic instantiation
+- `--dump-dce-code` / `--dump-dce-code-output=<file>` - Show code after dead code elimination
+- `--no-dead-code-elimination` - Disable dead code elimination for debugging
 - `--print-stacks` - Show stack state after each VM instruction
 - `--print-stacks-on-call=<function>` - Show stack traces for specific function
 - `--profile` / `--profile-output=<file>` - Enable execution profiling

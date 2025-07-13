@@ -1,5 +1,6 @@
 use crate::ast::Program;
 use crate::codegen::CodeGenerator;
+use crate::dead_code_elimination::DeadCodeEliminator;
 use crate::desugar::Desugarer;
 use crate::lexer::Lexer;
 use crate::monomorphization::Monomorphizer;
@@ -33,6 +34,12 @@ pub struct CompilerOptions {
     pub dump_monomorphized_code: bool,
     /// Output file for monomorphized code dump
     pub dump_monomorphized_code_output: Option<String>,
+    /// Enable dumping dead code elimination results
+    pub dump_dce_code: bool,
+    /// Output file for dead code elimination dump
+    pub dump_dce_code_output: Option<String>,
+    /// Disable dead code elimination for debugging
+    pub no_dead_code_elimination: bool,
 }
 
 impl Default for CompilerOptions {
@@ -49,6 +56,9 @@ impl Default for CompilerOptions {
             dump_desugared_code_output: None,
             dump_monomorphized_code: false,
             dump_monomorphized_code_output: None,
+            dump_dce_code: false,
+            dump_dce_code_output: None,
+            no_dead_code_elimination: false,
         }
     }
 }
@@ -161,14 +171,54 @@ impl Compiler {
             }
         }
 
-        // 4. Final type checking on desugared program
-        let mut final_type_checker = TypeChecker::new();
-        final_type_checker.check_program(&desugared_program)?;
+        // 4. Dead code elimination phase: remove unused functions and types
+        let final_program = if self.options.no_dead_code_elimination {
+            desugared_program
+        } else {
+            let mut dce = DeadCodeEliminator::new();
+            let dce_program = dce.eliminate_dead_code(desugared_program)?;
 
-        // 5. Handle IR dumping if requested
+            // Handle dead code elimination dumping if requested
+            if self.options.dump_dce_code {
+                let dump_output = self.format_desugared_program(&dce_program);
+                let stats = dce.get_elimination_stats();
+                let mut output = format!("=== Dead Code Elimination Results ===\n");
+                output.push_str(&format!(
+                    "Functions eliminated: {} (kept {})\n",
+                    stats.eliminated_functions(),
+                    stats.reachable_functions
+                ));
+                output.push_str(&format!(
+                    "Types eliminated: {} (kept {})\n",
+                    stats.eliminated_types(),
+                    stats.reachable_types
+                ));
+                output.push_str(&format!(
+                    "Globals eliminated: {} (kept {})\n\n",
+                    stats.eliminated_globals(),
+                    stats.reachable_globals
+                ));
+                output.push_str(&dump_output);
+
+                if let Some(output_file) = &self.options.dump_dce_code_output {
+                    std::fs::write(output_file, &output)
+                        .map_err(|e| anyhow::anyhow!("Failed to write DCE dump: {}", e))?;
+                } else {
+                    println!("{}", output);
+                }
+            }
+
+            dce_program
+        };
+
+        // 5. Final type checking on final program
+        let mut final_type_checker = TypeChecker::new();
+        final_type_checker.check_program(&final_program)?;
+
+        // 6. Handle IR dumping if requested
         if self.options.dump_ir {
             let mut vm_compiler = CodeGenerator::new();
-            let _instructions = vm_compiler.compile_program(&desugared_program);
+            let _instructions = vm_compiler.compile_program(&final_program);
 
             if let Some(dump_ir_output) = &self.options.dump_ir_output {
                 vm_compiler
@@ -180,20 +230,20 @@ impl Compiler {
             }
         }
 
-        // 6. Enable profiling if requested
+        // 7. Enable profiling if requested
         if self.options.enable_profiling {
             self.runtime.enable_profiling();
         }
 
-        // 7. Execute the program
+        // 8. Execute the program
         let result = if self.options.print_stacks || self.options.print_stacks_on_call.is_some() {
             self.runtime
-                .execute_program_with_options(&desugared_program, self.options.print_stacks)
+                .execute_program_with_options(&final_program, self.options.print_stacks)
         } else {
-            self.runtime.execute_program(&desugared_program)
+            self.runtime.execute_program(&final_program)
         };
 
-        // 8. Handle profiling output
+        // 9. Handle profiling output
         if self.options.enable_profiling {
             if let Some(output_file) = &self.options.profile_output {
                 self.runtime
@@ -248,13 +298,17 @@ impl Compiler {
         let mut desugarer = Desugarer::new();
         let desugared_program = desugarer.desugar_program(monomorphized_program)?;
 
-        // 4. Final type checking
-        let mut final_type_checker = TypeChecker::new();
-        final_type_checker.check_program(&desugared_program)?;
+        // 4. Dead code elimination phase
+        let mut dce = DeadCodeEliminator::new();
+        let final_program = dce.eliminate_dead_code(desugared_program)?;
 
-        // 5. Compile to VM bytecode
+        // 5. Final type checking
+        let mut final_type_checker = TypeChecker::new();
+        final_type_checker.check_program(&final_program)?;
+
+        // 6. Compile to VM bytecode
         let mut vm_compiler = CodeGenerator::new();
-        let instructions = vm_compiler.compile_program(&desugared_program);
+        let instructions = vm_compiler.compile_program(&final_program);
 
         Ok(instructions)
     }
