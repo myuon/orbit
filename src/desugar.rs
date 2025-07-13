@@ -1,5 +1,5 @@
 use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl};
-use anyhow::Result;
+use anyhow::{bail, Result};
 use std::collections::HashMap;
 
 /// Desugaring phase that transforms high-level constructs into simpler forms
@@ -214,54 +214,51 @@ impl Desugarer {
             // Method call is the main target for desugaring
             Expr::MethodCall {
                 object,
-                method,
-                args,
-                object_type,
-            } => {
-                // First, desugar the object and arguments
-                let desugared_object = self.desugar_expression(*object)?;
-                let mut desugared_args = Vec::new();
-                for arg in args {
-                    desugared_args.push(self.desugar_expression(arg)?);
-                }
-
-                // Use embedded type information if available, otherwise fall back to heuristic
-                let mangled_name = if let Some(struct_type) = object_type {
-                    format!("{}_{}", struct_type, method)
-                } else {
-                    self.resolve_method_name(&desugared_object, &method)?
-                };
-
-                // Convert to a regular function call with object as first argument
-                let mut call_args = vec![desugared_object];
-                call_args.extend(desugared_args);
-
-                Ok(Expr::Call {
-                    callee: Box::new(Expr::Identifier(mangled_name)),
-                    args: call_args,
-                })
-            }
-
-            // Associated method call (type T).method(args) - convert to function call
-            Expr::AssociatedMethodCall {
                 type_name,
                 method,
                 args,
             } => {
-                // Desugar the arguments
-                let mut desugared_args = Vec::new();
-                for arg in args {
-                    desugared_args.push(self.desugar_expression(arg)?);
+                if let Some(obj) = object {
+                    // Instance method call: obj.method(args)
+                    let desugared_object = self.desugar_expression(*obj)?;
+                    let mut desugared_args = Vec::new();
+                    for arg in args {
+                        desugared_args.push(self.desugar_expression(arg)?);
+                    }
+
+                    // Use embedded type information if available, otherwise fall back to heuristic
+                    let mangled_name = if let Some(struct_type) = type_name {
+                        format!("{}_{}", struct_type, method)
+                    } else {
+                        self.resolve_method_name(&desugared_object, &method)?
+                    };
+
+                    // Convert to a regular function call with object as first argument
+                    let mut call_args = vec![desugared_object];
+                    call_args.extend(desugared_args);
+
+                    Ok(Expr::Call {
+                        callee: Box::new(Expr::Identifier(mangled_name)),
+                        args: call_args,
+                    })
+                } else if let Some(type_name_str) = type_name {
+                    // Associated method call: (type T).method(args)
+                    let mut desugared_args = Vec::new();
+                    for arg in args {
+                        desugared_args.push(self.desugar_expression(arg)?);
+                    }
+
+                    // Convert to a regular function call with mangled name
+                    // For (type T).method(args), this becomes T_method(args)
+                    let mangled_name = format!("{}_{}", type_name_str, method);
+
+                    Ok(Expr::Call {
+                        callee: Box::new(Expr::Identifier(mangled_name)),
+                        args: desugared_args,
+                    })
+                } else {
+                    bail!("MethodCall must have either object or type_name specified")
                 }
-
-                // Convert to a regular function call with mangled name
-                // For (type T).method(args), this becomes T_method(args)
-                let mangled_name = format!("{}_{}", type_name, method);
-
-                Ok(Expr::Call {
-                    callee: Box::new(Expr::Identifier(mangled_name)),
-                    args: desugared_args,
-                })
             }
 
             // Recursively desugar other expressions
@@ -475,10 +472,10 @@ mod tests {
 
         // Create a method call: p.sum()
         let method_call = Expr::MethodCall {
-            object: Box::new(Expr::Identifier("p".to_string())),
+            object: Some(Box::new(Expr::Identifier("p".to_string()))),
+            type_name: None,
             method: "sum".to_string(),
             args: vec![],
-            object_type: None,
         };
 
         let result = desugarer.desugar_expression(method_call).unwrap();
@@ -529,10 +526,10 @@ mod tests {
 
         // Create a method call with embedded type information: p.sum()
         let method_call = Expr::MethodCall {
-            object: Box::new(Expr::Identifier("p".to_string())),
+            object: Some(Box::new(Expr::Identifier("p".to_string()))),
+            type_name: Some("Point".to_string()), // Type information embedded by type checker
             method: "sum".to_string(),
             args: vec![],
-            object_type: Some("Point".to_string()), // Type information embedded by type checker
         };
 
         let result = desugarer.desugar_expression(method_call).unwrap();

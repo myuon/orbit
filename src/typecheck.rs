@@ -514,24 +514,21 @@ impl TypeChecker {
             Expr::MethodCall {
                 object,
                 args,
-                object_type,
+                type_name,
                 ..
             } => {
-                self.infer_expression_types(object)?;
-                for arg in args {
-                    self.infer_expression_types(arg)?;
+                if let Some(obj) = object {
+                    // Instance method call (obj.method())
+                    self.infer_expression_types(obj)?;
+                    
+                    // Set object type information based on object expression type
+                    let obj_type = self.check_expression(obj)?;
+                    if let Type::Struct(name) = obj_type {
+                        *type_name = Some(name);
+                    }
                 }
-
-                // Set object type information based on object expression type
-                let obj_type = self.check_expression(object)?;
-                if let Type::Struct(name) = obj_type {
-                    *object_type = Some(name);
-                }
-
-                Ok(())
-            }
-            Expr::AssociatedMethodCall { args, .. } => {
-                // Just infer types for the arguments - no object to process
+                // For associated method calls, type_name should already be set
+                
                 for arg in args {
                     self.infer_expression_types(arg)?;
                 }
@@ -1398,91 +1395,90 @@ impl TypeChecker {
 
             Expr::MethodCall {
                 object,
-                method,
-                args: _,
-                ..
-            } => {
-                let object_type = self.check_expression(object)?;
-                match object_type {
-                    Type::Struct(name) => {
-                        // Handle generic struct instantiations
-                        if name.contains('(') && name.ends_with(')') {
-                            // This is a generic instantiation like "Container(int)"
-                            // Extract the base generic struct name
-                            if let Some(paren_pos) = name.find('(') {
-                                let base_name = &name[..paren_pos];
-                                let generic_method_name = format!("{}_{}", base_name, method);
-
-                                // Check if the generic method exists
-                                if let Some(_) = self.functions.get(&generic_method_name) {
-                                    // Method exists on the generic type, defer validation to monomorphization
-                                    return Ok(Type::Unknown);
-                                }
-                            }
-                        }
-
-                        // Standard method resolution for non-generic structs
-                        let method_name = format!("{}_{}", name, method);
-                        if let Some(_) = self.functions.get(&method_name) {
-                            Ok(Type::Unknown) // Return type will be determined by function signature
-                        } else {
-                            bail!("Method '{}' not found for struct type '{}'", method, name)
-                        }
-                    }
-                    Type::Generic { name, .. } => {
-                        // For generic types, look for the method on the base generic type
-                        let generic_method_name = format!("{}_{}", name, method);
-                        if let Some(_) = self.functions.get(&generic_method_name) {
-                            // Method exists on the generic type, defer validation to monomorphization
-                            Ok(Type::Unknown)
-                        } else {
-                            bail!("Method '{}' not found for generic type '{}'", method, name)
-                        }
-                    }
-                    _ => bail!(
-                        "Cannot call method '{}' on non-struct type: {}",
-                        method,
-                        object_type
-                    ),
-                }
-            }
-            Expr::AssociatedMethodCall {
                 type_name,
                 method,
                 args: _,
             } => {
-                // For associated method calls like (type T).method(args),
-                // we need to resolve the type and check if the method exists
-                let resolved_type = self.resolve_type(type_name);
-                match resolved_type {
-                    Type::Struct(name) => {
-                        // Check for method on the struct type
-                        let method_name = format!("{}_{}", name, method);
-                        if let Some(func_type) = self.functions.get(&method_name).cloned() {
-                            if let Type::Function { return_type, .. } = func_type {
-                                Ok(*return_type)
-                            } else {
-                                bail!("'{}' is not a function", method_name);
+                if let Some(obj) = object {
+                    // Instance method call (obj.method())
+                    let object_type = self.check_expression(obj)?;
+                    match object_type {
+                        Type::Struct(name) => {
+                            // Handle generic struct instantiations
+                            if name.contains('(') && name.ends_with(')') {
+                                // This is a generic instantiation like "Container(int)"
+                                // Extract the base generic struct name
+                                if let Some(paren_pos) = name.find('(') {
+                                    let base_name = &name[..paren_pos];
+                                    let generic_method_name = format!("{}_{}", base_name, method);
+
+                                    // Check if the generic method exists
+                                    if let Some(_) = self.functions.get(&generic_method_name) {
+                                        // Method exists on the generic type, defer validation to monomorphization
+                                        return Ok(Type::Unknown);
+                                    }
+                                }
                             }
-                        } else {
-                            bail!("Method '{}' not found for struct type '{}'", method, name)
+
+                            // Standard method resolution for non-generic structs
+                            let method_name = format!("{}_{}", name, method);
+                            if let Some(_) = self.functions.get(&method_name) {
+                                Ok(Type::Unknown) // Return type will be determined by function signature
+                            } else {
+                                bail!("Method '{}' not found for struct type '{}'", method, name)
+                            }
                         }
-                    }
-                    Type::Generic { name, .. } => {
-                        // For generic types, look for the method on the base generic type
-                        let generic_method_name = format!("{}_{}", name, method);
-                        if let Some(_) = self.functions.get(&generic_method_name) {
-                            // Method exists on the generic type, defer validation to monomorphization
-                            Ok(Type::Unknown)
-                        } else {
-                            bail!("Method '{}' not found for generic type '{}'", method, name)
+                        Type::Generic { name, .. } => {
+                            // For generic types, look for the method on the base generic type
+                            let generic_method_name = format!("{}_{}", name, method);
+                            if let Some(_) = self.functions.get(&generic_method_name) {
+                                // Method exists on the generic type, defer validation to monomorphization
+                                Ok(Type::Unknown)
+                            } else {
+                                bail!("Method '{}' not found for generic type '{}'", method, name)
+                            }
                         }
+                        _ => bail!(
+                            "Cannot call method '{}' on non-struct type: {}",
+                            method,
+                            object_type
+                        ),
                     }
-                    _ => bail!(
-                        "Cannot call associated method '{}' on non-struct type: {}",
-                        method,
-                        resolved_type
-                    ),
+                } else if let Some(type_name_str) = type_name {
+                    // Associated method call (Type::method())
+                    let resolved_type = self.resolve_type(type_name_str);
+                    match resolved_type {
+                        Type::Struct(name) => {
+                            // Check for method on the struct type
+                            let method_name = format!("{}_{}", name, method);
+                            if let Some(func_type) = self.functions.get(&method_name).cloned() {
+                                if let Type::Function { return_type, .. } = func_type {
+                                    Ok(*return_type)
+                                } else {
+                                    bail!("'{}' is not a function", method_name);
+                                }
+                            } else {
+                                bail!("Method '{}' not found for struct type '{}'", method, name)
+                            }
+                        }
+                        Type::Generic { name, .. } => {
+                            // For generic types, look for the method on the base generic type
+                            let generic_method_name = format!("{}_{}", name, method);
+                            if let Some(_) = self.functions.get(&generic_method_name) {
+                                // Method exists on the generic type, defer validation to monomorphization
+                                Ok(Type::Unknown)
+                            } else {
+                                bail!("Method '{}' not found for generic type '{}'", method, name)
+                            }
+                        }
+                        _ => bail!(
+                            "Cannot call associated method '{}' on non-struct type: {}",
+                            method,
+                            resolved_type
+                        ),
+                    }
+                } else {
+                    bail!("MethodCall must have either object or type_name specified")
                 }
             }
         }

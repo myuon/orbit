@@ -264,12 +264,9 @@ impl Monomorphizer {
                 self.collect_targets_from_expr(object)?;
             }
             Expr::MethodCall { object, args, .. } => {
-                self.collect_targets_from_expr(object)?;
-                for arg in args {
-                    self.collect_targets_from_expr(arg)?;
+                if let Some(obj) = object {
+                    self.collect_targets_from_expr(obj)?;
                 }
-            }
-            Expr::AssociatedMethodCall { args, .. } => {
                 for arg in args {
                     self.collect_targets_from_expr(arg)?;
                 }
@@ -685,23 +682,15 @@ impl Monomorphizer {
             }),
             Expr::MethodCall {
                 object,
-                method,
-                args,
-                object_type,
-            } => Ok(Expr::MethodCall {
-                object: Box::new(self.substitute_expression(object, substitutions)?),
-                method: method.clone(),
-                args: args
-                    .iter()
-                    .map(|arg| self.substitute_expression(arg, substitutions))
-                    .collect::<Result<Vec<_>>>()?,
-                object_type: object_type.clone(),
-            }),
-            Expr::AssociatedMethodCall {
                 type_name,
                 method,
                 args,
-            } => Ok(Expr::AssociatedMethodCall {
+            } => Ok(Expr::MethodCall {
+                object: if let Some(obj) = object {
+                    Some(Box::new(self.substitute_expression(obj, substitutions)?))
+                } else {
+                    None
+                },
                 type_name: type_name.clone(),
                 method: method.clone(),
                 args: args
@@ -978,23 +967,15 @@ impl Monomorphizer {
             }),
             Expr::MethodCall {
                 object,
-                method,
-                args,
-                object_type,
-            } => Ok(Expr::MethodCall {
-                object: Box::new(self.substitute_expression_globally(object)?),
-                method: method.clone(),
-                args: args
-                    .iter()
-                    .map(|arg| self.substitute_expression_globally(arg))
-                    .collect::<Result<Vec<_>>>()?,
-                object_type: object_type.clone(),
-            }),
-            Expr::AssociatedMethodCall {
                 type_name,
                 method,
                 args,
-            } => Ok(Expr::AssociatedMethodCall {
+            } => Ok(Expr::MethodCall {
+                object: if let Some(obj) = object {
+                    Some(Box::new(self.substitute_expression_globally(obj)?))
+                } else {
+                    None
+                },
                 type_name: type_name.clone(),
                 method: method.clone(),
                 args: args

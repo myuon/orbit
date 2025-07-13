@@ -126,13 +126,8 @@ pub enum Expr {
         field: String,
     },
     MethodCall {
-        object: Box<Expr>,
-        method: String,
-        args: Vec<Expr>,
-        object_type: Option<String>, // Struct type name, filled by type checker
-    },
-    AssociatedMethodCall {
-        type_name: String,
+        object: Option<Box<Expr>>, // None for associated calls (Type::method), Some for instance calls (obj.method)
+        type_name: Option<String>, // Type name for associated calls, filled by type checker for instance calls
         method: String,
         args: Vec<Expr>,
     },

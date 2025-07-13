@@ -244,36 +244,23 @@ impl DeadCodeEliminator {
             }
             Expr::MethodCall {
                 object,
+                type_name,
                 method,
                 args,
-                object_type,
             } => {
-                self.mark_expr_dependencies(object)?;
+                if let Some(obj) = object {
+                    self.mark_expr_dependencies(obj)?;
+                }
                 for arg in args {
                     self.mark_expr_dependencies(arg)?;
                 }
 
                 // For method calls, try to determine the mangled function name
-                if let Some(type_name) = object_type {
-                    let mangled_name = format!("{}_{}", type_name, method);
+                if let Some(type_name_str) = type_name {
+                    let mangled_name = format!("{}_{}", type_name_str, method);
                     if self.functions.contains_key(&mangled_name) {
                         self.mark_function_reachable(&mangled_name)?;
                     }
-                }
-            }
-            Expr::AssociatedMethodCall {
-                type_name,
-                method,
-                args,
-            } => {
-                for arg in args {
-                    self.mark_expr_dependencies(arg)?;
-                }
-
-                // For associated method calls, mark the mangled function name as reachable
-                let mangled_name = format!("{}_{}", type_name, method);
-                if self.functions.contains_key(&mangled_name) {
-                    self.mark_function_reachable(&mangled_name)?;
                 }
             }
             Expr::StructNew { type_name, fields } => {

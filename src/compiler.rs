@@ -130,13 +130,13 @@ impl Compiler {
 
     /// Execute a parsed program with all configured options
     fn execute_program(&mut self, program: Program) -> Result<Option<Value>> {
-        // 1. Type inference phase: analyze types and set object_type information
+        // 1. Type inference phase: analyze types and set type_name information
         let mut type_checker = TypeChecker::new();
         let mut program_with_type_info = program;
 
         // First register struct types and functions
         type_checker.check_program(&program_with_type_info)?;
-        // Then perform type inference to set object_type fields
+        // Then perform type inference to set type_name fields
         type_checker.infer_types(&mut program_with_type_info)?;
 
         // 2. Monomorphization phase: collect and instantiate generic types
@@ -640,23 +640,6 @@ impl Compiler {
             }
             crate::ast::Expr::MethodCall {
                 object,
-                method,
-                args,
-                object_type: _,
-            } => {
-                let args_str = args
-                    .iter()
-                    .map(|arg| self.format_expression(arg))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!(
-                    "{}.{}({})",
-                    self.format_expression(object),
-                    method,
-                    args_str
-                )
-            }
-            crate::ast::Expr::AssociatedMethodCall {
                 type_name,
                 method,
                 args,
@@ -666,7 +649,18 @@ impl Compiler {
                     .map(|arg| self.format_expression(arg))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("(type {}).{}({})", type_name, method, args_str)
+                if let Some(obj) = object {
+                    format!(
+                        "{}.{}({})",
+                        self.format_expression(obj),
+                        method,
+                        args_str
+                    )
+                } else if let Some(type_name) = type_name {
+                    format!("(type {}).{}({})", type_name, method, args_str)
+                } else {
+                    format!("<unknown>.{}({})", method, args_str)
+                }
             }
             crate::ast::Expr::TypeExpr { type_name } => type_name.clone(),
             crate::ast::Expr::PointerAlloc {

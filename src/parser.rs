@@ -775,10 +775,10 @@ impl Parser {
 
                             self.consume(TokenType::RightParen)?;
                             expr = Expr::MethodCall {
-                                object: Box::new(expr),
+                                object: Some(Box::new(expr)),
+                                type_name: None, // Will be filled by type checker
                                 method: field_name,
                                 args,
-                                object_type: None, // Will be filled by type checker
                             };
                         } else {
                             // Regular field access
@@ -1011,8 +1011,9 @@ impl Parser {
                         }
                         self.consume(TokenType::RightParen)?;
                         
-                        Ok(Expr::AssociatedMethodCall {
-                            type_name,
+                        Ok(Expr::MethodCall {
+                            object: None, // No object for associated method calls
+                            type_name: Some(type_name),
                             method,
                             args,
                         })
@@ -1216,19 +1217,23 @@ type Point = struct {
 
         if let Expr::MethodCall {
             object,
+            type_name,
             method,
             args,
-            object_type,
         } = expr
         {
-            if let Expr::Identifier(obj_name) = object.as_ref() {
-                assert_eq!(obj_name, "p");
+            if let Some(obj) = object {
+                if let Expr::Identifier(obj_name) = obj.as_ref() {
+                    assert_eq!(obj_name, "p");
+                } else {
+                    panic!("Expected identifier for object");
+                }
             } else {
-                panic!("Expected identifier for object");
+                panic!("Expected object for instance method call");
             }
             assert_eq!(method, "sum");
             assert_eq!(args.len(), 0);
-            assert_eq!(object_type, None); // Should be None before type checking
+            assert_eq!(type_name, None); // Should be None before type checking
         } else {
             panic!("Expected method call, got: {:?}", expr);
         }

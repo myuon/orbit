@@ -161,12 +161,9 @@ impl CodeGenerator {
                 }
             }
             Expr::MethodCall { object, args, .. } => {
-                self.collect_string_constants_from_expr(object);
-                for arg in args {
-                    self.collect_string_constants_from_expr(arg);
+                if let Some(obj) = object {
+                    self.collect_string_constants_from_expr(obj);
                 }
-            }
-            Expr::AssociatedMethodCall { args, .. } => {
                 for arg in args {
                     self.collect_string_constants_from_expr(arg);
                 }
@@ -772,9 +769,6 @@ impl CodeGenerator {
             Expr::MethodCall { .. } => {
                 panic!("MethodCall should have been desugared before code generation");
             }
-            Expr::AssociatedMethodCall { .. } => {
-                panic!("AssociatedMethodCall should have been desugared before code generation");
-            }
 
             Expr::Alloc { element_type, size } => {
                 // Compile the size expression
@@ -927,10 +921,6 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
 
         Expr::MethodCall { .. } => {
             panic!("MethodCall should have been desugared before code generation");
-        }
-
-        Expr::AssociatedMethodCall { .. } => {
-            panic!("AssociatedMethodCall should have been desugared before code generation");
         }
 
         Expr::Alloc { element_type, size } => {
