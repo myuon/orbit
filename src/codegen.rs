@@ -343,8 +343,6 @@ impl CodeGenerator {
             self.compile_statement(stmt);
         }
 
-        self.emit_return_sequence();
-
         func_start
     }
 
