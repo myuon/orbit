@@ -589,6 +589,11 @@ impl TypeChecker {
         if struct_decl.name.contains('(') && struct_decl.name.ends_with(')') {
             return Ok(());
         }
+
+        // Check for duplicate struct definition
+        if self.structs.contains_key(&struct_decl.name) {
+            bail!("Struct '{}' is already defined", struct_decl.name);
+        }
         // For generic structs, we register the generic template
         // The actual instantiation will happen during monomorphization
         if !struct_decl.type_params.is_empty() {

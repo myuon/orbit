@@ -23,6 +23,7 @@ The test runner:
 - **Immutability**: `string_immutable_assignment.ob` - Tests immutability enforcement
 - **Syntax Errors**: `syntax_error.ob` - Tests parser error handling
 - **Variable Resolution**: `undefined_variable.ob` - Tests variable scope validation
+- **Duplicate Definitions**: `duplicate_struct_definition.ob` - Tests duplicate struct definition detection
 
 ## Adding New Error Tests
 
