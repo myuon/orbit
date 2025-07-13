@@ -131,6 +131,11 @@ pub enum Expr {
         args: Vec<Expr>,
         object_type: Option<String>, // Struct type name, filled by type checker
     },
+    AssociatedMethodCall {
+        type_name: String,
+        method: String,
+        args: Vec<Expr>,
+    },
     TypeExpr {
         type_name: String,
     },

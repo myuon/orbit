@@ -1,3 +1,8 @@
+type array(T: type) = struct {
+  data: [*]T,
+  length: int,
+};
+
 fun main() do
   let myArray = new array(int) { .data = alloc(int, 5), .length = 5 };
   let data = myArray.data;

@@ -269,6 +269,11 @@ impl Monomorphizer {
                     self.collect_targets_from_expr(arg)?;
                 }
             }
+            Expr::AssociatedMethodCall { args, .. } => {
+                for arg in args {
+                    self.collect_targets_from_expr(arg)?;
+                }
+            }
             Expr::Alloc { size, .. } => {
                 self.collect_targets_from_expr(size)?;
             }
@@ -692,6 +697,18 @@ impl Monomorphizer {
                     .collect::<Result<Vec<_>>>()?,
                 object_type: object_type.clone(),
             }),
+            Expr::AssociatedMethodCall {
+                type_name,
+                method,
+                args,
+            } => Ok(Expr::AssociatedMethodCall {
+                type_name: type_name.clone(),
+                method: method.clone(),
+                args: args
+                    .iter()
+                    .map(|arg| self.substitute_expression(arg, substitutions))
+                    .collect::<Result<Vec<_>>>()?,
+            }),
         }
     }
 
@@ -972,6 +989,18 @@ impl Monomorphizer {
                     .map(|arg| self.substitute_expression_globally(arg))
                     .collect::<Result<Vec<_>>>()?,
                 object_type: object_type.clone(),
+            }),
+            Expr::AssociatedMethodCall {
+                type_name,
+                method,
+                args,
+            } => Ok(Expr::AssociatedMethodCall {
+                type_name: type_name.clone(),
+                method: method.clone(),
+                args: args
+                    .iter()
+                    .map(|arg| self.substitute_expression_globally(arg))
+                    .collect::<Result<Vec<_>>>()?,
             }),
         }
     }

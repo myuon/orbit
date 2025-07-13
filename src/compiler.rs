@@ -118,11 +118,11 @@ impl Compiler {
             return Ok(code.to_string());
         }
 
-        let std_lib_path = "lib/std.io";
+        let std_lib_path = "lib/std.ob";
         match std::fs::read_to_string(std_lib_path) {
             Ok(std_content) => Ok(format!("{}\n{}", std_content, code)),
             Err(_) => {
-                // If std.io doesn't exist, just return the original code
+                // If std.ob doesn't exist, just return the original code
                 Ok(code.to_string())
             }
         }
@@ -655,6 +655,18 @@ impl Compiler {
                     method,
                     args_str
                 )
+            }
+            crate::ast::Expr::AssociatedMethodCall {
+                type_name,
+                method,
+                args,
+            } => {
+                let args_str = args
+                    .iter()
+                    .map(|arg| self.format_expression(arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("(type {}).{}({})", type_name, method, args_str)
             }
             crate::ast::Expr::TypeExpr { type_name } => type_name.clone(),
             crate::ast::Expr::PointerAlloc {

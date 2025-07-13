@@ -242,6 +242,28 @@ impl Desugarer {
                 })
             }
 
+            // Associated method call (type T).method(args) - convert to function call
+            Expr::AssociatedMethodCall {
+                type_name,
+                method,
+                args,
+            } => {
+                // Desugar the arguments
+                let mut desugared_args = Vec::new();
+                for arg in args {
+                    desugared_args.push(self.desugar_expression(arg)?);
+                }
+
+                // Convert to a regular function call with mangled name
+                // For (type T).method(args), this becomes T_method(args)
+                let mangled_name = format!("{}_{}", type_name, method);
+
+                Ok(Expr::Call {
+                    callee: Box::new(Expr::Identifier(mangled_name)),
+                    args: desugared_args,
+                })
+            }
+
             // Recursively desugar other expressions
             Expr::Binary { left, op, right } => {
                 let desugared_left = self.desugar_expression(*left)?;

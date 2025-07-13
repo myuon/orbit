@@ -166,6 +166,11 @@ impl CodeGenerator {
                     self.collect_string_constants_from_expr(arg);
                 }
             }
+            Expr::AssociatedMethodCall { args, .. } => {
+                for arg in args {
+                    self.collect_string_constants_from_expr(arg);
+                }
+            }
             Expr::FieldAccess { object, .. } => {
                 self.collect_string_constants_from_expr(object);
             }
@@ -767,6 +772,9 @@ impl CodeGenerator {
             Expr::MethodCall { .. } => {
                 panic!("MethodCall should have been desugared before code generation");
             }
+            Expr::AssociatedMethodCall { .. } => {
+                panic!("AssociatedMethodCall should have been desugared before code generation");
+            }
 
             Expr::Alloc { element_type, size } => {
                 // Compile the size expression
@@ -919,6 +927,10 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
 
         Expr::MethodCall { .. } => {
             panic!("MethodCall should have been desugared before code generation");
+        }
+
+        Expr::AssociatedMethodCall { .. } => {
+            panic!("AssociatedMethodCall should have been desugared before code generation");
         }
 
         Expr::Alloc { element_type, size } => {

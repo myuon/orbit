@@ -261,6 +261,21 @@ impl DeadCodeEliminator {
                     }
                 }
             }
+            Expr::AssociatedMethodCall {
+                type_name,
+                method,
+                args,
+            } => {
+                for arg in args {
+                    self.mark_expr_dependencies(arg)?;
+                }
+
+                // For associated method calls, mark the mangled function name as reachable
+                let mangled_name = format!("{}_{}", type_name, method);
+                if self.functions.contains_key(&mangled_name) {
+                    self.mark_function_reachable(&mangled_name)?;
+                }
+            }
             Expr::StructNew { type_name, fields } => {
                 self.mark_type_reachable(type_name);
                 // Mark the base type as reachable as well (for generic instantiations)

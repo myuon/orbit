@@ -19,7 +19,7 @@ fun main() do
   c1.increment();
   let result1 = c1.get_value();
   
-  let c2 = Counter_create_with_value(10);
+  let c2 = (type Counter).create_with_value(10);
   let result2 = c2.get_value();
   
   return result1 + result2;

@@ -977,9 +977,55 @@ impl Parser {
             }
             TokenType::LeftParen => {
                 self.advance();
-                let expr = self.parse_expression()?;
-                self.consume(TokenType::RightParen)?;
-                Ok(expr)
+                
+                // Check if this is a type expression for associated method call
+                if matches!(self.current_token().token_type, TokenType::Type) {
+                    self.advance(); // consume 'type'
+                    let type_name = self.parse_type_name()?;
+                    self.consume(TokenType::RightParen)?;
+                    
+                    // Now check for .method(args) after the closing paren
+                    if matches!(self.current_token().token_type, TokenType::Dot) {
+                        self.advance(); // consume '.'
+                        let method = match &self.current_token().token_type {
+                            TokenType::Identifier(name) => {
+                                let n = name.clone();
+                                self.advance();
+                                n
+                            }
+                            _ => bail!("Expected method name after '.'"),
+                        };
+                        
+                        // Parse method arguments
+                        self.consume(TokenType::LeftParen)?;
+                        let mut args = Vec::new();
+                        if !matches!(self.current_token().token_type, TokenType::RightParen) {
+                            loop {
+                                args.push(self.parse_expression()?);
+                                if matches!(self.current_token().token_type, TokenType::Comma) {
+                                    self.advance();
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                        self.consume(TokenType::RightParen)?;
+                        
+                        Ok(Expr::AssociatedMethodCall {
+                            type_name,
+                            method,
+                            args,
+                        })
+                    } else {
+                        // Just a type expression in parentheses
+                        Ok(Expr::TypeExpr { type_name })
+                    }
+                } else {
+                    // Regular parenthesized expression
+                    let expr = self.parse_expression()?;
+                    self.consume(TokenType::RightParen)?;
+                    Ok(expr)
+                }
             }
             TokenType::Type => {
                 self.advance(); // consume 'type'
