@@ -89,11 +89,6 @@ pub enum StructNewKind {
     Pattern, // new(struct) Type { ... }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AllocKind {
-    Sized,   // alloc(type, size)
-    Pointer, // pointer(type, [values])
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -145,9 +140,7 @@ pub enum Expr {
     },
     Alloc {
         element_type: String,
-        kind: AllocKind,
-        size: Option<Box<Expr>>,           // Some for Sized, None for Pointer
-        initial_values: Option<Vec<Expr>>, // None for Sized, Some for Pointer
+        size: Box<Expr>,
     },
 }
 

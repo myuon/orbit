@@ -637,26 +637,13 @@ impl Compiler {
             }
             crate::ast::Expr::Alloc {
                 element_type,
-                kind: _,
                 size,
-                initial_values,
             } => {
-                if let Some(size_expr) = size {
-                    format!(
-                        "alloc({}, {})",
-                        element_type,
-                        self.format_expression(size_expr)
-                    )
-                } else if let Some(values) = initial_values {
-                    let values_str = values
-                        .iter()
-                        .map(|val| self.format_expression(val))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    format!("pointer({}, {})", element_type, values_str)
-                } else {
-                    format!("alloc({}, <invalid>)", element_type)
-                }
+                format!(
+                    "alloc({}, {})",
+                    element_type,
+                    self.format_expression(size)
+                )
             }
             crate::ast::Expr::MethodCall {
                 object,

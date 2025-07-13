@@ -255,19 +255,10 @@ impl Monomorphizer {
                 }
             }
             Expr::Alloc {
-                kind: _,
+                element_type: _,
                 size,
-                initial_values,
-                ..
             } => {
-                if let Some(size_expr) = size {
-                    self.collect_targets_from_expr(size_expr)?;
-                }
-                if let Some(values) = initial_values {
-                    for value in values {
-                        self.collect_targets_from_expr(value)?;
-                    }
-                }
+                self.collect_targets_from_expr(size)?;
             }
             // Simple expressions don't need recursive processing
             Expr::Int(_)
@@ -582,29 +573,12 @@ impl Monomorphizer {
             }),
             Expr::Alloc {
                 element_type,
-                kind,
                 size,
-                initial_values,
             } => Ok(Expr::Alloc {
                 element_type: substitute_type_in_string(element_type, substitutions),
-                kind: *kind,
-                size: if let Some(size_expr) = size {
-                    Some(Box::new(
-                        self.substitute_expression(size_expr, substitutions)?,
-                    ))
-                } else {
-                    None
-                },
-                initial_values: if let Some(values) = initial_values {
-                    Some(
-                        values
-                            .iter()
-                            .map(|val| self.substitute_expression(val, substitutions))
-                            .collect::<Result<Vec<_>>>()?,
-                    )
-                } else {
-                    None
-                },
+                size: Box::new(
+                    self.substitute_expression(size, substitutions)?,
+                ),
             }),
 
             // Complex expressions that may contain type information
@@ -841,27 +815,10 @@ impl Monomorphizer {
             }),
             Expr::Alloc {
                 element_type,
-                kind,
                 size,
-                initial_values,
             } => Ok(Expr::Alloc {
                 element_type: substitute_type_in_string_globally(element_type),
-                kind: *kind,
-                size: if let Some(size_expr) = size {
-                    Some(Box::new(self.substitute_expression_globally(size_expr)?))
-                } else {
-                    None
-                },
-                initial_values: if let Some(values) = initial_values {
-                    Some(
-                        values
-                            .iter()
-                            .map(|val| self.substitute_expression_globally(val))
-                            .collect::<Result<Vec<_>>>()?,
-                    )
-                } else {
-                    None
-                },
+                size: Box::new(self.substitute_expression_globally(size)?),
             }),
 
             // Complex expressions

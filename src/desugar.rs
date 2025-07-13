@@ -351,29 +351,12 @@ impl Desugarer {
 
             Expr::Alloc {
                 element_type,
-                kind,
                 size,
-                initial_values,
             } => {
-                let desugared_size = if let Some(size_expr) = size {
-                    Some(Box::new(self.desugar_expression(*size_expr)?))
-                } else {
-                    None
-                };
-                let desugared_initial_values = if let Some(values) = initial_values {
-                    let mut desugared_values = Vec::new();
-                    for value in values {
-                        desugared_values.push(self.desugar_expression(value)?);
-                    }
-                    Some(desugared_values)
-                } else {
-                    None
-                };
+                let desugared_size = Box::new(self.desugar_expression(*size)?);
                 Ok(Expr::Alloc {
                     element_type,
-                    kind,
                     size: desugared_size,
-                    initial_values: desugared_initial_values,
                 })
             }
 

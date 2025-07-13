@@ -424,19 +424,10 @@ impl TypeChecker {
             }
 
             Expr::Alloc {
-                kind: _,
+                element_type: _,
                 size,
-                initial_values,
-                ..
             } => {
-                if let Some(size_expr) = size {
-                    self.infer_expression_types(size_expr)?;
-                }
-                if let Some(values) = initial_values {
-                    for value in values {
-                        self.infer_expression_types(value)?;
-                    }
-                }
+                self.infer_expression_types(size)?;
                 Ok(())
             }
 
@@ -1304,32 +1295,14 @@ impl TypeChecker {
 
             Expr::Alloc {
                 element_type,
-                kind: _,
                 size,
-                initial_values,
             } => {
                 let element_type = self.resolve_type(element_type);
 
-                if let Some(size_expr) = size {
-                    // Size-based allocation
-                    let size_type = self.check_expression(size_expr)?;
-                    if !size_type.is_compatible_with(&Type::Int) {
-                        bail!("Allocation size must be a number, got {}", size_type);
-                    }
-                } else if let Some(values) = initial_values {
-                    // Value-based allocation
-                    for value_expr in values {
-                        let value_type = self.check_expression(value_expr)?;
-                        if !value_type.is_compatible_with(&element_type) {
-                            bail!(
-                                "Pointer element type mismatch: element type is {}, got {}",
-                                element_type,
-                                value_type
-                            );
-                        }
-                    }
-                } else {
-                    bail!("Alloc must have either size or initial_values");
+                // Size-based allocation
+                let size_type = self.check_expression(size)?;
+                if !size_type.is_compatible_with(&Type::Int) {
+                    bail!("Allocation size must be a number, got {}", size_type);
                 }
 
                 Ok(Type::Pointer(Box::new(element_type)))

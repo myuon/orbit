@@ -1,5 +1,5 @@
 use crate::ast::{
-    AllocKind, BinaryOp, Decl, Expr, FunParam, Function, GlobalVariable, Program, Stmt, StructDecl,
+    BinaryOp, Decl, Expr, FunParam, Function, GlobalVariable, Program, Stmt, StructDecl,
     StructField, StructNewKind, Token, TokenType,
 };
 use anyhow::{bail, Result};
@@ -1057,41 +1057,7 @@ impl Parser {
 
                 Ok(Expr::Alloc {
                     element_type,
-                    kind: AllocKind::Sized,
-                    size: Some(Box::new(size)),
-                    initial_values: None,
-                })
-            }
-            TokenType::Pointer => {
-                self.advance(); // consume 'pointer'
-                self.consume(TokenType::LeftParen)?; // consume '('
-
-                // Parse element type
-                let element_type = self.parse_type_name()?;
-
-                self.consume(TokenType::Comma)?; // consume ','
-
-                // Parse initial values array
-                self.consume(TokenType::LeftBracket)?; // consume '['
-                let mut initial_values = Vec::new();
-                if !matches!(self.current_token().token_type, TokenType::RightBracket) {
-                    loop {
-                        initial_values.push(self.parse_expression()?);
-                        if matches!(self.current_token().token_type, TokenType::Comma) {
-                            self.advance();
-                        } else {
-                            break;
-                        }
-                    }
-                }
-                self.consume(TokenType::RightBracket)?; // consume ']'
-                self.consume(TokenType::RightParen)?; // consume ')'
-
-                Ok(Expr::Alloc {
-                    element_type,
-                    kind: AllocKind::Pointer,
-                    size: None,
-                    initial_values: Some(initial_values),
+                    size: Box::new(size),
                 })
             }
             _ => bail!("Unexpected token: {:?}", self.current_token().token_type),

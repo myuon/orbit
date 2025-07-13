@@ -314,19 +314,10 @@ impl DeadCodeEliminator {
             }
             Expr::Alloc {
                 element_type,
-                kind: _,
                 size,
-                initial_values,
             } => {
                 self.mark_type_reachable(element_type);
-                if let Some(size_expr) = size {
-                    self.mark_expr_dependencies(size_expr)?;
-                }
-                if let Some(values) = initial_values {
-                    for value in values {
-                        self.mark_expr_dependencies(value)?;
-                    }
-                }
+                self.mark_expr_dependencies(size)?;
             }
             Expr::TypeExpr { type_name } => {
                 self.mark_type_reachable(type_name);
