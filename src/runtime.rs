@@ -1,4 +1,5 @@
 use crate::codegen::CodeGenerator;
+use crate::label_resolution::LabelResolver;
 use crate::profiler::InstructionTimer;
 use crate::vm::Instruction;
 use crate::{ast::Program, profiler::Profiler};
@@ -494,6 +495,40 @@ impl VM {
                 return Ok(ControlFlow::Continue);
             }
 
+            Instruction::JumpRel(offset) => {
+                let new_pc = (self.pc as i32 + offset) as usize;
+                self.pc = new_pc;
+
+                // Print debug visualization (heap and/or stack) if enabled
+                self.print_debug_visualization(pc_before_execution, instruction);
+
+                return Ok(ControlFlow::Continue);
+            }
+
+            Instruction::JumpIfZeroRel(offset) => {
+                if self.stack.is_empty() {
+                    return Err("Stack underflow for JumpIfZeroRel".to_string());
+                }
+                let value = self.stack.pop().unwrap();
+                let should_jump = match value {
+                    Value::Int(n) => n == 0,
+                    Value::Boolean(b) => !b,
+                    Value::Byte(b) => b == 0,
+                    _ => false,
+                };
+                if should_jump {
+                    let new_pc = (self.pc as i32 + offset) as usize;
+                    self.pc = new_pc;
+                } else {
+                    self.pc += 1;
+                }
+
+                // Print debug visualization (heap and/or stack) if enabled
+                self.print_debug_visualization(pc_before_execution, instruction);
+
+                return Ok(ControlFlow::Continue);
+            }
+
             Instruction::GetLocal(offset) => {
                 let index = if *offset < 0 {
                     // Negative offset: access parameters (before BP)
@@ -607,6 +642,16 @@ impl VM {
                 } else {
                     return Err(format!("Function not found: {}", func_name));
                 }
+            }
+
+            Instruction::CallRel(offset) => {
+                let new_pc = (self.pc as i32 + offset) as usize;
+                self.pc = new_pc;
+
+                // Print debug visualization (heap and/or stack) if enabled
+                self.print_debug_visualization(pc_before_execution, instruction);
+
+                return Ok(ControlFlow::Continue);
             }
 
             Instruction::Ret => {
@@ -1591,9 +1636,13 @@ impl Runtime {
         let mut compiler = CodeGenerator::new();
         let instructions = compiler.compile_program(program);
 
+        // Apply label resolution (currently pass-through)
+        let mut label_resolver = LabelResolver::new();
+        let resolved_instructions = label_resolver.resolve_labels(instructions);
+
         // Execute on VM
         self.vm.reset();
-        self.vm.load_program(instructions);
+        self.vm.load_program(resolved_instructions);
 
         match self.vm.execute() {
             Ok(result) => Ok(Some(Value::Int(result))),
@@ -1611,10 +1660,14 @@ impl Runtime {
         let mut compiler = CodeGenerator::new();
         let instructions = compiler.compile_program(program);
 
+        // Apply label resolution (currently pass-through)
+        let mut label_resolver = LabelResolver::new();
+        let resolved_instructions = label_resolver.resolve_labels(instructions);
+
         // Execute on VM with stack printing option
         self.vm.print_stacks = print_stacks;
         self.vm.reset();
-        self.vm.load_program(instructions);
+        self.vm.load_program(resolved_instructions);
 
         match self.vm.execute() {
             Ok(result) => Ok(Some(Value::Int(result))),

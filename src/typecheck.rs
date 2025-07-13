@@ -922,7 +922,9 @@ impl TypeChecker {
                             && right_type.is_compatible_with(&Type::String)
                         {
                             Ok(Type::String)
-                        } else if left_type.is_numeric_or_unknown() && right_type.is_numeric_or_unknown() {
+                        } else if left_type.is_numeric_or_unknown()
+                            && right_type.is_numeric_or_unknown()
+                        {
                             Ok(Type::Int) // arithmetic with bytes always promotes to int
                         } else {
                             bail!("Addition operation type mismatch: {} + {} (can only add numbers/bytes or concatenate strings)", left_type, right_type);

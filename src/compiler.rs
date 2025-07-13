@@ -2,6 +2,7 @@ use crate::ast::Program;
 use crate::codegen::CodeGenerator;
 use crate::dead_code_elimination::DeadCodeEliminator;
 use crate::desugar::Desugarer;
+use crate::label_resolution::LabelResolver;
 use crate::lexer::Lexer;
 use crate::monomorphization::Monomorphizer;
 use crate::parser::Parser;
@@ -80,7 +81,10 @@ impl Compiler {
 
     /// Create a new compiler instance with specific options
     pub fn new_with_options(options: CompilerOptions) -> Self {
-        let runtime = if options.print_stacks || options.print_heaps || options.print_stacks_on_call.is_some() {
+        let runtime = if options.print_stacks
+            || options.print_heaps
+            || options.print_stacks_on_call.is_some()
+        {
             Runtime::new_with_debug_options(
                 options.print_stacks,
                 options.print_heaps,
@@ -314,7 +318,11 @@ impl Compiler {
         let mut vm_compiler = CodeGenerator::new();
         let instructions = vm_compiler.compile_program(&final_program);
 
-        Ok(instructions)
+        // 7. Label resolution phase
+        let mut label_resolver = LabelResolver::new();
+        let resolved_instructions = label_resolver.resolve_labels(instructions);
+
+        Ok(resolved_instructions)
     }
 
     /// Format a desugared program as readable code

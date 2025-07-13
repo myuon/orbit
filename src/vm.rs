@@ -33,6 +33,8 @@ pub enum Instruction {
     // Control flow
     Jump(usize),
     JumpIfZero(usize),
+    JumpRel(i32),       // Jump by relative offset
+    JumpIfZeroRel(i32), // Jump by relative offset if zero
 
     // Local variables
     GetLocal(i32),
@@ -44,6 +46,7 @@ pub enum Instruction {
 
     // Function calls
     Call(String),
+    CallRel(i32), // Call function by relative offset
     Ret,
 
     // Frame management
@@ -123,11 +126,14 @@ impl fmt::Display for Instruction {
             Instruction::Not => write!(f, "not"),
             Instruction::Jump(addr) => write!(f, "jump {}", addr),
             Instruction::JumpIfZero(addr) => write!(f, "jump_if_zero {}", addr),
+            Instruction::JumpRel(offset) => write!(f, "jump_rel {}", offset),
+            Instruction::JumpIfZeroRel(offset) => write!(f, "jump_if_zero_rel {}", offset),
             Instruction::GetLocal(offset) => write!(f, "get_local {}", offset),
             Instruction::SetLocal(offset) => write!(f, "set_local {}", offset),
             Instruction::GetGlobal(index) => write!(f, "get_global {}", index),
             Instruction::SetGlobal(index) => write!(f, "set_global {}", index),
             Instruction::Call(func_name) => write!(f, "call {}", func_name),
+            Instruction::CallRel(offset) => write!(f, "call_rel {}", offset),
             Instruction::Ret => write!(f, "ret"),
             Instruction::GetBP => write!(f, "get_bp"),
             Instruction::SetBP => write!(f, "set_bp"),
