@@ -83,6 +83,18 @@ pub enum IndexContainerType {
     String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StructNewKind {
+    Regular, // new Type { ... }
+    Pattern, // new(struct) Type { ... }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AllocKind {
+    Sized,   // alloc(type, size)
+    Pointer, // pointer(type, [values])
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Int(i64),
@@ -116,10 +128,7 @@ pub enum Expr {
     StructNew {
         type_name: String,
         fields: Vec<(String, Expr)>,
-    },
-    StructNewPattern {
-        type_name: String,
-        fields: Vec<(String, Expr)>,
+        kind: StructNewKind,
     },
     FieldAccess {
         object: Box<Expr>,
@@ -136,11 +145,9 @@ pub enum Expr {
     },
     Alloc {
         element_type: String,
-        size: Box<Expr>,
-    },
-    PointerAlloc {
-        element_type: String,
-        initial_values: Vec<Expr>,
+        kind: AllocKind,
+        size: Option<Box<Expr>>,           // Some for Sized, None for Pointer
+        initial_values: Option<Vec<Expr>>, // None for Sized, Some for Pointer
     },
 }
 

@@ -1,4 +1,4 @@
-use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl};
+use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl, StructNewKind};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
@@ -263,18 +263,11 @@ impl DeadCodeEliminator {
                     }
                 }
             }
-            Expr::StructNew { type_name, fields } => {
-                self.mark_type_reachable(type_name);
-                // Mark the base type as reachable as well (for generic instantiations)
-                if let Some(paren_pos) = type_name.find('(') {
-                    let base_type = &type_name[..paren_pos];
-                    self.mark_type_reachable(base_type);
-                }
-                for (_, field_expr) in fields {
-                    self.mark_expr_dependencies(field_expr)?;
-                }
-            }
-            Expr::StructNewPattern { type_name, fields } => {
+            Expr::StructNew {
+                type_name,
+                fields,
+                kind: _,
+            } => {
                 self.mark_type_reachable(type_name);
                 // Mark the base type as reachable as well (for generic instantiations)
                 if let Some(paren_pos) = type_name.find('(') {
@@ -286,15 +279,6 @@ impl DeadCodeEliminator {
                 }
             }
             Expr::VectorNew {
-                element_type,
-                initial_values,
-            } => {
-                self.mark_type_reachable(element_type);
-                for value in initial_values {
-                    self.mark_expr_dependencies(value)?;
-                }
-            }
-            Expr::PointerAlloc {
                 element_type,
                 initial_values,
             } => {
@@ -328,9 +312,21 @@ impl DeadCodeEliminator {
             Expr::FieldAccess { object, .. } => {
                 self.mark_expr_dependencies(object)?;
             }
-            Expr::Alloc { element_type, size } => {
+            Expr::Alloc {
+                element_type,
+                kind: _,
+                size,
+                initial_values,
+            } => {
                 self.mark_type_reachable(element_type);
-                self.mark_expr_dependencies(size)?;
+                if let Some(size_expr) = size {
+                    self.mark_expr_dependencies(size_expr)?;
+                }
+                if let Some(values) = initial_values {
+                    for value in values {
+                        self.mark_expr_dependencies(value)?;
+                    }
+                }
             }
             Expr::TypeExpr { type_name } => {
                 self.mark_type_reachable(type_name);
@@ -519,6 +515,7 @@ mod tests {
                                     ("x".to_string(), Expr::Int(1)),
                                     ("y".to_string(), Expr::Int(2)),
                                 ],
+                                kind: StructNewKind::Regular,
                             },
                         },
                         Stmt::Return(Expr::Int(0)),

@@ -1,4 +1,4 @@
-use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl};
+use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl, StructNewKind};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
@@ -295,19 +295,6 @@ impl Desugarer {
                     initial_values: desugared_values,
                 })
             }
-            Expr::PointerAlloc {
-                element_type,
-                initial_values,
-            } => {
-                let mut desugared_values = Vec::new();
-                for value in initial_values {
-                    desugared_values.push(self.desugar_expression(value)?);
-                }
-                Ok(Expr::PointerAlloc {
-                    element_type,
-                    initial_values: desugared_values,
-                })
-            }
             Expr::Index {
                 container,
                 index,
@@ -338,7 +325,11 @@ impl Desugarer {
                     initial_pairs: desugared_pairs,
                 })
             }
-            Expr::StructNew { type_name, fields } => {
+            Expr::StructNew {
+                type_name,
+                fields,
+                kind,
+            } => {
                 let mut desugared_fields = Vec::new();
                 for (field_name, field_value) in fields {
                     let desugared_value = self.desugar_expression(field_value)?;
@@ -347,17 +338,7 @@ impl Desugarer {
                 Ok(Expr::StructNew {
                     type_name,
                     fields: desugared_fields,
-                })
-            }
-            Expr::StructNewPattern { type_name, fields } => {
-                let mut desugared_fields = Vec::new();
-                for (field_name, field_value) in fields {
-                    let desugared_value = self.desugar_expression(field_value)?;
-                    desugared_fields.push((field_name, desugared_value));
-                }
-                Ok(Expr::StructNewPattern {
-                    type_name,
-                    fields: desugared_fields,
+                    kind,
                 })
             }
             Expr::FieldAccess { object, field } => {
@@ -368,11 +349,31 @@ impl Desugarer {
                 })
             }
 
-            Expr::Alloc { element_type, size } => {
-                let desugared_size = self.desugar_expression(*size)?;
+            Expr::Alloc {
+                element_type,
+                kind,
+                size,
+                initial_values,
+            } => {
+                let desugared_size = if let Some(size_expr) = size {
+                    Some(Box::new(self.desugar_expression(*size_expr)?))
+                } else {
+                    None
+                };
+                let desugared_initial_values = if let Some(values) = initial_values {
+                    let mut desugared_values = Vec::new();
+                    for value in values {
+                        desugared_values.push(self.desugar_expression(value)?);
+                    }
+                    Some(desugared_values)
+                } else {
+                    None
+                };
                 Ok(Expr::Alloc {
                     element_type,
-                    size: Box::new(desugared_size),
+                    kind,
+                    size: desugared_size,
+                    initial_values: desugared_initial_values,
                 })
             }
 
@@ -556,8 +557,8 @@ mod tests {
     fn test_struct_new_pattern_desugaring() {
         let mut desugarer = Desugarer::new();
 
-        // Create a StructNewPattern expression with a nested expression
-        let struct_new_pattern = Expr::StructNewPattern {
+        // Create a StructNew expression with kind=Pattern and a nested expression
+        let struct_new_pattern = Expr::StructNew {
             type_name: "Point".to_string(),
             fields: vec![
                 ("x".to_string(), Expr::Int(5)),
@@ -570,12 +571,18 @@ mod tests {
                     },
                 ),
             ],
+            kind: StructNewKind::Pattern,
         };
 
         let result = desugarer.desugar_expression(struct_new_pattern).unwrap();
 
-        // Should desugar nested expressions while preserving the StructNewPattern structure
-        if let Expr::StructNewPattern { type_name, fields } = result {
+        // Should desugar nested expressions while preserving the StructNew structure
+        if let Expr::StructNew {
+            type_name,
+            fields,
+            kind: StructNewKind::Pattern,
+        } = result
+        {
             assert_eq!(type_name, "Point");
             assert_eq!(fields.len(), 2);
 
@@ -605,7 +612,7 @@ mod tests {
                 panic!("Expected binary expression in second field");
             }
         } else {
-            panic!("Expected StructNewPattern result");
+            panic!("Expected StructNew result with kind=Pattern");
         }
     }
 

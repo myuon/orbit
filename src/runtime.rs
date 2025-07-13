@@ -1107,16 +1107,17 @@ impl VM {
             }
 
             Instruction::PointerAlloc => {
-                // Stack: [element_type_string] [size]
-                // Allocate pointer with specified type and size
+                // Handle two cases:
+                // Case 1: [element_type_string] [size] - allocate with size, init to zero
+                // Case 2: [value1, value2, ..., valueN, count, element_type_string] - allocate with initial values
                 if self.stack.len() < 2 {
                     return Err("Stack underflow for PointerAlloc".to_string());
                 }
 
                 let element_type_ref = self.stack.pop().unwrap();
-                let size = match self.stack.pop().unwrap() {
+                let size_or_count = match self.stack.pop().unwrap() {
                     Value::Int(n) => n as usize,
-                    _ => return Err("PointerAlloc requires a number for size".to_string()),
+                    _ => return Err("PointerAlloc requires a number for size or count".to_string()),
                 };
 
                 // Extract element type name from address-based string
@@ -1127,15 +1128,37 @@ impl VM {
                     }
                 };
 
-                // Calculate sizeof(element_type) * size
-                let element_size = self.sizeof_type(&element_type);
-                let total_size = element_size * size;
+                // Check if we have enough values on the stack for initial values case
+                if self.stack.len() >= size_or_count {
+                    // Case 2: We have initial values on the stack
+                    let mut values = Vec::new();
+                    // Pop initial values in reverse order (they were pushed in forward order)
+                    let mut temp_values = Vec::new();
+                    for _ in 0..size_or_count {
+                        if self.stack.is_empty() {
+                            return Err("Stack underflow while reading initial values".to_string());
+                        }
+                        temp_values.push(self.stack.pop().unwrap());
+                    }
+                    // Reverse to get the correct order
+                    temp_values.reverse();
+                    values.extend(temp_values);
+                    
+                    let heap_index = self.heap.len();
+                    self.heap.push(HeapObject::Pointer(values));
+                    self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
+                } else {
+                    // Case 1: Allocate with size, init to zero
+                    let size = size_or_count;
+                    let element_size = self.sizeof_type(&element_type);
+                    let total_size = element_size * size;
 
-                // Create pointer with total_size bytes, initialized to zero
-                let values = vec![Value::Int(0); total_size];
-                let heap_index = self.heap.len();
-                self.heap.push(HeapObject::Pointer(values));
-                self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
+                    // Create pointer with total_size bytes, initialized to zero
+                    let values = vec![Value::Int(0); total_size];
+                    let heap_index = self.heap.len();
+                    self.heap.push(HeapObject::Pointer(values));
+                    self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
+                }
             }
 
             Instruction::PointerIndex => {

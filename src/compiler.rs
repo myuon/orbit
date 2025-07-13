@@ -1,4 +1,4 @@
-use crate::ast::Program;
+use crate::ast::{Program, StructNewKind};
 use crate::codegen::CodeGenerator;
 use crate::dead_code_elimination::DeadCodeEliminator;
 use crate::desugar::Desugarer;
@@ -590,21 +590,21 @@ impl Compiler {
             crate::ast::Expr::FieldAccess { object, field } => {
                 format!("{}.{}", self.format_expression(object), field)
             }
-            crate::ast::Expr::StructNew { type_name, fields } => {
+            crate::ast::Expr::StructNew {
+                type_name,
+                fields,
+                kind,
+            } => {
                 let fields_str = fields
                     .iter()
                     .map(|(name, expr)| format!(".{} = {}", name, self.format_expression(expr)))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("new {} {{ {} }}", type_name, fields_str)
-            }
-            crate::ast::Expr::StructNewPattern { type_name, fields } => {
-                let fields_str = fields
-                    .iter()
-                    .map(|(name, expr)| format!(".{} = {}", name, self.format_expression(expr)))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("new(struct) {} {{ {} }}", type_name, fields_str)
+                if kind == &StructNewKind::Pattern {
+                    format!("new(struct) {} {{ {} }}", type_name, fields_str)
+                } else {
+                    format!("new {} {{ {} }}", type_name, fields_str)
+                }
             }
             crate::ast::Expr::VectorNew {
                 element_type,
@@ -635,8 +635,28 @@ impl Compiler {
                     .join(", ");
                 format!("map({}, {}, {})", key_type, value_type, entries_str)
             }
-            crate::ast::Expr::Alloc { element_type, size } => {
-                format!("alloc({}, {})", element_type, self.format_expression(size))
+            crate::ast::Expr::Alloc {
+                element_type,
+                kind: _,
+                size,
+                initial_values,
+            } => {
+                if let Some(size_expr) = size {
+                    format!(
+                        "alloc({}, {})",
+                        element_type,
+                        self.format_expression(size_expr)
+                    )
+                } else if let Some(values) = initial_values {
+                    let values_str = values
+                        .iter()
+                        .map(|val| self.format_expression(val))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("pointer({}, {})", element_type, values_str)
+                } else {
+                    format!("alloc({}, <invalid>)", element_type)
+                }
             }
             crate::ast::Expr::MethodCall {
                 object,
@@ -650,12 +670,7 @@ impl Compiler {
                     .collect::<Vec<_>>()
                     .join(", ");
                 if let Some(obj) = object {
-                    format!(
-                        "{}.{}({})",
-                        self.format_expression(obj),
-                        method,
-                        args_str
-                    )
+                    format!("{}.{}({})", self.format_expression(obj), method, args_str)
                 } else if let Some(type_name) = type_name {
                     format!("(type {}).{}({})", type_name, method, args_str)
                 } else {
@@ -663,17 +678,6 @@ impl Compiler {
                 }
             }
             crate::ast::Expr::TypeExpr { type_name } => type_name.clone(),
-            crate::ast::Expr::PointerAlloc {
-                element_type,
-                initial_values,
-            } => {
-                let values_str = initial_values
-                    .iter()
-                    .map(|val| self.format_expression(val))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("pointer({}, {})", element_type, values_str)
-            }
         }
     }
 

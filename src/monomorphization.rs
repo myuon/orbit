@@ -202,23 +202,11 @@ impl Monomorphizer {
                     self.collect_targets_from_expr(arg)?;
                 }
             }
-            Expr::StructNew { type_name, fields } => {
-                // Check if this is a generic struct instantiation
-                if let Some(generic_type) = self.parse_generic_type(type_name) {
-                    if let Type::Generic { name, args } = generic_type {
-                        // Only add as target if the struct is actually registered as generic
-                        if self.generic_structs.contains_key(&name) {
-                            self.add_target(MonomorphizationTarget { symbol: name, args });
-                        }
-                    }
-                }
-
-                // Recursively check field expressions
-                for (_, field_expr) in fields {
-                    self.collect_targets_from_expr(field_expr)?;
-                }
-            }
-            Expr::StructNewPattern { type_name, fields } => {
+            Expr::StructNew {
+                type_name,
+                fields,
+                kind: _,
+            } => {
                 // Check if this is a generic struct instantiation
                 if let Some(generic_type) = self.parse_generic_type(type_name) {
                     if let Type::Generic { name, args } = generic_type {
@@ -235,11 +223,6 @@ impl Monomorphizer {
                 }
             }
             Expr::VectorNew { initial_values, .. } => {
-                for value in initial_values {
-                    self.collect_targets_from_expr(value)?;
-                }
-            }
-            Expr::PointerAlloc { initial_values, .. } => {
                 for value in initial_values {
                     self.collect_targets_from_expr(value)?;
                 }
@@ -271,8 +254,20 @@ impl Monomorphizer {
                     self.collect_targets_from_expr(arg)?;
                 }
             }
-            Expr::Alloc { size, .. } => {
-                self.collect_targets_from_expr(size)?;
+            Expr::Alloc {
+                kind: _,
+                size,
+                initial_values,
+                ..
+            } => {
+                if let Some(size_expr) = size {
+                    self.collect_targets_from_expr(size_expr)?;
+                }
+                if let Some(values) = initial_values {
+                    for value in values {
+                        self.collect_targets_from_expr(value)?;
+                    }
+                }
             }
             // Simple expressions don't need recursive processing
             Expr::Int(_)
@@ -585,9 +580,31 @@ impl Monomorphizer {
             Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr {
                 type_name: substitute_type_in_string(type_name, substitutions),
             }),
-            Expr::Alloc { element_type, size } => Ok(Expr::Alloc {
+            Expr::Alloc {
+                element_type,
+                kind,
+                size,
+                initial_values,
+            } => Ok(Expr::Alloc {
                 element_type: substitute_type_in_string(element_type, substitutions),
-                size: Box::new(self.substitute_expression(size, substitutions)?),
+                kind: *kind,
+                size: if let Some(size_expr) = size {
+                    Some(Box::new(
+                        self.substitute_expression(size_expr, substitutions)?,
+                    ))
+                } else {
+                    None
+                },
+                initial_values: if let Some(values) = initial_values {
+                    Some(
+                        values
+                            .iter()
+                            .map(|val| self.substitute_expression(val, substitutions))
+                            .collect::<Result<Vec<_>>>()?,
+                    )
+                } else {
+                    None
+                },
             }),
 
             // Complex expressions that may contain type information
@@ -610,16 +627,6 @@ impl Monomorphizer {
                 element_type,
                 initial_values,
             } => Ok(Expr::VectorNew {
-                element_type: substitute_type_in_string(element_type, substitutions),
-                initial_values: initial_values
-                    .iter()
-                    .map(|val| self.substitute_expression(val, substitutions))
-                    .collect::<Result<Vec<_>>>()?,
-            }),
-            Expr::PointerAlloc {
-                element_type,
-                initial_values,
-            } => Ok(Expr::PointerAlloc {
                 element_type: substitute_type_in_string(element_type, substitutions),
                 initial_values: initial_values
                     .iter()
@@ -652,7 +659,11 @@ impl Monomorphizer {
                     })
                     .collect::<Result<Vec<_>>>()?,
             }),
-            Expr::StructNew { type_name, fields } => Ok(Expr::StructNew {
+            Expr::StructNew {
+                type_name,
+                fields,
+                kind,
+            } => Ok(Expr::StructNew {
                 type_name: substitute_type_in_string(type_name, substitutions),
                 fields: fields
                     .iter()
@@ -663,18 +674,7 @@ impl Monomorphizer {
                         ))
                     })
                     .collect::<Result<Vec<_>>>()?,
-            }),
-            Expr::StructNewPattern { type_name, fields } => Ok(Expr::StructNewPattern {
-                type_name: substitute_type_in_string(type_name, substitutions),
-                fields: fields
-                    .iter()
-                    .map(|(name, expr)| {
-                        Ok((
-                            name.clone(),
-                            self.substitute_expression(expr, substitutions)?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>>>()?,
+                kind: *kind,
             }),
             Expr::FieldAccess { object, field } => Ok(Expr::FieldAccess {
                 object: Box::new(self.substitute_expression(object, substitutions)?),
@@ -839,9 +839,29 @@ impl Monomorphizer {
             Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr {
                 type_name: type_name.clone(),
             }),
-            Expr::Alloc { element_type, size } => Ok(Expr::Alloc {
+            Expr::Alloc {
+                element_type,
+                kind,
+                size,
+                initial_values,
+            } => Ok(Expr::Alloc {
                 element_type: substitute_type_in_string_globally(element_type),
-                size: Box::new(self.substitute_expression_globally(size)?),
+                kind: *kind,
+                size: if let Some(size_expr) = size {
+                    Some(Box::new(self.substitute_expression_globally(size_expr)?))
+                } else {
+                    None
+                },
+                initial_values: if let Some(values) = initial_values {
+                    Some(
+                        values
+                            .iter()
+                            .map(|val| self.substitute_expression_globally(val))
+                            .collect::<Result<Vec<_>>>()?,
+                    )
+                } else {
+                    None
+                },
             }),
 
             // Complex expressions
@@ -907,16 +927,6 @@ impl Monomorphizer {
                     .map(|val| self.substitute_expression_globally(val))
                     .collect::<Result<Vec<_>>>()?,
             }),
-            Expr::PointerAlloc {
-                element_type,
-                initial_values,
-            } => Ok(Expr::PointerAlloc {
-                element_type: substitute_type_in_string_globally(element_type),
-                initial_values: initial_values
-                    .iter()
-                    .map(|val| self.substitute_expression_globally(val))
-                    .collect::<Result<Vec<_>>>()?,
-            }),
             Expr::Index {
                 container,
                 index,
@@ -943,7 +953,11 @@ impl Monomorphizer {
                     })
                     .collect::<Result<Vec<_>>>()?,
             }),
-            Expr::StructNew { type_name, fields } => Ok(Expr::StructNew {
+            Expr::StructNew {
+                type_name,
+                fields,
+                kind,
+            } => Ok(Expr::StructNew {
                 type_name: substitute_type_in_string_globally(type_name),
                 fields: fields
                     .iter()
@@ -951,15 +965,7 @@ impl Monomorphizer {
                         Ok((name.clone(), self.substitute_expression_globally(expr)?))
                     })
                     .collect::<Result<Vec<_>>>()?,
-            }),
-            Expr::StructNewPattern { type_name, fields } => Ok(Expr::StructNewPattern {
-                type_name: substitute_type_in_string_globally(type_name),
-                fields: fields
-                    .iter()
-                    .map(|(name, expr)| {
-                        Ok((name.clone(), self.substitute_expression_globally(expr)?))
-                    })
-                    .collect::<Result<Vec<_>>>()?,
+                kind: *kind,
             }),
             Expr::FieldAccess { object, field } => Ok(Expr::FieldAccess {
                 object: Box::new(self.substitute_expression_globally(object)?),

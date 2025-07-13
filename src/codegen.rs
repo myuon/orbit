@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     ast::{
-        BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, Program, Stmt,
+        AllocKind, BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, Program, Stmt,
         StructDecl,
     },
     vm::Instruction,
@@ -187,9 +187,19 @@ impl CodeGenerator {
                     self.collect_string_constants_from_expr(value);
                 }
             }
-            Expr::PointerAlloc { initial_values, .. } => {
-                for value in initial_values {
-                    self.collect_string_constants_from_expr(value);
+            Expr::Alloc {
+                kind: _,
+                initial_values,
+                size,
+                ..
+            } => {
+                if let Some(values) = initial_values {
+                    for value in values {
+                        self.collect_string_constants_from_expr(value);
+                    }
+                }
+                if let Some(size_expr) = size {
+                    self.collect_string_constants_from_expr(size_expr);
                 }
             }
             Expr::MapNew { initial_pairs, .. } => {
@@ -679,15 +689,35 @@ impl CodeGenerator {
                 self.instructions.push(Instruction::VectorNew);
             }
 
-            Expr::PointerAlloc { initial_values, .. } => {
-                // Push initial values onto stack first
-                for value in initial_values {
-                    self.compile_expression(value);
+            Expr::Alloc {
+                element_type,
+                kind: _,
+                size,
+                initial_values,
+            } => {
+                if let Some(values) = initial_values {
+                    // Pointer alloc with initial values: push initial values onto stack first
+                    for value in values {
+                        self.compile_expression(value);
+                    }
+                    // Push the count of initial values
+                    self.instructions
+                        .push(Instruction::Push(values.len() as i64));
+                    // Push element type as string for VM to calculate sizeof
+                    self.instructions
+                        .push(Instruction::PushString(element_type.clone()));
+                    self.instructions.push(Instruction::PointerAlloc);
+                } else if let Some(size_expr) = size {
+                    // Size-based alloc: compile the size expression
+                    self.compile_expression(size_expr);
+                    // Push element type as string for VM to calculate sizeof
+                    self.instructions
+                        .push(Instruction::PushString(element_type.clone()));
+                    // Allocate pointer with specified type and size
+                    self.instructions.push(Instruction::PointerAlloc);
+                } else {
+                    panic!("Alloc must have either size or initial_values");
                 }
-                // Push the count of initial values
-                self.instructions
-                    .push(Instruction::Push(initial_values.len() as i64));
-                self.instructions.push(Instruction::PointerAlloc);
             }
 
             Expr::Index {
@@ -723,25 +753,11 @@ impl CodeGenerator {
                 self.instructions.push(Instruction::MapNew);
             }
 
-            Expr::StructNew { type_name, fields } => {
-                // Verify struct exists
-                if !self.structs.contains_key(type_name) {
-                    panic!("Unknown struct type: {}", type_name);
-                }
-
-                // Push field values and names onto stack
-                for (field_name, field_value) in fields {
-                    self.instructions
-                        .push(Instruction::PushString(field_name.clone()));
-                    self.compile_expression(field_value);
-                }
-                // Push field count
-                self.instructions
-                    .push(Instruction::Push(fields.len() as i64));
-                self.instructions.push(Instruction::StructNew);
-            }
-
-            Expr::StructNewPattern { type_name, fields } => {
+            Expr::StructNew {
+                type_name,
+                fields,
+                kind: _,
+            } => {
                 // Verify struct exists
                 if !self.structs.contains_key(type_name) {
                     panic!("Unknown struct type: {}", type_name);
@@ -768,16 +784,6 @@ impl CodeGenerator {
 
             Expr::MethodCall { .. } => {
                 panic!("MethodCall should have been desugared before code generation");
-            }
-
-            Expr::Alloc { element_type, size } => {
-                // Compile the size expression
-                self.compile_expression(size);
-                // Push element type as string for VM to calculate sizeof
-                self.instructions
-                    .push(Instruction::PushString(element_type.clone()));
-                // Allocate pointer with specified type and size
-                self.instructions.push(Instruction::PointerAlloc);
             }
 
             Expr::TypeExpr { type_name } => {
@@ -865,11 +871,6 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
             instructions.push(Instruction::Push(0));
         }
 
-        Expr::PointerAlloc { .. } => {
-            // For now, just push 0 - pointers need more complex handling
-            instructions.push(Instruction::Push(0));
-        }
-
         Expr::Index { .. } => {
             // For now, just push 0 - indexing needs more complex handling
             instructions.push(Instruction::Push(0));
@@ -882,23 +883,7 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
         Expr::StructNew {
             type_name: _,
             fields,
-        } => {
-            // Note: struct type checking should be done at type check time
-            // For standalone compilation, we assume struct is valid
-
-            // Push field values and names onto stack
-            for (field_name, field_value) in fields {
-                instructions.push(Instruction::PushString(field_name.clone()));
-                compile_expr_recursive(field_value, instructions);
-            }
-            // Push field count
-            instructions.push(Instruction::Push(fields.len() as i64));
-            instructions.push(Instruction::StructNew);
-        }
-
-        Expr::StructNewPattern {
-            type_name: _,
-            fields,
+            kind: _,
         } => {
             // Note: struct type checking should be done at type check time
             // For standalone compilation, we assume struct is valid
@@ -923,13 +908,33 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
             panic!("MethodCall should have been desugared before code generation");
         }
 
-        Expr::Alloc { element_type, size } => {
-            // Compile the size expression
-            compile_expr_recursive(size, instructions);
-            // Push element type as string for VM to calculate sizeof
-            instructions.push(Instruction::PushString(element_type.clone()));
-            // Allocate pointer with specified type and size
-            instructions.push(Instruction::PointerAlloc);
+        Expr::Alloc {
+            element_type,
+            kind: _,
+            size,
+            initial_values,
+        } => {
+            if let Some(values) = initial_values {
+                // Pointer alloc with initial values: push initial values onto stack first
+                for value in values {
+                    compile_expr_recursive(value, instructions);
+                }
+                // Push the count of initial values
+                instructions.push(Instruction::Push(values.len() as i64));
+                // Push element type as string for VM to calculate sizeof
+                instructions.push(Instruction::PushString(element_type.clone()));
+                instructions.push(Instruction::PointerAlloc);
+            } else if let Some(size_expr) = size {
+                // Size-based alloc: compile the size expression
+                compile_expr_recursive(size_expr, instructions);
+                // Push element type as string for VM to calculate sizeof
+                instructions.push(Instruction::PushString(element_type.clone()));
+                // Allocate pointer with specified type and size
+                instructions.push(Instruction::PointerAlloc);
+            } else {
+                // For now, just push 0 - need proper handling
+                instructions.push(Instruction::Push(0));
+            }
         }
 
         Expr::TypeExpr { type_name } => {
@@ -1125,7 +1130,9 @@ mod tests {
         // Test alloc with constant size: alloc int 10
         let expr = Expr::Alloc {
             element_type: "int".to_string(),
-            size: Box::new(Expr::Int(10)),
+            kind: AllocKind::Sized,
+            size: Some(Box::new(Expr::Int(10))),
+            initial_values: None,
         };
         let instructions = compile_expression(&expr);
         assert_eq!(
@@ -1140,11 +1147,13 @@ mod tests {
         // Test alloc with expression size: alloc byte (5 + 3)
         let expr = Expr::Alloc {
             element_type: "byte".to_string(),
-            size: Box::new(Expr::Binary {
+            kind: AllocKind::Sized,
+            size: Some(Box::new(Expr::Binary {
                 left: Box::new(Expr::Int(5)),
                 op: crate::ast::BinaryOp::Add,
                 right: Box::new(Expr::Int(3)),
-            }),
+            })),
+            initial_values: None,
         };
         let instructions = compile_expression(&expr);
         assert_eq!(

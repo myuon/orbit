@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOp, Decl, Expr, FunParam, Function, GlobalVariable, Program, Stmt, StructDecl,
-    StructField, Token, TokenType,
+    AllocKind, BinaryOp, Decl, Expr, FunParam, Function, GlobalVariable, Program, Stmt, StructDecl,
+    StructField, StructNewKind, Token, TokenType,
 };
 use anyhow::{bail, Result};
 
@@ -831,7 +831,11 @@ impl Parser {
                         }
 
                         self.consume(TokenType::RightBrace)?;
-                        return Ok(Expr::StructNewPattern { type_name, fields });
+                        return Ok(Expr::StructNew {
+                            type_name,
+                            fields,
+                            kind: StructNewKind::Pattern,
+                        });
                     } else {
                         bail!("Expected 'struct' after 'new('");
                     }
@@ -972,18 +976,22 @@ impl Parser {
                     }
 
                     self.consume(TokenType::RightBrace)?;
-                    Ok(Expr::StructNew { type_name, fields })
+                    Ok(Expr::StructNew {
+                        type_name,
+                        fields,
+                        kind: StructNewKind::Regular,
+                    })
                 }
             }
             TokenType::LeftParen => {
                 self.advance();
-                
+
                 // Check if this is a type expression for associated method call
                 if matches!(self.current_token().token_type, TokenType::Type) {
                     self.advance(); // consume 'type'
                     let type_name = self.parse_type_name()?;
                     self.consume(TokenType::RightParen)?;
-                    
+
                     // Now check for .method(args) after the closing paren
                     if matches!(self.current_token().token_type, TokenType::Dot) {
                         self.advance(); // consume '.'
@@ -995,7 +1003,7 @@ impl Parser {
                             }
                             _ => bail!("Expected method name after '.'"),
                         };
-                        
+
                         // Parse method arguments
                         self.consume(TokenType::LeftParen)?;
                         let mut args = Vec::new();
@@ -1010,7 +1018,7 @@ impl Parser {
                             }
                         }
                         self.consume(TokenType::RightParen)?;
-                        
+
                         Ok(Expr::MethodCall {
                             object: None, // No object for associated method calls
                             type_name: Some(type_name),
@@ -1049,7 +1057,41 @@ impl Parser {
 
                 Ok(Expr::Alloc {
                     element_type,
-                    size: Box::new(size),
+                    kind: AllocKind::Sized,
+                    size: Some(Box::new(size)),
+                    initial_values: None,
+                })
+            }
+            TokenType::Pointer => {
+                self.advance(); // consume 'pointer'
+                self.consume(TokenType::LeftParen)?; // consume '('
+
+                // Parse element type
+                let element_type = self.parse_type_name()?;
+
+                self.consume(TokenType::Comma)?; // consume ','
+
+                // Parse initial values array
+                self.consume(TokenType::LeftBracket)?; // consume '['
+                let mut initial_values = Vec::new();
+                if !matches!(self.current_token().token_type, TokenType::RightBracket) {
+                    loop {
+                        initial_values.push(self.parse_expression()?);
+                        if matches!(self.current_token().token_type, TokenType::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.consume(TokenType::RightBracket)?; // consume ']'
+                self.consume(TokenType::RightParen)?; // consume ')'
+
+                Ok(Expr::Alloc {
+                    element_type,
+                    kind: AllocKind::Pointer,
+                    size: None,
+                    initial_values: Some(initial_values),
                 })
             }
             _ => bail!("Unexpected token: {:?}", self.current_token().token_type),
@@ -1271,7 +1313,12 @@ type Point = struct {
         let mut parser = Parser::new(tokens);
         let expr = parser.parse().unwrap();
 
-        if let Expr::StructNewPattern { type_name, fields } = expr {
+        if let Expr::StructNew {
+            type_name,
+            fields,
+            kind: StructNewKind::Pattern,
+        } = expr
+        {
             assert_eq!(type_name, "Point");
             assert_eq!(fields.len(), 2);
             assert_eq!(fields[0].0, "x");
@@ -1287,7 +1334,10 @@ type Point = struct {
                 panic!("Expected number expression for field value");
             }
         } else {
-            panic!("Expected StructNewPattern expression, got: {:?}", expr);
+            panic!(
+                "Expected StructNew expression with kind=Pattern, got: {:?}",
+                expr
+            );
         }
     }
 
@@ -1308,19 +1358,29 @@ type Point = struct {
         let expr2 = parser2.parse().unwrap();
 
         // First should be StructNew
-        if let Expr::StructNew { type_name, fields } = expr1 {
+        if let Expr::StructNew {
+            type_name,
+            fields,
+            kind: StructNewKind::Regular,
+        } = expr1
+        {
             assert_eq!(type_name, "Point");
             assert_eq!(fields.len(), 2);
         } else {
             panic!("Expected StructNew expression");
         }
 
-        // Second should be StructNewPattern
-        if let Expr::StructNewPattern { type_name, fields } = expr2 {
+        // Second should be StructNew with kind=Pattern
+        if let Expr::StructNew {
+            type_name,
+            fields,
+            kind: StructNewKind::Pattern,
+        } = expr2
+        {
             assert_eq!(type_name, "Point");
             assert_eq!(fields.len(), 2);
         } else {
-            panic!("Expected StructNewPattern expression");
+            panic!("Expected StructNew expression with kind=Pattern");
         }
     }
 }
