@@ -465,22 +465,8 @@ impl VM {
             Instruction::Jump(addr) => {
                 self.pc = *addr;
 
-                // Print instruction and stack state after execution if enabled
-                if self.print_stacks {
-                    println!(
-                        "{:04} {:20} [{}]",
-                        pc_before_execution,
-                        format!("{}", instruction),
-                        self.stack
-                            .iter()
-                            .map(|x| x.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    );
-                }
-
-                // Print heap visualization if enabled
-                self.print_heap_visualization(pc_before_execution, instruction);
+                // Print debug visualization (heap and/or stack) if enabled
+                self.print_debug_visualization(pc_before_execution, instruction);
 
                 return Ok(ControlFlow::Continue);
             }
@@ -502,22 +488,8 @@ impl VM {
                     self.pc += 1;
                 }
 
-                // Print instruction and stack state after execution if enabled
-                if self.print_stacks {
-                    println!(
-                        "{:04} {:20} [{}]",
-                        pc_before_execution,
-                        format!("{}", instruction),
-                        self.stack
-                            .iter()
-                            .map(|x| x.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    );
-                }
-
-                // Print heap visualization if enabled
-                self.print_heap_visualization(pc_before_execution, instruction);
+                // Print debug visualization (heap and/or stack) if enabled
+                self.print_debug_visualization(pc_before_execution, instruction);
 
                 return Ok(ControlFlow::Continue);
             }
@@ -628,22 +600,8 @@ impl VM {
                 if let Some(addr) = target_addr {
                     self.pc = addr;
 
-                    // Print instruction and stack state after execution if enabled
-                    if self.print_stacks {
-                        println!(
-                            "{:04} {:20} [{}]",
-                            pc_before_execution,
-                            format!("{}", instruction),
-                            self.stack
-                                .iter()
-                                .map(|x| x.to_string())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        );
-                    }
-
-                    // Print heap visualization if enabled
-                    self.print_heap_visualization(pc_before_execution, instruction);
+                    // Print debug visualization (heap and/or stack) if enabled
+                    self.print_debug_visualization(pc_before_execution, instruction);
 
                     return Ok(ControlFlow::Continue);
                 } else {
@@ -662,9 +620,15 @@ impl VM {
                         match value {
                             Some(Value::Int(n)) => return Ok(ControlFlow::Exit(n)),
                             Some(Value::Byte(b)) => return Ok(ControlFlow::Exit(b as i64)),
-                            Some(Value::Boolean(b)) => return Ok(ControlFlow::Exit(if b { 1 } else { 0 })),
-                            Some(Value::Address(addr)) => return Ok(ControlFlow::Exit(addr as i64)),
-                            Some(Value::HeapRef(heap_index)) => return Ok(ControlFlow::Exit(heap_index.0 as i64)),
+                            Some(Value::Boolean(b)) => {
+                                return Ok(ControlFlow::Exit(if b { 1 } else { 0 }))
+                            }
+                            Some(Value::Address(addr)) => {
+                                return Ok(ControlFlow::Exit(addr as i64))
+                            }
+                            Some(Value::HeapRef(heap_index)) => {
+                                return Ok(ControlFlow::Exit(heap_index.0 as i64))
+                            }
                             None => return Err("Stack underflow for Ret".to_string()),
                         }
                     }
@@ -1065,9 +1029,7 @@ impl VM {
                         }
                     }
                     _ => {
-                        return Err(
-                            "MapIndex requires a heap reference and key address".to_string()
-                        )
+                        return Err("MapIndex requires a heap reference and key address".to_string())
                     }
                 }
             }
@@ -1095,9 +1057,7 @@ impl VM {
                             _ => return Err("MapSet requires a map heap object".to_string()),
                         }
                     }
-                    _ => {
-                        return Err("MapSet requires a heap reference and key address".to_string())
-                    }
+                    _ => return Err("MapSet requires a heap reference and key address".to_string()),
                 }
             }
 
@@ -1115,16 +1075,12 @@ impl VM {
                 };
 
                 // Extract element type name from address-based string
-                let element_type =
-                    match element_type_ref {
-                        Value::Address(addr) => {
-                            self.address_to_string(addr)?
-                        }
-                        _ => {
-                            return Err("PointerAlloc requires an address for element type"
-                                .to_string())
-                        }
-                    };
+                let element_type = match element_type_ref {
+                    Value::Address(addr) => self.address_to_string(addr)?,
+                    _ => {
+                        return Err("PointerAlloc requires an address for element type".to_string())
+                    }
+                };
 
                 // Calculate sizeof(element_type) * size
                 let element_size = self.sizeof_type(&element_type);
@@ -1224,7 +1180,9 @@ impl VM {
                                 self.stack.push(Value::Byte(*byte));
                             }
                             _ => {
-                                return Err("StringIndex: invalid byte at string position".to_string())
+                                return Err(
+                                    "StringIndex: invalid byte at string position".to_string()
+                                )
                             }
                         }
                     }
@@ -1249,14 +1207,8 @@ impl VM {
                 for _ in 0..field_count {
                     let field_value = self.stack.pop().unwrap();
                     let field_name = match self.stack.pop().unwrap() {
-                        Value::Address(addr) => {
-                            self.address_to_string(addr)?
-                        }
-                        _ => {
-                            return Err(
-                                "StructNew requires address for field names".to_string()
-                            )
-                        }
+                        Value::Address(addr) => self.address_to_string(addr)?,
+                        _ => return Err("StructNew requires address for field names".to_string()),
                     };
                     fields.insert(field_name, field_value);
                 }
@@ -1298,7 +1250,9 @@ impl VM {
                             }
                         }
                     }
-                    _ => return Err("StructFieldGet requires heap reference and address".to_string()),
+                    _ => {
+                        return Err("StructFieldGet requires heap reference and address".to_string())
+                    }
                 }
             }
             Instruction::StructFieldSet => {
@@ -1329,7 +1283,9 @@ impl VM {
                             }
                         }
                     }
-                    _ => return Err("StructFieldSet requires heap reference and address".to_string()),
+                    _ => {
+                        return Err("StructFieldSet requires heap reference and address".to_string())
+                    }
                 }
             }
 
@@ -1415,22 +1371,8 @@ impl VM {
 
         self.pc += 1;
 
-        // Print instruction and stack state after execution if enabled
-        if self.print_stacks {
-            println!(
-                "{:04} {:20} [{}]",
-                pc_before_execution,
-                format!("{}", instruction),
-                self.stack
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
-
-        // Print heap visualization if enabled
-        self.print_heap_visualization(pc_before_execution, instruction);
+        // Print debug visualization (heap and/or stack) if enabled
+        self.print_debug_visualization(pc_before_execution, instruction);
 
         Ok(ControlFlow::Continue)
     }
@@ -1530,7 +1472,7 @@ impl VM {
     fn string_length(&self, start_addr: usize) -> Result<usize, String> {
         let mut length = 0;
         let mut current_addr = start_addr;
-        
+
         while current_addr < self.heap.len() {
             match &self.heap[current_addr] {
                 HeapObject::RawValue(Value::Byte(byte)) => {
@@ -1543,7 +1485,7 @@ impl VM {
                 _ => return Err("Invalid byte in string".to_string()),
             }
         }
-        
+
         Err("String not null-terminated".to_string())
     }
 
@@ -1551,7 +1493,7 @@ impl VM {
     fn address_to_string(&self, start_addr: usize) -> Result<String, String> {
         let length = self.string_length(start_addr)?;
         let mut bytes = Vec::with_capacity(length);
-        
+
         for i in 0..length {
             match &self.heap[start_addr + i] {
                 HeapObject::RawValue(Value::Byte(byte)) => {
@@ -1560,37 +1502,61 @@ impl VM {
                 _ => return Err("Invalid byte in string".to_string()),
             }
         }
-        
+
         String::from_utf8(bytes).map_err(|_| "Invalid UTF-8 in string".to_string())
     }
 
-    /// Print heap visualization using block characters
-    fn print_heap_visualization(&self, pc_before_execution: usize, instruction: &Instruction) {
-        if !self.print_heaps {
+    /// Print combined heap and stack visualization
+    fn print_debug_visualization(&self, pc_before_execution: usize, instruction: &Instruction) {
+        if !self.print_heaps && !self.print_stacks {
             return;
         }
 
-        // Block characters for memory usage visualization
-        const BLOCKS: &[char] = &[' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-        
-        print!("{:04} {:20} heap[", pc_before_execution, format!("{}", instruction));
-        
-        // Always show 8 blocks (representing 64 cells total), regardless of heap size
-        for block_index in 0..8 {
-            let block_start = block_index * 8;
-            
-            // Check how many cells in this 8-cell block are actually used
-            let occupied_count = if block_start < self.heap.len() {
-                std::cmp::min(self.heap.len() - block_start, 8)
-            } else {
-                0
-            };
-            
-            // Map 0-8 occupied cells to block characters (0-8 index)
-            print!("{}", BLOCKS[occupied_count]);
+        // Start the line with PC and instruction
+        print!(
+            "{:04} {:20}",
+            pc_before_execution,
+            format!("{}", instruction)
+        );
+
+        // Add heap visualization if enabled
+        if self.print_heaps {
+            // Block characters for memory usage visualization
+            const BLOCKS: &[char] = &[' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+            print!(" [");
+
+            // Always show 8 blocks (representing 64 cells total), regardless of heap size
+            for block_index in 0..8 {
+                let block_start = block_index * 8;
+
+                // Check how many cells in this 8-cell block are actually used
+                let occupied_count = if block_start < self.heap.len() {
+                    std::cmp::min(self.heap.len() - block_start, 8)
+                } else {
+                    0
+                };
+
+                // Map 0-8 occupied cells to block characters (0-8 index)
+                print!("{}", BLOCKS[occupied_count]);
+            }
+
+            print!("]");
         }
-        
-        println!("] (len={})", self.heap.len());
+
+        // Add stack visualization if enabled
+        if self.print_stacks {
+            print!(
+                " [{}]",
+                self.stack
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+
+        println!();
     }
 }
 
