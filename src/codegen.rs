@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use crate::{
     ast::{
-        BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, Program, Stmt,
-        StructDecl,
+        BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, Positioned,
+        PositionedDecl, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl,
     },
     vm::Instruction,
 };
@@ -75,19 +75,19 @@ impl CodeGenerator {
     }
 
     /// Collect string constants from a declaration
-    fn collect_string_constants_from_decl(&mut self, decl: &Decl) {
-        match decl {
+    fn collect_string_constants_from_decl(&mut self, decl: &PositionedDecl) {
+        match &decl.value {
             Decl::Function(func) => {
-                for stmt in &func.body {
+                for stmt in &func.value.body {
                     self.collect_string_constants_from_stmt(stmt);
                 }
             }
             Decl::GlobalVariable(global_var) => {
-                self.collect_string_constants_from_expr(&global_var.value);
+                self.collect_string_constants_from_expr(&global_var.value.value);
             }
             Decl::Struct(struct_decl) => {
-                for method in &struct_decl.methods {
-                    for stmt in &method.body {
+                for method in &struct_decl.value.methods {
+                    for stmt in &method.value.body {
                         self.collect_string_constants_from_stmt(stmt);
                     }
                 }
@@ -96,8 +96,8 @@ impl CodeGenerator {
     }
 
     /// Collect string constants from a statement
-    fn collect_string_constants_from_stmt(&mut self, stmt: &Stmt) {
-        match stmt {
+    fn collect_string_constants_from_stmt(&mut self, stmt: &PositionedStmt) {
+        match &stmt.value {
             Stmt::Let { value, .. } => {
                 self.collect_string_constants_from_expr(value);
             }
@@ -146,8 +146,8 @@ impl CodeGenerator {
     }
 
     /// Collect string constants from an expression
-    fn collect_string_constants_from_expr(&mut self, expr: &Expr) {
-        match expr {
+    fn collect_string_constants_from_expr(&mut self, expr: &PositionedExpr) {
+        match &expr.value {
             Expr::String(s) => {
                 self.get_or_create_string_constant(s);
             }
@@ -252,14 +252,15 @@ impl CodeGenerator {
         }
 
         for decl in &program.declarations {
-            if let Decl::Struct(struct_decl) = decl {
+            if let Decl::Struct(struct_decl) = &decl.value {
                 self.structs
-                    .insert(struct_decl.name.clone(), struct_decl.clone());
+                    .insert(struct_decl.value.name.clone(), struct_decl.value.clone());
 
                 // Collect struct methods with name mangling
-                for method in &struct_decl.methods {
-                    let mut mangled_method = method.clone();
-                    mangled_method.name = format!("{}_{}", struct_decl.name, method.name);
+                for method in &struct_decl.value.methods {
+                    let mut mangled_method = method.value.clone();
+                    mangled_method.name =
+                        format!("{}_{}", struct_decl.value.name, method.value.name);
                     all_methods.push(mangled_method);
                 }
             }
@@ -270,17 +271,18 @@ impl CodeGenerator {
         let mut global_variables: Vec<GlobalVariable> = Vec::new();
         self.functions.clear();
         for decl in &program.declarations {
-            match decl {
+            match &decl.value {
                 Decl::Function(func) => {
-                    functions.push(func.clone());
-                    self.functions.insert(func.name.clone(), func.clone());
+                    functions.push(func.value.clone());
+                    self.functions
+                        .insert(func.value.name.clone(), func.value.clone());
                 }
                 Decl::Struct(_) => {
                     // Already handled in first pass
                 }
                 Decl::GlobalVariable(global_var) => {
                     // Collect global variables for later initialization
-                    global_variables.push(global_var.clone());
+                    global_variables.push(global_var.value.clone());
                 }
             }
         }
@@ -384,8 +386,8 @@ impl CodeGenerator {
     }
 
     /// Compile a statement to VM bytecode
-    fn compile_statement(&mut self, stmt: &Stmt) {
-        match stmt {
+    fn compile_statement(&mut self, stmt: &PositionedStmt) {
+        match &stmt.value {
             Stmt::Let { name, value } => {
                 // Compile the value expression
                 self.compile_expression(value);
@@ -561,8 +563,8 @@ impl CodeGenerator {
     }
 
     /// Compile an expression to VM bytecode
-    fn compile_expression(&mut self, expr: &Expr) {
-        match expr {
+    fn compile_expression(&mut self, expr: &PositionedExpr) {
+        match &expr.value {
             Expr::Int(value) => {
                 self.instructions.push(Instruction::Push(*value as i64));
             }
@@ -623,7 +625,7 @@ impl CodeGenerator {
             }
 
             Expr::Call { callee, args } => {
-                if let Expr::Identifier(func_name) = callee.as_ref() {
+                if let Expr::Identifier(func_name) = &callee.value {
                     // Handle syscall as a special built-in function
                     if func_name == "syscall" {
                         // For syscall, push arguments directly onto stack and call syscall instruction
@@ -649,7 +651,7 @@ impl CodeGenerator {
                     self.compile_expression(arg);
                 }
 
-                if let Expr::Identifier(func_name) = callee.as_ref() {
+                if let Expr::Identifier(func_name) = &callee.value {
                     // 3. Push current PC + offset (return address)
                     // PC will be at Call instruction, so return address is PC + 1
                     self.instructions.push(Instruction::GetPC);
@@ -768,15 +770,15 @@ impl CodeGenerator {
 }
 
 /// Compile an AST expression to VM bytecode
-pub fn compile_expression(expr: &Expr) -> Vec<Instruction> {
+pub fn compile_expression(expr: &PositionedExpr) -> Vec<Instruction> {
     let mut instructions = Vec::new();
     compile_expr_recursive(expr, &mut instructions);
     instructions
 }
 
 // FIXME: This function has a lot of TODOs
-fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
-    match expr {
+fn compile_expr_recursive(expr: &PositionedExpr, instructions: &mut Vec<Instruction>) {
+    match &expr.value {
         Expr::Int(value) => {
             instructions.push(Instruction::Push(*value as i64));
         }
@@ -822,7 +824,7 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
         }
 
         Expr::Call { callee, args } => {
-            if let Expr::Identifier(func_name) = callee.as_ref() {
+            if let Expr::Identifier(func_name) = &callee.value {
                 if func_name == "syscall" {
                     // Handle syscall in standalone compilation
                     for arg in args {
@@ -1029,21 +1031,21 @@ mod tests {
         use crate::ast::{BinaryOp, Expr};
 
         // Test simple literal
-        let expr = Expr::Int(42);
+        let expr = Positioned::with_unknown_span(Expr::Int(42));
         let instructions = compile_expression(&expr);
         assert_eq!(instructions, vec![Instruction::Push(42)]);
 
         // Test boolean
-        let expr = Expr::Boolean(true);
+        let expr = Positioned::with_unknown_span(Expr::Boolean(true));
         let instructions = compile_expression(&expr);
         assert_eq!(instructions, vec![Instruction::Push(1)]);
 
         // Test binary expression: 2 + 3
-        let expr = Expr::Binary {
-            left: Box::new(Expr::Int(2)),
+        let expr = Positioned::with_unknown_span(Expr::Binary {
+            left: Box::new(Positioned::with_unknown_span(Expr::Int(2))),
             op: BinaryOp::Add,
-            right: Box::new(Expr::Int(3)),
-        };
+            right: Box::new(Positioned::with_unknown_span(Expr::Int(3))),
+        });
         let instructions = compile_expression(&expr);
         assert_eq!(
             instructions,
@@ -1051,15 +1053,15 @@ mod tests {
         );
 
         // Test complex expression: (2 + 3) * 4
-        let expr = Expr::Binary {
-            left: Box::new(Expr::Binary {
-                left: Box::new(Expr::Int(2)),
+        let expr = Positioned::with_unknown_span(Expr::Binary {
+            left: Box::new(Positioned::with_unknown_span(Expr::Binary {
+                left: Box::new(Positioned::with_unknown_span(Expr::Int(2))),
                 op: BinaryOp::Add,
-                right: Box::new(Expr::Int(3)),
-            }),
+                right: Box::new(Positioned::with_unknown_span(Expr::Int(3))),
+            })),
             op: BinaryOp::Multiply,
-            right: Box::new(Expr::Int(4)),
-        };
+            right: Box::new(Positioned::with_unknown_span(Expr::Int(4))),
+        });
         let instructions = compile_expression(&expr);
         assert_eq!(
             instructions,
@@ -1075,13 +1077,13 @@ mod tests {
 
     #[test]
     fn test_alloc_expression_compilation() {
-        use crate::ast::Expr;
+        use crate::ast::{Expr};
 
         // Test alloc with constant size: alloc int 10
-        let expr = Expr::Alloc {
+        let expr = Positioned::with_unknown_span(Expr::Alloc {
             element_type: "int".to_string(),
-            size: Box::new(Expr::Int(10)),
-        };
+            size: Box::new(Positioned::with_unknown_span(Expr::Int(10))),
+        });
         let instructions = compile_expression(&expr);
         assert_eq!(
             instructions,
@@ -1093,14 +1095,14 @@ mod tests {
         );
 
         // Test alloc with expression size: alloc byte (5 + 3)
-        let expr = Expr::Alloc {
+        let expr = Positioned::with_unknown_span(Expr::Alloc {
             element_type: "byte".to_string(),
-            size: Box::new(Expr::Binary {
-                left: Box::new(Expr::Int(5)),
+            size: Box::new(Positioned::with_unknown_span(Expr::Binary {
+                left: Box::new(Positioned::with_unknown_span(Expr::Int(5))),
                 op: crate::ast::BinaryOp::Add,
-                right: Box::new(Expr::Int(3)),
-            }),
-        };
+                right: Box::new(Positioned::with_unknown_span(Expr::Int(3))),
+            })),
+        });
         let instructions = compile_expression(&expr);
         assert_eq!(
             instructions,
@@ -1119,15 +1121,15 @@ mod tests {
         use crate::ast::{BinaryOp, Expr};
 
         // Test 2 + 3 * 4 (should be 14 with proper precedence)
-        let expr = Expr::Binary {
-            left: Box::new(Expr::Int(2)),
+        let expr = Positioned::with_unknown_span(Expr::Binary {
+            left: Box::new(Positioned::with_unknown_span(Expr::Int(2))),
             op: BinaryOp::Add,
-            right: Box::new(Expr::Binary {
-                left: Box::new(Expr::Int(3)),
+            right: Box::new(Positioned::with_unknown_span(Expr::Binary {
+                left: Box::new(Positioned::with_unknown_span(Expr::Int(3))),
                 op: BinaryOp::Multiply,
-                right: Box::new(Expr::Int(4)),
-            }),
-        };
+                right: Box::new(Positioned::with_unknown_span(Expr::Int(4))),
+            })),
+        });
 
         let instructions = compile_expression(&expr);
         let mut vm = VM::new();
@@ -1145,11 +1147,15 @@ mod tests {
             name: "main".to_string(),
             type_params: vec![],
             params: vec![],
-            body: vec![Stmt::Return(Expr::Int(42))],
+            body: vec![Positioned::with_unknown_span(Stmt::Return(
+                Positioned::with_unknown_span(Expr::Int(42)),
+            ))],
         };
 
         let program = Program {
-            declarations: vec![Decl::Function(main_func)],
+            declarations: vec![Positioned::with_unknown_span(Decl::Function(
+                Positioned::with_unknown_span(main_func),
+            ))],
         };
 
         // Compile and execute
@@ -1184,11 +1190,17 @@ mod tests {
                     type_name: None,
                 },
             ],
-            body: vec![Stmt::Return(Expr::Binary {
-                left: Box::new(Expr::Identifier("x".to_string())),
-                op: BinaryOp::Add,
-                right: Box::new(Expr::Identifier("y".to_string())),
-            })],
+            body: vec![Positioned::with_unknown_span(Stmt::Return(
+                Positioned::with_unknown_span(Expr::Binary {
+                    left: Box::new(Positioned::with_unknown_span(Expr::Identifier(
+                        "x".to_string(),
+                    ))),
+                    op: BinaryOp::Add,
+                    right: Box::new(Positioned::with_unknown_span(Expr::Identifier(
+                        "y".to_string(),
+                    ))),
+                }),
+            ))],
         };
 
         // Create main function: fun main() do return add(2, 3); end
@@ -1196,14 +1208,28 @@ mod tests {
             name: "main".to_string(),
             type_params: vec![],
             params: vec![],
-            body: vec![Stmt::Return(Expr::Call {
-                callee: Box::new(Expr::Identifier("add".to_string())),
-                args: vec![Expr::Int(2), Expr::Int(3)],
-            })],
+            body: vec![Positioned::with_unknown_span(Stmt::Return(
+                Positioned::with_unknown_span(Expr::Call {
+                    callee: Box::new(Positioned::with_unknown_span(Expr::Identifier(
+                        "add".to_string(),
+                    ))),
+                    args: vec![
+                        Positioned::with_unknown_span(Expr::Int(2)),
+                        Positioned::with_unknown_span(Expr::Int(3)),
+                    ],
+                }),
+            ))],
         };
 
         let program = Program {
-            declarations: vec![Decl::Function(add_func), Decl::Function(main_func)],
+            declarations: vec![
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(
+                    add_func,
+                ))),
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(
+                    main_func,
+                ))),
+            ],
         };
 
         // Compile and execute

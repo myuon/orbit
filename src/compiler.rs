@@ -332,10 +332,10 @@ impl Compiler {
         output.push_str("// This shows the program after desugaring transformations\n\n");
 
         for decl in &program.declarations {
-            match decl {
+            match &decl.value {
                 crate::ast::Decl::Function(func) => {
-                    output.push_str(&format!("fun {}(", func.name));
-                    for (i, param) in func.params.iter().enumerate() {
+                    output.push_str(&format!("fun {}(", func.value.name));
+                    for (i, param) in func.value.params.iter().enumerate() {
                         if i > 0 {
                             output.push_str(", ");
                         }
@@ -346,16 +346,16 @@ impl Compiler {
                         ));
                     }
                     output.push_str(") do\n");
-                    for stmt in &func.body {
-                        output.push_str(&format!("{}\n", self.format_statement(stmt, 1)));
+                    for stmt in &func.value.body {
+                        output.push_str(&format!("{}\n", self.format_statement(&stmt.value, 1)));
                     }
                     output.push_str("end\n\n");
                 }
                 crate::ast::Decl::Struct(struct_decl) => {
-                    output.push_str(&format!("type {}", struct_decl.name));
-                    if !struct_decl.type_params.is_empty() {
+                    output.push_str(&format!("type {}", struct_decl.value.name));
+                    if !struct_decl.value.type_params.is_empty() {
                         output.push('(');
-                        for (i, param) in struct_decl.type_params.iter().enumerate() {
+                        for (i, param) in struct_decl.value.type_params.iter().enumerate() {
                             if i > 0 {
                                 output.push_str(", ");
                             }
@@ -364,7 +364,7 @@ impl Compiler {
                         output.push(')');
                     }
                     output.push_str(" = struct {\n");
-                    for field in &struct_decl.fields {
+                    for field in &struct_decl.value.fields {
                         output.push_str(&format!("    {}: {},\n", field.name, field.type_name));
                     }
                     output.push_str("};\n\n");
@@ -372,8 +372,8 @@ impl Compiler {
                 crate::ast::Decl::GlobalVariable(var) => {
                     output.push_str(&format!(
                         "let {} = {};\n\n",
-                        var.name,
-                        self.format_expression(&var.value)
+                        var.value.name,
+                        self.format_expression(&var.value.value.value)
                     ));
                 }
             }
@@ -387,17 +387,17 @@ impl Compiler {
         let mut output = String::new();
 
         for decl in &program.declarations {
-            match decl {
+            match &decl.value {
                 crate::ast::Decl::Function(func) => {
-                    if !func.type_params.is_empty() {
-                        output.push_str(&format!("fun {}(", func.name));
-                        for (i, param) in func.type_params.iter().enumerate() {
+                    if !func.value.type_params.is_empty() {
+                        output.push_str(&format!("fun {}(", func.value.name));
+                        for (i, param) in func.value.type_params.iter().enumerate() {
                             if i > 0 {
                                 output.push_str(", ");
                             }
                             output.push_str(&format!("{}: type", param));
                         }
-                        for param in &func.params {
+                        for param in &func.value.params {
                             output.push_str(", ");
                             output.push_str(&format!(
                                 "{}: {}",
@@ -406,13 +406,13 @@ impl Compiler {
                             ));
                         }
                         output.push_str(") do\n");
-                        for stmt in &func.body {
-                            output.push_str(&format!("    {}\n", self.format_statement(stmt, 1)));
+                        for stmt in &func.value.body {
+                            output.push_str(&format!("    {}\n", self.format_statement(&stmt.value, 1)));
                         }
                         output.push_str("end\n\n");
                     } else {
-                        output.push_str(&format!("fun {}(", func.name));
-                        for (i, param) in func.params.iter().enumerate() {
+                        output.push_str(&format!("fun {}(", func.value.name));
+                        for (i, param) in func.value.params.iter().enumerate() {
                             if i > 0 {
                                 output.push_str(", ");
                             }
@@ -423,16 +423,16 @@ impl Compiler {
                             ));
                         }
                         output.push_str(") do\n");
-                        for stmt in &func.body {
-                            output.push_str(&format!("{}\n", self.format_statement(stmt, 1)));
+                        for stmt in &func.value.body {
+                            output.push_str(&format!("{}\n", self.format_statement(&stmt.value, 1)));
                         }
                         output.push_str("end\n\n");
                     }
                 }
                 crate::ast::Decl::Struct(struct_decl) => {
-                    if !struct_decl.type_params.is_empty() {
-                        output.push_str(&format!("type {}(", struct_decl.name));
-                        for (i, param) in struct_decl.type_params.iter().enumerate() {
+                    if !struct_decl.value.type_params.is_empty() {
+                        output.push_str(&format!("type {}(", struct_decl.value.name));
+                        for (i, param) in struct_decl.value.type_params.iter().enumerate() {
                             if i > 0 {
                                 output.push_str(", ");
                             }
@@ -440,16 +440,16 @@ impl Compiler {
                         }
                         output.push_str(") = struct {\n");
                     } else {
-                        output.push_str(&format!("type {} = struct {{\n", struct_decl.name));
+                        output.push_str(&format!("type {} = struct {{\n", struct_decl.value.name));
                     }
 
-                    for field in &struct_decl.fields {
+                    for field in &struct_decl.value.fields {
                         output.push_str(&format!("    {}: {}\n", field.name, field.type_name));
                     }
                     output.push_str("};\n\n");
                 }
                 crate::ast::Decl::GlobalVariable(var) => {
-                    output.push_str(&format!("let {} = /* ... */;\n\n", var.name));
+                    output.push_str(&format!("let {} = /* ... */;\n\n", var.value.name));
                 }
             }
         }
@@ -466,17 +466,17 @@ impl Compiler {
                     "{}let {} = {};",
                     indent,
                     name,
-                    self.format_expression(value)
+                    self.format_expression(&value.value)
                 )
             }
             crate::ast::Stmt::Expression(expr) => {
-                format!("{}{};", indent, self.format_expression(expr))
+                format!("{}{};", indent, self.format_expression(&expr.value))
             }
             crate::ast::Stmt::Return(expr) => {
-                format!("{}return {};", indent, self.format_expression(expr))
+                format!("{}return {};", indent, self.format_expression(&expr.value))
             }
             crate::ast::Stmt::Assign { name, value } => {
-                format!("{}{} = {};", indent, name, self.format_expression(value))
+                format!("{}{} = {};", indent, name, self.format_expression(&value.value))
             }
             crate::ast::Stmt::IndexAssign {
                 container,
@@ -488,8 +488,8 @@ impl Compiler {
                     "{}{}[{}] = {};",
                     indent,
                     container,
-                    self.format_expression(index),
-                    self.format_expression(value)
+                    self.format_expression(&index.value),
+                    self.format_expression(&value.value)
                 )
             }
             crate::ast::Stmt::FieldAssign {
@@ -500,9 +500,9 @@ impl Compiler {
                 format!(
                     "{}{}.{} = {};",
                     indent,
-                    self.format_expression(object),
+                    self.format_expression(&object.value),
                     field,
-                    self.format_expression(value)
+                    self.format_expression(&value.value)
                 )
             }
             crate::ast::Stmt::If {
@@ -510,11 +510,11 @@ impl Compiler {
                 then_branch,
                 else_branch,
             } => {
-                let mut result = format!("{}if {} do\n", indent, self.format_expression(condition));
+                let mut result = format!("{}if {} do\n", indent, self.format_expression(&condition.value));
                 for stmt in then_branch {
                     result.push_str(&format!(
                         "{}\n",
-                        self.format_statement(stmt, indent_level + 1)
+                        self.format_statement(&stmt.value, indent_level + 1)
                     ));
                 }
                 if let Some(else_branch) = else_branch {
@@ -522,7 +522,7 @@ impl Compiler {
                     for stmt in else_branch {
                         result.push_str(&format!(
                             "{}\n",
-                            self.format_statement(stmt, indent_level + 1)
+                            self.format_statement(&stmt.value, indent_level + 1)
                         ));
                     }
                 }
@@ -531,11 +531,11 @@ impl Compiler {
             }
             crate::ast::Stmt::While { condition, body } => {
                 let mut result =
-                    format!("{}while {} do\n", indent, self.format_expression(condition));
+                    format!("{}while {} do\n", indent, self.format_expression(&condition.value));
                 for stmt in body {
                     result.push_str(&format!(
                         "{}\n",
-                        self.format_statement(stmt, indent_level + 1)
+                        self.format_statement(&stmt.value, indent_level + 1)
                     ));
                 }
                 result.push_str(&format!("{}end", indent));
@@ -546,7 +546,7 @@ impl Compiler {
                     "{}{}.push({});",
                     indent,
                     vector,
-                    self.format_expression(value)
+                    self.format_expression(&value.value)
                 )
             }
         }
@@ -563,18 +563,18 @@ impl Compiler {
             crate::ast::Expr::Binary { left, op, right } => {
                 format!(
                     "{} {} {}",
-                    self.format_expression(left),
+                    self.format_expression(&left.value),
                     self.format_binary_op(op),
-                    self.format_expression(right)
+                    self.format_expression(&right.value)
                 )
             }
             crate::ast::Expr::Call { callee, args } => {
                 let args_str = args
                     .iter()
-                    .map(|arg| self.format_expression(arg))
+                    .map(|arg| self.format_expression(&arg.value))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("{}({})", self.format_expression(callee), args_str)
+                format!("{}({})", self.format_expression(&callee.value), args_str)
             }
             crate::ast::Expr::Index {
                 container,
@@ -583,12 +583,12 @@ impl Compiler {
             } => {
                 format!(
                     "{}[{}]",
-                    self.format_expression(container),
-                    self.format_expression(index)
+                    self.format_expression(&container.value),
+                    self.format_expression(&index.value)
                 )
             }
             crate::ast::Expr::FieldAccess { object, field } => {
-                format!("{}.{}", self.format_expression(object), field)
+                format!("{}.{}", self.format_expression(&object.value), field)
             }
             crate::ast::Expr::StructNew {
                 type_name,
@@ -597,7 +597,7 @@ impl Compiler {
             } => {
                 let fields_str = fields
                     .iter()
-                    .map(|(name, expr)| format!(".{} = {}", name, self.format_expression(expr)))
+                    .map(|(name, expr)| format!(".{} = {}", name, self.format_expression(&expr.value)))
                     .collect::<Vec<_>>()
                     .join(", ");
                 if kind == &StructNewKind::Pattern {
@@ -612,7 +612,7 @@ impl Compiler {
             } => {
                 let elements_str = initial_values
                     .iter()
-                    .map(|elem| self.format_expression(elem))
+                    .map(|elem| self.format_expression(&elem.value))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("vec({}, {})", element_type, elements_str)
@@ -627,8 +627,8 @@ impl Compiler {
                     .map(|(key, value)| {
                         format!(
                             "{}: {}",
-                            self.format_expression(key),
-                            self.format_expression(value)
+                            self.format_expression(&key.value),
+                            self.format_expression(&value.value)
                         )
                     })
                     .collect::<Vec<_>>()
@@ -636,7 +636,7 @@ impl Compiler {
                 format!("map({}, {}, {})", key_type, value_type, entries_str)
             }
             crate::ast::Expr::Alloc { element_type, size } => {
-                format!("alloc({}, {})", element_type, self.format_expression(size))
+                format!("alloc({}, {})", element_type, self.format_expression(&size.value))
             }
             crate::ast::Expr::MethodCall {
                 object,
@@ -646,11 +646,11 @@ impl Compiler {
             } => {
                 let args_str = args
                     .iter()
-                    .map(|arg| self.format_expression(arg))
+                    .map(|arg| self.format_expression(&arg.value))
                     .collect::<Vec<_>>()
                     .join(", ");
                 if let Some(obj) = object {
-                    format!("{}.{}({})", self.format_expression(obj), method, args_str)
+                    format!("{}.{}({})", self.format_expression(&obj.value), method, args_str)
                 } else if let Some(type_name) = type_name {
                     format!("(type {}).{}({})", type_name, method, args_str)
                 } else {

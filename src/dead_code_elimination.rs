@@ -1,4 +1,4 @@
-use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl};
+use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl, PositionedExpr, PositionedStmt, Positioned, StructNewKind};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
@@ -45,18 +45,18 @@ impl DeadCodeEliminator {
 
     /// Collect all declarations for dependency analysis
     fn collect_declarations(&mut self, program: &Program) -> Result<()> {
-        for decl in &program.declarations {
-            match decl {
-                Decl::Function(func) => {
-                    self.functions.insert(func.name.clone(), func.clone());
+        for positioned_decl in &program.declarations {
+            match &positioned_decl.value {
+                Decl::Function(positioned_func) => {
+                    self.functions.insert(positioned_func.value.name.clone(), positioned_func.value.clone());
                 }
-                Decl::Struct(struct_decl) => {
+                Decl::Struct(positioned_struct) => {
                     self.structs
-                        .insert(struct_decl.name.clone(), struct_decl.clone());
+                        .insert(positioned_struct.value.name.clone(), positioned_struct.value.clone());
                 }
-                Decl::GlobalVariable(global_var) => {
+                Decl::GlobalVariable(positioned_global) => {
                     self.globals
-                        .insert(global_var.name.clone(), global_var.clone());
+                        .insert(positioned_global.value.name.clone(), positioned_global.value.clone());
                 }
             }
         }
@@ -128,8 +128,8 @@ impl DeadCodeEliminator {
 
             // Mark methods as reachable if the type is used
             // Methods are converted to mangled function names during desugaring
-            for method in &struct_decl.methods {
-                let mangled_name = format!("{}_{}", type_name, method.name);
+            for positioned_method in &struct_decl.methods {
+                let mangled_name = format!("{}_{}", type_name, positioned_method.value.name);
                 if self.functions.contains_key(&mangled_name) {
                     let _ = self.mark_function_reachable(&mangled_name);
                 }
@@ -146,8 +146,8 @@ impl DeadCodeEliminator {
 
             // Mark methods as reachable if the type is used
             // Methods are converted to mangled function names during desugaring
-            for method in &struct_decl.methods {
-                let mangled_name = format!("{}_{}", type_name, method.name);
+            for positioned_method in &struct_decl.methods {
+                let mangled_name = format!("{}_{}", type_name, positioned_method.value.name);
                 if self.functions.contains_key(&mangled_name) {
                     let _ = self.mark_function_reachable(&mangled_name);
                 }
@@ -161,7 +161,8 @@ impl DeadCodeEliminator {
     }
 
     /// Analyze statement dependencies
-    fn mark_stmt_dependencies(&mut self, stmt: &Stmt) -> Result<()> {
+    fn mark_stmt_dependencies(&mut self, positioned_stmt: &PositionedStmt) -> Result<()> {
+        let stmt = &positioned_stmt.value;
         match stmt {
             Stmt::Let { value, .. } => {
                 self.mark_expr_dependencies(value)?;
@@ -224,16 +225,17 @@ impl DeadCodeEliminator {
     }
 
     /// Analyze expression dependencies
-    fn mark_expr_dependencies(&mut self, expr: &Expr) -> Result<()> {
+    fn mark_expr_dependencies(&mut self, positioned_expr: &PositionedExpr) -> Result<()> {
+        let expr = &positioned_expr.value;
         match expr {
             Expr::Call { callee, args } => {
                 // Mark function call as reachable
-                if let Expr::Identifier(func_name) = callee.as_ref() {
+                if let Expr::Identifier(func_name) = &callee.value {
                     self.mark_function_reachable(func_name)?;
                 }
                 self.mark_expr_dependencies(callee)?;
-                for arg in args {
-                    self.mark_expr_dependencies(arg)?;
+                for positioned_arg in args {
+                    self.mark_expr_dependencies(positioned_arg)?;
                 }
             }
             Expr::Identifier(name) => {
@@ -248,11 +250,11 @@ impl DeadCodeEliminator {
                 method,
                 args,
             } => {
-                if let Some(obj) = object {
-                    self.mark_expr_dependencies(obj)?;
+                if let Some(positioned_obj) = object {
+                    self.mark_expr_dependencies(positioned_obj)?;
                 }
-                for arg in args {
-                    self.mark_expr_dependencies(arg)?;
+                for positioned_arg in args {
+                    self.mark_expr_dependencies(positioned_arg)?;
                 }
 
                 // For method calls, try to determine the mangled function name
@@ -274,8 +276,8 @@ impl DeadCodeEliminator {
                     let base_type = &type_name[..paren_pos];
                     self.mark_type_reachable(base_type);
                 }
-                for (_, field_expr) in fields {
-                    self.mark_expr_dependencies(field_expr)?;
+                for (_, positioned_field_expr) in fields {
+                    self.mark_expr_dependencies(positioned_field_expr)?;
                 }
             }
             Expr::VectorNew {
@@ -283,8 +285,8 @@ impl DeadCodeEliminator {
                 initial_values,
             } => {
                 self.mark_type_reachable(element_type);
-                for value in initial_values {
-                    self.mark_expr_dependencies(value)?;
+                for positioned_value in initial_values {
+                    self.mark_expr_dependencies(positioned_value)?;
                 }
             }
             Expr::MapNew {
@@ -294,9 +296,9 @@ impl DeadCodeEliminator {
             } => {
                 self.mark_type_reachable(key_type);
                 self.mark_type_reachable(value_type);
-                for (key, value) in initial_pairs {
-                    self.mark_expr_dependencies(key)?;
-                    self.mark_expr_dependencies(value)?;
+                for (positioned_key, positioned_value) in initial_pairs {
+                    self.mark_expr_dependencies(positioned_key)?;
+                    self.mark_expr_dependencies(positioned_value)?;
                 }
             }
             Expr::Binary { left, right, .. } => {
@@ -329,21 +331,21 @@ impl DeadCodeEliminator {
     fn sweep_unused_code(&self, program: Program) -> Result<Program> {
         let mut new_declarations = Vec::new();
 
-        for decl in program.declarations {
-            match &decl {
-                Decl::Function(func) => {
-                    if self.reachable_functions.contains(&func.name) {
-                        new_declarations.push(decl);
+        for positioned_decl in program.declarations {
+            match &positioned_decl.value {
+                Decl::Function(positioned_func) => {
+                    if self.reachable_functions.contains(&positioned_func.value.name) {
+                        new_declarations.push(positioned_decl);
                     }
                 }
-                Decl::Struct(struct_decl) => {
-                    if self.reachable_types.contains(&struct_decl.name) {
-                        new_declarations.push(decl);
+                Decl::Struct(positioned_struct) => {
+                    if self.reachable_types.contains(&positioned_struct.value.name) {
+                        new_declarations.push(positioned_decl);
                     }
                 }
-                Decl::GlobalVariable(global_var) => {
-                    if self.reachable_globals.contains(&global_var.name) {
-                        new_declarations.push(decl);
+                Decl::GlobalVariable(positioned_global) => {
+                    if self.reachable_globals.contains(&positioned_global.value.name) {
+                        new_declarations.push(positioned_decl);
                     }
                 }
             }
@@ -405,18 +407,18 @@ mod tests {
 
         let program = Program {
             declarations: vec![
-                Decl::Function(Function {
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(Function {
                     name: "main".to_string(),
                     type_params: vec![],
                     params: vec![],
-                    body: vec![Stmt::Return(Expr::Int(0))],
-                }),
-                Decl::Function(Function {
+                    body: vec![Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(Expr::Int(0))))],
+                }))),
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(Function {
                     name: "unused".to_string(),
                     type_params: vec![],
                     params: vec![],
-                    body: vec![Stmt::Return(Expr::Int(42))],
-                }),
+                    body: vec![Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(Expr::Int(42))))],
+                }))),
             ],
         };
 
@@ -424,8 +426,8 @@ mod tests {
 
         // Only main function should remain
         assert_eq!(result.declarations.len(), 1);
-        if let Decl::Function(func) = &result.declarations[0] {
-            assert_eq!(func.name, "main");
+        if let Decl::Function(func) = &result.declarations[0].value {
+            assert_eq!(func.value.name, "main");
         } else {
             panic!("Expected function declaration");
         }
@@ -437,30 +439,30 @@ mod tests {
 
         let program = Program {
             declarations: vec![
-                Decl::Function(Function {
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(Function {
                     name: "main".to_string(),
                     type_params: vec![],
                     params: vec![],
                     body: vec![
-                        Stmt::Expression(Expr::Call {
-                            callee: Box::new(Expr::Identifier("helper".to_string())),
+                        Positioned::with_unknown_span(Stmt::Expression(Positioned::with_unknown_span(Expr::Call {
+                            callee: Box::new(Positioned::with_unknown_span(Expr::Identifier("helper".to_string()))),
                             args: vec![],
-                        }),
-                        Stmt::Return(Expr::Int(0)),
+                        }))),
+                        Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(Expr::Int(0)))),
                     ],
-                }),
-                Decl::Function(Function {
+                }))),
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(Function {
                     name: "helper".to_string(),
                     type_params: vec![],
                     params: vec![],
-                    body: vec![Stmt::Return(Expr::Int(42))],
-                }),
-                Decl::Function(Function {
+                    body: vec![Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(Expr::Int(42))))],
+                }))),
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(Function {
                     name: "unused".to_string(),
                     type_params: vec![],
                     params: vec![],
-                    body: vec![Stmt::Return(Expr::Int(99))],
-                }),
+                    body: vec![Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(Expr::Int(99))))],
+                }))),
             ],
         };
 
@@ -472,9 +474,9 @@ mod tests {
         let function_names: Vec<String> = result
             .declarations
             .iter()
-            .filter_map(|decl| {
-                if let Decl::Function(func) = decl {
-                    Some(func.name.clone())
+            .filter_map(|positioned_decl| {
+                if let Decl::Function(func) = &positioned_decl.value {
+                    Some(func.value.name.clone())
                 } else {
                     None
                 }
@@ -492,26 +494,26 @@ mod tests {
 
         let program = Program {
             declarations: vec![
-                Decl::Function(Function {
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(Function {
                     name: "main".to_string(),
                     type_params: vec![],
                     params: vec![],
                     body: vec![
-                        Stmt::Let {
+                        Positioned::with_unknown_span(Stmt::Let {
                             name: "point".to_string(),
-                            value: Expr::StructNew {
+                            value: Positioned::with_unknown_span(Expr::StructNew {
                                 type_name: "Point".to_string(),
                                 fields: vec![
-                                    ("x".to_string(), Expr::Int(1)),
-                                    ("y".to_string(), Expr::Int(2)),
+                                    ("x".to_string(), Positioned::with_unknown_span(Expr::Int(1))),
+                                    ("y".to_string(), Positioned::with_unknown_span(Expr::Int(2))),
                                 ],
                                 kind: StructNewKind::Regular,
-                            },
-                        },
-                        Stmt::Return(Expr::Int(0)),
+                            }),
+                        }),
+                        Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(Expr::Int(0)))),
                     ],
-                }),
-                Decl::Struct(StructDecl {
+                }))),
+                Positioned::with_unknown_span(Decl::Struct(Positioned::with_unknown_span(StructDecl {
                     name: "Point".to_string(),
                     type_params: vec![],
                     fields: vec![
@@ -525,13 +527,13 @@ mod tests {
                         },
                     ],
                     methods: vec![],
-                }),
-                Decl::Struct(StructDecl {
+                }))),
+                Positioned::with_unknown_span(Decl::Struct(Positioned::with_unknown_span(StructDecl {
                     name: "UnusedStruct".to_string(),
                     type_params: vec![],
                     fields: vec![],
                     methods: vec![],
-                }),
+                }))),
             ],
         };
 
@@ -543,11 +545,11 @@ mod tests {
         let has_point = result
             .declarations
             .iter()
-            .any(|decl| matches!(decl, Decl::Struct(s) if s.name == "Point"));
+            .any(|positioned_decl| matches!(&positioned_decl.value, Decl::Struct(s) if s.value.name == "Point"));
         let has_unused = result
             .declarations
             .iter()
-            .any(|decl| matches!(decl, Decl::Struct(s) if s.name == "UnusedStruct"));
+            .any(|positioned_decl| matches!(&positioned_decl.value, Decl::Struct(s) if s.value.name == "UnusedStruct"));
 
         assert!(has_point);
         assert!(!has_unused);

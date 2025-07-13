@@ -1,4 +1,6 @@
-use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl};
+use crate::ast::{
+    Decl, Expr, Function, Positioned, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl,
+};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
@@ -19,38 +21,45 @@ impl Desugarer {
     pub fn desugar_program(&mut self, program: Program) -> Result<Program> {
         // First pass: collect all struct declarations
         for decl in &program.declarations {
-            if let Decl::Struct(struct_decl) = decl {
+            if let Decl::Struct(struct_decl) = &decl.value {
                 self.structs
-                    .insert(struct_decl.name.clone(), struct_decl.clone());
+                    .insert(struct_decl.value.name.clone(), struct_decl.value.clone());
             }
         }
 
         // Second pass: desugar all declarations
         let mut desugared_declarations = Vec::new();
         for decl in program.declarations {
-            match decl {
+            match &decl.value {
                 Decl::Function(function) => {
-                    let desugared_function = self.desugar_function(function)?;
-                    desugared_declarations.push(Decl::Function(desugared_function));
+                    let desugared_function = self.desugar_function(&function.value)?;
+                    desugared_declarations.push(Positioned::with_unknown_span(Decl::Function(
+                        Positioned::with_unknown_span(desugared_function),
+                    )));
                 }
-                Decl::GlobalVariable(global_var) => {
+                Decl::GlobalVariable(_global_var) => {
                     // Global variables don't need desugaring, pass them through
-                    desugared_declarations.push(Decl::GlobalVariable(global_var));
+                    desugared_declarations.push(decl);
                 }
                 Decl::Struct(struct_decl) => {
                     // Add the original struct declaration (without methods)
                     let desugared_struct = StructDecl {
-                        name: struct_decl.name.clone(),
-                        type_params: struct_decl.type_params.clone(),
-                        fields: struct_decl.fields.clone(),
+                        name: struct_decl.value.name.clone(),
+                        type_params: struct_decl.value.type_params.clone(),
+                        fields: struct_decl.value.fields.clone(),
                         methods: Vec::new(), // Remove methods after desugaring
                     };
-                    desugared_declarations.push(Decl::Struct(desugared_struct));
+                    desugared_declarations.push(Positioned::with_unknown_span(Decl::Struct(
+                        Positioned::with_unknown_span(desugared_struct),
+                    )));
 
                     // Convert each method to a standalone function with mangled name
-                    for method in struct_decl.methods {
-                        let mangled_function = self.desugar_method(&struct_decl.name, method)?;
-                        desugared_declarations.push(Decl::Function(mangled_function));
+                    for method in &struct_decl.value.methods {
+                        let mangled_function =
+                            self.desugar_method(&struct_decl.value.name, &method.value)?;
+                        desugared_declarations.push(Positioned::with_unknown_span(Decl::Function(
+                            Positioned::with_unknown_span(mangled_function),
+                        )));
                     }
                 }
             }
@@ -62,56 +71,64 @@ impl Desugarer {
     }
 
     /// Desugar a function by transforming method calls in its body
-    fn desugar_function(&mut self, function: Function) -> Result<Function> {
-        let mut desugared_body = self.desugar_statements(function.body)?;
+    fn desugar_function(&mut self, function: &Function) -> Result<Function> {
+        let mut desugared_body = self.desugar_statements(&function.body)?;
 
         // Add return 0; if the last statement is not a return
         if !desugared_body.is_empty() {
             if let Some(last_stmt) = desugared_body.last() {
-                if !matches!(last_stmt, Stmt::Return(_)) {
-                    desugared_body.push(Stmt::Return(Expr::Int(0)));
+                if !matches!(last_stmt.value, Stmt::Return(_)) {
+                    desugared_body.push(Positioned::with_unknown_span(Stmt::Return(
+                        Positioned::with_unknown_span(Expr::Int(0)),
+                    )));
                 }
             }
         } else {
             // If function body is empty, add return 0;
-            desugared_body.push(Stmt::Return(Expr::Int(0)));
+            desugared_body.push(Positioned::with_unknown_span(Stmt::Return(
+                Positioned::with_unknown_span(Expr::Int(0)),
+            )));
         }
 
         Ok(Function {
-            name: function.name,
-            type_params: function.type_params,
-            params: function.params,
+            name: function.name.clone(),
+            type_params: function.type_params.clone(),
+            params: function.params.clone(),
             body: desugared_body,
         })
     }
 
     /// Convert a struct method to a standalone function with mangled name
-    fn desugar_method(&mut self, struct_name: &str, method: Function) -> Result<Function> {
+    fn desugar_method(&mut self, struct_name: &str, method: &Function) -> Result<Function> {
         let mangled_name = format!("{}_{}", struct_name, method.name);
-        let mut desugared_body = self.desugar_statements(method.body)?;
+        let mut desugared_body = self.desugar_statements(&method.body)?;
 
         // Add return 0; if the last statement is not a return
         if !desugared_body.is_empty() {
             if let Some(last_stmt) = desugared_body.last() {
-                if !matches!(last_stmt, Stmt::Return(_)) {
-                    desugared_body.push(Stmt::Return(Expr::Int(0)));
+                if !matches!(last_stmt.value, Stmt::Return(_)) {
+                    desugared_body.push(Positioned::with_unknown_span(Stmt::Return(
+                        Positioned::with_unknown_span(Expr::Int(0)),
+                    )));
                 }
             }
         } else {
             // If method body is empty, add return 0;
-            desugared_body.push(Stmt::Return(Expr::Int(0)));
+            desugared_body.push(Positioned::with_unknown_span(Stmt::Return(
+                Positioned::with_unknown_span(Expr::Int(0)),
+            )));
         }
 
         Ok(Function {
             name: mangled_name,
-            type_params: method.type_params,
-            params: method.params,
+            type_params: method.type_params.clone(),
+            params: method.params.clone(),
             body: desugared_body,
         })
     }
 
     /// Desugar a list of statements
-    fn desugar_statements(&mut self, statements: Vec<Stmt>) -> Result<Vec<Stmt>> {
+    fn desugar_statements(&mut self, statements: &[PositionedStmt]) -> Result<Vec<PositionedStmt>> {
         let mut desugared = Vec::new();
         for stmt in statements {
             desugared.push(self.desugar_statement(stmt)?);
@@ -120,22 +137,22 @@ impl Desugarer {
     }
 
     /// Desugar a single statement
-    fn desugar_statement(&mut self, statement: Stmt) -> Result<Stmt> {
-        match statement {
+    fn desugar_statement(&mut self, statement: &PositionedStmt) -> Result<PositionedStmt> {
+        let desugared_stmt = match &statement.value {
             Stmt::Let { name, value } => {
                 let desugared_value = self.desugar_expression(value)?;
-                Ok(Stmt::Let {
-                    name,
+                Stmt::Let {
+                    name: name.clone(),
                     value: desugared_value,
-                })
+                }
             }
             Stmt::Expression(expr) => {
                 let desugared_expr = self.desugar_expression(expr)?;
-                Ok(Stmt::Expression(desugared_expr))
+                Stmt::Expression(desugared_expr)
             }
             Stmt::Return(expr) => {
                 let desugared_expr = self.desugar_expression(expr)?;
-                Ok(Stmt::Return(desugared_expr))
+                Stmt::Return(desugared_expr)
             }
             Stmt::If {
                 condition,
@@ -149,33 +166,33 @@ impl Desugarer {
                 } else {
                     None
                 };
-                Ok(Stmt::If {
+                Stmt::If {
                     condition: desugared_condition,
                     then_branch: desugared_then,
                     else_branch: desugared_else,
-                })
+                }
             }
             Stmt::While { condition, body } => {
                 let desugared_condition = self.desugar_expression(condition)?;
                 let desugared_body = self.desugar_statements(body)?;
-                Ok(Stmt::While {
+                Stmt::While {
                     condition: desugared_condition,
                     body: desugared_body,
-                })
+                }
             }
             Stmt::Assign { name, value } => {
                 let desugared_value = self.desugar_expression(value)?;
-                Ok(Stmt::Assign {
-                    name,
+                Stmt::Assign {
+                    name: name.clone(),
                     value: desugared_value,
-                })
+                }
             }
             Stmt::VectorPush { vector, value } => {
                 let desugared_value = self.desugar_expression(value)?;
-                Ok(Stmt::VectorPush {
-                    vector,
+                Stmt::VectorPush {
+                    vector: vector.clone(),
                     value: desugared_value,
-                })
+                }
             }
             Stmt::IndexAssign {
                 container,
@@ -185,12 +202,12 @@ impl Desugarer {
             } => {
                 let desugared_index = self.desugar_expression(index)?;
                 let desugared_value = self.desugar_expression(value)?;
-                Ok(Stmt::IndexAssign {
-                    container,
+                Stmt::IndexAssign {
+                    container: container.clone(),
                     index: desugared_index,
                     value: desugared_value,
-                    container_type,
-                })
+                    container_type: container_type.clone(),
+                }
             }
             Stmt::FieldAssign {
                 object,
@@ -199,18 +216,19 @@ impl Desugarer {
             } => {
                 let desugared_object = self.desugar_expression(object)?;
                 let desugared_value = self.desugar_expression(value)?;
-                Ok(Stmt::FieldAssign {
+                Stmt::FieldAssign {
                     object: desugared_object,
-                    field,
+                    field: field.clone(),
                     value: desugared_value,
-                })
+                }
             }
-        }
+        };
+        Ok(Positioned::with_unknown_span(desugared_stmt))
     }
 
     /// Desugar an expression, converting method calls to function calls
-    fn desugar_expression(&mut self, expression: Expr) -> Result<Expr> {
-        match expression {
+    fn desugar_expression(&mut self, expression: &PositionedExpr) -> Result<PositionedExpr> {
+        let desugared_expr = match &expression.value {
             // Method call is the main target for desugaring
             Expr::MethodCall {
                 object,
@@ -220,7 +238,7 @@ impl Desugarer {
             } => {
                 if let Some(obj) = object {
                     // Instance method call: obj.method(args)
-                    let desugared_object = self.desugar_expression(*obj)?;
+                    let desugared_object = self.desugar_expression(obj)?;
                     let mut desugared_args = Vec::new();
                     for arg in args {
                         desugared_args.push(self.desugar_expression(arg)?);
@@ -230,17 +248,19 @@ impl Desugarer {
                     let mangled_name = if let Some(struct_type) = type_name {
                         format!("{}_{}", struct_type, method)
                     } else {
-                        self.resolve_method_name(&desugared_object, &method)?
+                        self.resolve_method_name(&desugared_object.value, method)?
                     };
 
                     // Convert to a regular function call with object as first argument
                     let mut call_args = vec![desugared_object];
                     call_args.extend(desugared_args);
 
-                    Ok(Expr::Call {
-                        callee: Box::new(Expr::Identifier(mangled_name)),
+                    Expr::Call {
+                        callee: Box::new(Positioned::with_unknown_span(Expr::Identifier(
+                            mangled_name,
+                        ))),
                         args: call_args,
-                    })
+                    }
                 } else if let Some(type_name_str) = type_name {
                     // Associated method call: (type T).method(args)
                     let mut desugared_args = Vec::new();
@@ -252,10 +272,12 @@ impl Desugarer {
                     // For (type T).method(args), this becomes T_method(args)
                     let mangled_name = format!("{}_{}", type_name_str, method);
 
-                    Ok(Expr::Call {
-                        callee: Box::new(Expr::Identifier(mangled_name)),
+                    Expr::Call {
+                        callee: Box::new(Positioned::with_unknown_span(Expr::Identifier(
+                            mangled_name,
+                        ))),
                         args: desugared_args,
-                    })
+                    }
                 } else {
                     bail!("MethodCall must have either object or type_name specified")
                 }
@@ -263,24 +285,24 @@ impl Desugarer {
 
             // Recursively desugar other expressions
             Expr::Binary { left, op, right } => {
-                let desugared_left = self.desugar_expression(*left)?;
-                let desugared_right = self.desugar_expression(*right)?;
-                Ok(Expr::Binary {
+                let desugared_left = self.desugar_expression(left)?;
+                let desugared_right = self.desugar_expression(right)?;
+                Expr::Binary {
                     left: Box::new(desugared_left),
-                    op,
+                    op: *op,
                     right: Box::new(desugared_right),
-                })
+                }
             }
             Expr::Call { callee, args } => {
-                let desugared_callee = self.desugar_expression(*callee)?;
+                let desugared_callee = self.desugar_expression(callee)?;
                 let mut desugared_args = Vec::new();
                 for arg in args {
                     desugared_args.push(self.desugar_expression(arg)?);
                 }
-                Ok(Expr::Call {
+                Expr::Call {
                     callee: Box::new(desugared_callee),
                     args: desugared_args,
-                })
+                }
             }
             Expr::VectorNew {
                 element_type,
@@ -290,23 +312,23 @@ impl Desugarer {
                 for value in initial_values {
                     desugared_values.push(self.desugar_expression(value)?);
                 }
-                Ok(Expr::VectorNew {
-                    element_type,
+                Expr::VectorNew {
+                    element_type: element_type.clone(),
                     initial_values: desugared_values,
-                })
+                }
             }
             Expr::Index {
                 container,
                 index,
                 container_type,
             } => {
-                let desugared_container = self.desugar_expression(*container)?;
-                let desugared_index = self.desugar_expression(*index)?;
-                Ok(Expr::Index {
+                let desugared_container = self.desugar_expression(container)?;
+                let desugared_index = self.desugar_expression(index)?;
+                Expr::Index {
                     container: Box::new(desugared_container),
                     index: Box::new(desugared_index),
-                    container_type,
-                })
+                    container_type: container_type.clone(),
+                }
             }
             Expr::MapNew {
                 key_type,
@@ -319,11 +341,11 @@ impl Desugarer {
                     let desugared_value = self.desugar_expression(value)?;
                     desugared_pairs.push((desugared_key, desugared_value));
                 }
-                Ok(Expr::MapNew {
-                    key_type,
-                    value_type,
+                Expr::MapNew {
+                    key_type: key_type.clone(),
+                    value_type: value_type.clone(),
                     initial_pairs: desugared_pairs,
-                })
+                }
             }
             Expr::StructNew {
                 type_name,
@@ -333,28 +355,28 @@ impl Desugarer {
                 let mut desugared_fields = Vec::new();
                 for (field_name, field_value) in fields {
                     let desugared_value = self.desugar_expression(field_value)?;
-                    desugared_fields.push((field_name, desugared_value));
+                    desugared_fields.push((field_name.clone(), desugared_value));
                 }
-                Ok(Expr::StructNew {
-                    type_name,
+                Expr::StructNew {
+                    type_name: type_name.clone(),
                     fields: desugared_fields,
-                    kind,
-                })
+                    kind: *kind,
+                }
             }
             Expr::FieldAccess { object, field } => {
-                let desugared_object = self.desugar_expression(*object)?;
-                Ok(Expr::FieldAccess {
+                let desugared_object = self.desugar_expression(object)?;
+                Expr::FieldAccess {
                     object: Box::new(desugared_object),
-                    field,
-                })
+                    field: field.clone(),
+                }
             }
 
             Expr::Alloc { element_type, size } => {
-                let desugared_size = Box::new(self.desugar_expression(*size)?);
-                Ok(Expr::Alloc {
-                    element_type,
+                let desugared_size = Box::new(self.desugar_expression(size)?);
+                Expr::Alloc {
+                    element_type: element_type.clone(),
                     size: desugared_size,
-                })
+                }
             }
 
             // Leaf expressions that don't need desugaring
@@ -363,8 +385,9 @@ impl Desugarer {
             | Expr::String(_)
             | Expr::Byte(_)
             | Expr::Identifier(_)
-            | Expr::TypeExpr { .. } => Ok(expression),
-        }
+            | Expr::TypeExpr { .. } => expression.value.clone(),
+        };
+        Ok(Positioned::with_unknown_span(desugared_expr))
     }
 
     /// Resolve method name to mangled function name
@@ -377,7 +400,7 @@ impl Desugarer {
                 // For now, try all available struct types to see which one has this method
                 for (struct_name, struct_decl) in &self.structs {
                     for struct_method in &struct_decl.methods {
-                        if struct_method.name == method {
+                        if struct_method.value.name == method {
                             return Ok(format!("{}_{}", struct_name, method));
                         }
                     }
@@ -442,31 +465,33 @@ mod tests {
             name: "Point".to_string(),
             type_params: vec![],
             fields: vec![],
-            methods: vec![Function {
+            methods: vec![Positioned::with_unknown_span(Function {
                 name: "sum".to_string(),
                 type_params: vec![],
                 params: vec![],
                 body: vec![],
-            }],
+            })],
         };
         desugarer.structs.insert("Point".to_string(), point_struct);
 
         // Create a method call: p.sum()
-        let method_call = Expr::MethodCall {
-            object: Some(Box::new(Expr::Identifier("p".to_string()))),
+        let method_call = Positioned::with_unknown_span(Expr::MethodCall {
+            object: Some(Box::new(Positioned::with_unknown_span(Expr::Identifier(
+                "p".to_string(),
+            )))),
             type_name: None,
             method: "sum".to_string(),
             args: vec![],
-        };
+        });
 
-        let result = desugarer.desugar_expression(method_call).unwrap();
+        let result = desugarer.desugar_expression(&method_call).unwrap();
 
         // Should be converted to: Point_sum(p)
-        if let Expr::Call { callee, args } = result {
-            if let Expr::Identifier(func_name) = callee.as_ref() {
+        if let Expr::Call { callee, args } = &result.value {
+            if let Expr::Identifier(func_name) = &callee.value {
                 assert_eq!(func_name, "Point_sum");
                 assert_eq!(args.len(), 1);
-                if let Expr::Identifier(arg_name) = &args[0] {
+                if let Expr::Identifier(arg_name) = &args[0].value {
                     assert_eq!(arg_name, "p");
                 } else {
                     panic!("Expected identifier argument");
@@ -494,7 +519,7 @@ mod tests {
             body: vec![],
         };
 
-        let result = desugarer.desugar_method("Point", method).unwrap();
+        let result = desugarer.desugar_method("Point", &method).unwrap();
 
         assert_eq!(result.name, "Point_sum");
         assert_eq!(result.params.len(), 1);
@@ -506,21 +531,23 @@ mod tests {
         let mut desugarer = Desugarer::new();
 
         // Create a method call with embedded type information: p.sum()
-        let method_call = Expr::MethodCall {
-            object: Some(Box::new(Expr::Identifier("p".to_string()))),
+        let method_call = Positioned::with_unknown_span(Expr::MethodCall {
+            object: Some(Box::new(Positioned::with_unknown_span(Expr::Identifier(
+                "p".to_string(),
+            )))),
             type_name: Some("Point".to_string()), // Type information embedded by type checker
             method: "sum".to_string(),
             args: vec![],
-        };
+        });
 
-        let result = desugarer.desugar_expression(method_call).unwrap();
+        let result = desugarer.desugar_expression(&method_call).unwrap();
 
         // Should be converted to: Point_sum(p) using embedded type info
-        if let Expr::Call { callee, args } = result {
-            if let Expr::Identifier(func_name) = callee.as_ref() {
+        if let Expr::Call { callee, args } = &result.value {
+            if let Expr::Identifier(func_name) = &callee.value {
                 assert_eq!(func_name, "Point_sum");
                 assert_eq!(args.len(), 1);
-                if let Expr::Identifier(arg_name) = &args[0] {
+                if let Expr::Identifier(arg_name) = &args[0].value {
                     assert_eq!(arg_name, "p");
                 } else {
                     panic!("Expected identifier argument");
@@ -538,37 +565,37 @@ mod tests {
         let mut desugarer = Desugarer::new();
 
         // Create a StructNew expression with kind=Pattern and a nested expression
-        let struct_new_pattern = Expr::StructNew {
+        let struct_new_pattern = Positioned::with_unknown_span(Expr::StructNew {
             type_name: "Point".to_string(),
             fields: vec![
-                ("x".to_string(), Expr::Int(5)),
+                ("x".to_string(), Positioned::with_unknown_span(Expr::Int(5))),
                 (
                     "y".to_string(),
-                    Expr::Binary {
-                        left: Box::new(Expr::Int(2)),
+                    Positioned::with_unknown_span(Expr::Binary {
+                        left: Box::new(Positioned::with_unknown_span(Expr::Int(2))),
                         op: BinaryOp::Add,
-                        right: Box::new(Expr::Int(3)),
-                    },
+                        right: Box::new(Positioned::with_unknown_span(Expr::Int(3))),
+                    }),
                 ),
             ],
             kind: StructNewKind::Pattern,
-        };
+        });
 
-        let result = desugarer.desugar_expression(struct_new_pattern).unwrap();
+        let result = desugarer.desugar_expression(&struct_new_pattern).unwrap();
 
         // Should desugar nested expressions while preserving the StructNew structure
         if let Expr::StructNew {
             type_name,
             fields,
             kind: StructNewKind::Pattern,
-        } = result
+        } = &result.value
         {
             assert_eq!(type_name, "Point");
             assert_eq!(fields.len(), 2);
 
             // Check first field
             assert_eq!(fields[0].0, "x");
-            if let Expr::Int(val) = &fields[0].1 {
+            if let Expr::Int(val) = &fields[0].1.value {
                 assert_eq!(*val, 5);
             } else {
                 panic!("Expected number in first field");
@@ -576,14 +603,14 @@ mod tests {
 
             // Check second field - the nested expression should be desugared
             assert_eq!(fields[1].0, "y");
-            if let Expr::Binary { left, op, right } = &fields[1].1 {
+            if let Expr::Binary { left, op, right } = &fields[1].1.value {
                 assert_eq!(*op, BinaryOp::Add);
-                if let Expr::Int(left_val) = left.as_ref() {
+                if let Expr::Int(left_val) = &left.value {
                     assert_eq!(*left_val, 2);
                 } else {
                     panic!("Expected number in left operand");
                 }
-                if let Expr::Int(right_val) = right.as_ref() {
+                if let Expr::Int(right_val) = &right.value {
                     assert_eq!(*right_val, 3);
                 } else {
                     panic!("Expected number in right operand");
@@ -605,18 +632,22 @@ mod tests {
             name: "test_func".to_string(),
             type_params: vec![],
             params: vec![],
-            body: vec![Stmt::Let {
+            body: vec![Positioned::with_unknown_span(Stmt::Let {
                 name: "x".to_string(),
-                value: Expr::Int(42),
-            }],
+                value: Positioned::with_unknown_span(Expr::Int(42)),
+            })],
         };
 
-        let result = desugarer.desugar_function(function).unwrap();
+        let result = desugarer.desugar_function(&function).unwrap();
 
         // Should have added return 0; at the end
         assert_eq!(result.body.len(), 2);
-        if let Stmt::Return(Expr::Int(0)) = &result.body[1] {
-            // Expected behavior
+        if let Stmt::Return(return_expr) = &result.body[1].value {
+            if let Expr::Int(0) = &return_expr.value {
+                // Expected behavior
+            } else {
+                panic!("Expected return 0; to be added");
+            }
         } else {
             panic!("Expected return 0; to be added");
         }
@@ -632,20 +663,26 @@ mod tests {
             type_params: vec![],
             params: vec![],
             body: vec![
-                Stmt::Let {
+                Positioned::with_unknown_span(Stmt::Let {
                     name: "x".to_string(),
-                    value: Expr::Int(42),
-                },
-                Stmt::Return(Expr::Int(42)),
+                    value: Positioned::with_unknown_span(Expr::Int(42)),
+                }),
+                Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(
+                    Expr::Int(42),
+                ))),
             ],
         };
 
-        let result = desugarer.desugar_function(function).unwrap();
+        let result = desugarer.desugar_function(&function).unwrap();
 
         // Should NOT have added another return
         assert_eq!(result.body.len(), 2);
-        if let Stmt::Return(Expr::Int(42)) = &result.body[1] {
-            // Expected behavior - original return preserved
+        if let Stmt::Return(return_expr) = &result.body[1].value {
+            if let Expr::Int(42) = &return_expr.value {
+                // Expected behavior - original return preserved
+            } else {
+                panic!("Expected original return to be preserved");
+            }
         } else {
             panic!("Expected original return to be preserved");
         }
@@ -663,12 +700,16 @@ mod tests {
             body: vec![],
         };
 
-        let result = desugarer.desugar_function(function).unwrap();
+        let result = desugarer.desugar_function(&function).unwrap();
 
         // Should have added return 0;
         assert_eq!(result.body.len(), 1);
-        if let Stmt::Return(Expr::Int(0)) = &result.body[0] {
-            // Expected behavior
+        if let Stmt::Return(return_expr) = &result.body[0].value {
+            if let Expr::Int(0) = &return_expr.value {
+                // Expected behavior
+            } else {
+                panic!("Expected return 0; to be added to empty function");
+            }
         } else {
             panic!("Expected return 0; to be added to empty function");
         }

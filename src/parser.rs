@@ -1,6 +1,8 @@
 use crate::ast::{
-    BinaryOp, Decl, Expr, FunParam, Function, GlobalVariable, Program, Stmt, StructDecl,
-    StructField, StructNewKind, Token, TokenType,
+    BinaryOp, Decl, Expr, FunParam, Function, GlobalVariable, Positioned, PositionedDecl,
+    PositionedExpr, PositionedFunction, PositionedGlobalVariable, PositionedStmt,
+    PositionedStructDecl, Program, Span, Stmt, StructDecl, StructField, StructNewKind, Token,
+    TokenType,
 };
 use anyhow::{bail, Result};
 
@@ -47,7 +49,7 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Expr> {
+    pub fn parse(&mut self) -> Result<PositionedExpr> {
         self.parse_expression()
     }
 
@@ -63,19 +65,20 @@ impl Parser {
     }
 
     /// Parse a top-level declaration
-    fn parse_decl(&mut self) -> Result<Decl> {
-        match &self.current_token().token_type {
+    fn parse_decl(&mut self) -> Result<PositionedDecl> {
+        let start_pos = self.current_token().position;
+        let result = match &self.current_token().token_type {
             TokenType::Fun => {
                 let function = self.parse_function()?;
-                Ok(Decl::Function(function))
+                Decl::Function(function)
             }
             TokenType::Type => {
                 let struct_decl = self.parse_struct_decl()?;
-                Ok(Decl::Struct(struct_decl))
+                Decl::Struct(struct_decl)
             }
             TokenType::Let => {
                 let global_var = self.parse_global_variable()?;
-                Ok(Decl::GlobalVariable(global_var))
+                Decl::GlobalVariable(global_var)
             }
             _ => {
                 bail!(
@@ -83,11 +86,20 @@ impl Parser {
                     self.current_token().token_type
                 )
             }
-        }
+        };
+
+        let end_pos = if self.position > 0 {
+            self.tokens[self.position - 1].position
+        } else {
+            start_pos
+        };
+
+        Ok(Positioned::new(result, Span::new(start_pos, end_pos)))
     }
 
     /// Parse a global variable declaration
-    fn parse_global_variable(&mut self) -> Result<GlobalVariable> {
+    fn parse_global_variable(&mut self) -> Result<PositionedGlobalVariable> {
+        let start_pos = self.current_token().position;
         self.consume(TokenType::Let)?;
 
         let name = match &self.current_token().token_type {
@@ -103,11 +115,21 @@ impl Parser {
         let value = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
 
-        Ok(GlobalVariable { name, value })
+        let end_pos = if self.position > 0 {
+            self.tokens[self.position - 1].position
+        } else {
+            start_pos
+        };
+
+        Ok(Positioned::new(
+            GlobalVariable { name, value },
+            Span::new(start_pos, end_pos),
+        ))
     }
 
     /// Parse a function declaration
-    fn parse_function(&mut self) -> Result<Function> {
+    fn parse_function(&mut self) -> Result<PositionedFunction> {
+        let start_pos = self.current_token().position;
         self.consume(TokenType::Fun)?;
 
         let name = match &self.current_token().token_type {
@@ -185,16 +207,26 @@ impl Parser {
 
         self.consume(TokenType::End)?;
 
-        Ok(Function {
-            name,
-            type_params,
-            params,
-            body,
-        })
+        let end_pos = if self.position > 0 {
+            self.tokens[self.position - 1].position
+        } else {
+            start_pos
+        };
+
+        Ok(Positioned::new(
+            Function {
+                name,
+                type_params,
+                params,
+                body,
+            },
+            Span::new(start_pos, end_pos),
+        ))
     }
 
     /// Parse a struct declaration
-    fn parse_struct_decl(&mut self) -> Result<StructDecl> {
+    fn parse_struct_decl(&mut self) -> Result<PositionedStructDecl> {
+        let start_pos = self.current_token().position;
         self.consume(TokenType::Type)?;
 
         let name = match &self.current_token().token_type {
@@ -295,58 +327,76 @@ impl Parser {
         self.consume(TokenType::RightBrace)?;
         self.consume(TokenType::Semicolon)?;
 
-        Ok(StructDecl {
-            name,
-            type_params,
-            fields,
-            methods,
-        })
+        let end_pos = if self.position > 0 {
+            self.tokens[self.position - 1].position
+        } else {
+            start_pos
+        };
+
+        Ok(Positioned::new(
+            StructDecl {
+                name,
+                type_params,
+                fields,
+                methods,
+            },
+            Span::new(start_pos, end_pos),
+        ))
     }
 
-    pub fn parse_stmt(&mut self) -> Result<Stmt> {
-        match &self.current_token().token_type {
-            TokenType::Let => self.parse_let_stmt(),
-            TokenType::Return => self.parse_return_stmt(),
-            TokenType::If => self.parse_if_stmt(),
-            TokenType::While => self.parse_while_stmt(),
+    pub fn parse_stmt(&mut self) -> Result<PositionedStmt> {
+        let start_pos = self.current_token().position;
+        let stmt = match &self.current_token().token_type {
+            TokenType::Let => self.parse_let_stmt()?,
+            TokenType::Return => self.parse_return_stmt()?,
+            TokenType::If => self.parse_if_stmt()?,
+            TokenType::While => self.parse_while_stmt()?,
             TokenType::Identifier(_) => {
                 // Look ahead to see if this is an assignment, vector push, field assign, or vector assign
                 if self.position + 1 < self.tokens.len() {
                     match &self.tokens[self.position + 1].token_type {
-                        TokenType::Assign => self.parse_assign_stmt(),
-                        TokenType::Push => self.parse_vector_push_stmt(),
+                        TokenType::Assign => self.parse_assign_stmt()?,
+                        TokenType::Push => self.parse_vector_push_stmt()?,
                         TokenType::LeftBracket => {
                             // Could be container[index] = value
-                            self.parse_index_assign_or_expr()
+                            self.parse_index_assign_or_expr()?
                         }
                         TokenType::Dot => {
                             // Check if this is field assignment: obj.field = value
                             if self.is_field_assignment() {
-                                self.parse_field_assign_stmt()
+                                self.parse_field_assign_stmt()?
                             } else {
                                 let expr = self.parse_expression()?;
                                 self.consume(TokenType::Semicolon)?;
-                                Ok(Stmt::Expression(expr))
+                                Stmt::Expression(expr)
                             }
                         }
                         _ => {
                             let expr = self.parse_expression()?;
                             self.consume(TokenType::Semicolon)?;
-                            Ok(Stmt::Expression(expr))
+                            Stmt::Expression(expr)
                         }
                     }
                 } else {
                     let expr = self.parse_expression()?;
                     self.consume(TokenType::Semicolon)?;
-                    Ok(Stmt::Expression(expr))
+                    Stmt::Expression(expr)
                 }
             }
             _ => {
                 let expr = self.parse_expression()?;
                 self.consume(TokenType::Semicolon)?;
-                Ok(Stmt::Expression(expr))
+                Stmt::Expression(expr)
             }
-        }
+        };
+
+        let end_pos = if self.position > 0 {
+            self.tokens[self.position - 1].position
+        } else {
+            start_pos
+        };
+
+        Ok(Positioned::new(stmt, Span::new(start_pos, end_pos)))
     }
 
     fn parse_let_stmt(&mut self) -> Result<Stmt> {
@@ -377,7 +427,7 @@ impl Parser {
 
     fn parse_if_stmt(&mut self) -> Result<Stmt> {
         self.consume(TokenType::If)?;
-        let condition = self.parse_comparison()?;
+        let condition = self.parse_expression()?;
         self.consume(TokenType::Then)?;
 
         let mut then_branch = Vec::new();
@@ -396,7 +446,17 @@ impl Parser {
             // Check for 'else if'
             if matches!(self.current_token().token_type, TokenType::If) {
                 // Parse as a single if statement in the else branch
-                Some(vec![self.parse_if_stmt()?])
+                let start_pos = self.current_token().position;
+                let if_stmt = self.parse_if_stmt()?;
+                let end_pos = if self.position > 0 {
+                    self.tokens[self.position - 1].position
+                } else {
+                    start_pos
+                };
+                Some(vec![Positioned::new(
+                    if_stmt,
+                    Span::new(start_pos, end_pos),
+                )])
             } else {
                 let mut else_stmts = Vec::new();
                 while !matches!(
@@ -422,7 +482,7 @@ impl Parser {
 
     fn parse_while_stmt(&mut self) -> Result<Stmt> {
         self.consume(TokenType::While)?;
-        let condition = self.parse_comparison()?;
+        let condition = self.parse_expression()?;
         self.consume(TokenType::Do)?;
 
         let mut body = Vec::new();
@@ -594,11 +654,11 @@ impl Parser {
         }
     }
 
-    fn parse_expression(&mut self) -> Result<Expr> {
+    fn parse_expression(&mut self) -> Result<PositionedExpr> {
         self.parse_comparison()
     }
 
-    fn parse_comparison(&mut self) -> Result<Expr> {
+    fn parse_comparison(&mut self) -> Result<PositionedExpr> {
         self.parse_binary_left_assoc(
             |parser| parser.parse_term(),
             &[
@@ -617,10 +677,11 @@ impl Parser {
         &mut self,
         mut operand_parser: F,
         operators: &[(TokenType, BinaryOp)],
-    ) -> Result<Expr>
+    ) -> Result<PositionedExpr>
     where
-        F: FnMut(&mut Self) -> Result<Expr>,
+        F: FnMut(&mut Self) -> Result<PositionedExpr>,
     {
+        let start_pos = self.current_token().position;
         let mut left = operand_parser(self)?;
 
         loop {
@@ -631,11 +692,19 @@ impl Parser {
                 {
                     self.advance();
                     let right = operand_parser(self)?;
-                    left = Expr::Binary {
-                        left: Box::new(left),
-                        op: *binary_op,
-                        right: Box::new(right),
+                    let end_pos = if self.position > 0 {
+                        self.tokens[self.position - 1].position
+                    } else {
+                        start_pos
                     };
+                    left = Positioned::new(
+                        Expr::Binary {
+                            left: Box::new(left),
+                            op: *binary_op,
+                            right: Box::new(right),
+                        },
+                        Span::new(start_pos, end_pos),
+                    );
                     found = true;
                     break;
                 }
@@ -648,7 +717,7 @@ impl Parser {
         Ok(left)
     }
 
-    fn parse_term(&mut self) -> Result<Expr> {
+    fn parse_term(&mut self) -> Result<PositionedExpr> {
         self.parse_binary_left_assoc(
             |parser| parser.parse_factor(),
             &[
@@ -658,7 +727,7 @@ impl Parser {
         )
     }
 
-    fn parse_factor(&mut self) -> Result<Expr> {
+    fn parse_factor(&mut self) -> Result<PositionedExpr> {
         self.parse_binary_left_assoc(
             |parser| parser.parse_primary(),
             &[
@@ -668,27 +737,61 @@ impl Parser {
         )
     }
 
-    fn parse_primary(&mut self) -> Result<Expr> {
+    fn parse_primary(&mut self) -> Result<PositionedExpr> {
+        let start_pos = self.current_token().position;
+
         match &self.current_token().token_type {
             TokenType::Int(value) => {
                 let num = *value;
                 self.advance();
-                Ok(Expr::Int(num))
+                let end_pos = if self.position > 0 {
+                    self.tokens[self.position - 1].position
+                } else {
+                    start_pos
+                };
+                return Ok(Positioned::new(
+                    Expr::Int(num),
+                    Span::new(start_pos, end_pos),
+                ));
             }
             TokenType::Boolean(value) => {
                 let bool_val = *value;
                 self.advance();
-                Ok(Expr::Boolean(bool_val))
+                let end_pos = if self.position > 0 {
+                    self.tokens[self.position - 1].position
+                } else {
+                    start_pos
+                };
+                return Ok(Positioned::new(
+                    Expr::Boolean(bool_val),
+                    Span::new(start_pos, end_pos),
+                ));
             }
             TokenType::String(value) => {
                 let string_val = value.clone();
                 self.advance();
-                Ok(Expr::String(string_val))
+                let end_pos = if self.position > 0 {
+                    self.tokens[self.position - 1].position
+                } else {
+                    start_pos
+                };
+                return Ok(Positioned::new(
+                    Expr::String(string_val),
+                    Span::new(start_pos, end_pos),
+                ));
             }
             TokenType::Byte(value) => {
                 let byte_val = *value;
                 self.advance();
-                Ok(Expr::Byte(byte_val))
+                let end_pos = if self.position > 0 {
+                    self.tokens[self.position - 1].position
+                } else {
+                    start_pos
+                };
+                return Ok(Positioned::new(
+                    Expr::Byte(byte_val),
+                    Span::new(start_pos, end_pos),
+                ));
             }
             TokenType::Identifier(name) => {
                 let identifier = name.clone();
@@ -712,8 +815,12 @@ impl Parser {
                     }
 
                     self.consume(TokenType::RightParen)?;
+                    let identifier_pos = Positioned::new(
+                        Expr::Identifier(identifier),
+                        Span::new(start_pos, start_pos),
+                    );
                     let mut expr = Expr::Call {
-                        callee: Box::new(Expr::Identifier(identifier)),
+                        callee: Box::new(identifier_pos),
                         args,
                     };
 
@@ -722,25 +829,44 @@ impl Parser {
                         self.advance(); // consume '['
                         let index = self.parse_expression()?;
                         self.consume(TokenType::RightBracket)?;
+                        let positioned_expr =
+                            Positioned::new(expr, Span::new(start_pos, start_pos));
                         expr = Expr::Index {
-                            container: Box::new(expr),
+                            container: Box::new(positioned_expr),
                             index: Box::new(index),
                             container_type: None, // Will be filled in by type checker
                         };
                     }
 
-                    Ok(expr)
+                    let end_pos = if self.position > 0 {
+                        self.tokens[self.position - 1].position
+                    } else {
+                        start_pos
+                    };
+                    Ok(Positioned::new(expr, Span::new(start_pos, end_pos)))
                 } else if matches!(self.current_token().token_type, TokenType::LeftBracket) {
                     // Container indexing - we'll determine the type at type checking
                     self.advance(); // consume '['
                     let index = self.parse_expression()?;
                     self.consume(TokenType::RightBracket)?;
 
-                    Ok(Expr::Index {
-                        container: Box::new(Expr::Identifier(identifier)),
-                        index: Box::new(index),
-                        container_type: None, // Will be filled in by type checker
-                    })
+                    let end_pos = if self.position > 0 {
+                        self.tokens[self.position - 1].position
+                    } else {
+                        start_pos
+                    };
+                    let identifier_pos = Positioned::new(
+                        Expr::Identifier(identifier),
+                        Span::new(start_pos, start_pos),
+                    );
+                    Ok(Positioned::new(
+                        Expr::Index {
+                            container: Box::new(identifier_pos),
+                            index: Box::new(index),
+                            container_type: None, // Will be filled in by type checker
+                        },
+                        Span::new(start_pos, end_pos),
+                    ))
                 } else {
                     // Check for field access or method call
                     let mut expr = Expr::Identifier(identifier);
@@ -774,22 +900,31 @@ impl Parser {
                             }
 
                             self.consume(TokenType::RightParen)?;
+                            let positioned_expr =
+                                Positioned::new(expr, Span::new(start_pos, start_pos));
                             expr = Expr::MethodCall {
-                                object: Some(Box::new(expr)),
+                                object: Some(Box::new(positioned_expr)),
                                 type_name: None, // Will be filled by type checker
                                 method: field_name,
                                 args,
                             };
                         } else {
                             // Regular field access
+                            let positioned_expr =
+                                Positioned::new(expr, Span::new(start_pos, start_pos));
                             expr = Expr::FieldAccess {
-                                object: Box::new(expr),
+                                object: Box::new(positioned_expr),
                                 field: field_name,
                             };
                         }
                     }
 
-                    Ok(expr)
+                    let end_pos = if self.position > 0 {
+                        self.tokens[self.position - 1].position
+                    } else {
+                        start_pos
+                    };
+                    Ok(Positioned::new(expr, Span::new(start_pos, end_pos)))
                 }
             }
             TokenType::New => {
@@ -831,11 +966,19 @@ impl Parser {
                         }
 
                         self.consume(TokenType::RightBrace)?;
-                        return Ok(Expr::StructNew {
-                            type_name,
-                            fields,
-                            kind: StructNewKind::Pattern,
-                        });
+                        let end_pos = if self.position > 0 {
+                            self.tokens[self.position - 1].position
+                        } else {
+                            start_pos
+                        };
+                        return Ok(Positioned::new(
+                            Expr::StructNew {
+                                type_name,
+                                fields,
+                                kind: StructNewKind::Pattern,
+                            },
+                            Span::new(start_pos, end_pos),
+                        ));
                     } else {
                         bail!("Expected 'struct' after 'new('");
                     }
@@ -871,10 +1014,18 @@ impl Parser {
                     }
 
                     self.consume(TokenType::RightBrace)?; // consume '}'
-                    Ok(Expr::VectorNew {
-                        element_type,
-                        initial_values,
-                    })
+                    let end_pos = if self.position > 0 {
+                        self.tokens[self.position - 1].position
+                    } else {
+                        start_pos
+                    };
+                    Ok(Positioned::new(
+                        Expr::VectorNew {
+                            element_type,
+                            initial_values,
+                        },
+                        Span::new(start_pos, end_pos),
+                    ))
                 } else if matches!(self.current_token().token_type, TokenType::Map) {
                     self.advance(); // consume 'map'
                     self.consume(TokenType::LeftParen)?; // consume '('
@@ -938,11 +1089,19 @@ impl Parser {
                     }
 
                     self.consume(TokenType::RightBrace)?; // consume '}'
-                    Ok(Expr::MapNew {
-                        key_type,
-                        value_type,
-                        initial_pairs,
-                    })
+                    let end_pos = if self.position > 0 {
+                        self.tokens[self.position - 1].position
+                    } else {
+                        start_pos
+                    };
+                    Ok(Positioned::new(
+                        Expr::MapNew {
+                            key_type,
+                            value_type,
+                            initial_pairs,
+                        },
+                        Span::new(start_pos, end_pos),
+                    ))
                 } else {
                     // Handle struct instantiation: new TypeName { .field = value, ... }
                     // Support generic types: new Container(int) { .field = value, ... }
@@ -976,11 +1135,19 @@ impl Parser {
                     }
 
                     self.consume(TokenType::RightBrace)?;
-                    Ok(Expr::StructNew {
-                        type_name,
-                        fields,
-                        kind: StructNewKind::Regular,
-                    })
+                    let end_pos = if self.position > 0 {
+                        self.tokens[self.position - 1].position
+                    } else {
+                        start_pos
+                    };
+                    Ok(Positioned::new(
+                        Expr::StructNew {
+                            type_name,
+                            fields,
+                            kind: StructNewKind::Regular,
+                        },
+                        Span::new(start_pos, end_pos),
+                    ))
                 }
             }
             TokenType::LeftParen => {
@@ -1019,15 +1186,31 @@ impl Parser {
                         }
                         self.consume(TokenType::RightParen)?;
 
-                        Ok(Expr::MethodCall {
-                            object: None, // No object for associated method calls
-                            type_name: Some(type_name),
-                            method,
-                            args,
-                        })
+                        let end_pos = if self.position > 0 {
+                            self.tokens[self.position - 1].position
+                        } else {
+                            start_pos
+                        };
+                        Ok(Positioned::new(
+                            Expr::MethodCall {
+                                object: None, // No object for associated method calls
+                                type_name: Some(type_name),
+                                method,
+                                args,
+                            },
+                            Span::new(start_pos, end_pos),
+                        ))
                     } else {
                         // Just a type expression in parentheses
-                        Ok(Expr::TypeExpr { type_name })
+                        let end_pos = if self.position > 0 {
+                            self.tokens[self.position - 1].position
+                        } else {
+                            start_pos
+                        };
+                        Ok(Positioned::new(
+                            Expr::TypeExpr { type_name },
+                            Span::new(start_pos, end_pos),
+                        ))
                     }
                 } else {
                     // Regular parenthesized expression
@@ -1039,7 +1222,15 @@ impl Parser {
             TokenType::Type => {
                 self.advance(); // consume 'type'
                 let type_name = self.parse_type_name()?;
-                Ok(Expr::TypeExpr { type_name })
+                let end_pos = if self.position > 0 {
+                    self.tokens[self.position - 1].position
+                } else {
+                    start_pos
+                };
+                Ok(Positioned::new(
+                    Expr::TypeExpr { type_name },
+                    Span::new(start_pos, end_pos),
+                ))
             }
             TokenType::Alloc => {
                 self.advance(); // consume 'alloc'
@@ -1055,10 +1246,18 @@ impl Parser {
 
                 self.consume(TokenType::RightParen)?; // consume ')'
 
-                Ok(Expr::Alloc {
-                    element_type,
-                    size: Box::new(size),
-                })
+                let end_pos = if self.position > 0 {
+                    self.tokens[self.position - 1].position
+                } else {
+                    start_pos
+                };
+                Ok(Positioned::new(
+                    Expr::Alloc {
+                        element_type,
+                        size: Box::new(size),
+                    },
+                    Span::new(start_pos, end_pos),
+                ))
             }
             _ => bail!("Unexpected token: {:?}", self.current_token().token_type),
         }
@@ -1083,7 +1282,14 @@ impl Parser {
     fn parse_field_assign_stmt(&mut self) -> Result<Stmt> {
         // Parse: obj.field = value;
         // Parse just the object identifier, not the full expression
-        let object = Expr::Identifier(self.parse_identifier("in field assignment")?);
+        let start_pos = self.current_token().position;
+        let object_name = self.parse_identifier("in field assignment")?;
+        let end_pos = if self.position > 0 {
+            self.tokens[self.position - 1].position
+        } else {
+            start_pos
+        };
+        let object = Positioned::new(Expr::Identifier(object_name), Span::new(start_pos, end_pos));
         self.consume(TokenType::Dot)?;
 
         let field = match &self.current_token().token_type {
@@ -1123,14 +1329,14 @@ mod tests {
         let result = parser.parse_program().unwrap();
 
         assert_eq!(result.declarations.len(), 1);
-        match &result.declarations[0] {
+        match &result.declarations[0].value {
             Decl::Struct(struct_decl) => {
-                assert_eq!(struct_decl.name, "Container");
-                assert_eq!(struct_decl.type_params.len(), 1);
-                assert_eq!(struct_decl.type_params[0], "T");
-                assert_eq!(struct_decl.fields.len(), 1);
-                assert_eq!(struct_decl.fields[0].name, "value");
-                assert_eq!(struct_decl.fields[0].type_name, "T");
+                assert_eq!(struct_decl.value.name, "Container");
+                assert_eq!(struct_decl.value.type_params.len(), 1);
+                assert_eq!(struct_decl.value.type_params[0], "T");
+                assert_eq!(struct_decl.value.fields.len(), 1);
+                assert_eq!(struct_decl.value.fields[0].name, "value");
+                assert_eq!(struct_decl.value.fields[0].type_name, "T");
             }
             _ => panic!("Expected struct declaration"),
         }
@@ -1147,14 +1353,14 @@ mod tests {
         let result = parser.parse_program().unwrap();
 
         assert_eq!(result.declarations.len(), 1);
-        match &result.declarations[0] {
+        match &result.declarations[0].value {
             Decl::Function(function) => {
-                assert_eq!(function.name, "identity");
-                assert_eq!(function.type_params.len(), 1);
-                assert_eq!(function.type_params[0], "T");
-                assert_eq!(function.params.len(), 1);
-                assert_eq!(function.params[0].name, "value");
-                assert_eq!(function.params[0].type_name, Some("T".to_string()));
+                assert_eq!(function.value.name, "identity");
+                assert_eq!(function.value.type_params.len(), 1);
+                assert_eq!(function.value.type_params[0], "T");
+                assert_eq!(function.value.params.len(), 1);
+                assert_eq!(function.value.params[0].name, "value");
+                assert_eq!(function.value.params[0].type_name, Some("T".to_string()));
             }
             _ => panic!("Expected function declaration"),
         }
@@ -1171,12 +1377,12 @@ mod tests {
         let result = parser.parse_program().unwrap();
 
         assert_eq!(result.declarations.len(), 1);
-        match &result.declarations[0] {
+        match &result.declarations[0].value {
             Decl::Struct(struct_decl) => {
-                assert_eq!(struct_decl.name, "Point");
-                assert_eq!(struct_decl.fields.len(), 1);
-                assert_eq!(struct_decl.fields[0].name, "container");
-                assert_eq!(struct_decl.fields[0].type_name, "Container(int)");
+                assert_eq!(struct_decl.value.name, "Point");
+                assert_eq!(struct_decl.value.fields.len(), 1);
+                assert_eq!(struct_decl.value.fields[0].name, "container");
+                assert_eq!(struct_decl.value.fields[0].type_name, "Container(int)");
             }
             _ => panic!("Expected struct declaration"),
         }
@@ -1201,15 +1407,15 @@ type Point = struct {
 
         assert_eq!(program.declarations.len(), 1);
 
-        if let Decl::Struct(struct_decl) = &program.declarations[0] {
-            assert_eq!(struct_decl.name, "Point");
-            assert_eq!(struct_decl.fields.len(), 2);
-            assert_eq!(struct_decl.methods.len(), 1);
+        if let Decl::Struct(struct_decl) = &program.declarations[0].value {
+            assert_eq!(struct_decl.value.name, "Point");
+            assert_eq!(struct_decl.value.fields.len(), 2);
+            assert_eq!(struct_decl.value.methods.len(), 1);
 
-            let method = &struct_decl.methods[0];
-            assert_eq!(method.name, "sum");
-            assert_eq!(method.params.len(), 1);
-            assert_eq!(method.params[0].name, "self");
+            let method = &struct_decl.value.methods[0];
+            assert_eq!(method.value.name, "sum");
+            assert_eq!(method.value.params.len(), 1);
+            assert_eq!(method.value.params[0].name, "self");
         } else {
             panic!("Expected struct declaration");
         }
@@ -1228,10 +1434,10 @@ type Point = struct {
             type_name,
             method,
             args,
-        } = expr
+        } = expr.value
         {
             if let Some(obj) = object {
-                if let Expr::Identifier(obj_name) = obj.as_ref() {
+                if let Expr::Identifier(obj_name) = &obj.value {
                     assert_eq!(obj_name, "p");
                 } else {
                     panic!("Expected identifier for object");
@@ -1261,11 +1467,11 @@ type Point = struct {
 
         assert_eq!(program.declarations.len(), 1);
 
-        if let Decl::Struct(struct_decl) = &program.declarations[0] {
-            assert_eq!(struct_decl.name, "Point");
-            assert_eq!(struct_decl.fields.len(), 1);
-            assert_eq!(struct_decl.fields[0].name, "data");
-            assert_eq!(struct_decl.fields[0].type_name, "[*]int");
+        if let Decl::Struct(struct_decl) = &program.declarations[0].value {
+            assert_eq!(struct_decl.value.name, "Point");
+            assert_eq!(struct_decl.value.fields.len(), 1);
+            assert_eq!(struct_decl.value.fields[0].name, "data");
+            assert_eq!(struct_decl.value.fields[0].type_name, "[*]int");
         } else {
             panic!("Expected struct declaration");
         }
@@ -1283,18 +1489,18 @@ type Point = struct {
             type_name,
             fields,
             kind: StructNewKind::Pattern,
-        } = expr
+        } = expr.value
         {
             assert_eq!(type_name, "Point");
             assert_eq!(fields.len(), 2);
             assert_eq!(fields[0].0, "x");
             assert_eq!(fields[1].0, "y");
-            if let Expr::Int(n) = fields[0].1 {
+            if let Expr::Int(n) = fields[0].1.value {
                 assert_eq!(n, 10);
             } else {
                 panic!("Expected number expression for field value");
             }
-            if let Expr::Int(n) = fields[1].1 {
+            if let Expr::Int(n) = fields[1].1.value {
                 assert_eq!(n, 20);
             } else {
                 panic!("Expected number expression for field value");
@@ -1328,7 +1534,7 @@ type Point = struct {
             type_name,
             fields,
             kind: StructNewKind::Regular,
-        } = expr1
+        } = expr1.value
         {
             assert_eq!(type_name, "Point");
             assert_eq!(fields.len(), 2);
@@ -1341,7 +1547,7 @@ type Point = struct {
             type_name,
             fields,
             kind: StructNewKind::Pattern,
-        } = expr2
+        } = expr2.value
         {
             assert_eq!(type_name, "Point");
             assert_eq!(fields.len(), 2);

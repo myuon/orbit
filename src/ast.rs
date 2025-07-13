@@ -1,4 +1,52 @@
 #[derive(Debug, Clone, PartialEq)]
+pub struct Span {
+    pub start: Option<usize>,
+    pub end: Option<usize>,
+}
+
+impl Span {
+    pub fn new(start: usize, end: usize) -> Self {
+        Self {
+            start: Some(start),
+            end: Some(end),
+        }
+    }
+
+    pub fn unknown() -> Self {
+        Self {
+            start: None,
+            end: None,
+        }
+    }
+
+    pub fn single(pos: usize) -> Self {
+        Self {
+            start: Some(pos),
+            end: Some(pos),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Positioned<T> {
+    pub value: T,
+    pub span: Span,
+}
+
+impl<T> Positioned<T> {
+    pub fn new(value: T, span: Span) -> Self {
+        Self { value, span }
+    }
+
+    pub fn with_unknown_span(value: T) -> Self {
+        Self {
+            value,
+            span: Span::unknown(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     Int(i64),
     Boolean(bool),
@@ -89,6 +137,8 @@ pub enum StructNewKind {
     Pattern, // new(struct) Type { ... }
 }
 
+pub type PositionedExpr = Positioned<Expr>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Int(i64),
@@ -97,49 +147,49 @@ pub enum Expr {
     Byte(u8),
     Identifier(String),
     Binary {
-        left: Box<Expr>,
+        left: Box<PositionedExpr>,
         op: BinaryOp,
-        right: Box<Expr>,
+        right: Box<PositionedExpr>,
     },
     Call {
-        callee: Box<Expr>,
-        args: Vec<Expr>,
+        callee: Box<PositionedExpr>,
+        args: Vec<PositionedExpr>,
     },
     VectorNew {
         element_type: String,
-        initial_values: Vec<Expr>,
+        initial_values: Vec<PositionedExpr>,
     },
     Index {
-        container: Box<Expr>,
-        index: Box<Expr>,
+        container: Box<PositionedExpr>,
+        index: Box<PositionedExpr>,
         container_type: Option<IndexContainerType>,
     },
     MapNew {
         key_type: String,
         value_type: String,
-        initial_pairs: Vec<(Expr, Expr)>,
+        initial_pairs: Vec<(PositionedExpr, PositionedExpr)>,
     },
     StructNew {
         type_name: String,
-        fields: Vec<(String, Expr)>,
+        fields: Vec<(String, PositionedExpr)>,
         kind: StructNewKind,
     },
     FieldAccess {
-        object: Box<Expr>,
+        object: Box<PositionedExpr>,
         field: String,
     },
     MethodCall {
-        object: Option<Box<Expr>>, // None for associated calls (Type::method), Some for instance calls (obj.method)
+        object: Option<Box<PositionedExpr>>, // None for associated calls (Type::method), Some for instance calls (obj.method)
         type_name: Option<String>, // Type name for associated calls, filled by type checker for instance calls
         method: String,
-        args: Vec<Expr>,
+        args: Vec<PositionedExpr>,
     },
     TypeExpr {
         type_name: String,
     },
     Alloc {
         element_type: String,
-        size: Box<Expr>,
+        size: Box<PositionedExpr>,
     },
 }
 
@@ -152,31 +202,37 @@ pub struct FunParam {
 // Top-level program structure
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
-    pub declarations: Vec<Decl>,
+    pub declarations: Vec<PositionedDecl>,
 }
 
 // Top-level declarations
+pub type PositionedDecl = Positioned<Decl>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Decl {
-    Function(Function),
-    Struct(StructDecl),
-    GlobalVariable(GlobalVariable),
+    Function(PositionedFunction),
+    Struct(PositionedStructDecl),
+    GlobalVariable(PositionedGlobalVariable),
 }
 
 // Global variable declaration
+pub type PositionedGlobalVariable = Positioned<GlobalVariable>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct GlobalVariable {
     pub name: String,
-    pub value: Expr,
+    pub value: PositionedExpr,
 }
 
 // Struct declaration
+pub type PositionedStructDecl = Positioned<StructDecl>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDecl {
     pub name: String,
     pub type_params: Vec<String>, // Generic type parameters
     pub fields: Vec<StructField>,
-    pub methods: Vec<Function>,
+    pub methods: Vec<PositionedFunction>,
 }
 
 // Struct field
@@ -194,49 +250,53 @@ pub struct StructField {
 }
 
 // Function declaration with body
+pub type PositionedFunction = Positioned<Function>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub name: String,
     pub type_params: Vec<String>, // Generic type parameters
     pub params: Vec<FunParam>,
-    pub body: Vec<Stmt>,
+    pub body: Vec<PositionedStmt>,
 }
+
+pub type PositionedStmt = Positioned<Stmt>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Let {
         name: String,
-        value: Expr,
+        value: PositionedExpr,
     },
-    Expression(Expr),
-    Return(Expr),
+    Expression(PositionedExpr),
+    Return(PositionedExpr),
     If {
-        condition: Expr,
-        then_branch: Vec<Stmt>,
-        else_branch: Option<Vec<Stmt>>,
+        condition: PositionedExpr,
+        then_branch: Vec<PositionedStmt>,
+        else_branch: Option<Vec<PositionedStmt>>,
     },
     While {
-        condition: Expr,
-        body: Vec<Stmt>,
+        condition: PositionedExpr,
+        body: Vec<PositionedStmt>,
     },
     Assign {
         name: String,
-        value: Expr,
+        value: PositionedExpr,
     },
     VectorPush {
         vector: String,
-        value: Expr,
+        value: PositionedExpr,
     },
     IndexAssign {
         container: String,
-        index: Expr,
-        value: Expr,
+        index: PositionedExpr,
+        value: PositionedExpr,
         container_type: Option<IndexContainerType>,
     },
     FieldAssign {
-        object: Expr,
+        object: PositionedExpr,
         field: String,
-        value: Expr,
+        value: PositionedExpr,
     },
 }
 

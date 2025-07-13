@@ -1,4 +1,7 @@
-use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl, Type};
+use crate::ast::{
+    Decl, Expr, Function, Positioned, PositionedDecl, PositionedExpr, PositionedFunction,
+    PositionedStmt, PositionedStructDecl, Program, Stmt, StructDecl, Type,
+};
 use anyhow::{bail, Result};
 use std::collections::{HashMap, HashSet};
 
@@ -41,11 +44,11 @@ pub struct Monomorphizer {
     /// Set of targets that have already been processed
     visited: HashSet<MonomorphizationTarget>,
     /// Map from original generic symbols to their declarations
-    generic_functions: HashMap<String, Function>,
-    generic_structs: HashMap<String, StructDecl>,
+    generic_functions: HashMap<String, PositionedFunction>,
+    generic_structs: HashMap<String, PositionedStructDecl>,
     /// Map from mangled names to monomorphized declarations
-    monomorphized_functions: HashMap<String, Function>,
-    monomorphized_structs: HashMap<String, StructDecl>,
+    monomorphized_functions: HashMap<String, PositionedFunction>,
+    monomorphized_structs: HashMap<String, PositionedStructDecl>,
 }
 
 impl Monomorphizer {
@@ -61,18 +64,18 @@ impl Monomorphizer {
     }
 
     /// Register a generic function for later monomorphization
-    pub fn register_generic_function(&mut self, function: Function) {
-        if !function.type_params.is_empty() {
+    pub fn register_generic_function(&mut self, function: PositionedFunction) {
+        if !function.value.type_params.is_empty() {
             self.generic_functions
-                .insert(function.name.clone(), function);
+                .insert(function.value.name.clone(), function);
         }
     }
 
     /// Register a generic struct for later monomorphization
-    pub fn register_generic_struct(&mut self, struct_decl: StructDecl) {
-        if !struct_decl.type_params.is_empty() {
+    pub fn register_generic_struct(&mut self, struct_decl: PositionedStructDecl) {
+        if !struct_decl.value.type_params.is_empty() {
             self.generic_structs
-                .insert(struct_decl.name.clone(), struct_decl);
+                .insert(struct_decl.value.name.clone(), struct_decl);
         }
     }
 
@@ -92,38 +95,38 @@ impl Monomorphizer {
     }
 
     /// Collect targets from a declaration
-    fn collect_targets_from_decl(&mut self, decl: &Decl) -> Result<()> {
-        match decl {
+    fn collect_targets_from_decl(&mut self, decl: &PositionedDecl) -> Result<()> {
+        match &decl.value {
             Decl::Function(func) => {
-                if !func.type_params.is_empty() {
+                if !func.value.type_params.is_empty() {
                     self.register_generic_function(func.clone());
                 }
                 // Look for generic calls in function body
-                for stmt in &func.body {
+                for stmt in &func.value.body {
                     self.collect_targets_from_stmt(stmt)?;
                 }
             }
             Decl::Struct(struct_decl) => {
-                if !struct_decl.type_params.is_empty() {
+                if !struct_decl.value.type_params.is_empty() {
                     self.register_generic_struct(struct_decl.clone());
                 }
                 // Look for generic calls in methods
-                for method in &struct_decl.methods {
-                    for stmt in &method.body {
+                for method in &struct_decl.value.methods {
+                    for stmt in &method.value.body {
                         self.collect_targets_from_stmt(stmt)?;
                     }
                 }
             }
             Decl::GlobalVariable(var) => {
-                self.collect_targets_from_expr(&var.value)?;
+                self.collect_targets_from_expr(&var.value.value)?;
             }
         }
         Ok(())
     }
 
     /// Collect targets from a statement
-    fn collect_targets_from_stmt(&mut self, stmt: &Stmt) -> Result<()> {
-        match stmt {
+    fn collect_targets_from_stmt(&mut self, stmt: &PositionedStmt) -> Result<()> {
+        match &stmt.value {
             Stmt::Let { value, .. } => {
                 self.collect_targets_from_expr(value)?;
             }
@@ -173,11 +176,11 @@ impl Monomorphizer {
     }
 
     /// Collect targets from an expression
-    fn collect_targets_from_expr(&mut self, expr: &Expr) -> Result<()> {
-        match expr {
+    fn collect_targets_from_expr(&mut self, expr: &PositionedExpr) -> Result<()> {
+        match &expr.value {
             Expr::Call { callee, args } => {
                 // Check if this is a generic function call
-                if let Expr::Identifier(name) = callee.as_ref() {
+                if let Expr::Identifier(name) = &callee.value {
                     // Look for type arguments in the arguments
                     let mut type_args = Vec::new();
                     for arg in args {
@@ -272,8 +275,8 @@ impl Monomorphizer {
     }
 
     /// Extract type from expression if it's a type expression
-    fn extract_type_from_expr(&self, expr: &Expr) -> Option<Type> {
-        match expr {
+    fn extract_type_from_expr(&self, expr: &PositionedExpr) -> Option<Type> {
+        match &expr.value {
             Expr::TypeExpr { type_name } => {
                 // For monomorphization, we need to preserve original type names
                 // So we'll create a custom type that maintains the source name
@@ -361,28 +364,29 @@ impl Monomorphizer {
     fn monomorphize_function(
         &mut self,
         target: &MonomorphizationTarget,
-        function: &Function,
+        function: &PositionedFunction,
     ) -> Result<()> {
         // Create type substitution map
         let mut substitutions = HashMap::new();
-        if target.args.len() != function.type_params.len() {
+        if target.args.len() != function.value.type_params.len() {
             bail!(
                 "Type argument mismatch for function {}: expected {}, got {}",
-                function.name,
-                function.type_params.len(),
+                function.value.name,
+                function.value.type_params.len(),
                 target.args.len()
             );
         }
 
-        for (param, arg) in function.type_params.iter().zip(target.args.iter()) {
+        for (param, arg) in function.value.type_params.iter().zip(target.args.iter()) {
             substitutions.insert(param.clone(), arg.clone());
         }
 
         // Create monomorphized function
-        let monomorphized = Function {
+        let monomorphized_function = Function {
             name: target.instantiated_name(),
             type_params: Vec::new(), // Monomorphized functions have no type parameters
             params: function
+                .value
                 .params
                 .iter()
                 .map(|param| crate::ast::FunParam {
@@ -393,11 +397,12 @@ impl Monomorphizer {
                         .map(|t| substitute_type_in_string(t, &substitutions)),
                 })
                 .collect(),
-            body: self.substitute_statements(&function.body, &substitutions)?,
+            body: self.substitute_statements(&function.value.body, &substitutions)?,
         };
 
+        let positioned_function = Positioned::with_unknown_span(monomorphized_function);
         self.monomorphized_functions
-            .insert(target.instantiated_name(), monomorphized);
+            .insert(target.instantiated_name(), positioned_function);
         Ok(())
     }
 
@@ -405,28 +410,29 @@ impl Monomorphizer {
     fn monomorphize_struct(
         &mut self,
         target: &MonomorphizationTarget,
-        struct_decl: &StructDecl,
+        struct_decl: &PositionedStructDecl,
     ) -> Result<()> {
         // Create type substitution map
         let mut substitutions = HashMap::new();
-        if target.args.len() != struct_decl.type_params.len() {
+        if target.args.len() != struct_decl.value.type_params.len() {
             bail!(
                 "Type argument mismatch for struct {}: expected {}, got {}",
-                struct_decl.name,
-                struct_decl.type_params.len(),
+                struct_decl.value.name,
+                struct_decl.value.type_params.len(),
                 target.args.len()
             );
         }
 
-        for (param, arg) in struct_decl.type_params.iter().zip(target.args.iter()) {
+        for (param, arg) in struct_decl.value.type_params.iter().zip(target.args.iter()) {
             substitutions.insert(param.clone(), arg.clone());
         }
 
         // Create monomorphized struct
-        let monomorphized = StructDecl {
+        let monomorphized_struct = StructDecl {
             name: target.instantiated_name(),
             type_params: Vec::new(), // Monomorphized structs have no type parameters
             fields: struct_decl
+                .value
                 .fields
                 .iter()
                 .map(|field| crate::ast::StructField {
@@ -435,13 +441,15 @@ impl Monomorphizer {
                 })
                 .collect(),
             methods: struct_decl
+                .value
                 .methods
                 .iter()
                 .map(|method| {
-                    Function {
-                        name: method.name.clone(),
-                        type_params: method.type_params.clone(), // Methods might have their own type params
+                    let substituted_function = Function {
+                        name: method.value.name.clone(),
+                        type_params: method.value.type_params.clone(), // Methods might have their own type params
                         params: method
+                            .value
                             .params
                             .iter()
                             .map(|param| crate::ast::FunParam {
@@ -453,27 +461,30 @@ impl Monomorphizer {
                             })
                             .collect(),
                         body: self
-                            .substitute_statements(&method.body, &substitutions)
-                            .unwrap_or_else(|_| method.body.clone()),
-                    }
+                            .substitute_statements(&method.value.body, &substitutions)
+                            .unwrap_or_else(|_| method.value.body.clone()),
+                    };
+                    Positioned::with_unknown_span(substituted_function)
                 })
                 .collect(),
         };
 
+        let positioned_struct = Positioned::with_unknown_span(monomorphized_struct.clone());
         self.monomorphized_structs
-            .insert(target.instantiated_name(), monomorphized.clone());
+            .insert(target.instantiated_name(), positioned_struct);
 
         // Also register methods as standalone functions with mangled names
-        for method in &monomorphized.methods {
-            let mangled_name = format!("{}_{}", target.instantiated_name(), method.name);
+        for method in &monomorphized_struct.methods {
+            let mangled_name = format!("{}_{}", target.instantiated_name(), method.value.name);
             let mangled_function = Function {
                 name: mangled_name.clone(),
-                type_params: method.type_params.clone(),
-                params: method.params.clone(),
-                body: method.body.clone(),
+                type_params: method.value.type_params.clone(),
+                params: method.value.params.clone(),
+                body: method.value.body.clone(),
             };
+            let positioned_mangled_function = Positioned::with_unknown_span(mangled_function);
             self.monomorphized_functions
-                .insert(mangled_name, mangled_function);
+                .insert(mangled_name, positioned_mangled_function);
         }
 
         Ok(())
@@ -482,9 +493,9 @@ impl Monomorphizer {
     /// Substitute type parameters in statement list
     fn substitute_statements(
         &mut self,
-        statements: &[Stmt],
+        statements: &[PositionedStmt],
         substitutions: &HashMap<String, Type>,
-    ) -> Result<Vec<Stmt>> {
+    ) -> Result<Vec<PositionedStmt>> {
         statements
             .iter()
             .map(|stmt| self.substitute_statement(stmt, substitutions))
@@ -494,128 +505,127 @@ impl Monomorphizer {
     /// Substitute type parameters in a single statement
     fn substitute_statement(
         &mut self,
-        statement: &Stmt,
+        statement: &PositionedStmt,
         substitutions: &HashMap<String, Type>,
-    ) -> Result<Stmt> {
-        match statement {
-            Stmt::Let { name, value } => Ok(Stmt::Let {
+    ) -> Result<PositionedStmt> {
+        let substituted = match &statement.value {
+            Stmt::Let { name, value } => Stmt::Let {
                 name: name.clone(),
                 value: self.substitute_expression(value, substitutions)?,
-            }),
-            Stmt::Expression(expr) => Ok(Stmt::Expression(
-                self.substitute_expression(expr, substitutions)?,
-            )),
-            Stmt::Return(expr) => Ok(Stmt::Return(
-                self.substitute_expression(expr, substitutions)?,
-            )),
+            },
+            Stmt::Expression(expr) => {
+                Stmt::Expression(self.substitute_expression(expr, substitutions)?)
+            }
+            Stmt::Return(expr) => Stmt::Return(self.substitute_expression(expr, substitutions)?),
             Stmt::If {
                 condition,
                 then_branch,
                 else_branch,
-            } => Ok(Stmt::If {
+            } => Stmt::If {
                 condition: self.substitute_expression(condition, substitutions)?,
                 then_branch: self.substitute_statements(then_branch, substitutions)?,
                 else_branch: else_branch
                     .as_ref()
                     .map(|branch| self.substitute_statements(branch, substitutions))
                     .transpose()?,
-            }),
-            Stmt::While { condition, body } => Ok(Stmt::While {
+            },
+            Stmt::While { condition, body } => Stmt::While {
                 condition: self.substitute_expression(condition, substitutions)?,
                 body: self.substitute_statements(body, substitutions)?,
-            }),
-            Stmt::Assign { name, value } => Ok(Stmt::Assign {
+            },
+            Stmt::Assign { name, value } => Stmt::Assign {
                 name: name.clone(),
                 value: self.substitute_expression(value, substitutions)?,
-            }),
-            Stmt::VectorPush { vector, value } => Ok(Stmt::VectorPush {
+            },
+            Stmt::VectorPush { vector, value } => Stmt::VectorPush {
                 vector: vector.clone(),
                 value: self.substitute_expression(value, substitutions)?,
-            }),
+            },
             Stmt::IndexAssign {
                 container,
                 index,
                 value,
                 container_type,
-            } => Ok(Stmt::IndexAssign {
+            } => Stmt::IndexAssign {
                 container: container.clone(),
                 index: self.substitute_expression(index, substitutions)?,
                 value: self.substitute_expression(value, substitutions)?,
                 container_type: *container_type,
-            }),
+            },
             Stmt::FieldAssign {
                 object,
                 field,
                 value,
-            } => Ok(Stmt::FieldAssign {
+            } => Stmt::FieldAssign {
                 object: self.substitute_expression(object, substitutions)?,
                 field: field.clone(),
                 value: self.substitute_expression(value, substitutions)?,
-            }),
-        }
+            },
+        };
+        Ok(Positioned::with_unknown_span(substituted))
     }
 
     /// Substitute type parameters in an expression
     fn substitute_expression(
         &mut self,
-        expression: &Expr,
+        expression: &PositionedExpr,
         substitutions: &HashMap<String, Type>,
-    ) -> Result<Expr> {
-        match expression {
+    ) -> Result<PositionedExpr> {
+        let substituted = match &expression.value {
             // Simple expressions that don't need substitution
-            Expr::Int(n) => Ok(Expr::Int(*n)),
-            Expr::Boolean(b) => Ok(Expr::Boolean(*b)),
-            Expr::String(s) => Ok(Expr::String(s.clone())),
-            Expr::Byte(b) => Ok(Expr::Byte(*b)),
-            Expr::Identifier(name) => Ok(Expr::Identifier(name.clone())),
-            Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr {
+            Expr::Int(n) => Expr::Int(*n),
+            Expr::Boolean(b) => Expr::Boolean(*b),
+            Expr::String(s) => Expr::String(s.clone()),
+            Expr::Byte(b) => Expr::Byte(*b),
+            Expr::Identifier(name) => Expr::Identifier(name.clone()),
+            Expr::TypeExpr { type_name } => Expr::TypeExpr {
                 type_name: substitute_type_in_string(type_name, substitutions),
-            }),
-            Expr::Alloc { element_type, size } => Ok(Expr::Alloc {
+            },
+            Expr::Alloc { element_type, size } => Expr::Alloc {
                 element_type: substitute_type_in_string(element_type, substitutions),
                 size: Box::new(self.substitute_expression(size, substitutions)?),
-            }),
+            },
 
             // Complex expressions that may contain type information
-            Expr::Binary { left, op, right } => Ok(Expr::Binary {
+            Expr::Binary { left, op, right } => Expr::Binary {
                 left: Box::new(self.substitute_expression(left, substitutions)?),
                 op: *op,
                 right: Box::new(self.substitute_expression(right, substitutions)?),
-            }),
+            },
             Expr::Call { callee, args } => {
                 // This is where we might discover new monomorphization targets
-                Ok(Expr::Call {
+                Expr::Call {
                     callee: Box::new(self.substitute_expression(callee, substitutions)?),
                     args: args
                         .iter()
                         .map(|arg| self.substitute_expression(arg, substitutions))
                         .collect::<Result<Vec<_>>>()?,
-                })
+                }
             }
             Expr::VectorNew {
                 element_type,
                 initial_values,
-            } => Ok(Expr::VectorNew {
+            } => Expr::VectorNew {
                 element_type: substitute_type_in_string(element_type, substitutions),
                 initial_values: initial_values
                     .iter()
                     .map(|val| self.substitute_expression(val, substitutions))
                     .collect::<Result<Vec<_>>>()?,
-            }),
+            },
             Expr::Index {
                 container,
                 index,
                 container_type,
-            } => Ok(Expr::Index {
+            } => Expr::Index {
                 container: Box::new(self.substitute_expression(container, substitutions)?),
                 index: Box::new(self.substitute_expression(index, substitutions)?),
                 container_type: *container_type,
-            }),
+            },
             Expr::MapNew {
                 key_type,
                 value_type,
                 initial_pairs,
-            } => Ok(Expr::MapNew {
+            } => Expr::MapNew {
                 key_type: substitute_type_in_string(key_type, substitutions),
                 value_type: substitute_type_in_string(value_type, substitutions),
                 initial_pairs: initial_pairs
@@ -627,12 +637,12 @@ impl Monomorphizer {
                         ))
                     })
                     .collect::<Result<Vec<_>>>()?,
-            }),
+            },
             Expr::StructNew {
                 type_name,
                 fields,
                 kind,
-            } => Ok(Expr::StructNew {
+            } => Expr::StructNew {
                 type_name: substitute_type_in_string(type_name, substitutions),
                 fields: fields
                     .iter()
@@ -644,17 +654,17 @@ impl Monomorphizer {
                     })
                     .collect::<Result<Vec<_>>>()?,
                 kind: *kind,
-            }),
-            Expr::FieldAccess { object, field } => Ok(Expr::FieldAccess {
+            },
+            Expr::FieldAccess { object, field } => Expr::FieldAccess {
                 object: Box::new(self.substitute_expression(object, substitutions)?),
                 field: field.clone(),
-            }),
+            },
             Expr::MethodCall {
                 object,
                 type_name,
                 method,
                 args,
-            } => Ok(Expr::MethodCall {
+            } => Expr::MethodCall {
                 object: if let Some(obj) = object {
                     Some(Box::new(self.substitute_expression(obj, substitutions)?))
                 } else {
@@ -666,17 +676,18 @@ impl Monomorphizer {
                     .iter()
                     .map(|arg| self.substitute_expression(arg, substitutions))
                     .collect::<Result<Vec<_>>>()?,
-            }),
-        }
+            },
+        };
+        Ok(Positioned::with_unknown_span(substituted))
     }
 
     /// Get all monomorphized functions
-    pub fn get_monomorphized_functions(&self) -> &HashMap<String, Function> {
+    pub fn get_monomorphized_functions(&self) -> &HashMap<String, PositionedFunction> {
         &self.monomorphized_functions
     }
 
     /// Get all monomorphized structs
-    pub fn get_monomorphized_structs(&self) -> &HashMap<String, StructDecl> {
+    pub fn get_monomorphized_structs(&self) -> &HashMap<String, PositionedStructDecl> {
         &self.monomorphized_structs
     }
 
@@ -686,43 +697,53 @@ impl Monomorphizer {
 
         // Add all non-generic declarations from the original program, substituting expressions
         for decl in &original_program.declarations {
-            match decl {
+            match &decl.value {
                 Decl::Function(func) => {
-                    if func.type_params.is_empty() {
+                    if func.value.type_params.is_empty() {
                         // Non-generic function: substitute generic type instantiations in body
                         let substituted_func = Function {
-                            name: func.name.clone(),
-                            type_params: func.type_params.clone(),
-                            params: func.params.clone(),
-                            body: self.substitute_statements_globally(&func.body)?,
+                            name: func.value.name.clone(),
+                            type_params: func.value.type_params.clone(),
+                            params: func.value.params.clone(),
+                            body: self.substitute_statements_globally(&func.value.body)?,
                         };
-                        new_declarations.push(Decl::Function(substituted_func));
+                        let positioned_func = Positioned::with_unknown_span(substituted_func);
+                        new_declarations.push(Positioned::with_unknown_span(Decl::Function(
+                            positioned_func,
+                        )));
                     }
                 }
                 Decl::Struct(struct_decl) => {
-                    if struct_decl.type_params.is_empty() {
+                    if struct_decl.value.type_params.is_empty() {
                         new_declarations.push(decl.clone());
                     }
                 }
                 Decl::GlobalVariable(var) => {
                     // Substitute expressions in global variable values
                     let substituted_var = crate::ast::GlobalVariable {
-                        name: var.name.clone(),
-                        value: self.substitute_expression_globally(&var.value)?,
+                        name: var.value.name.clone(),
+                        value: self.substitute_expression_globally(&var.value.value)?,
                     };
-                    new_declarations.push(Decl::GlobalVariable(substituted_var));
+                    let positioned_var = Positioned::with_unknown_span(substituted_var);
+                    new_declarations.push(Positioned::with_unknown_span(Decl::GlobalVariable(
+                        positioned_var,
+                    )));
                 }
             }
         }
 
         // Add all monomorphized functions
         for monomorphized_func in self.monomorphized_functions.values() {
-            new_declarations.push(Decl::Function(monomorphized_func.clone()));
+            new_declarations.push(Positioned::with_unknown_span(Decl::Function(
+                monomorphized_func.clone(),
+            )));
         }
 
         // Add all monomorphized structs
         for monomorphized_struct in self.monomorphized_structs.values() {
-            new_declarations.push(Decl::Struct(monomorphized_struct.clone()));
+            new_declarations.push(Positioned::with_unknown_span(Decl::Struct(
+                monomorphized_struct.clone(),
+            )));
         }
 
         Ok(Program {
@@ -731,7 +752,10 @@ impl Monomorphizer {
     }
 
     /// Substitute generic type instantiations globally (without type parameter substitutions)
-    fn substitute_statements_globally(&self, statements: &[Stmt]) -> Result<Vec<Stmt>> {
+    fn substitute_statements_globally(
+        &self,
+        statements: &[PositionedStmt],
+    ) -> Result<Vec<PositionedStmt>> {
         statements
             .iter()
             .map(|stmt| self.substitute_statement_globally(stmt))
@@ -739,96 +763,98 @@ impl Monomorphizer {
     }
 
     /// Substitute generic type instantiations in a single statement globally
-    fn substitute_statement_globally(&self, statement: &Stmt) -> Result<Stmt> {
-        match statement {
-            Stmt::Let { name, value } => Ok(Stmt::Let {
+    fn substitute_statement_globally(&self, statement: &PositionedStmt) -> Result<PositionedStmt> {
+        let substituted = match &statement.value {
+            Stmt::Let { name, value } => Stmt::Let {
                 name: name.clone(),
                 value: self.substitute_expression_globally(value)?,
-            }),
-            Stmt::Expression(expr) => {
-                Ok(Stmt::Expression(self.substitute_expression_globally(expr)?))
-            }
-            Stmt::Return(expr) => Ok(Stmt::Return(self.substitute_expression_globally(expr)?)),
+            },
+            Stmt::Expression(expr) => Stmt::Expression(self.substitute_expression_globally(expr)?),
+            Stmt::Return(expr) => Stmt::Return(self.substitute_expression_globally(expr)?),
             Stmt::If {
                 condition,
                 then_branch,
                 else_branch,
-            } => Ok(Stmt::If {
+            } => Stmt::If {
                 condition: self.substitute_expression_globally(condition)?,
                 then_branch: self.substitute_statements_globally(then_branch)?,
                 else_branch: else_branch
                     .as_ref()
                     .map(|branch| self.substitute_statements_globally(branch))
                     .transpose()?,
-            }),
-            Stmt::While { condition, body } => Ok(Stmt::While {
+            },
+            Stmt::While { condition, body } => Stmt::While {
                 condition: self.substitute_expression_globally(condition)?,
                 body: self.substitute_statements_globally(body)?,
-            }),
-            Stmt::Assign { name, value } => Ok(Stmt::Assign {
+            },
+            Stmt::Assign { name, value } => Stmt::Assign {
                 name: name.clone(),
                 value: self.substitute_expression_globally(value)?,
-            }),
-            Stmt::VectorPush { vector, value } => Ok(Stmt::VectorPush {
+            },
+            Stmt::VectorPush { vector, value } => Stmt::VectorPush {
                 vector: vector.clone(),
                 value: self.substitute_expression_globally(value)?,
-            }),
+            },
             Stmt::IndexAssign {
                 container,
                 index,
                 value,
                 container_type,
-            } => Ok(Stmt::IndexAssign {
+            } => Stmt::IndexAssign {
                 container: container.clone(),
                 index: self.substitute_expression_globally(index)?,
                 value: self.substitute_expression_globally(value)?,
                 container_type: *container_type,
-            }),
+            },
             Stmt::FieldAssign {
                 object,
                 field,
                 value,
-            } => Ok(Stmt::FieldAssign {
+            } => Stmt::FieldAssign {
                 object: self.substitute_expression_globally(object)?,
                 field: field.clone(),
                 value: self.substitute_expression_globally(value)?,
-            }),
-        }
+            },
+        };
+        Ok(Positioned::with_unknown_span(substituted))
     }
 
     /// Substitute generic type instantiations in an expression globally
-    fn substitute_expression_globally(&self, expression: &Expr) -> Result<Expr> {
-        match expression {
+    fn substitute_expression_globally(
+        &self,
+        expression: &PositionedExpr,
+    ) -> Result<PositionedExpr> {
+        let substituted = match &expression.value {
             // Simple expressions that don't need substitution
-            Expr::Int(n) => Ok(Expr::Int(*n)),
-            Expr::Boolean(b) => Ok(Expr::Boolean(*b)),
-            Expr::String(s) => Ok(Expr::String(s.clone())),
-            Expr::Byte(b) => Ok(Expr::Byte(*b)),
-            Expr::Identifier(name) => Ok(Expr::Identifier(name.clone())),
-            Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr {
+            Expr::Int(n) => Expr::Int(*n),
+            Expr::Boolean(b) => Expr::Boolean(*b),
+            Expr::String(s) => Expr::String(s.clone()),
+            Expr::Byte(b) => Expr::Byte(*b),
+            Expr::Identifier(name) => Expr::Identifier(name.clone()),
+            Expr::TypeExpr { type_name } => Expr::TypeExpr {
                 type_name: type_name.clone(),
-            }),
-            Expr::Alloc { element_type, size } => Ok(Expr::Alloc {
+            },
+            Expr::Alloc { element_type, size } => Expr::Alloc {
                 element_type: substitute_type_in_string_globally(element_type),
                 size: Box::new(self.substitute_expression_globally(size)?),
-            }),
+            },
 
             // Complex expressions
-            Expr::Binary { left, op, right } => Ok(Expr::Binary {
+            Expr::Binary { left, op, right } => Expr::Binary {
                 left: Box::new(self.substitute_expression_globally(left)?),
                 op: *op,
                 right: Box::new(self.substitute_expression_globally(right)?),
-            }),
+            },
             Expr::Call { callee, args } => {
                 // Check if this is a generic function call
-                if let Expr::Identifier(func_name) = callee.as_ref() {
+                if let Expr::Identifier(func_name) = &callee.value {
                     if self.generic_functions.contains_key(func_name) {
                         // Extract type arguments from the beginning of args
                         let mut type_args = Vec::new();
                         let mut remaining_args = Vec::new();
 
                         let generic_func = &self.generic_functions[func_name];
-                        let num_type_params = generic_func.type_params.len();
+                        let num_type_params = generic_func.value.type_params.len();
 
                         // First n arguments should be type expressions
                         for (i, arg) in args.iter().enumerate() {
@@ -849,47 +875,49 @@ impl Monomorphizer {
                             };
                             let monomorphized_name = target.instantiated_name();
 
-                            return Ok(Expr::Call {
-                                callee: Box::new(Expr::Identifier(monomorphized_name)),
+                            return Ok(Positioned::with_unknown_span(Expr::Call {
+                                callee: Box::new(Positioned::with_unknown_span(Expr::Identifier(
+                                    monomorphized_name,
+                                ))),
                                 args: remaining_args,
-                            });
+                            }));
                         }
                     }
                 }
 
                 // Default case: not a generic function call
-                Ok(Expr::Call {
+                Expr::Call {
                     callee: Box::new(self.substitute_expression_globally(callee)?),
                     args: args
                         .iter()
                         .map(|arg| self.substitute_expression_globally(arg))
                         .collect::<Result<Vec<_>>>()?,
-                })
+                }
             }
             Expr::VectorNew {
                 element_type,
                 initial_values,
-            } => Ok(Expr::VectorNew {
+            } => Expr::VectorNew {
                 element_type: substitute_type_in_string_globally(element_type),
                 initial_values: initial_values
                     .iter()
                     .map(|val| self.substitute_expression_globally(val))
                     .collect::<Result<Vec<_>>>()?,
-            }),
+            },
             Expr::Index {
                 container,
                 index,
                 container_type,
-            } => Ok(Expr::Index {
+            } => Expr::Index {
                 container: Box::new(self.substitute_expression_globally(container)?),
                 index: Box::new(self.substitute_expression_globally(index)?),
                 container_type: *container_type,
-            }),
+            },
             Expr::MapNew {
                 key_type,
                 value_type,
                 initial_pairs,
-            } => Ok(Expr::MapNew {
+            } => Expr::MapNew {
                 key_type: substitute_type_in_string_globally(key_type),
                 value_type: substitute_type_in_string_globally(value_type),
                 initial_pairs: initial_pairs
@@ -901,12 +929,12 @@ impl Monomorphizer {
                         ))
                     })
                     .collect::<Result<Vec<_>>>()?,
-            }),
+            },
             Expr::StructNew {
                 type_name,
                 fields,
                 kind,
-            } => Ok(Expr::StructNew {
+            } => Expr::StructNew {
                 type_name: substitute_type_in_string_globally(type_name),
                 fields: fields
                     .iter()
@@ -915,17 +943,17 @@ impl Monomorphizer {
                     })
                     .collect::<Result<Vec<_>>>()?,
                 kind: *kind,
-            }),
-            Expr::FieldAccess { object, field } => Ok(Expr::FieldAccess {
+            },
+            Expr::FieldAccess { object, field } => Expr::FieldAccess {
                 object: Box::new(self.substitute_expression_globally(object)?),
                 field: field.clone(),
-            }),
+            },
             Expr::MethodCall {
                 object,
                 type_name,
                 method,
                 args,
-            } => Ok(Expr::MethodCall {
+            } => Expr::MethodCall {
                 object: if let Some(obj) = object {
                     Some(Box::new(self.substitute_expression_globally(obj)?))
                 } else {
@@ -937,8 +965,9 @@ impl Monomorphizer {
                     .iter()
                     .map(|arg| self.substitute_expression_globally(arg))
                     .collect::<Result<Vec<_>>>()?,
-            }),
-        }
+            },
+        };
+        Ok(Positioned::with_unknown_span(substituted))
     }
 }
 
@@ -1031,7 +1060,8 @@ mod tests {
             body: vec![],
         };
 
-        monomorphizer.register_generic_function(generic_function);
+        let positioned_function = Positioned::with_unknown_span(generic_function);
+        monomorphizer.register_generic_function(positioned_function);
         assert!(monomorphizer.generic_functions.contains_key("identity"));
     }
 }
