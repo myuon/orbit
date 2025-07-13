@@ -1,9 +1,9 @@
 // Recursive Fibonacci benchmark
 // Deep recursion performance test
 fun fibonacci(n) do
-  if n <= 1 then
+  if (n <= 1) do
     return n;
-  else
+  else do
     return fibonacci(n - 1) + fibonacci(n - 2);
   end
 end

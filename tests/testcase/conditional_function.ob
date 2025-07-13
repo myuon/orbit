@@ -1,7 +1,7 @@
 fun max(a, b) do
-  if a > b then
+  if (a > b) do
     return a;
-  else
+  else do
     return b;
   end
 end

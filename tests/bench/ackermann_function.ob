@@ -1,12 +1,12 @@
 // Ackermann function benchmark
 // Very computationally intensive recursive function
 fun ackermann(m, n) do
-  if m == 0 then
+  if (m == 0) do
     return n + 1;
-  else
-    if n == 0 then
+  else do
+    if (n == 0) do
       return ackermann(m - 1, 1);
-    else
+    else do
       return ackermann(m - 1, ackermann(m, n - 1));
     end
   end

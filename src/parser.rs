@@ -42,9 +42,10 @@ impl Parser {
             Ok(())
         } else {
             bail!(
-                "Expected {:?}, found {:?}",
+                "Expected {:?}, found {:?} at position {}",
                 expected,
-                self.current_token().token_type
+                self.current_token().token_type,
+                self.current_token().position
             )
         }
     }
@@ -428,7 +429,7 @@ impl Parser {
     fn parse_if_stmt(&mut self) -> Result<Stmt> {
         self.consume(TokenType::If)?;
         let condition = self.parse_expression()?;
-        self.consume(TokenType::Then)?;
+        self.consume(TokenType::Do)?;
 
         let mut then_branch = Vec::new();
 
@@ -442,6 +443,7 @@ impl Parser {
 
         let else_branch = if matches!(self.current_token().token_type, TokenType::Else) {
             self.advance(); // consume 'else'
+            self.consume(TokenType::Do)?; // consume 'do'
 
             // Check for 'else if'
             if matches!(self.current_token().token_type, TokenType::If) {
@@ -1259,7 +1261,7 @@ impl Parser {
                     Span::new(start_pos, end_pos),
                 ))
             }
-            _ => bail!("Unexpected token: {:?}", self.current_token().token_type),
+            _ => bail!("Unexpected token: {:?} at position {}", self.current_token().token_type, self.current_token().position),
         }
     }
 
