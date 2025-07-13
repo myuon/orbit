@@ -1,4 +1,4 @@
-use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl, StructNewKind};
+use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
