@@ -680,10 +680,7 @@ impl CodeGenerator {
                 self.instructions.push(Instruction::VectorNew);
             }
 
-            Expr::Alloc {
-                element_type,
-                size,
-            } => {
+            Expr::Alloc { element_type, size } => {
                 // Size-based alloc: compile the size expression
                 self.compile_expression(size);
                 // Push element type as string for VM to calculate sizeof
@@ -881,10 +878,7 @@ fn compile_expr_recursive(expr: &Expr, instructions: &mut Vec<Instruction>) {
             panic!("MethodCall should have been desugared before code generation");
         }
 
-        Expr::Alloc {
-            element_type,
-            size,
-        } => {
+        Expr::Alloc { element_type, size } => {
             // Size-based alloc: compile the size expression
             compile_expr_recursive(size, instructions);
             // Push element type as string for VM to calculate sizeof

@@ -1293,10 +1293,7 @@ impl TypeChecker {
                 }
             }
 
-            Expr::Alloc {
-                element_type,
-                size,
-            } => {
+            Expr::Alloc { element_type, size } => {
                 let element_type = self.resolve_type(element_type);
 
                 // Size-based allocation

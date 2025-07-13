@@ -89,7 +89,6 @@ pub enum StructNewKind {
     Pattern, // new(struct) Type { ... }
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Int(i64),

@@ -1143,7 +1143,7 @@ impl VM {
                     // Reverse to get the correct order
                     temp_values.reverse();
                     values.extend(temp_values);
-                    
+
                     let heap_index = self.heap.len();
                     self.heap.push(HeapObject::Pointer(values));
                     self.stack.push(Value::HeapRef(HeapIndex(heap_index)));

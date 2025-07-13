@@ -349,10 +349,7 @@ impl Desugarer {
                 })
             }
 
-            Expr::Alloc {
-                element_type,
-                size,
-            } => {
+            Expr::Alloc { element_type, size } => {
                 let desugared_size = Box::new(self.desugar_expression(*size)?);
                 Ok(Expr::Alloc {
                     element_type,
@@ -434,7 +431,7 @@ impl Desugarer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{BinaryOp, FunParam};
+    use crate::ast::{BinaryOp, FunParam, StructNewKind};
 
     #[test]
     fn test_method_call_desugaring() {

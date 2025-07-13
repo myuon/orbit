@@ -312,10 +312,7 @@ impl DeadCodeEliminator {
             Expr::FieldAccess { object, .. } => {
                 self.mark_expr_dependencies(object)?;
             }
-            Expr::Alloc {
-                element_type,
-                size,
-            } => {
+            Expr::Alloc { element_type, size } => {
                 self.mark_type_reachable(element_type);
                 self.mark_expr_dependencies(size)?;
             }
@@ -398,6 +395,8 @@ impl DeadCodeStats {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::StructNewKind;
+
     use super::*;
 
     #[test]

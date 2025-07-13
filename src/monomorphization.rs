@@ -571,14 +571,9 @@ impl Monomorphizer {
             Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr {
                 type_name: substitute_type_in_string(type_name, substitutions),
             }),
-            Expr::Alloc {
-                element_type,
-                size,
-            } => Ok(Expr::Alloc {
+            Expr::Alloc { element_type, size } => Ok(Expr::Alloc {
                 element_type: substitute_type_in_string(element_type, substitutions),
-                size: Box::new(
-                    self.substitute_expression(size, substitutions)?,
-                ),
+                size: Box::new(self.substitute_expression(size, substitutions)?),
             }),
 
             // Complex expressions that may contain type information
@@ -813,10 +808,7 @@ impl Monomorphizer {
             Expr::TypeExpr { type_name } => Ok(Expr::TypeExpr {
                 type_name: type_name.clone(),
             }),
-            Expr::Alloc {
-                element_type,
-                size,
-            } => Ok(Expr::Alloc {
+            Expr::Alloc { element_type, size } => Ok(Expr::Alloc {
                 element_type: substitute_type_in_string_globally(element_type),
                 size: Box::new(self.substitute_expression_globally(size)?),
             }),

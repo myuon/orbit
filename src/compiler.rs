@@ -635,15 +635,8 @@ impl Compiler {
                     .join(", ");
                 format!("map({}, {}, {})", key_type, value_type, entries_str)
             }
-            crate::ast::Expr::Alloc {
-                element_type,
-                size,
-            } => {
-                format!(
-                    "alloc({}, {})",
-                    element_type,
-                    self.format_expression(size)
-                )
+            crate::ast::Expr::Alloc { element_type, size } => {
+                format!("alloc({}, {})", element_type, self.format_expression(size))
             }
             crate::ast::Expr::MethodCall {
                 object,
