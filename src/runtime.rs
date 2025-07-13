@@ -12,7 +12,6 @@ pub struct HeapIndex(pub usize);
 /// Objects stored on the heap
 #[derive(Debug, Clone, PartialEq)]
 pub enum HeapObject {
-    String(String),
     Vector(Vec<Value>),
     Map(HashMap<String, Value>),
     Struct(HashMap<String, Value>),
@@ -45,7 +44,6 @@ impl std::fmt::Display for Value {
 impl std::fmt::Display for HeapObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HeapObject::String(s) => write!(f, "{}", s),
             HeapObject::Vector(v) => {
                 write!(
                     f,
@@ -188,10 +186,16 @@ impl VM {
             }
 
             Instruction::PushString(s) => {
-                // Allocate string on heap and push heap reference
-                let heap_index = self.heap.len();
-                self.heap.push(HeapObject::String(s.clone()));
-                self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
+                // Store string as consecutive bytes in heap with null termination
+                let start_index = self.heap.len();
+                // Store each byte as RawValue(Byte)
+                for byte in s.bytes() {
+                    self.heap.push(HeapObject::RawValue(Value::Byte(byte)));
+                }
+                // Add null terminator
+                self.heap.push(HeapObject::RawValue(Value::Byte(0)));
+                // Push address pointing to first byte
+                self.stack.push(Value::Address(start_index));
             }
 
             Instruction::PushHeapRef(index) => {
@@ -199,6 +203,10 @@ impl VM {
                     return Err(format!("Invalid heap index: {}", index));
                 }
                 self.stack.push(Value::HeapRef(HeapIndex(*index)));
+            }
+
+            Instruction::PushAddress(addr) => {
+                self.stack.push(Value::Address(*addr));
             }
 
             Instruction::Pop => {
@@ -891,26 +899,18 @@ impl VM {
             }
 
             Instruction::StringNew => {
-                // Create a new string from stack value
+                // Create a new string from address value
                 if self.stack.is_empty() {
                     return Err("Stack underflow for StringNew".to_string());
                 }
                 let value = self.stack.pop().unwrap();
-                let string_value = match value {
-                    Value::HeapRef(heap_index) => {
-                        if heap_index.0 >= self.heap.len() {
-                            return Err(format!("Invalid heap index: {}", heap_index.0));
-                        }
-                        match &self.heap[heap_index.0] {
-                            HeapObject::String(s) => s.clone(),
-                            _ => return Err("StringNew requires a string heap object".to_string()),
-                        }
+                match value {
+                    Value::Address(addr) => {
+                        // Address-based strings are already stored as bytes, just push the address
+                        self.stack.push(Value::Address(addr));
                     }
-                    _ => return Err("StringNew requires a heap reference".to_string()),
+                    _ => return Err("StringNew requires an address".to_string()),
                 };
-                let heap_index = self.heap.len();
-                self.heap.push(HeapObject::String(string_value));
-                self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
             }
 
             Instruction::VectorNew => {
@@ -1025,25 +1025,19 @@ impl VM {
             }
 
             Instruction::MapIndex => {
-                // Stack: [map_heap_ref] [key]
+                // Stack: [map_heap_ref] [key_address]
                 if self.stack.len() < 2 {
                     return Err("Stack underflow for MapIndex".to_string());
                 }
                 let key_value = self.stack.pop().unwrap();
                 let map_ref = self.stack.pop().unwrap();
                 match (map_ref, key_value) {
-                    (Value::HeapRef(heap_index), Value::HeapRef(key_heap_index)) => {
+                    (Value::HeapRef(heap_index), Value::Address(key_addr)) => {
                         if heap_index.0 >= self.heap.len() {
                             return Err(format!("Invalid heap index: {}", heap_index.0));
                         }
-                        if key_heap_index.0 >= self.heap.len() {
-                            return Err(format!("Invalid key heap index: {}", key_heap_index.0));
-                        }
 
-                        let key = match &self.heap[key_heap_index.0] {
-                            HeapObject::String(s) => s.clone(),
-                            _ => return Err("MapIndex requires a string key".to_string()),
-                        };
+                        let key = self.address_to_string(key_addr)?;
 
                         match &self.heap[heap_index.0] {
                             HeapObject::Map(map) => match map.get(&key) {
@@ -1059,14 +1053,14 @@ impl VM {
                     }
                     _ => {
                         return Err(
-                            "MapIndex requires a heap reference and key (string)".to_string()
+                            "MapIndex requires a heap reference and key address".to_string()
                         )
                     }
                 }
             }
 
             Instruction::MapSet => {
-                // Stack: [value] [key] [map_heap_ref]
+                // Stack: [value] [key_address] [map_heap_ref]
                 if self.stack.len() < 3 {
                     return Err("Stack underflow for MapSet".to_string());
                 }
@@ -1074,18 +1068,12 @@ impl VM {
                 let key_value = self.stack.pop().unwrap();
                 let value = self.stack.pop().unwrap();
                 match (map_ref, key_value) {
-                    (Value::HeapRef(heap_index), Value::HeapRef(key_heap_index)) => {
+                    (Value::HeapRef(heap_index), Value::Address(key_addr)) => {
                         if heap_index.0 >= self.heap.len() {
                             return Err(format!("Invalid heap index: {}", heap_index.0));
                         }
-                        if key_heap_index.0 >= self.heap.len() {
-                            return Err(format!("Invalid key heap index: {}", key_heap_index.0));
-                        }
 
-                        let key = match &self.heap[key_heap_index.0] {
-                            HeapObject::String(s) => s.clone(),
-                            _ => return Err("MapSet requires a string key".to_string()),
-                        };
+                        let key = self.address_to_string(key_addr)?;
 
                         match &mut self.heap[heap_index.0] {
                             HeapObject::Map(map) => {
@@ -1095,7 +1083,7 @@ impl VM {
                         }
                     }
                     _ => {
-                        return Err("MapSet requires a heap reference and key (string)".to_string())
+                        return Err("MapSet requires a heap reference and key address".to_string())
                     }
                 }
             }
@@ -1113,23 +1101,14 @@ impl VM {
                     _ => return Err("PointerAlloc requires a number for size".to_string()),
                 };
 
-                // Extract element type name from heap string
+                // Extract element type name from address-based string
                 let element_type =
                     match element_type_ref {
-                        Value::HeapRef(heap_index) => {
-                            if heap_index.0 >= self.heap.len() {
-                                return Err(format!("Invalid heap index: {}", heap_index.0));
-                            }
-                            match &self.heap[heap_index.0] {
-                                HeapObject::String(s) => s.clone(),
-                                _ => {
-                                    return Err("PointerAlloc requires a string for element type"
-                                        .to_string())
-                                }
-                            }
+                        Value::Address(addr) => {
+                            self.address_to_string(addr)?
                         }
                         _ => {
-                            return Err("PointerAlloc requires a heap reference for element type"
+                            return Err("PointerAlloc requires an address for element type"
                                 .to_string())
                         }
                     };
@@ -1214,37 +1193,29 @@ impl VM {
             }
 
             Instruction::StringIndex => {
-                // Stack: [string_heap_ref] [element_index]
+                // Stack: [string_address] [element_index]
                 if self.stack.len() < 2 {
                     return Err("Stack underflow for StringIndex".to_string());
                 }
                 let element_index_value = self.stack.pop().unwrap();
-                let string_ref = self.stack.pop().unwrap();
-                match (string_ref, element_index_value) {
-                    (Value::HeapRef(heap_index), Value::Int(element_index)) => {
+                let string_addr = self.stack.pop().unwrap();
+                match (string_addr, element_index_value) {
+                    (Value::Address(addr), Value::Int(element_index)) => {
                         let element_index = element_index as usize;
-                        if heap_index.0 >= self.heap.len() {
-                            return Err(format!("Invalid heap index: {}", heap_index.0));
+                        let target_index = addr + element_index;
+                        if target_index >= self.heap.len() {
+                            return Err(format!("String index out of bounds: {}", target_index));
                         }
-                        match &self.heap[heap_index.0] {
-                            HeapObject::String(s) => {
-                                let bytes = s.as_bytes();
-                                if element_index >= bytes.len() {
-                                    return Err(format!(
-                                        "String index out of bounds: {} >= {}",
-                                        element_index,
-                                        bytes.len()
-                                    ));
-                                }
-                                // Return the byte value as a byte
-                                self.stack.push(Value::Byte(bytes[element_index]));
+                        match &self.heap[target_index] {
+                            HeapObject::RawValue(Value::Byte(byte)) => {
+                                self.stack.push(Value::Byte(*byte));
                             }
                             _ => {
-                                return Err("StringIndex requires a string heap object".to_string())
+                                return Err("StringIndex: invalid byte at string position".to_string())
                             }
                         }
                     }
-                    _ => return Err("StringIndex requires a heap reference and number".to_string()),
+                    _ => return Err("StringIndex requires an address and number".to_string()),
                 }
             }
             Instruction::StructNew => {
@@ -1265,20 +1236,12 @@ impl VM {
                 for _ in 0..field_count {
                     let field_value = self.stack.pop().unwrap();
                     let field_name = match self.stack.pop().unwrap() {
-                        Value::HeapRef(heap_index) => {
-                            if heap_index.0 >= self.heap.len() {
-                                return Err(format!("Invalid heap index: {}", heap_index.0));
-                            }
-                            match &self.heap[heap_index.0] {
-                                HeapObject::String(s) => s.clone(),
-                                _ => {
-                                    return Err("StructNew requires string field names".to_string())
-                                }
-                            }
+                        Value::Address(addr) => {
+                            self.address_to_string(addr)?
                         }
                         _ => {
                             return Err(
-                                "StructNew requires heap reference for field names".to_string()
+                                "StructNew requires address for field names".to_string()
                             )
                         }
                     };
@@ -1298,22 +1261,12 @@ impl VM {
                 let struct_ref = self.stack.pop().unwrap();
 
                 match (struct_ref, field_name_ref) {
-                    (Value::HeapRef(heap_index), Value::HeapRef(name_heap_index)) => {
+                    (Value::HeapRef(heap_index), Value::Address(field_addr)) => {
                         if heap_index.0 >= self.heap.len() {
                             return Err(format!("Invalid heap index: {}", heap_index.0));
                         }
-                        if name_heap_index.0 >= self.heap.len() {
-                            return Err(format!("Invalid name heap index: {}", name_heap_index.0));
-                        }
 
-                        let field_name = match &self.heap[name_heap_index.0] {
-                            HeapObject::String(s) => s.clone(),
-                            _ => {
-                                return Err(
-                                    "StructFieldGet requires a string field name".to_string()
-                                )
-                            }
-                        };
+                        let field_name = self.address_to_string(field_addr)?;
 
                         match &self.heap[heap_index.0] {
                             HeapObject::Struct(fields) => match fields.get(&field_name) {
@@ -1332,7 +1285,7 @@ impl VM {
                             }
                         }
                     }
-                    _ => return Err("StructFieldGet requires heap references".to_string()),
+                    _ => return Err("StructFieldGet requires heap reference and address".to_string()),
                 }
             }
             Instruction::StructFieldSet => {
@@ -1345,22 +1298,12 @@ impl VM {
                 let value = self.stack.pop().unwrap();
 
                 match (struct_ref, field_name_ref) {
-                    (Value::HeapRef(heap_index), Value::HeapRef(name_heap_index)) => {
+                    (Value::HeapRef(heap_index), Value::Address(field_addr)) => {
                         if heap_index.0 >= self.heap.len() {
                             return Err(format!("Invalid heap index: {}", heap_index.0));
                         }
-                        if name_heap_index.0 >= self.heap.len() {
-                            return Err(format!("Invalid name heap index: {}", name_heap_index.0));
-                        }
 
-                        let field_name = match &self.heap[name_heap_index.0] {
-                            HeapObject::String(s) => s.clone(),
-                            _ => {
-                                return Err(
-                                    "StructFieldSet requires a string field name".to_string()
-                                )
-                            }
-                        };
+                        let field_name = self.address_to_string(field_addr)?;
 
                         match &mut self.heap[heap_index.0] {
                             HeapObject::Struct(fields) => {
@@ -1373,7 +1316,7 @@ impl VM {
                             }
                         }
                     }
-                    _ => return Err("StructFieldSet requires heap references".to_string()),
+                    _ => return Err("StructFieldSet requires heap reference and address".to_string()),
                 }
             }
 
@@ -1410,37 +1353,27 @@ impl VM {
 
                         // Get buffer content
                         match buffer_ref {
-                            Value::HeapRef(heap_index) => {
-                                if heap_index.0 >= self.heap.len() {
-                                    return Err(format!("Invalid heap index: {}", heap_index.0));
-                                }
-                                match &self.heap[heap_index.0] {
-                                    HeapObject::String(s) => {
-                                        // Use the specified length or the string length, whichever is smaller
-                                        let actual_length = length_num.min(s.len());
-                                        let output = &s[..actual_length];
+                            Value::Address(addr) => {
+                                // Convert address-based string to Rust string
+                                let string_content = self.address_to_string(addr)?;
+                                // Use the specified length or the string length, whichever is smaller
+                                let actual_length = length_num.min(string_content.len());
+                                let output = &string_content[..actual_length];
 
-                                        if let Some(ref mut captured) = self.captured_output {
-                                            captured.push_str(output);
-                                        } else {
-                                            print!("{}", output);
-                                            use std::io::Write;
-                                            std::io::stdout().flush().unwrap();
-                                        }
-
-                                        // Push the actual number of bytes written as return value
-                                        self.stack.push(Value::Int(actual_length as i64));
-                                    }
-                                    _ => {
-                                        return Err(
-                                            "Write syscall: buffer must be a string".to_string()
-                                        )
-                                    }
+                                if let Some(ref mut captured) = self.captured_output {
+                                    captured.push_str(output);
+                                } else {
+                                    print!("{}", output);
+                                    use std::io::Write;
+                                    std::io::stdout().flush().unwrap();
                                 }
+
+                                // Push the actual number of bytes written as return value
+                                self.stack.push(Value::Int(actual_length as i64));
                             }
                             _ => {
                                 return Err(
-                                    "Write syscall: buffer must be a string reference".to_string()
+                                    "Write syscall: buffer must be a string address".to_string()
                                 )
                             }
                         }
@@ -1575,6 +1508,44 @@ impl VM {
                 }
             }
         }
+    }
+
+    /// Calculate the length of a null-terminated string starting at the given address
+    fn string_length(&self, start_addr: usize) -> Result<usize, String> {
+        let mut length = 0;
+        let mut current_addr = start_addr;
+        
+        while current_addr < self.heap.len() {
+            match &self.heap[current_addr] {
+                HeapObject::RawValue(Value::Byte(byte)) => {
+                    if *byte == 0 {
+                        return Ok(length);
+                    }
+                    length += 1;
+                    current_addr += 1;
+                }
+                _ => return Err("Invalid byte in string".to_string()),
+            }
+        }
+        
+        Err("String not null-terminated".to_string())
+    }
+
+    /// Convert address-based string to Rust String for compatibility
+    fn address_to_string(&self, start_addr: usize) -> Result<String, String> {
+        let length = self.string_length(start_addr)?;
+        let mut bytes = Vec::with_capacity(length);
+        
+        for i in 0..length {
+            match &self.heap[start_addr + i] {
+                HeapObject::RawValue(Value::Byte(byte)) => {
+                    bytes.push(*byte);
+                }
+                _ => return Err("Invalid byte in string".to_string()),
+            }
+        }
+        
+        String::from_utf8(bytes).map_err(|_| "Invalid UTF-8 in string".to_string())
     }
 }
 

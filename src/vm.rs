@@ -6,6 +6,7 @@ pub enum Instruction {
     Push(i64),
     PushString(String), // Only used for global initialization
     PushHeapRef(usize), // Push heap reference by index
+    PushAddress(usize), // Push address value
     Pop,
 
     // Arithmetic operations
@@ -105,6 +106,7 @@ impl fmt::Display for Instruction {
             Instruction::Push(value) => write!(f, "push {}", value),
             Instruction::PushString(s) => write!(f, "push_string \"{}\"", s),
             Instruction::PushHeapRef(index) => write!(f, "push_heap_ref {}", index),
+            Instruction::PushAddress(addr) => write!(f, "push_address {}", addr),
             Instruction::Pop => write!(f, "pop"),
             Instruction::Add => write!(f, "add"),
             Instruction::Sub => write!(f, "sub"),

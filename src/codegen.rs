@@ -17,7 +17,7 @@ pub struct CodeGenerator {
     current_function_name: String,
     functions: HashMap<String, Function>,
     structs: HashMap<String, StructDecl>,
-    string_constants: HashMap<String, usize>, // string -> heap index mapping
+    string_constants: HashMap<String, usize>, // string -> heap address mapping
     string_constant_list: Vec<String>,        // ordered list of string constants
     global_vars: HashMap<String, usize>,      // global variable name -> index mapping
     global_var_count: usize,                  // counter for global variable indices
@@ -42,13 +42,18 @@ impl CodeGenerator {
 
     /// Get or create a string constant, returning its heap index
     fn get_or_create_string_constant(&mut self, s: &str) -> usize {
-        if let Some(&index) = self.string_constants.get(s) {
-            index
+        if let Some(&addr) = self.string_constants.get(s) {
+            addr
         } else {
-            let index = self.string_constant_list.len();
-            self.string_constants.insert(s.to_string(), index);
+            // Calculate the address where this string will be stored
+            let mut current_addr = 0;
+            for existing_string in &self.string_constant_list {
+                current_addr += existing_string.len() + 1; // +1 for null terminator
+            }
+            
+            self.string_constants.insert(s.to_string(), current_addr);
             self.string_constant_list.push(s.to_string());
-            index
+            current_addr
         }
     }
 
@@ -289,11 +294,11 @@ impl CodeGenerator {
         self.local_offset = 0;
         self.current_function_param_count = 0;
 
-        // Initialize string constants in heap first
+        // Initialize string constants in heap first - they are now directly addressable
         for string_constant in &self.string_constant_list {
             self.instructions
                 .push(Instruction::PushString(string_constant.clone()));
-            self.instructions.push(Instruction::Pop); // Discard the HeapRef from stack
+            self.instructions.push(Instruction::Pop); // Discard the address from stack
         }
 
         // Initialize global variables second
@@ -565,8 +570,8 @@ impl CodeGenerator {
             }
 
             Expr::String(value) => {
-                let heap_index = self.get_or_create_string_constant(value);
-                self.instructions.push(Instruction::PushHeapRef(heap_index));
+                let string_addr = self.get_or_create_string_constant(value);
+                self.instructions.push(Instruction::PushAddress(string_addr));
             }
 
             Expr::Byte(value) => {
@@ -775,8 +780,8 @@ impl CodeGenerator {
             Expr::TypeExpr { type_name } => {
                 // For now, type expressions are treated as string constants
                 // This is a placeholder - in a full implementation, we'd need proper type system integration
-                let heap_index = self.get_or_create_string_constant(type_name);
-                self.instructions.push(Instruction::PushHeapRef(heap_index));
+                let string_addr = self.get_or_create_string_constant(type_name);
+                self.instructions.push(Instruction::PushAddress(string_addr));
             }
         }
     }
