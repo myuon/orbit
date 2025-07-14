@@ -353,29 +353,25 @@ impl Parser {
             TokenType::If => self.parse_if_stmt()?,
             TokenType::While => self.parse_while_stmt()?,
             TokenType::Identifier(_) => {
-                // Look ahead to see if this is an assignment, vector push, field assign, or vector assign
+                // Look ahead to see if this is a simple assignment or vector push
+                // For complex cases, use the new complex assignment parser
                 if self.position + 1 < self.tokens.len() {
                     match &self.tokens[self.position + 1].token_type {
                         TokenType::Assign => self.parse_assign_stmt()?,
                         TokenType::Push => self.parse_vector_push_stmt()?,
                         TokenType::LeftBracket => {
-                            // Could be container[index] = value
-                            self.parse_index_assign_or_expr()?
+                            // Could be container[index] = value or complex like self.data[i] = value
+                            // Use complex assignment parser to handle both cases
+                            self.parse_complex_assignment()?
                         }
                         TokenType::Dot => {
-                            // Check if this is field assignment: obj.field = value
-                            if self.is_field_assignment() {
-                                self.parse_field_assign_stmt()?
-                            } else {
-                                let expr = self.parse_expression()?;
-                                self.consume(TokenType::Semicolon)?;
-                                Stmt::Expression(expr)
-                            }
+                            // Could be simple field assignment or complex like self.data[i] = value
+                            // Use complex assignment parser to handle both cases
+                            self.parse_complex_assignment()?
                         }
                         _ => {
-                            let expr = self.parse_expression()?;
-                            self.consume(TokenType::Semicolon)?;
-                            Stmt::Expression(expr)
+                            // Default to complex assignment parser which will handle expression statements too
+                            self.parse_complex_assignment()?
                         }
                     }
                 } else {
@@ -1278,6 +1274,16 @@ impl Parser {
         }
     }
 
+    /// Check if an expression is a valid left-hand value for assignment
+    fn is_valid_lvalue(expr: &Expr) -> bool {
+        match expr {
+            Expr::Identifier(_) => true,
+            Expr::FieldAccess { .. } => true,
+            Expr::Index { .. } => true,
+            _ => false,
+        }
+    }
+
     /// Check if the current position is the start of a field assignment (obj.field = value)
     fn is_field_assignment(&self) -> bool {
         // Pattern: identifier . identifier = ...
@@ -1291,6 +1297,32 @@ impl Parser {
                 && matches!(self.tokens[self.position + 3].token_type, TokenType::Assign)
         } else {
             false
+        }
+    }
+
+    fn parse_complex_assignment(&mut self) -> Result<Stmt> {
+        // Parse a potentially complex left-hand value and check if it's followed by assignment
+        let lvalue = self.parse_expression()?;
+        
+        // Check if this is an assignment
+        if matches!(self.current_token().token_type, TokenType::Assign) {
+            // Validate that the left-hand side is a valid lvalue
+            if !Self::is_valid_lvalue(&lvalue.value) {
+                bail!(
+                    "Invalid left-hand side in assignment at position {}. Only variables, field access (obj.field), and indexing (arr[i]) are allowed.",
+                    lvalue.span.start.unwrap_or(0)
+                );
+            }
+            
+            self.advance(); // consume '='
+            let value = self.parse_expression()?;
+            self.consume(TokenType::Semicolon)?;
+            
+            Ok(Stmt::ComplexAssign { lvalue, value })
+        } else {
+            // Not an assignment, treat as expression statement
+            self.consume(TokenType::Semicolon)?;
+            Ok(Stmt::Expression(lvalue))
         }
     }
 
@@ -1757,6 +1789,180 @@ type Point = struct {
             }
         } else {
             panic!("Expected Index expression, got: {:?}", expr);
+        }
+    }
+
+    #[test]
+    fn test_simple_field_assignment_parsing() {
+        let code = "obj.field = 42;";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let stmt = parser.parse_stmt().unwrap();
+
+        // Simple field assignments are now parsed as ComplexAssign since they use the new parser
+        if let Stmt::ComplexAssign { lvalue, value } = stmt.value {
+            if let Expr::FieldAccess { object, field } = &lvalue.value {
+                if let Expr::Identifier(obj_name) = &object.value {
+                    assert_eq!(obj_name, "obj");
+                } else {
+                    panic!("Expected identifier for object");
+                }
+                assert_eq!(field, "field");
+            } else {
+                panic!("Expected FieldAccess for lvalue");
+            }
+            if let Expr::Int(val) = value.value {
+                assert_eq!(val, 42);
+            } else {
+                panic!("Expected integer for value");
+            }
+        } else {
+            panic!("Expected ComplexAssign statement, got: {:?}", stmt);
+        }
+    }
+
+    #[test]
+    fn test_simple_index_assignment_parsing() {
+        let code = "arr[0] = 42;";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let stmt = parser.parse_stmt().unwrap();
+
+        // Simple index assignments are now parsed as ComplexAssign since they use the new parser
+        if let Stmt::ComplexAssign { lvalue, value } = stmt.value {
+            if let Expr::Index { container, index, .. } = &lvalue.value {
+                if let Expr::Identifier(container_name) = &container.value {
+                    assert_eq!(container_name, "arr");
+                } else {
+                    panic!("Expected identifier for container");
+                }
+                if let Expr::Int(idx) = index.value {
+                    assert_eq!(idx, 0);
+                } else {
+                    panic!("Expected integer for index");
+                }
+            } else {
+                panic!("Expected Index for lvalue");
+            }
+            if let Expr::Int(val) = value.value {
+                assert_eq!(val, 42);
+            } else {
+                panic!("Expected integer for value");
+            }
+        } else {
+            panic!("Expected ComplexAssign statement, got: {:?}", stmt);
+        }
+    }
+
+    #[test]
+    fn test_complex_field_index_assignment_parsing() {
+        // This test checks if self.data[i] = value can be parsed as ComplexAssign
+        let code = "self.data[i] = 42;";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let stmt = parser.parse_stmt().unwrap();
+
+        if let Stmt::ComplexAssign { lvalue, value } = stmt.value {
+            // The lvalue should be index access (self.data[i])
+            if let Expr::Index { container, index, .. } = &lvalue.value {
+                // The container should be field access (self.data)
+                if let Expr::FieldAccess { object, field } = &container.value {
+                    if let Expr::Identifier(obj_name) = &object.value {
+                        assert_eq!(obj_name, "self");
+                    } else {
+                        panic!("Expected identifier for object in field access");
+                    }
+                    assert_eq!(field, "data");
+                } else {
+                    panic!("Expected FieldAccess for container in index expression");
+                }
+                
+                // The index should be 'i'
+                if let Expr::Identifier(index_name) = &index.value {
+                    assert_eq!(index_name, "i");
+                } else {
+                    panic!("Expected identifier for index");
+                }
+            } else {
+                panic!("Expected Index expression for lvalue");
+            }
+            
+            // The value should be 42
+            if let Expr::Int(val) = value.value {
+                assert_eq!(val, 42);
+            } else {
+                panic!("Expected integer for value");
+            }
+        } else {
+            panic!("Expected ComplexAssign statement, got: {:?}", stmt);
+        }
+    }
+
+    #[test]
+    fn test_complex_assignment_with_expression_parsing() {
+        // This test checks if self.data[i] = self.data[i] + 1 can be parsed as ComplexAssign
+        let code = "self.data[i] = self.data[i] + 1;";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let stmt = parser.parse_stmt().unwrap();
+
+        if let Stmt::ComplexAssign { lvalue, value } = stmt.value {
+            // The lvalue should be index access (self.data[i])
+            if let Expr::Index { container, index, .. } = &lvalue.value {
+                // The container should be field access (self.data)
+                if let Expr::FieldAccess { object, field } = &container.value {
+                    if let Expr::Identifier(obj_name) = &object.value {
+                        assert_eq!(obj_name, "self");
+                    } else {
+                        panic!("Expected identifier for object in field access");
+                    }
+                    assert_eq!(field, "data");
+                } else {
+                    panic!("Expected FieldAccess for container in index expression");
+                }
+                
+                // The index should be 'i'
+                if let Expr::Identifier(index_name) = &index.value {
+                    assert_eq!(index_name, "i");
+                } else {
+                    panic!("Expected identifier for index");
+                }
+            } else {
+                panic!("Expected Index expression for lvalue");
+            }
+            
+            // The value should be a binary expression: self.data[i] + 1
+            if let Expr::Binary { left, op, right } = &value.value {
+                assert_eq!(*op, BinaryOp::Add);
+                
+                // Left side should be self.data[i]
+                if let Expr::Index { container, index, .. } = &left.value {
+                    if let Expr::FieldAccess { object, field } = &container.value {
+                        if let Expr::Identifier(obj_name) = &object.value {
+                            assert_eq!(obj_name, "self");
+                        }
+                        assert_eq!(field, "data");
+                    }
+                    if let Expr::Identifier(index_name) = &index.value {
+                        assert_eq!(index_name, "i");
+                    }
+                }
+                
+                // Right side should be 1
+                if let Expr::Int(val) = &right.value {
+                    assert_eq!(*val, 1);
+                } else {
+                    panic!("Expected integer 1 for right operand");
+                }
+            } else {
+                panic!("Expected Binary expression for value");
+            }
+        } else {
+            panic!("Expected ComplexAssign statement, got: {:?}", stmt);
         }
     }
 }

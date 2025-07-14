@@ -222,6 +222,14 @@ impl Desugarer {
                     value: desugared_value,
                 }
             }
+            Stmt::ComplexAssign { lvalue, value } => {
+                let desugared_lvalue = self.desugar_expression(lvalue)?;
+                let desugared_value = self.desugar_expression(value)?;
+                Stmt::ComplexAssign {
+                    lvalue: desugared_lvalue,
+                    value: desugared_value,
+                }
+            }
         };
         Ok(Positioned::with_unknown_span(desugared_stmt))
     }

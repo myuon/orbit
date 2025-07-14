@@ -409,6 +409,11 @@ impl TypeChecker {
                 self.infer_expression_types(&mut value.value)?;
                 Ok(())
             }
+            Stmt::ComplexAssign { lvalue, value } => {
+                self.infer_expression_types(&mut lvalue.value)?;
+                self.infer_expression_types(&mut value.value)?;
+                Ok(())
+            }
         }
     }
 
@@ -890,6 +895,39 @@ impl TypeChecker {
                 }
                 Ok(())
             }
+            
+            Stmt::ComplexAssign { lvalue, value } => {
+                // Check for immutable string assignments in complex expressions
+                if let Expr::Index { container, .. } = &lvalue.value {
+                    let container_type = self.check_expression(&container.value)?;
+                    if container_type == Type::String {
+                        bail!("Cannot assign to string index - strings are immutable");
+                    }
+                }
+                
+                let lvalue_type = self.check_lvalue_expression(&lvalue.value)?;
+                let value_type = self.check_expression(&value.value)?;
+                
+                if !value_type.is_compatible_with(&lvalue_type) {
+                    bail!(
+                        "Complex assignment type mismatch: left-hand side has type {}, assigned {}",
+                        lvalue_type,
+                        value_type
+                    );
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Type check a left-hand value expression and return its type
+    fn check_lvalue_expression(&mut self, expr: &Expr) -> Result<Type> {
+        match expr {
+            Expr::Identifier(_) | Expr::FieldAccess { .. } | Expr::Index { .. } => {
+                // Valid lvalues - delegate to normal expression type checking
+                self.check_expression(expr)
+            }
+            _ => bail!("Invalid left-hand side in assignment: only variables, field access, and indexing are allowed"),
         }
     }
 

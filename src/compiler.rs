@@ -505,6 +505,14 @@ impl Compiler {
                     self.format_expression(&value.value)
                 )
             }
+            crate::ast::Stmt::ComplexAssign { lvalue, value } => {
+                format!(
+                    "{}{} = {};",
+                    indent,
+                    self.format_expression(&lvalue.value),
+                    self.format_expression(&value.value)
+                )
+            }
             crate::ast::Stmt::If {
                 condition,
                 then_branch,

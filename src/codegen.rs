@@ -142,6 +142,10 @@ impl CodeGenerator {
                 self.collect_string_constants_from_expr(object);
                 self.collect_string_constants_from_expr(value);
             }
+            Stmt::ComplexAssign { lvalue, value } => {
+                self.collect_string_constants_from_expr(lvalue);
+                self.collect_string_constants_from_expr(value);
+            }
         }
     }
 
@@ -558,6 +562,63 @@ impl CodeGenerator {
                     .push(Instruction::PushString(field.clone()));
                 self.compile_expression(object);
                 self.instructions.push(Instruction::StructFieldSet);
+            }
+            
+            Stmt::ComplexAssign { lvalue, value } => {
+                // lvalue = value where lvalue can be complex expression like self.data[i]
+                self.compile_complex_assignment(lvalue, value);
+            }
+        }
+    }
+
+    /// Compile a complex assignment (lvalue = value)
+    fn compile_complex_assignment(&mut self, lvalue: &PositionedExpr, value: &PositionedExpr) {
+        match &lvalue.value {
+            Expr::Identifier(name) => {
+                // Simple variable assignment: var = value
+                self.compile_expression(value);
+                if let Some(&offset) = self.local_vars.get(name) {
+                    self.instructions.push(Instruction::SetLocal(offset));
+                } else {
+                    panic!("Undefined variable: {}", name);
+                }
+            }
+            
+            Expr::FieldAccess { object, field } => {
+                // Field assignment: obj.field = value
+                self.compile_expression(value);
+                self.instructions.push(Instruction::PushString(field.clone()));
+                self.compile_expression(object);
+                self.instructions.push(Instruction::StructFieldSet);
+            }
+            
+            Expr::Index { container, index, container_type } => {
+                // Index assignment: container[index] = value
+                self.compile_expression(value);
+                self.compile_expression(index);
+                self.compile_expression(container);
+                
+                match container_type {
+                    Some(IndexContainerType::Vector) => {
+                        self.instructions.push(Instruction::VectorSet);
+                    }
+                    Some(IndexContainerType::Map) => {
+                        self.instructions.push(Instruction::MapSet);
+                    }
+                    Some(IndexContainerType::Pointer) => {
+                        self.instructions.push(Instruction::PointerSet);
+                    }
+                    Some(IndexContainerType::String) => {
+                        panic!("Cannot assign to string index - strings are immutable");
+                    }
+                    None => {
+                        panic!("Container type not resolved during type checking");
+                    }
+                }
+            }
+            
+            _ => {
+                panic!("Invalid left-hand side in complex assignment: {:?}", lvalue.value);
             }
         }
     }

@@ -298,6 +298,10 @@ pub enum Stmt {
         field: String,
         value: PositionedExpr,
     },
+    ComplexAssign {
+        lvalue: PositionedExpr,
+        value: PositionedExpr,
+    },
 }
 
 // Type system for semantic analysis

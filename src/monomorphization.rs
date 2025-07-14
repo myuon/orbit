@@ -171,6 +171,10 @@ impl Monomorphizer {
                 self.collect_targets_from_expr(object)?;
                 self.collect_targets_from_expr(value)?;
             }
+            Stmt::ComplexAssign { lvalue, value } => {
+                self.collect_targets_from_expr(lvalue)?;
+                self.collect_targets_from_expr(value)?;
+            }
         }
         Ok(())
     }
@@ -561,6 +565,10 @@ impl Monomorphizer {
                 field: field.clone(),
                 value: self.substitute_expression(value, substitutions)?,
             },
+            Stmt::ComplexAssign { lvalue, value } => Stmt::ComplexAssign {
+                lvalue: self.substitute_expression(lvalue, substitutions)?,
+                value: self.substitute_expression(value, substitutions)?,
+            },
         };
         Ok(Positioned::with_unknown_span(substituted))
     }
@@ -813,6 +821,10 @@ impl Monomorphizer {
             } => Stmt::FieldAssign {
                 object: self.substitute_expression_globally(object)?,
                 field: field.clone(),
+                value: self.substitute_expression_globally(value)?,
+            },
+            Stmt::ComplexAssign { lvalue, value } => Stmt::ComplexAssign {
+                lvalue: self.substitute_expression_globally(lvalue)?,
                 value: self.substitute_expression_globally(value)?,
             },
         };

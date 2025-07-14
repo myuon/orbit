@@ -227,6 +227,10 @@ impl DeadCodeEliminator {
                 self.mark_expr_dependencies(object)?;
                 self.mark_expr_dependencies(value)?;
             }
+            Stmt::ComplexAssign { lvalue, value } => {
+                self.mark_expr_dependencies(lvalue)?;
+                self.mark_expr_dependencies(value)?;
+            }
         }
         Ok(())
     }
