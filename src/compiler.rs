@@ -8,7 +8,7 @@ use crate::monomorphization::Monomorphizer;
 use crate::parser::Parser;
 use crate::runtime::{Runtime, Value};
 use crate::typecheck::TypeChecker;
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 /// Compiler configuration options
 #[derive(Debug, Clone)]
@@ -99,7 +99,8 @@ impl Compiler {
 
     /// Compile and execute Orbit source code, returning the last value
     pub fn execute(&mut self, code: &str) -> Result<Option<Value>> {
-        let processed_code = self.preprocess_code(code)?;
+        let processed_code = self.preprocess_code(code)
+            .with_context(|| "Preprocessing phase: Failed to preprocess code")?;
         let tokens = self.tokenize(&processed_code)?;
         let program = self.parse(tokens)?;
         self.execute_program(program)
@@ -108,8 +109,9 @@ impl Compiler {
     /// Execute Orbit source code from a file
     pub fn execute_file(&mut self, filename: &str) -> Result<Option<Value>> {
         let content = std::fs::read_to_string(filename)
-            .map_err(|e| anyhow::anyhow!("Error reading file {}: {}", filename, e))?;
+            .with_context(|| format!("File reading phase: Failed to read file {}", filename))?;
         self.execute(&content)
+            .with_context(|| format!("Failed to execute file {}", filename))
     }
 
     /// Preprocess the code by prepending standard library if enabled
@@ -135,18 +137,23 @@ impl Compiler {
         let mut program_with_type_info = program;
 
         // First register struct types and functions
-        type_checker.check_program(&mut program_with_type_info)?;
+        type_checker.check_program(&mut program_with_type_info)
+            .with_context(|| "Type checking phase: Failed to register struct types and functions")?;
         // Then perform type inference to set type_name fields
-        type_checker.infer_types(&mut program_with_type_info)?;
+        type_checker.infer_types(&mut program_with_type_info)
+            .with_context(|| "Type checking phase: Failed to infer types")?;
 
         // 2. Monomorphization phase: collect and instantiate generic types
         let mut monomorphizer = Monomorphizer::new();
-        monomorphizer.collect_targets(&program_with_type_info)?;
-        monomorphizer.monomorphize()?;
+        monomorphizer.collect_targets(&program_with_type_info)
+            .with_context(|| "Monomorphization phase: Failed to collect targets")?;
+        monomorphizer.monomorphize()
+            .with_context(|| "Monomorphization phase: Failed to monomorphize")?;
 
         // Generate the monomorphized program with concrete types
         let monomorphized_program =
-            monomorphizer.generate_monomorphized_program(&program_with_type_info)?;
+            monomorphizer.generate_monomorphized_program(&program_with_type_info)
+                .with_context(|| "Monomorphization phase: Failed to generate monomorphized program")?;
 
         // Handle monomorphized code dumping if requested (early, before potential errors)
         if self.options.dump_monomorphized_code {
@@ -164,7 +171,8 @@ impl Compiler {
 
         // 3. Desugar phase: transform method calls to function calls using type info
         let mut desugarer = Desugarer::new();
-        let desugared_program = desugarer.desugar_program(monomorphized_program)?;
+        let desugared_program = desugarer.desugar_program(monomorphized_program)
+            .with_context(|| "Desugar phase: Failed to desugar program")?;
 
         // Handle desugared code dumping if requested
         if self.options.dump_desugared_code {
@@ -184,7 +192,8 @@ impl Compiler {
             desugared_program
         } else {
             let mut dce = DeadCodeEliminator::new();
-            let dce_program = dce.eliminate_dead_code(desugared_program)?;
+            let dce_program = dce.eliminate_dead_code(desugared_program)
+                .with_context(|| "Dead code elimination phase: Failed to eliminate dead code")?;
 
             // Handle dead code elimination dumping if requested
             if self.options.dump_dce_code {
@@ -220,9 +229,12 @@ impl Compiler {
         };
 
         // 5. Final type checking on final program
-        // Reuse the original type checker to preserve struct information
-        type_checker.check_program(&mut final_program)?;
-        type_checker.infer_types(&mut final_program)?;
+        // Create a fresh type checker to avoid duplicate struct definitions
+        let mut final_type_checker = TypeChecker::new();
+        final_type_checker.check_program(&mut final_program)
+            .with_context(|| "Final type checking phase: Failed to check program")?;
+        final_type_checker.infer_types(&mut final_program)
+            .with_context(|| "Final type checking phase: Failed to infer types")?;
 
         // 6. Handle IR dumping if requested
         if self.options.dump_ir {
@@ -248,8 +260,10 @@ impl Compiler {
         let result = if self.options.print_stacks || self.options.print_stacks_on_call.is_some() {
             self.runtime
                 .execute_program_with_options(&final_program, self.options.print_stacks)
+                .with_context(|| "Execution phase: Failed to execute program with debug options")
         } else {
             self.runtime.execute_program(&final_program)
+                .with_context(|| "Execution phase: Failed to execute program")
         };
 
         // 9. Handle profiling output
@@ -270,12 +284,14 @@ impl Compiler {
     fn tokenize(&self, code: &str) -> Result<Vec<crate::ast::Token>> {
         let mut lexer = Lexer::new(code);
         lexer.tokenize()
+            .with_context(|| "Lexing phase: Failed to tokenize source code")
     }
 
     /// Parse tokens into a program
     fn parse(&self, tokens: Vec<crate::ast::Token>) -> Result<Program> {
         let mut parser = Parser::new(tokens);
         parser.parse_program()
+            .with_context(|| "Parsing phase: Failed to parse tokens into program")
     }
 
     /// Get a mutable reference to the runtime for direct manipulation

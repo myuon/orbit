@@ -107,7 +107,7 @@ async fn main() {
 
             tokio::task::spawn_blocking(move || {
                 let mut compiler = orbit::Compiler::new_with_options(options);
-                compiler.execute_file(&filename).map_err(|e| e.to_string())
+                compiler.execute_file(&filename).map_err(|e| format!("{:?}", e))
             })
             .await
             .unwrap()

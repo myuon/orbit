@@ -298,7 +298,7 @@ impl Desugarer {
 
                     // Use embedded type information if available, otherwise fall back to heuristic
                     let mangled_name = if let Some(struct_type) = type_name {
-                        format!("{}__{}", struct_type, method.trim_start_matches('_'))
+                        format!("{}_{}", struct_type, method.trim_start_matches('_'))
                     } else {
                         self.resolve_method_name(&desugared_object.value, method)?
                     };
