@@ -754,11 +754,13 @@ impl CodeGenerator {
             Expr::Alloc { element_type, size } => {
                 // Size-based alloc: compile the size expression
                 self.compile_expression(size);
-                // Push element type as string for VM to calculate sizeof
-                self.instructions
-                    .push(Instruction::PushString(element_type.clone()));
-                // Allocate pointer with specified type and size
-                self.instructions.push(Instruction::PointerAlloc);
+                // Push element size for multiplication 
+                let element_size = self.sizeof_type(element_type);
+                self.instructions.push(Instruction::Push(element_size as i64));
+                // Multiply size by element size to get total size
+                self.instructions.push(Instruction::Mul);
+                // Allocate heap space with total size
+                self.instructions.push(Instruction::HeapAlloc);
             }
 
             Expr::Index {
@@ -838,6 +840,40 @@ impl CodeGenerator {
                 let string_addr = self.get_or_create_string_constant(&type_name.to_string());
                 self.instructions
                     .push(Instruction::PushAddress(string_addr));
+            }
+        }
+    }
+
+    fn sizeof_type(&self, type_name: &str) -> usize {
+        match type_name {
+            "bool" | "boolean" => 1,
+            "byte" => 1,
+            "int" | "number" => 8, // Using 8 bytes for numbers
+            "string" => 8,         // String is a pointer, so 8 bytes
+            _ => {
+                if type_name.starts_with("[*]") {
+                    8 // Pointer types are 8 bytes
+                } else {
+                    // For struct types or unknown types, default to 8 bytes
+                    8
+                }
+            }
+        }
+    }
+}
+
+fn sizeof_type(type_name: &str) -> usize {
+    match type_name {
+        "bool" | "boolean" => 1,
+        "byte" => 1,
+        "int" | "number" => 8, // Using 8 bytes for numbers
+        "string" => 8,         // String is a pointer, so 8 bytes
+        _ => {
+            if type_name.starts_with("[*]") {
+                8 // Pointer types are 8 bytes
+            } else {
+                // For struct types or unknown types, default to 8 bytes
+                8
             }
         }
     }
@@ -957,10 +993,13 @@ fn compile_expr_recursive(expr: &PositionedExpr, instructions: &mut Vec<Instruct
         Expr::Alloc { element_type, size } => {
             // Size-based alloc: compile the size expression
             compile_expr_recursive(size, instructions);
-            // Push element type as string for VM to calculate sizeof
-            instructions.push(Instruction::PushString(element_type.clone()));
-            // Allocate pointer with specified type and size
-            instructions.push(Instruction::PointerAlloc);
+            // Push element size for multiplication 
+            let element_size = sizeof_type(element_type);
+            instructions.push(Instruction::Push(element_size as i64));
+            // Multiply size by element size to get total size
+            instructions.push(Instruction::Mul);
+            // Allocate heap space with total size
+            instructions.push(Instruction::HeapAlloc);
         }
 
         Expr::TypeExpr { type_name } => {
@@ -1164,8 +1203,9 @@ mod tests {
             instructions,
             vec![
                 Instruction::Push(10),
-                Instruction::PushString("int".to_string()),
-                Instruction::PointerAlloc
+                Instruction::Push(8), // sizeof int
+                Instruction::Mul,
+                Instruction::HeapAlloc
             ]
         );
 
@@ -1185,8 +1225,9 @@ mod tests {
                 Instruction::Push(5),
                 Instruction::Push(3),
                 Instruction::Add,
-                Instruction::PushString("byte".to_string()),
-                Instruction::PointerAlloc
+                Instruction::Push(1), // sizeof byte
+                Instruction::Mul,
+                Instruction::HeapAlloc
             ]
         );
     }

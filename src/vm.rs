@@ -87,7 +87,6 @@ pub enum Instruction {
     MapSet,
 
     // Pointer operations
-    PointerAlloc,
     PointerIndex,
     PointerSet,
 
@@ -158,7 +157,6 @@ impl fmt::Display for Instruction {
             Instruction::MapNew => write!(f, "map_new"),
             Instruction::MapIndex => write!(f, "map_index"),
             Instruction::MapSet => write!(f, "map_set"),
-            Instruction::PointerAlloc => write!(f, "pointer_new"),
             Instruction::PointerIndex => write!(f, "pointer_index"),
             Instruction::PointerSet => write!(f, "pointer_set"),
             Instruction::StringIndex => write!(f, "string_index"),
