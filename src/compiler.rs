@@ -135,7 +135,7 @@ impl Compiler {
         let mut program_with_type_info = program;
 
         // First register struct types and functions
-        type_checker.check_program(&program_with_type_info)?;
+        type_checker.check_program(&mut program_with_type_info)?;
         // Then perform type inference to set type_name fields
         type_checker.infer_types(&mut program_with_type_info)?;
 
@@ -180,7 +180,7 @@ impl Compiler {
         }
 
         // 4. Dead code elimination phase: remove unused functions and types
-        let final_program = if self.options.no_dead_code_elimination {
+        let mut final_program = if self.options.no_dead_code_elimination {
             desugared_program
         } else {
             let mut dce = DeadCodeEliminator::new();
@@ -221,7 +221,7 @@ impl Compiler {
 
         // 5. Final type checking on final program
         let mut final_type_checker = TypeChecker::new();
-        final_type_checker.check_program(&final_program)?;
+        final_type_checker.check_program(&mut final_program)?;
 
         // 6. Handle IR dumping if requested
         if self.options.dump_ir {
@@ -292,7 +292,7 @@ impl Compiler {
         // 1. Type inference phase
         let mut type_checker = TypeChecker::new();
         let mut program_with_type_info = program;
-        type_checker.check_program(&program_with_type_info)?;
+        type_checker.check_program(&mut program_with_type_info)?;
         type_checker.infer_types(&mut program_with_type_info)?;
 
         // 2. Monomorphization phase
@@ -308,11 +308,11 @@ impl Compiler {
 
         // 4. Dead code elimination phase
         let mut dce = DeadCodeEliminator::new();
-        let final_program = dce.eliminate_dead_code(desugared_program)?;
+        let mut final_program = dce.eliminate_dead_code(desugared_program)?;
 
         // 5. Final type checking
         let mut final_type_checker = TypeChecker::new();
-        final_type_checker.check_program(&final_program)?;
+        final_type_checker.check_program(&mut final_program)?;
 
         // 6. Compile to VM bytecode
         let mut vm_compiler = CodeGenerator::new();

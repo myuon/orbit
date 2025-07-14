@@ -1263,7 +1263,7 @@ mod tests {
             .infer_types(&mut program)
             .expect("type inference failed");
         type_checker
-            .check_program(&program)
+            .check_program(&mut program)
             .expect("type checking failed");
 
         let mut compiler = CodeGenerator::new();

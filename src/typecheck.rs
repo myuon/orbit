@@ -1,6 +1,6 @@
 use crate::ast::{
     BinaryOp, Decl, Expr, Function, IndexContainerType, PositionedDecl, PositionedExpr,
-    PositionedStmt, Program, Stmt, StructDecl, Type,
+    PositionedStmt, Program, Stmt, StructDecl, StructNewKind, Type,
 };
 use anyhow::{bail, Result};
 use std::collections::HashMap;
@@ -233,7 +233,7 @@ impl TypeChecker {
     }
 
     /// Type check a complete program
-    pub fn check_program(&mut self, program: &Program) -> Result<()> {
+    pub fn check_program(&mut self, program: &mut Program) -> Result<()> {
         // First pass: register all struct types
         for decl in &program.declarations {
             if let Decl::Struct(struct_decl) = &decl.value {
@@ -242,9 +242,9 @@ impl TypeChecker {
         }
 
         // Second pass: register global variables (now that structs are available)
-        for decl in &program.declarations {
-            if let Decl::GlobalVariable(global_var) = &decl.value {
-                let var_type = self.check_expression(&global_var.value.value)?;
+        for decl in &mut program.declarations {
+            if let Decl::GlobalVariable(global_var) = &mut decl.value {
+                let var_type = self.check_expression(&mut global_var.value.value)?;
                 self.globals.insert(global_var.value.name.clone(), var_type);
             }
         }
@@ -257,7 +257,7 @@ impl TypeChecker {
         }
 
         // Fourth pass: check function bodies
-        for decl in &program.declarations {
+        for decl in &mut program.declarations {
             self.check_declaration(decl)?;
         }
         Ok(())
@@ -279,7 +279,7 @@ impl TypeChecker {
                 // Type check the global variable's value
                 self.infer_expression_types(&mut global_var.value.value)?;
                 // Register the global variable's type
-                let var_type = self.check_expression(&global_var.value.value)?;
+                let var_type = self.check_expression(&mut global_var.value.value)?;
                 self.globals.insert(global_var.value.name.clone(), var_type);
                 Ok(())
             }
@@ -592,20 +592,20 @@ impl TypeChecker {
     }
 
     /// Type check a declaration
-    fn check_declaration(&mut self, decl: &PositionedDecl) -> Result<()> {
-        match &decl.value {
-            Decl::Function(function) => self.check_function(&function.value),
+    fn check_declaration(&mut self, decl: &mut PositionedDecl) -> Result<()> {
+        match &mut decl.value {
+            Decl::Function(function) => self.check_function(&mut function.value),
             Decl::Struct(_) => Ok(()), // Struct declarations are checked during registration
             Decl::GlobalVariable(global_var) => {
                 // Type check the global variable's value
-                self.check_expression(&global_var.value.value)?;
+                self.check_expression(&mut global_var.value.value)?;
                 Ok(())
             }
         }
     }
 
     /// Type check a function
-    fn check_function(&mut self, function: &Function) -> Result<()> {
+    fn check_function(&mut self, function: &mut Function) -> Result<()> {
         // Enter generic scope if this function has type parameters
         if !function.type_params.is_empty() {
             self.enter_generic_scope(&function.type_params);
@@ -630,7 +630,7 @@ impl TypeChecker {
         self.current_return_type = Some(Type::Unknown); // Could be inferred
 
         // Check function body
-        for stmt in &function.body {
+        for stmt in &mut function.body {
             self.check_statement(stmt)?;
         }
 
@@ -646,8 +646,8 @@ impl TypeChecker {
     }
 
     /// Type check a statement
-    fn check_statement(&mut self, stmt: &PositionedStmt) -> Result<()> {
-        match &stmt.value {
+    fn check_statement(&mut self, stmt: &mut PositionedStmt) -> Result<()> {
+        match &mut stmt.value {
             Stmt::Let { name, value } => {
                 let value_type = self.check_expression(value)?;
 
@@ -717,7 +717,7 @@ impl TypeChecker {
 
             Stmt::Assign { lvalue, value } => {
                 // Check for immutable string assignments in complex expressions
-                if let Expr::Index { container, .. } = &lvalue.value {
+                if let Expr::Index { container, .. } = &mut lvalue.value {
                     let container_type = self.check_expression(container)?;
                     if container_type == Type::String {
                         bail!("Cannot assign to string index - strings are immutable");
@@ -759,7 +759,7 @@ impl TypeChecker {
     }
 
     /// Type check a left-hand value expression and return its type
-    fn check_lvalue_expression(&mut self, expr: &PositionedExpr) -> Result<Type> {
+    fn check_lvalue_expression(&mut self, expr: &mut PositionedExpr) -> Result<Type> {
         match &expr.value {
             Expr::Identifier(_) | Expr::FieldAccess { .. } | Expr::Index { .. } => {
                 // Valid lvalues - delegate to normal expression type checking
@@ -770,8 +770,8 @@ impl TypeChecker {
     }
 
     /// Type check an expression and return its type
-    fn check_expression(&mut self, expr: &PositionedExpr) -> Result<Type> {
-        match &expr.value {
+    fn check_expression(&mut self, expr: &mut PositionedExpr) -> Result<Type> {
+        match &mut expr.value {
             Expr::Int(_) => Ok(Type::Int),
             Expr::Boolean(_) => Ok(Type::Boolean),
             Expr::String(_) => Ok(Type::String),
@@ -906,7 +906,7 @@ impl TypeChecker {
                             }
 
                             // Check argument types
-                            for (i, arg) in args.iter().enumerate() {
+                            for (i, arg) in args.iter_mut().enumerate() {
                                 let arg_type = self.check_expression(arg)?;
 
                                 // Be more permissive for monomorphized functions (containing parentheses)
@@ -1048,8 +1048,40 @@ impl TypeChecker {
             Expr::StructNew {
                 type_name,
                 fields,
-                kind: _,
+                kind,
             } => {
+                // Check if the struct has a _new function and update the kind accordingly
+                let new_function_name = if type_name.contains('(') && type_name.ends_with(')') {
+                    // Generic struct - extract base name
+                    let base_name = type_name.split('(').next().unwrap();
+                    format!("{}__new", base_name)
+                } else {
+                    // Non-generic struct
+                    format!("{}__new", type_name)
+                };
+                let updated_kind = if self.functions.contains_key(&new_function_name) && fields.is_empty() {
+                    StructNewKind::Pattern
+                } else {
+                    StructNewKind::Regular
+                };
+                *kind = updated_kind;
+
+                // For Pattern kind with empty fields, skip field validation (_new function will handle it)
+                if *kind == StructNewKind::Pattern && fields.is_empty() {
+                    // Return the struct type directly without field validation
+                    match self.structs.get(type_name) {
+                        Some(struct_type) => return Ok(struct_type.clone()),
+                        None => {
+                            // Handle generic struct instantiation
+                            if let Some(generic_type) = self.resolve_generic_struct_type(type_name) {
+                                return Ok(generic_type);
+                            } else {
+                                bail!("Unknown struct type: {}", type_name)
+                            }
+                        }
+                    }
+                }
+
                 // Look up the struct field information, handling generic instantiation
                 let struct_fields = if type_name.contains('(') && type_name.ends_with(')') {
                     // This looks like a generic instantiation - always use resolve_generic_struct_fields
@@ -1626,10 +1658,10 @@ mod tests {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
-        let program = parser.parse_program().unwrap();
+        let mut program = parser.parse_program().unwrap();
 
         let mut checker = TypeChecker::new();
-        let result = checker.check_program(&program);
+        let result = checker.check_program(&mut program);
         assert!(result.is_ok());
     }
 
@@ -1646,10 +1678,10 @@ mod tests {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
-        let program = parser.parse_program().unwrap();
+        let mut program = parser.parse_program().unwrap();
 
         let mut checker = TypeChecker::new();
-        let result = checker.check_program(&program);
+        let result = checker.check_program(&mut program);
         assert!(result.is_ok());
     }
 
@@ -1666,10 +1698,10 @@ mod tests {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
-        let program = parser.parse_program().unwrap();
+        let mut program = parser.parse_program().unwrap();
 
         let mut checker = TypeChecker::new();
-        let result = checker.check_program(&program);
+        let result = checker.check_program(&mut program);
         assert!(result.is_err());
 
         let error_msg = result.unwrap_err().to_string();
@@ -1715,10 +1747,10 @@ mod tests {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
-        let program = parser.parse_program().unwrap();
+        let mut program = parser.parse_program().unwrap();
 
         let mut checker = TypeChecker::new();
-        let result = checker.check_program(&program);
+        let result = checker.check_program(&mut program);
         assert!(result.is_ok()); // String indexing should be allowed
     }
 
@@ -1735,10 +1767,10 @@ mod tests {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
-        let program = parser.parse_program().unwrap();
+        let mut program = parser.parse_program().unwrap();
 
         let mut checker = TypeChecker::new();
-        let result = checker.check_program(&program);
+        let result = checker.check_program(&mut program);
         assert!(result.is_err()); // String assignment should be rejected
 
         let error_msg = result.unwrap_err().to_string();
