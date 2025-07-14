@@ -152,25 +152,49 @@ fn run_single_error_test(test_file: &Path) {
     let test_name = test_file.file_stem().unwrap().to_str().unwrap();
     println!("Running error test: {}", test_name);
 
-    let expected_error_file = test_file.with_extension("stderr");
+    // Collect all .stderr files (.stderr, .stderr.2, .stderr.3, etc.)
+    let mut expected_error_files = Vec::new();
+    
+    // Check for primary .stderr file
+    let primary_stderr = test_file.with_extension("stderr");
+    if primary_stderr.exists() {
+        expected_error_files.push(primary_stderr);
+    }
+    
+    // Check for additional .stderr.N files
+    let mut counter = 2;
+    loop {
+        let stderr_file = test_file.with_extension(&format!("stderr.{}", counter));
+        if stderr_file.exists() {
+            expected_error_files.push(stderr_file);
+            counter += 1;
+        } else {
+            break;
+        }
+    }
 
-    if !expected_error_file.exists() {
+    if expected_error_files.is_empty() {
         panic!(
-            "Expected error file not found: {}",
-            expected_error_file.display()
+            "No expected error file found for test: {} (looking for .stderr)",
+            test_file.display()
         );
     }
 
-    let expected_error_fragment = fs::read_to_string(&expected_error_file)
-        .unwrap_or_else(|e| {
-            panic!(
-                "Failed to read expected error file {}: {}",
-                expected_error_file.display(),
-                e
-            )
-        })
-        .trim()
-        .to_string();
+    // Read all expected error fragments
+    let mut expected_error_fragments = Vec::new();
+    for error_file in &expected_error_files {
+        let fragment = fs::read_to_string(error_file)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to read expected error file {}: {}",
+                    error_file.display(),
+                    e
+                )
+            })
+            .trim()
+            .to_string();
+        expected_error_fragments.push(fragment);
+    }
 
     let test_content = fs::read_to_string(test_file)
         .unwrap_or_else(|e| panic!("Failed to read test file {}: {}", test_file.display(), e));
@@ -188,18 +212,20 @@ fn run_single_error_test(test_file: &Path) {
         }
         Err(error) => {
             let error_message = error.to_string();
-            // Check the full error chain for the expected fragment
+            // Check the full error chain for debugging
             let full_error = format!("{:?}", error);
-            if !error_message.contains(&expected_error_fragment)
-                && !full_error.contains(&expected_error_fragment)
-            {
-                panic!(
-                    "Error test {} failed.\nExpected error to contain: '{}'\nActual error: '{}'\nFull error: '{}'",
-                    test_name, expected_error_fragment, error_message, full_error
-                );
+            
+            // All expected fragments must be present (AND condition)
+            for (i, expected_fragment) in expected_error_fragments.iter().enumerate() {
+                if !error_message.contains(expected_fragment) && !full_error.contains(expected_fragment) {
+                    panic!(
+                        "Error test {} failed.\nExpected error to contain fragment #{}: '{}'\nActual error: '{}'\nFull error: '{}'",
+                        test_name, i + 1, expected_fragment, error_message, full_error
+                    );
+                }
             }
+            
+            println!("✓ Error test {} passed ({} conditions checked)", test_name, expected_error_fragments.len());
         }
     }
-
-    println!("✓ Error test {} passed", test_name);
 }

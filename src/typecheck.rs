@@ -1,9 +1,24 @@
 use crate::ast::{
     BinaryOp, Decl, Expr, Function, IndexContainerType, PositionedDecl, PositionedExpr,
-    PositionedStmt, Program, Stmt, StructDecl, StructNewKind, Type,
+    PositionedStmt, Program, Span, Stmt, StructDecl, StructNewKind, Type,
 };
 use anyhow::{bail, Result};
 use std::collections::HashMap;
+
+/// Helper trait for creating position-aware errors
+trait PositionedError {
+    fn error_at_span(&self, message: String) -> anyhow::Error;
+}
+
+impl<T> PositionedError for crate::ast::Positioned<T> {
+    fn error_at_span(&self, message: String) -> anyhow::Error {
+        if let (Some(start), Some(_end)) = (self.span.start, self.span.end) {
+            anyhow::anyhow!("{} at position {}", message, start)
+        } else {
+            anyhow::anyhow!("{}", message)
+        }
+    }
+}
 
 impl Type {
     /// Check if this type is numeric (int or byte)
@@ -759,7 +774,9 @@ impl TypeChecker {
             } => {
                 let condition_type = self.check_expression(condition)?;
                 if !condition_type.is_compatible_with(&Type::Boolean) {
-                    bail!("If condition must be boolean, got {}", condition_type);
+                    return Err(condition.error_at_span(format!(
+                        "If condition must be boolean, got {}", condition_type
+                    )));
                 }
 
                 for stmt in then_branch {
@@ -777,7 +794,9 @@ impl TypeChecker {
             Stmt::While { condition, body } => {
                 let condition_type = self.check_expression(condition)?;
                 if !condition_type.is_compatible_with(&Type::Boolean) {
-                    bail!("While condition must be boolean, got {}", condition_type);
+                    return Err(condition.error_at_span(format!(
+                        "While condition must be boolean, got {}", condition_type
+                    )));
                 }
 
                 for stmt in body {
@@ -919,7 +938,17 @@ impl TypeChecker {
             Expr::String(_) => Ok(Type::String),
             Expr::Byte(_) => Ok(Type::Byte),
 
-            Expr::Identifier(name) => self.lookup_variable(name),
+            Expr::Identifier(name) => {
+                let name_clone = name.clone();
+                let span = expr.span.clone();
+                self.lookup_variable(name).map_err(|_| {
+                    if let (Some(start), Some(_end)) = (span.start, span.end) {
+                        anyhow::anyhow!("Undefined variable: {} at position {}", name_clone, start)
+                    } else {
+                        anyhow::anyhow!("Undefined variable: {}", name_clone)
+                    }
+                })
+            },
 
             Expr::TypeExpr { type_name: _ } => {
                 // Type expressions represent types themselves

@@ -2,6 +2,7 @@ use crate::ast::{Program, StructNewKind};
 use crate::codegen::CodeGenerator;
 use crate::dead_code_elimination::DeadCodeEliminator;
 use crate::desugar::Desugarer;
+use crate::diagnostics::{Diagnostic, PositionCalculator};
 use crate::label_resolution::LabelResolver;
 use crate::lexer::Lexer;
 use crate::monomorphization::Monomorphizer;
@@ -71,6 +72,10 @@ impl Default for CompilerOptions {
 pub struct Compiler {
     runtime: Runtime,
     options: CompilerOptions,
+    /// Position calculator for converting byte offsets to line/column
+    position_calculator: Option<PositionCalculator>,
+    /// Current filename being processed
+    current_filename: String,
 }
 
 impl Compiler {
@@ -94,14 +99,33 @@ impl Compiler {
             Runtime::new()
         };
 
-        Compiler { runtime, options }
+        Compiler { 
+            runtime, 
+            options, 
+            position_calculator: None,
+            current_filename: "<unknown>".to_string(),
+        }
     }
 
     /// Compile and execute Orbit source code, returning the last value
     pub fn execute(&mut self, code: &str) -> Result<Option<Value>> {
-        let processed_code = self
-            .preprocess_code(code)
+        self.execute_with_filename(code, "<input>")
+    }
+
+    /// Compile and execute Orbit source code with a specific filename, returning the last value
+    pub fn execute_with_filename(&mut self, code: &str, filename: &str) -> Result<Option<Value>> {
+        self.current_filename = filename.to_string();
+        
+        let (processed_code, std_lib_content) = self
+            .preprocess_code_with_std_info(code)
             .with_context(|| "Preprocessing phase: Failed to preprocess code")?;
+            
+        // Set up position calculator
+        self.position_calculator = Some(PositionCalculator::new(
+            processed_code.clone(),
+            std_lib_content,
+        ));
+        
         let tokens = self.tokenize(&processed_code)?;
         let program = self.parse(tokens)?;
         self.execute_program(program)
@@ -111,22 +135,31 @@ impl Compiler {
     pub fn execute_file(&mut self, filename: &str) -> Result<Option<Value>> {
         let content = std::fs::read_to_string(filename)
             .with_context(|| format!("File reading phase: Failed to read file {}", filename))?;
-        self.execute(&content)
+        self.execute_with_filename(&content, filename)
             .with_context(|| format!("Failed to execute file {}", filename))
     }
 
     /// Preprocess the code by prepending standard library if enabled
     fn preprocess_code(&self, code: &str) -> Result<String> {
+        let (processed_code, _) = self.preprocess_code_with_std_info(code)?;
+        Ok(processed_code)
+    }
+
+    /// Preprocess the code and return both the processed code and std lib content
+    fn preprocess_code_with_std_info(&self, code: &str) -> Result<(String, Option<String>)> {
         if !self.options.enable_load_std {
-            return Ok(code.to_string());
+            return Ok((code.to_string(), None));
         }
 
         let std_lib_path = "lib/std.ob";
         match std::fs::read_to_string(std_lib_path) {
-            Ok(std_content) => Ok(format!("{}\n{}", std_content, code)),
+            Ok(std_content) => Ok((
+                format!("{}\n{}", std_content, code),
+                Some(std_content)
+            )),
             Err(_) => {
                 // If std.ob doesn't exist, just return the original code
-                Ok(code.to_string())
+                Ok((code.to_string(), None))
             }
         }
     }
@@ -140,13 +173,17 @@ impl Compiler {
         // First register struct types and functions
         type_checker
             .check_program(&mut program_with_type_info)
-            .with_context(|| {
-                "Type checking phase: Failed to register struct types and functions"
+            .map_err(|err| {
+                let formatted_error = self.format_error_with_position(&err);
+                anyhow::anyhow!("Type checking phase: {}", formatted_error)
             })?;
         // Then perform type inference to set type_name fields
         type_checker
             .infer_types(&mut program_with_type_info)
-            .with_context(|| "Type checking phase: Failed to infer types")?;
+            .map_err(|err| {
+                let formatted_error = self.format_error_with_position(&err);
+                anyhow::anyhow!("Type checking phase: {}", formatted_error)
+            })?;
 
         // 2. Monomorphization phase: collect and instantiate generic types
         let mut monomorphizer = Monomorphizer::new();
@@ -292,6 +329,57 @@ impl Compiler {
         result
     }
 
+    /// Convert a byte position to a diagnostic location
+    pub fn position_to_location(&self, byte_offset: usize) -> Option<crate::diagnostics::SourceLocation> {
+        self.position_calculator.as_ref()
+            .map(|calc| calc.position_to_location(byte_offset, &self.current_filename))
+    }
+
+    /// Create a diagnostic from a span and message
+    pub fn create_diagnostic_from_span(&self, span: &crate::ast::Span, message: String) -> Diagnostic {
+        if let (Some(start_pos), Some(calc)) = (span.start, &self.position_calculator) {
+            let location = calc.position_to_location(start_pos, &self.current_filename);
+            Diagnostic::error_with_span(message, span.clone(), Some(location))
+        } else {
+            Diagnostic::error(message)
+        }
+    }
+
+    /// Format an error with position information
+    pub fn format_error_with_position(&self, error: &anyhow::Error) -> String {
+        // Get the full error chain including causes
+        let full_error_msg = format!("{:?}", error);
+        
+        // Try to extract position information from the error message
+        let error_msg = error.to_string();
+        
+        // Look for "at position X" pattern in the full error chain
+        if let Some(pos_start) = full_error_msg.find("at position ") {
+            if let Some(pos_str) = full_error_msg[pos_start + 12..].split_whitespace().next() {
+                if let Ok(position) = pos_str.parse::<usize>() {
+                    if let Some(location) = self.position_to_location(position) {
+                        // Extract the actual error message from the chain
+                        let actual_msg = if let Some(cause) = error.source() {
+                            cause.to_string()
+                        } else {
+                            error_msg.clone()
+                        };
+                        
+                        let diagnostic = Diagnostic::error_at(actual_msg, location);
+                        
+                        // Use the position calculator to format with correct source context
+                        if let Some(calc) = &self.position_calculator {
+                            return diagnostic.format_with_calculator(calc);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback to standard error formatting
+        format!("error: {}", error_msg)
+    }
+
     /// Tokenize the source code
     fn tokenize(&self, code: &str) -> Result<Vec<crate::ast::Token>> {
         let mut lexer = Lexer::new(code);
@@ -303,9 +391,11 @@ impl Compiler {
     /// Parse tokens into a program
     fn parse(&self, tokens: Vec<crate::ast::Token>) -> Result<Program> {
         let mut parser = Parser::new(tokens);
-        parser
-            .parse_program()
-            .with_context(|| "Parsing phase: Failed to parse tokens into program")
+        parser.parse_program().map_err(|err| {
+            // Try to format the error with position information
+            let formatted_error = self.format_error_with_position(&err);
+            anyhow::anyhow!("Parsing phase: {}", formatted_error)
+        })
     }
 
     /// Get a mutable reference to the runtime for direct manipulation
