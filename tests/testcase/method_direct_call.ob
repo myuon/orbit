@@ -9,5 +9,5 @@ type Point = struct {
 
 fun main() do
   let p = new Point { .x = 10, .y = 20 };
-  return Point_sum(p);
+  return p.sum();
 end

@@ -1654,6 +1654,19 @@ impl TypeChecker {
                 return Some(concrete_fields);
             }
 
+            if generic_name == "myvector" && concrete_args.len() == 1 {
+                // For myvector(T), we know the structure: { data: [*]T, length: int, capacity: int }
+                let element_type = &concrete_args[0];
+                let mut concrete_fields = HashMap::new();
+                concrete_fields.insert(
+                    "data".to_string(),
+                    Type::Pointer(Box::new(element_type.clone())),
+                );
+                concrete_fields.insert("length".to_string(), Type::Int);
+                concrete_fields.insert("capacity".to_string(), Type::Int);
+                return Some(concrete_fields);
+            }
+
 
             if generic_name == "Pair" && concrete_args.len() == 2 {
                 // For Pair(A, B), we know the structure: { first: A, second: B }
