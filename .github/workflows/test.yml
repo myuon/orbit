@@ -1,20 +1,29 @@
-name: Zig Build Test
+name: Rust Test and Benchmark
 
 on:
   push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
 
 jobs:
-  build:
-    runs-on: macos-latest
+  test:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Setup Zig Compiler
-        uses: mlugg/setup-zig@v1
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          version: "0.13.0"
-      - name: Run zig build test
-        run: zig build test
+          # Use a stable cache key for consistent caching across jobs
+          shared-key: "orbit-rust-cache"
+          # Cache both debug and release target directories
+          cache-targets: "true"
+
+      - name: Check compilation
+        run: cargo check --message-format=short
+
+      - name: Run unit tests
+        run: cargo test --message-format=short

@@ -1,0 +1,11 @@
+fun identity(T: type, value: T): T do
+  return value;
+end
+
+fun swap(A: type, B: type, a: A, b: B): A do
+  return a;
+end
+
+fun main() do
+  return 42;
+end

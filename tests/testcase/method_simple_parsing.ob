@@ -1,0 +1,12 @@
+type Point = struct {
+  x: int,
+  y: int,
+
+  fun get_x(self: Point) do
+    return 42;
+  end
+};
+
+fun main() do
+  return 42;
+end

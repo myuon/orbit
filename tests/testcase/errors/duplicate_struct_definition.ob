@@ -1,0 +1,13 @@
+type Person = struct {
+  name: string,
+  age: int,
+};
+
+type Person = struct {
+  id: int,
+  email: string,
+};
+
+fun main() do
+  return 42;
+end

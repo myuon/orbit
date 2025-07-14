@@ -1,0 +1,12 @@
+type Container(T: type) = struct {
+  value: T,
+};
+
+type Pair(A: type, B: type) = struct {
+  first: A,
+  second: B,
+};
+
+fun main() do
+  return 0;
+end

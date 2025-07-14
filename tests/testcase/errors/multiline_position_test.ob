@@ -1,0 +1,5 @@
+fun main() do
+  if true do
+    let y = z;
+  end
+end

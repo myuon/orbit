@@ -1,0 +1,7 @@
+fun main() do
+  let i = 0;
+  while i < 5 do
+    i = i + 1;
+  end
+  return i;
+end
