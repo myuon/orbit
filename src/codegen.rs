@@ -193,7 +193,7 @@ impl CodeGenerator {
                 }
             }
             Expr::TypeExpr { type_name } => {
-                self.get_or_create_string_constant(type_name);
+                self.get_or_create_string_constant(&type_name.to_string());
             }
             _ => {} // Other expressions don't contain strings
         }
@@ -724,7 +724,8 @@ impl CodeGenerator {
                 kind: _,
             } => {
                 // Verify struct exists
-                if !self.structs.contains_key(type_name) {
+                let type_name_str = type_name.to_string();
+                if !self.structs.contains_key(&type_name_str) {
                     panic!("Unknown struct type: {}", type_name);
                 }
 
@@ -754,7 +755,7 @@ impl CodeGenerator {
             Expr::TypeExpr { type_name } => {
                 // For now, type expressions are treated as string constants
                 // This is a placeholder - in a full implementation, we'd need proper type system integration
-                let string_addr = self.get_or_create_string_constant(type_name);
+                let string_addr = self.get_or_create_string_constant(&type_name.to_string());
                 self.instructions
                     .push(Instruction::PushAddress(string_addr));
             }
@@ -884,7 +885,7 @@ fn compile_expr_recursive(expr: &PositionedExpr, instructions: &mut Vec<Instruct
 
         Expr::TypeExpr { type_name } => {
             // For now, type expressions are treated as string constants
-            instructions.push(Instruction::PushString(type_name.clone()));
+            instructions.push(Instruction::PushString(type_name.to_string()));
         }
     }
 }

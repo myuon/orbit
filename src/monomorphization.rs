@@ -204,7 +204,7 @@ impl Monomorphizer {
                 kind: _,
             } => {
                 // Check if this is a generic struct instantiation
-                if let Some(generic_type) = self.parse_generic_type(type_name) {
+                if let Some(generic_type) = self.parse_generic_type(&type_name.to_string()) {
                     if let Type::Generic { name, args } = generic_type {
                         // Only add as target if the struct is actually registered as generic
                         if self.generic_structs.contains_key(&name) {
@@ -273,17 +273,18 @@ impl Monomorphizer {
             Expr::TypeExpr { type_name } => {
                 // For monomorphization, we need to preserve original type names
                 // So we'll create a custom type that maintains the source name
-                match type_name.as_str() {
+                let type_name_str = type_name.to_string();
+                match type_name_str.as_str() {
                     "int" | "number" => Some(Type::Int),
                     "bool" | "boolean" => Some(Type::Boolean),
                     "string" | "[*]byte" => Some(Type::String),
                     _ => {
                         // Try to parse as a generic type or struct type
-                        if let Some(generic_type) = self.parse_generic_type(type_name) {
+                        if let Some(generic_type) = self.parse_generic_type(&type_name_str) {
                             Some(generic_type)
                         } else {
                             // Assume it's a struct type
-                            Some(Type::Struct(type_name.clone()))
+                            Some(Type::Struct(type_name_str))
                         }
                     }
                 }
@@ -552,7 +553,7 @@ impl Monomorphizer {
             Expr::Byte(b) => Expr::Byte(*b),
             Expr::Identifier(name) => Expr::Identifier(name.clone()),
             Expr::TypeExpr { type_name } => Expr::TypeExpr {
-                type_name: substitute_type_in_string(type_name, substitutions),
+                type_name: Type::from_string(&substitute_type_in_string(&type_name.to_string(), substitutions)),
             },
             Expr::Alloc { element_type, size } => Expr::Alloc {
                 element_type: substitute_type_in_string(element_type, substitutions),
@@ -616,7 +617,7 @@ impl Monomorphizer {
                 fields,
                 kind,
             } => Expr::StructNew {
-                type_name: substitute_type_in_string(type_name, substitutions),
+                type_name: Type::from_string(&substitute_type_in_string(&type_name.to_string(), substitutions)),
                 fields: fields
                     .iter()
                     .map(|(name, expr)| {
@@ -888,7 +889,7 @@ impl Monomorphizer {
                 fields,
                 kind,
             } => Expr::StructNew {
-                type_name: substitute_type_in_string_globally(type_name),
+                type_name: Type::from_string(&substitute_type_in_string_globally(&type_name.to_string())),
                 fields: fields
                     .iter()
                     .map(|(name, expr)| {

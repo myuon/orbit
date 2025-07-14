@@ -170,7 +170,7 @@ pub enum Expr {
         initial_pairs: Vec<(PositionedExpr, PositionedExpr)>,
     },
     StructNew {
-        type_name: String,
+        type_name: Type,
         fields: Vec<(String, PositionedExpr)>,
         kind: StructNewKind,
     },
@@ -185,7 +185,7 @@ pub enum Expr {
         args: Vec<PositionedExpr>,
     },
     TypeExpr {
-        type_name: String,
+        type_name: Type,
     },
     Alloc {
         element_type: String,

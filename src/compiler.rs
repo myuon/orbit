@@ -635,7 +635,7 @@ impl Compiler {
                     format!("<unknown>.{}({})", method, args_str)
                 }
             }
-            crate::ast::Expr::TypeExpr { type_name } => type_name.clone(),
+            crate::ast::Expr::TypeExpr { type_name } => type_name.to_string(),
         }
     }
 

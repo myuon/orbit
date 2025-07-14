@@ -1184,13 +1184,13 @@ impl TypeChecker {
                 kind,
             } => {
                 // Check if the struct has a _new function and update the kind accordingly
-                let new_function_name = if type_name.contains('(') && type_name.ends_with(')') {
-                    // Generic struct - extract base name
-                    let base_name = type_name.split('(').next().unwrap();
-                    format!("{}__new", base_name)
-                } else {
-                    // Non-generic struct
-                    format!("{}__new", type_name)
+                let new_function_name = match type_name {
+                    Type::Generic { name, .. } => format!("{}__new", name),
+                    Type::Struct(name) => format!("{}__new", name),
+                    _ => {
+                        // Convert other types to string format for function name
+                        format!("{}__new", type_name.to_string())
+                    }
                 };
                 let updated_kind =
                     if self.functions.contains_key(&new_function_name) && fields.is_empty() {
@@ -1203,11 +1203,12 @@ impl TypeChecker {
                 // For Pattern kind with empty fields, skip field validation (_new function will handle it)
                 if *kind == StructNewKind::Pattern && fields.is_empty() {
                     // Return the struct type directly without field validation
-                    match self.structs.get(type_name) {
+                    let type_name_str = type_name.to_string();
+                    match self.structs.get(&type_name_str) {
                         Some(struct_type) => return Ok(struct_type.clone()),
                         None => {
                             // Handle generic struct instantiation
-                            if let Some(generic_type) = self.resolve_generic_struct_type(type_name)
+                            if let Some(generic_type) = self.resolve_generic_struct_type(&type_name_str)
                             {
                                 return Ok(generic_type);
                             } else {
@@ -1218,19 +1219,23 @@ impl TypeChecker {
                 }
 
                 // Look up the struct field information, handling generic instantiation
-                let struct_fields = if type_name.contains('(') && type_name.ends_with(')') {
-                    // This looks like a generic instantiation - always use resolve_generic_struct_fields
-                    if let Some(generic_fields) = self.resolve_generic_struct_fields(type_name) {
-                        generic_fields
-                    } else {
-                        bail!("Unknown generic struct type: {}", type_name)
+                let type_name_str = type_name.to_string();
+                let struct_fields = match type_name {
+                    Type::Generic { .. } => {
+                        // Generic struct - use resolve_generic_struct_fields
+                        if let Some(generic_fields) = self.resolve_generic_struct_fields(&type_name_str) {
+                            generic_fields
+                        } else {
+                            bail!("Unknown generic struct type: {}", type_name)
+                        }
                     }
-                } else {
-                    // Non-generic struct - use direct lookup
-                    match self.struct_fields.get(type_name) {
-                        Some(fields) => fields.clone(),
-                        None => {
-                            bail!("Unknown struct type: {}", type_name)
+                    _ => {
+                        // Non-generic struct - use direct lookup
+                        match self.struct_fields.get(&type_name_str) {
+                            Some(fields) => fields.clone(),
+                            None => {
+                                bail!("Unknown struct type: {}", type_name)
+                            }
                         }
                     }
                 };
@@ -1265,11 +1270,11 @@ impl TypeChecker {
                 }
 
                 // Return the appropriate struct type
-                match self.structs.get(type_name) {
+                match self.structs.get(&type_name_str) {
                     Some(struct_type) => Ok(struct_type.clone()),
                     None => {
                         // Handle generic struct instantiation
-                        if let Some(generic_type) = self.resolve_generic_struct_type(type_name) {
+                        if let Some(generic_type) = self.resolve_generic_struct_type(&type_name_str) {
                             Ok(generic_type)
                         } else {
                             bail!("Unknown struct type: {}", type_name)
@@ -1462,7 +1467,7 @@ impl TypeChecker {
                 match &expr.value {
                     Expr::StructNew { type_name, .. } => {
                         // If returning a struct creation, return that struct type
-                        self.structs.get(type_name).cloned()
+                        self.structs.get(&type_name.to_string()).cloned()
                     }
                     Expr::Int(_) => Some(Type::Int),
                     Expr::Boolean(_) => Some(Type::Boolean),

@@ -2,7 +2,7 @@ use crate::ast::{
     BinaryOp, Decl, Expr, FunParam, Function, GlobalVariable, Positioned, PositionedDecl,
     PositionedExpr, PositionedFunction, PositionedGlobalVariable, PositionedStmt,
     PositionedStructDecl, Program, Span, Stmt, StructDecl, StructField, StructNewKind, Token,
-    TokenType,
+    TokenType, Type,
 };
 use anyhow::{bail, Result};
 
@@ -881,7 +881,7 @@ impl Parser {
                         self.advance(); // consume 'struct'
                         self.consume(TokenType::RightParen)?; // consume ')'
 
-                        let type_name = self.parse_type_name()?;
+                        let type_name = Type::from_string(&self.parse_type_name()?);
                         self.consume(TokenType::LeftBrace)?;
 
                         let mut fields = Vec::new();
@@ -1049,7 +1049,7 @@ impl Parser {
                 } else {
                     // Handle struct instantiation: new TypeName { .field = value, ... }
                     // Support generic types: new Container(int) { .field = value, ... }
-                    let type_name = self.parse_type_name()?;
+                    let type_name = Type::from_string(&self.parse_type_name()?);
 
                     self.consume(TokenType::LeftBrace)?;
 
@@ -1100,7 +1100,7 @@ impl Parser {
                 // Check if this is a type expression for associated method call
                 if matches!(self.current_token().token_type, TokenType::Type) {
                     self.advance(); // consume 'type'
-                    let type_name = self.parse_type_name()?;
+                    let type_name = Type::from_string(&self.parse_type_name()?);
                     self.consume(TokenType::RightParen)?;
 
                     // Now check for .method(args) after the closing paren
@@ -1138,7 +1138,7 @@ impl Parser {
                         Ok(Positioned::new(
                             Expr::MethodCall {
                                 object: None, // No object for associated method calls
-                                type_name: Some(type_name),
+                                type_name: Some(type_name.to_string()),
                                 method,
                                 args,
                             },
@@ -1165,7 +1165,7 @@ impl Parser {
             }
             TokenType::Type => {
                 self.advance(); // consume 'type'
-                let type_name = self.parse_type_name()?;
+                let type_name = Type::from_string(&self.parse_type_name()?);
                 let end_pos = if self.position > 0 {
                     self.tokens[self.position - 1].position
                 } else {
@@ -1424,7 +1424,7 @@ type Point = struct {
             kind: StructNewKind::Pattern,
         } = expr.value
         {
-            assert_eq!(type_name, "Point");
+            assert_eq!(type_name, Type::from_string("Point"));
             assert_eq!(fields.len(), 2);
             assert_eq!(fields[0].0, "x");
             assert_eq!(fields[1].0, "y");
@@ -1469,7 +1469,7 @@ type Point = struct {
             kind: StructNewKind::Regular,
         } = expr1.value
         {
-            assert_eq!(type_name, "Point");
+            assert_eq!(type_name, Type::from_string("Point"));
             assert_eq!(fields.len(), 2);
         } else {
             panic!("Expected StructNew expression");
@@ -1482,7 +1482,7 @@ type Point = struct {
             kind: StructNewKind::Pattern,
         } = expr2.value
         {
-            assert_eq!(type_name, "Point");
+            assert_eq!(type_name, Type::from_string("Point"));
             assert_eq!(fields.len(), 2);
         } else {
             panic!("Expected StructNew expression with kind=Pattern");

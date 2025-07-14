@@ -1,4 +1,4 @@
-use crate::ast::{Decl, Expr, Function, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl};
+use crate::ast::{Decl, Expr, Function, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl, Type};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
@@ -259,11 +259,14 @@ impl DeadCodeEliminator {
                 fields,
                 kind: _,
             } => {
-                self.mark_type_reachable(type_name);
+                let type_name_str = type_name.to_string();
+                self.mark_type_reachable(&type_name_str);
                 // Mark the base type as reachable as well (for generic instantiations)
-                if let Some(paren_pos) = type_name.find('(') {
-                    let base_type = &type_name[..paren_pos];
-                    self.mark_type_reachable(base_type);
+                match type_name {
+                    Type::Generic { name, .. } => {
+                        self.mark_type_reachable(name);
+                    }
+                    _ => {}
                 }
                 for (_, positioned_field_expr) in fields {
                     self.mark_expr_dependencies(positioned_field_expr)?;
@@ -308,7 +311,7 @@ impl DeadCodeEliminator {
                 self.mark_expr_dependencies(size)?;
             }
             Expr::TypeExpr { type_name } => {
-                self.mark_type_reachable(type_name);
+                self.mark_type_reachable(&type_name.to_string());
             }
             // Leaf expressions don't have dependencies
             Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Byte(_) => {}
@@ -522,7 +525,7 @@ mod tests {
                             Positioned::with_unknown_span(Stmt::Let {
                                 name: "point".to_string(),
                                 value: Positioned::with_unknown_span(Expr::StructNew {
-                                    type_name: "Point".to_string(),
+                                    type_name: Type::from_string("Point"),
                                     fields: vec![
                                         (
                                             "x".to_string(),
