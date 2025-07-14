@@ -201,6 +201,8 @@ impl VM {
                 self.heap.push(HeapObject::RawValue(Value::Byte(0)));
                 // Push address pointing to first byte
                 self.stack.push(Value::Address(start_index));
+                // Update HP to keep it in sync with heap length
+                self.hp = self.heap.len();
             }
 
             Instruction::PushHeapRef(index) => {
@@ -794,24 +796,20 @@ impl VM {
                     _ => return Err("HeapAlloc requires a size (number)".to_string()),
                 };
 
-                // Allocate space on heap starting at current HP
-                let heap_start_index = self.hp;
+                // Allocate space on heap starting at current heap end
+                // This ensures we don't overwrite existing heap objects like strings
+                let heap_start_index = self.heap.len();
 
-                // Extend heap to accommodate the allocation if needed
-                while self.heap.len() < self.hp + size {
+                // Extend heap to accommodate the allocation
+                for _ in 0..size {
                     self.heap.push(HeapObject::RawValue(Value::Int(0))); // Initialize with zero
-                }
-
-                // Initialize allocated space with default values (zeros)
-                for i in 0..size {
-                    self.heap[self.hp + i] = HeapObject::RawValue(Value::Int(0));
                 }
 
                 // Push heap reference to the start of allocated region
                 self.stack.push(Value::HeapRef(HeapIndex(heap_start_index)));
 
                 // Update HP to point after allocated region
-                self.hp += size;
+                self.hp = self.heap.len();
             }
 
             Instruction::HeapGet => {
@@ -1220,7 +1218,9 @@ impl VM {
                 let mut fields = HashMap::new();
                 for _ in 0..field_count {
                     let field_value = self.stack.pop().unwrap();
-                    let field_name = match self.stack.pop().unwrap() {
+                    let field_name_addr = self.stack.pop().unwrap();
+                    
+                    let field_name = match field_name_addr {
                         Value::Address(addr) => self.address_to_string(addr)?,
                         _ => return Err("StructNew requires address for field names".to_string()),
                     };
