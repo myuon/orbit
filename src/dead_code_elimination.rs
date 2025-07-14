@@ -201,34 +201,12 @@ impl DeadCodeEliminator {
                     self.mark_stmt_dependencies(stmt)?;
                 }
             }
-            Stmt::Assign { name, value } => {
-                self.mark_global_reachable(name);
+            Stmt::Assign { lvalue, value } => {
+                self.mark_expr_dependencies(lvalue)?;
                 self.mark_expr_dependencies(value)?;
             }
             Stmt::VectorPush { vector, value } => {
                 self.mark_global_reachable(vector);
-                self.mark_expr_dependencies(value)?;
-            }
-            Stmt::IndexAssign {
-                container,
-                index,
-                value,
-                ..
-            } => {
-                self.mark_global_reachable(container);
-                self.mark_expr_dependencies(index)?;
-                self.mark_expr_dependencies(value)?;
-            }
-            Stmt::FieldAssign {
-                object,
-                field: _,
-                value,
-            } => {
-                self.mark_expr_dependencies(object)?;
-                self.mark_expr_dependencies(value)?;
-            }
-            Stmt::ComplexAssign { lvalue, value } => {
-                self.mark_expr_dependencies(lvalue)?;
                 self.mark_expr_dependencies(value)?;
             }
         }

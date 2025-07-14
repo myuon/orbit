@@ -101,7 +101,8 @@ impl CodeGenerator {
             Stmt::Let { value, .. } => {
                 self.collect_string_constants_from_expr(value);
             }
-            Stmt::Assign { value, .. } => {
+            Stmt::Assign { lvalue, value } => {
+                self.collect_string_constants_from_expr(lvalue);
                 self.collect_string_constants_from_expr(value);
             }
             Stmt::Return(expr) => {
@@ -132,18 +133,6 @@ impl CodeGenerator {
                 }
             }
             Stmt::VectorPush { value, .. } => {
-                self.collect_string_constants_from_expr(value);
-            }
-            Stmt::IndexAssign { index, value, .. } => {
-                self.collect_string_constants_from_expr(index);
-                self.collect_string_constants_from_expr(value);
-            }
-            Stmt::FieldAssign { object, value, .. } => {
-                self.collect_string_constants_from_expr(object);
-                self.collect_string_constants_from_expr(value);
-            }
-            Stmt::ComplexAssign { lvalue, value } => {
-                self.collect_string_constants_from_expr(lvalue);
                 self.collect_string_constants_from_expr(value);
             }
         }
@@ -414,15 +403,9 @@ impl CodeGenerator {
                 self.emit_return_sequence();
             }
 
-            Stmt::Assign { name, value } => {
-                self.compile_expression(value);
-                if let Some(&offset) = self.local_vars.get(name) {
-                    self.instructions.push(Instruction::SetLocal(offset));
-                } else {
-                    // Try to assign to global variable
-                    let global_index = self.get_or_create_global_var_index(name);
-                    self.instructions.push(Instruction::SetGlobal(global_index));
-                }
+            Stmt::Assign { lvalue, value } => {
+                // Use the existing complex assignment logic for all assignments
+                self.compile_complex_assignment(lvalue, value);
             }
 
             Stmt::While { condition, body } => {
@@ -514,60 +497,7 @@ impl CodeGenerator {
                 self.instructions.push(Instruction::VectorPush);
             }
 
-            Stmt::IndexAssign {
-                container,
-                index,
-                value,
-                container_type,
-            } => {
-                // container[index] = value
-                // Compile different instructions based on container type
-                self.compile_expression(value);
-                self.compile_expression(index);
-                if let Some(&offset) = self.local_vars.get(container) {
-                    self.instructions.push(Instruction::GetLocal(offset));
-                } else {
-                    panic!("Undefined container variable: {}", container);
-                }
 
-                match container_type {
-                    Some(IndexContainerType::Vector) => {
-                        self.instructions.push(Instruction::VectorSet);
-                    }
-                    Some(IndexContainerType::Map) => {
-                        self.instructions.push(Instruction::MapSet);
-                    }
-                    Some(IndexContainerType::Pointer) => {
-                        self.instructions.push(Instruction::PointerSet);
-                    }
-                    Some(IndexContainerType::String) => {
-                        // Strings are immutable, this should not happen
-                        panic!("Cannot assign to string index - strings are immutable");
-                    }
-                    None => {
-                        // Type checking should have resolved this
-                        panic!("Container type not resolved during type checking");
-                    }
-                }
-            }
-
-            Stmt::FieldAssign {
-                object,
-                field,
-                value,
-            } => {
-                // obj.field = value
-                self.compile_expression(value);
-                self.instructions
-                    .push(Instruction::PushString(field.clone()));
-                self.compile_expression(object);
-                self.instructions.push(Instruction::StructFieldSet);
-            }
-            
-            Stmt::ComplexAssign { lvalue, value } => {
-                // lvalue = value where lvalue can be complex expression like self.data[i]
-                self.compile_complex_assignment(lvalue, value);
-            }
         }
     }
 
@@ -580,7 +510,9 @@ impl CodeGenerator {
                 if let Some(&offset) = self.local_vars.get(name) {
                     self.instructions.push(Instruction::SetLocal(offset));
                 } else {
-                    panic!("Undefined variable: {}", name);
+                    // Try to assign to global variable
+                    let global_index = self.get_or_create_global_var_index(name);
+                    self.instructions.push(Instruction::SetGlobal(global_index));
                 }
             }
             

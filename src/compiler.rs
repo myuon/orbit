@@ -475,37 +475,7 @@ impl Compiler {
             crate::ast::Stmt::Return(expr) => {
                 format!("{}return {};", indent, self.format_expression(&expr.value))
             }
-            crate::ast::Stmt::Assign { name, value } => {
-                format!("{}{} = {};", indent, name, self.format_expression(&value.value))
-            }
-            crate::ast::Stmt::IndexAssign {
-                container,
-                index,
-                value,
-                container_type: _,
-            } => {
-                format!(
-                    "{}{}[{}] = {};",
-                    indent,
-                    container,
-                    self.format_expression(&index.value),
-                    self.format_expression(&value.value)
-                )
-            }
-            crate::ast::Stmt::FieldAssign {
-                object,
-                field,
-                value,
-            } => {
-                format!(
-                    "{}{}.{} = {};",
-                    indent,
-                    self.format_expression(&object.value),
-                    field,
-                    self.format_expression(&value.value)
-                )
-            }
-            crate::ast::Stmt::ComplexAssign { lvalue, value } => {
+            crate::ast::Stmt::Assign { lvalue, value } => {
                 format!(
                     "{}{} = {};",
                     indent,

@@ -353,25 +353,14 @@ impl Parser {
             TokenType::If => self.parse_if_stmt()?,
             TokenType::While => self.parse_while_stmt()?,
             TokenType::Identifier(_) => {
-                // Look ahead to see if this is a simple assignment or vector push
-                // For complex cases, use the new complex assignment parser
+                // Look ahead to see if this is a vector push, otherwise use unified assignment parser
                 if self.position + 1 < self.tokens.len() {
                     match &self.tokens[self.position + 1].token_type {
-                        TokenType::Assign => self.parse_assign_stmt()?,
                         TokenType::Push => self.parse_vector_push_stmt()?,
-                        TokenType::LeftBracket => {
-                            // Could be container[index] = value or complex like self.data[i] = value
-                            // Use complex assignment parser to handle both cases
-                            self.parse_complex_assignment()?
-                        }
-                        TokenType::Dot => {
-                            // Could be simple field assignment or complex like self.data[i] = value
-                            // Use complex assignment parser to handle both cases
-                            self.parse_complex_assignment()?
-                        }
                         _ => {
-                            // Default to complex assignment parser which will handle expression statements too
-                            self.parse_complex_assignment()?
+                            // Use unified assignment parser for all other cases
+                            // This handles: var = value, obj.field = value, arr[i] = value, self.data[i] = value
+                            self.parse_assignment_or_expression()?
                         }
                     }
                 } else {
@@ -585,13 +574,6 @@ impl Parser {
         }
     }
 
-    fn parse_assign_stmt(&mut self) -> Result<Stmt> {
-        let name = self.parse_identifier("in assignment")?;
-        self.consume(TokenType::Assign)?;
-        let value = self.parse_expression()?;
-        self.consume(TokenType::Semicolon)?;
-        Ok(Stmt::Assign { name, value })
-    }
 
     fn parse_vector_push_stmt(&mut self) -> Result<Stmt> {
         let vector = self.parse_identifier("in push statement")?;
@@ -601,56 +583,7 @@ impl Parser {
         Ok(Stmt::VectorPush { vector, value })
     }
 
-    fn parse_index_assign_or_expr(&mut self) -> Result<Stmt> {
-        // We need to check if this is container[index] = value or just a complex expression
-        // Let's parse it as an expression first and check if it's followed by assignment
 
-        // Save the current position in case we need to backtrack
-        let saved_position = self.position;
-
-        // Try to parse container[index] assignment
-        if let Ok(stmt) = self.try_parse_simple_index_assignment() {
-            return Ok(stmt);
-        }
-
-        // Reset position and parse as a regular expression
-        self.position = saved_position;
-        let expr = self.parse_expression()?;
-        Ok(Stmt::Expression(expr))
-    }
-
-    fn try_parse_simple_index_assignment(&mut self) -> Result<Stmt> {
-        let name = match &self.current_token().token_type {
-            TokenType::Identifier(name) => {
-                let n = name.clone();
-                self.advance();
-                n
-            }
-            _ => bail!("Expected variable name"),
-        };
-
-        self.consume(TokenType::LeftBracket)?; // consume '['
-        let index = self.parse_expression()?;
-        self.consume(TokenType::RightBracket)?; // consume ']'
-
-        // Check if this is an assignment
-        if matches!(self.current_token().token_type, TokenType::Assign) {
-            self.advance(); // consume '='
-            let value = self.parse_expression()?;
-            self.consume(TokenType::Semicolon)?;
-
-            // We can't differentiate between vector and map assignment at parse time
-            // Type checking will determine the container type later
-            Ok(Stmt::IndexAssign {
-                container: name,
-                index,
-                value,
-                container_type: None, // Will be filled in by type checker
-            })
-        } else {
-            bail!("Not an index assignment")
-        }
-    }
 
     fn parse_expression(&mut self) -> Result<PositionedExpr> {
         self.parse_comparison()
@@ -1284,23 +1217,8 @@ impl Parser {
         }
     }
 
-    /// Check if the current position is the start of a field assignment (obj.field = value)
-    fn is_field_assignment(&self) -> bool {
-        // Pattern: identifier . identifier = ...
-        // Current position should be at identifier, next is dot
-        if self.position + 3 < self.tokens.len() {
-            matches!(self.tokens[self.position + 1].token_type, TokenType::Dot)
-                && matches!(
-                    self.tokens[self.position + 2].token_type,
-                    TokenType::Identifier(_)
-                )
-                && matches!(self.tokens[self.position + 3].token_type, TokenType::Assign)
-        } else {
-            false
-        }
-    }
 
-    fn parse_complex_assignment(&mut self) -> Result<Stmt> {
+    fn parse_assignment_or_expression(&mut self) -> Result<Stmt> {
         // Parse a potentially complex left-hand value and check if it's followed by assignment
         let lvalue = self.parse_expression()?;
         
@@ -1318,7 +1236,7 @@ impl Parser {
             let value = self.parse_expression()?;
             self.consume(TokenType::Semicolon)?;
             
-            Ok(Stmt::ComplexAssign { lvalue, value })
+            Ok(Stmt::Assign { lvalue, value })
         } else {
             // Not an assignment, treat as expression statement
             self.consume(TokenType::Semicolon)?;
@@ -1326,38 +1244,6 @@ impl Parser {
         }
     }
 
-    fn parse_field_assign_stmt(&mut self) -> Result<Stmt> {
-        // Parse: obj.field = value;
-        // Parse just the object identifier, not the full expression
-        let start_pos = self.current_token().position;
-        let object_name = self.parse_identifier("in field assignment")?;
-        let end_pos = if self.position > 0 {
-            self.tokens[self.position - 1].position
-        } else {
-            start_pos
-        };
-        let object = Positioned::new(Expr::Identifier(object_name), Span::new(start_pos, end_pos));
-        self.consume(TokenType::Dot)?;
-
-        let field = match &self.current_token().token_type {
-            TokenType::Identifier(name) => {
-                let n = name.clone();
-                self.advance();
-                n
-            }
-            _ => bail!("Expected field name after '.'"),
-        };
-
-        self.consume(TokenType::Assign)?;
-        let value = self.parse_expression()?;
-        self.consume(TokenType::Semicolon)?;
-
-        Ok(Stmt::FieldAssign {
-            object,
-            field,
-            value,
-        })
-    }
 }
 
 #[cfg(test)]
@@ -1800,8 +1686,8 @@ type Point = struct {
         let mut parser = Parser::new(tokens);
         let stmt = parser.parse_stmt().unwrap();
 
-        // Simple field assignments are now parsed as ComplexAssign since they use the new parser
-        if let Stmt::ComplexAssign { lvalue, value } = stmt.value {
+        // Simple field assignments are now parsed as Assign since they use the new parser
+        if let Stmt::Assign { lvalue, value } = stmt.value {
             if let Expr::FieldAccess { object, field } = &lvalue.value {
                 if let Expr::Identifier(obj_name) = &object.value {
                     assert_eq!(obj_name, "obj");
@@ -1818,7 +1704,7 @@ type Point = struct {
                 panic!("Expected integer for value");
             }
         } else {
-            panic!("Expected ComplexAssign statement, got: {:?}", stmt);
+            panic!("Expected Assign statement, got: {:?}", stmt);
         }
     }
 
@@ -1830,8 +1716,8 @@ type Point = struct {
         let mut parser = Parser::new(tokens);
         let stmt = parser.parse_stmt().unwrap();
 
-        // Simple index assignments are now parsed as ComplexAssign since they use the new parser
-        if let Stmt::ComplexAssign { lvalue, value } = stmt.value {
+        // Simple index assignments are now parsed as Assign since they use the new parser
+        if let Stmt::Assign { lvalue, value } = stmt.value {
             if let Expr::Index { container, index, .. } = &lvalue.value {
                 if let Expr::Identifier(container_name) = &container.value {
                     assert_eq!(container_name, "arr");
@@ -1852,20 +1738,20 @@ type Point = struct {
                 panic!("Expected integer for value");
             }
         } else {
-            panic!("Expected ComplexAssign statement, got: {:?}", stmt);
+            panic!("Expected Assign statement, got: {:?}", stmt);
         }
     }
 
     #[test]
     fn test_complex_field_index_assignment_parsing() {
-        // This test checks if self.data[i] = value can be parsed as ComplexAssign
+        // This test checks if self.data[i] = value can be parsed as Assign
         let code = "self.data[i] = 42;";
         let mut lexer = Lexer::new(code);
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
         let stmt = parser.parse_stmt().unwrap();
 
-        if let Stmt::ComplexAssign { lvalue, value } = stmt.value {
+        if let Stmt::Assign { lvalue, value } = stmt.value {
             // The lvalue should be index access (self.data[i])
             if let Expr::Index { container, index, .. } = &lvalue.value {
                 // The container should be field access (self.data)
@@ -1897,20 +1783,20 @@ type Point = struct {
                 panic!("Expected integer for value");
             }
         } else {
-            panic!("Expected ComplexAssign statement, got: {:?}", stmt);
+            panic!("Expected Assign statement, got: {:?}", stmt);
         }
     }
 
     #[test]
     fn test_complex_assignment_with_expression_parsing() {
-        // This test checks if self.data[i] = self.data[i] + 1 can be parsed as ComplexAssign
+        // This test checks if self.data[i] = self.data[i] + 1 can be parsed as Assign
         let code = "self.data[i] = self.data[i] + 1;";
         let mut lexer = Lexer::new(code);
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
         let stmt = parser.parse_stmt().unwrap();
 
-        if let Stmt::ComplexAssign { lvalue, value } = stmt.value {
+        if let Stmt::Assign { lvalue, value } = stmt.value {
             // The lvalue should be index access (self.data[i])
             if let Expr::Index { container, index, .. } = &lvalue.value {
                 // The container should be field access (self.data)
@@ -1962,7 +1848,7 @@ type Point = struct {
                 panic!("Expected Binary expression for value");
             }
         } else {
-            panic!("Expected ComplexAssign statement, got: {:?}", stmt);
+            panic!("Expected Assign statement, got: {:?}", stmt);
         }
     }
 }

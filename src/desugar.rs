@@ -180,10 +180,11 @@ impl Desugarer {
                     body: desugared_body,
                 }
             }
-            Stmt::Assign { name, value } => {
+            Stmt::Assign { lvalue, value } => {
+                let desugared_lvalue = self.desugar_expression(lvalue)?;
                 let desugared_value = self.desugar_expression(value)?;
                 Stmt::Assign {
-                    name: name.clone(),
+                    lvalue: desugared_lvalue,
                     value: desugared_value,
                 }
             }
@@ -191,42 +192,6 @@ impl Desugarer {
                 let desugared_value = self.desugar_expression(value)?;
                 Stmt::VectorPush {
                     vector: vector.clone(),
-                    value: desugared_value,
-                }
-            }
-            Stmt::IndexAssign {
-                container,
-                index,
-                value,
-                container_type,
-            } => {
-                let desugared_index = self.desugar_expression(index)?;
-                let desugared_value = self.desugar_expression(value)?;
-                Stmt::IndexAssign {
-                    container: container.clone(),
-                    index: desugared_index,
-                    value: desugared_value,
-                    container_type: container_type.clone(),
-                }
-            }
-            Stmt::FieldAssign {
-                object,
-                field,
-                value,
-            } => {
-                let desugared_object = self.desugar_expression(object)?;
-                let desugared_value = self.desugar_expression(value)?;
-                Stmt::FieldAssign {
-                    object: desugared_object,
-                    field: field.clone(),
-                    value: desugared_value,
-                }
-            }
-            Stmt::ComplexAssign { lvalue, value } => {
-                let desugared_lvalue = self.desugar_expression(lvalue)?;
-                let desugared_value = self.desugar_expression(value)?;
-                Stmt::ComplexAssign {
-                    lvalue: desugared_lvalue,
                     value: desugared_value,
                 }
             }

@@ -280,26 +280,11 @@ pub enum Stmt {
         body: Vec<PositionedStmt>,
     },
     Assign {
-        name: String,
+        lvalue: PositionedExpr,
         value: PositionedExpr,
     },
     VectorPush {
         vector: String,
-        value: PositionedExpr,
-    },
-    IndexAssign {
-        container: String,
-        index: PositionedExpr,
-        value: PositionedExpr,
-        container_type: Option<IndexContainerType>,
-    },
-    FieldAssign {
-        object: PositionedExpr,
-        field: String,
-        value: PositionedExpr,
-    },
-    ComplexAssign {
-        lvalue: PositionedExpr,
         value: PositionedExpr,
     },
 }

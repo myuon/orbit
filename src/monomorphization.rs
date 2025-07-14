@@ -157,22 +157,11 @@ impl Monomorphizer {
                     self.collect_targets_from_stmt(stmt)?;
                 }
             }
-            Stmt::Assign { value, .. } => {
+            Stmt::Assign { lvalue, value } => {
+                self.collect_targets_from_expr(lvalue)?;
                 self.collect_targets_from_expr(value)?;
             }
             Stmt::VectorPush { value, .. } => {
-                self.collect_targets_from_expr(value)?;
-            }
-            Stmt::IndexAssign { index, value, .. } => {
-                self.collect_targets_from_expr(index)?;
-                self.collect_targets_from_expr(value)?;
-            }
-            Stmt::FieldAssign { object, value, .. } => {
-                self.collect_targets_from_expr(object)?;
-                self.collect_targets_from_expr(value)?;
-            }
-            Stmt::ComplexAssign { lvalue, value } => {
-                self.collect_targets_from_expr(lvalue)?;
                 self.collect_targets_from_expr(value)?;
             }
         }
@@ -537,36 +526,12 @@ impl Monomorphizer {
                 condition: self.substitute_expression(condition, substitutions)?,
                 body: self.substitute_statements(body, substitutions)?,
             },
-            Stmt::Assign { name, value } => Stmt::Assign {
-                name: name.clone(),
+            Stmt::Assign { lvalue, value } => Stmt::Assign {
+                lvalue: self.substitute_expression(lvalue, substitutions)?,
                 value: self.substitute_expression(value, substitutions)?,
             },
             Stmt::VectorPush { vector, value } => Stmt::VectorPush {
                 vector: vector.clone(),
-                value: self.substitute_expression(value, substitutions)?,
-            },
-            Stmt::IndexAssign {
-                container,
-                index,
-                value,
-                container_type,
-            } => Stmt::IndexAssign {
-                container: container.clone(),
-                index: self.substitute_expression(index, substitutions)?,
-                value: self.substitute_expression(value, substitutions)?,
-                container_type: *container_type,
-            },
-            Stmt::FieldAssign {
-                object,
-                field,
-                value,
-            } => Stmt::FieldAssign {
-                object: self.substitute_expression(object, substitutions)?,
-                field: field.clone(),
-                value: self.substitute_expression(value, substitutions)?,
-            },
-            Stmt::ComplexAssign { lvalue, value } => Stmt::ComplexAssign {
-                lvalue: self.substitute_expression(lvalue, substitutions)?,
                 value: self.substitute_expression(value, substitutions)?,
             },
         };
@@ -795,36 +760,12 @@ impl Monomorphizer {
                 condition: self.substitute_expression_globally(condition)?,
                 body: self.substitute_statements_globally(body)?,
             },
-            Stmt::Assign { name, value } => Stmt::Assign {
-                name: name.clone(),
+            Stmt::Assign { lvalue, value } => Stmt::Assign {
+                lvalue: self.substitute_expression_globally(lvalue)?,
                 value: self.substitute_expression_globally(value)?,
             },
             Stmt::VectorPush { vector, value } => Stmt::VectorPush {
                 vector: vector.clone(),
-                value: self.substitute_expression_globally(value)?,
-            },
-            Stmt::IndexAssign {
-                container,
-                index,
-                value,
-                container_type,
-            } => Stmt::IndexAssign {
-                container: container.clone(),
-                index: self.substitute_expression_globally(index)?,
-                value: self.substitute_expression_globally(value)?,
-                container_type: *container_type,
-            },
-            Stmt::FieldAssign {
-                object,
-                field,
-                value,
-            } => Stmt::FieldAssign {
-                object: self.substitute_expression_globally(object)?,
-                field: field.clone(),
-                value: self.substitute_expression_globally(value)?,
-            },
-            Stmt::ComplexAssign { lvalue, value } => Stmt::ComplexAssign {
-                lvalue: self.substitute_expression_globally(lvalue)?,
                 value: self.substitute_expression_globally(value)?,
             },
         };

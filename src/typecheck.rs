@@ -364,7 +364,8 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Stmt::Assign { name: _, value } => {
+            Stmt::Assign { lvalue, value } => {
+                self.infer_expression_types(&mut lvalue.value)?;
                 self.infer_expression_types(&mut value.value)?;
                 Ok(())
             }
@@ -374,46 +375,6 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Stmt::IndexAssign {
-                container,
-                index,
-                value,
-                container_type,
-            } => {
-                self.infer_expression_types(&mut index.value)?;
-                self.infer_expression_types(&mut value.value)?;
-
-                // Infer container type based on variable type
-                let collection_type = self.lookup_variable(container)?;
-                match &collection_type {
-                    Type::Vector { .. } => {
-                        *container_type = Some(IndexContainerType::Vector);
-                    }
-                    Type::Map(_, _) => {
-                        *container_type = Some(IndexContainerType::Map);
-                    }
-                    Type::Pointer { .. } => {
-                        *container_type = Some(IndexContainerType::Pointer);
-                    }
-                    _ => {}
-                }
-                Ok(())
-            }
-
-            Stmt::FieldAssign {
-                object,
-                field: _,
-                value,
-            } => {
-                self.infer_expression_types(&mut object.value)?;
-                self.infer_expression_types(&mut value.value)?;
-                Ok(())
-            }
-            Stmt::ComplexAssign { lvalue, value } => {
-                self.infer_expression_types(&mut lvalue.value)?;
-                self.infer_expression_types(&mut value.value)?;
-                Ok(())
-            }
         }
     }
 
@@ -755,15 +716,22 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Stmt::Assign { name, value } => {
+            Stmt::Assign { lvalue, value } => {
+                // Check for immutable string assignments in complex expressions
+                if let Expr::Index { container, .. } = &lvalue.value {
+                    let container_type = self.check_expression(&container.value)?;
+                    if container_type == Type::String {
+                        bail!("Cannot assign to string index - strings are immutable");
+                    }
+                }
+                
+                let lvalue_type = self.check_lvalue_expression(&lvalue.value)?;
                 let value_type = self.check_expression(&value.value)?;
-                let var_type = self.lookup_variable(name)?;
-
-                if !value_type.is_compatible_with(&var_type) {
+                
+                if !value_type.is_compatible_with(&lvalue_type) {
                     bail!(
-                        "Assignment type mismatch: variable '{}' has type {}, assigned {}",
-                        name,
-                        var_type,
+                        "Assignment type mismatch: left-hand side has type {}, assigned {}",
+                        lvalue_type,
                         value_type
                     );
                 }
@@ -789,134 +757,7 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Stmt::IndexAssign {
-                container,
-                index,
-                value,
-                container_type: _,
-            } => {
-                let index_type = self.check_expression(&index.value)?;
-                let value_type = self.check_expression(&value.value)?;
-                let collection_type = self.lookup_variable(container)?;
 
-                // Just perform type checking, inference will be done separately
-                match &collection_type {
-                    Type::Vector(element_type) => {
-                        if !index_type.is_compatible_with(&Type::Int) {
-                            bail!("Vector index must be number, got {}", index_type);
-                        }
-                        if !value_type.is_compatible_with(element_type) {
-                            bail!(
-                                "Vector assignment type mismatch: element type is {}, assigned {}",
-                                element_type,
-                                value_type
-                            );
-                        }
-                    }
-                    Type::Map(key_type, map_value_type) => {
-                        if !index_type.is_compatible_with(key_type) {
-                            bail!(
-                                "Map key type mismatch: expected {}, got {}",
-                                key_type,
-                                index_type
-                            );
-                        }
-                        if !value_type.is_compatible_with(map_value_type) {
-                            bail!(
-                                "Map value type mismatch: expected {}, got {}",
-                                map_value_type,
-                                value_type
-                            );
-                        }
-                    }
-                    Type::Pointer(element_type) => {
-                        if !index_type.is_compatible_with(&Type::Int) {
-                            bail!("Pointer index must be number, got {}", index_type);
-                        }
-                        if !value_type.is_compatible_with(element_type) {
-                            bail!(
-                                "Pointer assignment type mismatch: element type is {}, assigned {}",
-                                element_type,
-                                value_type
-                            );
-                        }
-                    }
-                    Type::String => {
-                        bail!("Cannot assign to string index: strings are immutable");
-                    }
-                    _ => bail!(
-                        "Cannot index assign to non-vector/map/pointer type: {}",
-                        collection_type
-                    ),
-                }
-                Ok(())
-            }
-
-            Stmt::FieldAssign {
-                object,
-                field,
-                value,
-            } => {
-                let object_type = self.check_expression(&object.value)?;
-                let value_type = self.check_expression(&value.value)?;
-
-                match &object_type {
-                    Type::Struct(struct_name) => {
-                        if let Some(fields) = self.struct_fields.get(struct_name) {
-                            match fields.get(field) {
-                                Some(field_type) => {
-                                    if !value_type.is_compatible_with(field_type) {
-                                        bail!(
-                                            "Field assignment type mismatch: field '{}' has type {}, assigned {}",
-                                            field,
-                                            field_type,
-                                            value_type
-                                        );
-                                    }
-                                }
-                                None => {
-                                    bail!("Field '{}' not found in struct '{}'", field, struct_name)
-                                }
-                            }
-                        } else {
-                            bail!("Unknown struct type: {}", struct_name);
-                        }
-                    }
-                    Type::Generic { .. } => {
-                        // For generic types, be permissive about field assignment
-                        // The monomorphization process will ensure type correctness
-                        // Skip field validation for now
-                    }
-                    _ => bail!(
-                        "Cannot assign field '{}' on non-struct type: {}",
-                        field,
-                        object_type
-                    ),
-                }
-                Ok(())
-            }
-            
-            Stmt::ComplexAssign { lvalue, value } => {
-                // Check for immutable string assignments in complex expressions
-                if let Expr::Index { container, .. } = &lvalue.value {
-                    let container_type = self.check_expression(&container.value)?;
-                    if container_type == Type::String {
-                        bail!("Cannot assign to string index - strings are immutable");
-                    }
-                }
-                
-                let lvalue_type = self.check_lvalue_expression(&lvalue.value)?;
-                let value_type = self.check_expression(&value.value)?;
-                
-                if !value_type.is_compatible_with(&lvalue_type) {
-                    bail!(
-                        "Complex assignment type mismatch: left-hand side has type {}, assigned {}",
-                        lvalue_type,
-                        value_type
-                    );
-                }
-                Ok(())
-            }
         }
     }
 
