@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use crate::{
     ast::{
-        BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, Positioned,
-        PositionedDecl, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl,
+        BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, PositionedDecl,
+        PositionedExpr, PositionedStmt, Program, Stmt, StructDecl,
     },
     vm::Instruction,
 };
@@ -898,6 +898,7 @@ fn compile_expr_recursive(expr: &PositionedExpr, instructions: &mut Vec<Instruct
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::Positioned;
     use crate::runtime::VM;
 
     use super::*;
@@ -1077,7 +1078,7 @@ mod tests {
 
     #[test]
     fn test_alloc_expression_compilation() {
-        use crate::ast::{Expr};
+        use crate::ast::Expr;
 
         // Test alloc with constant size: alloc int 10
         let expr = Positioned::with_unknown_span(Expr::Alloc {

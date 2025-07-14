@@ -1,4 +1,4 @@
-use crate::ast::{Decl, Expr, Function, Program, Stmt, StructDecl, PositionedExpr, PositionedStmt, Positioned, StructNewKind};
+use crate::ast::{Decl, Expr, Function, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
@@ -48,15 +48,22 @@ impl DeadCodeEliminator {
         for positioned_decl in &program.declarations {
             match &positioned_decl.value {
                 Decl::Function(positioned_func) => {
-                    self.functions.insert(positioned_func.value.name.clone(), positioned_func.value.clone());
+                    self.functions.insert(
+                        positioned_func.value.name.clone(),
+                        positioned_func.value.clone(),
+                    );
                 }
                 Decl::Struct(positioned_struct) => {
-                    self.structs
-                        .insert(positioned_struct.value.name.clone(), positioned_struct.value.clone());
+                    self.structs.insert(
+                        positioned_struct.value.name.clone(),
+                        positioned_struct.value.clone(),
+                    );
                 }
                 Decl::GlobalVariable(positioned_global) => {
-                    self.globals
-                        .insert(positioned_global.value.name.clone(), positioned_global.value.clone());
+                    self.globals.insert(
+                        positioned_global.value.name.clone(),
+                        positioned_global.value.clone(),
+                    );
                 }
             }
         }
@@ -334,7 +341,10 @@ impl DeadCodeEliminator {
         for positioned_decl in program.declarations {
             match &positioned_decl.value {
                 Decl::Function(positioned_func) => {
-                    if self.reachable_functions.contains(&positioned_func.value.name) {
+                    if self
+                        .reachable_functions
+                        .contains(&positioned_func.value.name)
+                    {
                         new_declarations.push(positioned_decl);
                     }
                 }
@@ -344,7 +354,10 @@ impl DeadCodeEliminator {
                     }
                 }
                 Decl::GlobalVariable(positioned_global) => {
-                    if self.reachable_globals.contains(&positioned_global.value.name) {
+                    if self
+                        .reachable_globals
+                        .contains(&positioned_global.value.name)
+                    {
                         new_declarations.push(positioned_decl);
                     }
                 }
@@ -397,7 +410,7 @@ impl DeadCodeStats {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::StructNewKind;
+    use crate::ast::{Positioned, StructNewKind};
 
     use super::*;
 
@@ -407,18 +420,26 @@ mod tests {
 
         let program = Program {
             declarations: vec![
-                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(Function {
-                    name: "main".to_string(),
-                    type_params: vec![],
-                    params: vec![],
-                    body: vec![Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(Expr::Int(0))))],
-                }))),
-                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(Function {
-                    name: "unused".to_string(),
-                    type_params: vec![],
-                    params: vec![],
-                    body: vec![Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(Expr::Int(42))))],
-                }))),
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(
+                    Function {
+                        name: "main".to_string(),
+                        type_params: vec![],
+                        params: vec![],
+                        body: vec![Positioned::with_unknown_span(Stmt::Return(
+                            Positioned::with_unknown_span(Expr::Int(0)),
+                        ))],
+                    },
+                ))),
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(
+                    Function {
+                        name: "unused".to_string(),
+                        type_params: vec![],
+                        params: vec![],
+                        body: vec![Positioned::with_unknown_span(Stmt::Return(
+                            Positioned::with_unknown_span(Expr::Int(42)),
+                        ))],
+                    },
+                ))),
             ],
         };
 
@@ -439,30 +460,46 @@ mod tests {
 
         let program = Program {
             declarations: vec![
-                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(Function {
-                    name: "main".to_string(),
-                    type_params: vec![],
-                    params: vec![],
-                    body: vec![
-                        Positioned::with_unknown_span(Stmt::Expression(Positioned::with_unknown_span(Expr::Call {
-                            callee: Box::new(Positioned::with_unknown_span(Expr::Identifier("helper".to_string()))),
-                            args: vec![],
-                        }))),
-                        Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(Expr::Int(0)))),
-                    ],
-                }))),
-                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(Function {
-                    name: "helper".to_string(),
-                    type_params: vec![],
-                    params: vec![],
-                    body: vec![Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(Expr::Int(42))))],
-                }))),
-                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(Function {
-                    name: "unused".to_string(),
-                    type_params: vec![],
-                    params: vec![],
-                    body: vec![Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(Expr::Int(99))))],
-                }))),
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(
+                    Function {
+                        name: "main".to_string(),
+                        type_params: vec![],
+                        params: vec![],
+                        body: vec![
+                            Positioned::with_unknown_span(Stmt::Expression(
+                                Positioned::with_unknown_span(Expr::Call {
+                                    callee: Box::new(Positioned::with_unknown_span(
+                                        Expr::Identifier("helper".to_string()),
+                                    )),
+                                    args: vec![],
+                                }),
+                            )),
+                            Positioned::with_unknown_span(Stmt::Return(
+                                Positioned::with_unknown_span(Expr::Int(0)),
+                            )),
+                        ],
+                    },
+                ))),
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(
+                    Function {
+                        name: "helper".to_string(),
+                        type_params: vec![],
+                        params: vec![],
+                        body: vec![Positioned::with_unknown_span(Stmt::Return(
+                            Positioned::with_unknown_span(Expr::Int(42)),
+                        ))],
+                    },
+                ))),
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(
+                    Function {
+                        name: "unused".to_string(),
+                        type_params: vec![],
+                        params: vec![],
+                        body: vec![Positioned::with_unknown_span(Stmt::Return(
+                            Positioned::with_unknown_span(Expr::Int(99)),
+                        ))],
+                    },
+                ))),
             ],
         };
 
@@ -494,46 +531,60 @@ mod tests {
 
         let program = Program {
             declarations: vec![
-                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(Function {
-                    name: "main".to_string(),
-                    type_params: vec![],
-                    params: vec![],
-                    body: vec![
-                        Positioned::with_unknown_span(Stmt::Let {
-                            name: "point".to_string(),
-                            value: Positioned::with_unknown_span(Expr::StructNew {
-                                type_name: "Point".to_string(),
-                                fields: vec![
-                                    ("x".to_string(), Positioned::with_unknown_span(Expr::Int(1))),
-                                    ("y".to_string(), Positioned::with_unknown_span(Expr::Int(2))),
-                                ],
-                                kind: StructNewKind::Regular,
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(
+                    Function {
+                        name: "main".to_string(),
+                        type_params: vec![],
+                        params: vec![],
+                        body: vec![
+                            Positioned::with_unknown_span(Stmt::Let {
+                                name: "point".to_string(),
+                                value: Positioned::with_unknown_span(Expr::StructNew {
+                                    type_name: "Point".to_string(),
+                                    fields: vec![
+                                        (
+                                            "x".to_string(),
+                                            Positioned::with_unknown_span(Expr::Int(1)),
+                                        ),
+                                        (
+                                            "y".to_string(),
+                                            Positioned::with_unknown_span(Expr::Int(2)),
+                                        ),
+                                    ],
+                                    kind: StructNewKind::Regular,
+                                }),
                             }),
-                        }),
-                        Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(Expr::Int(0)))),
-                    ],
-                }))),
-                Positioned::with_unknown_span(Decl::Struct(Positioned::with_unknown_span(StructDecl {
-                    name: "Point".to_string(),
-                    type_params: vec![],
-                    fields: vec![
-                        crate::ast::StructField {
-                            name: "x".to_string(),
-                            type_name: "int".to_string(),
-                        },
-                        crate::ast::StructField {
-                            name: "y".to_string(),
-                            type_name: "int".to_string(),
-                        },
-                    ],
-                    methods: vec![],
-                }))),
-                Positioned::with_unknown_span(Decl::Struct(Positioned::with_unknown_span(StructDecl {
-                    name: "UnusedStruct".to_string(),
-                    type_params: vec![],
-                    fields: vec![],
-                    methods: vec![],
-                }))),
+                            Positioned::with_unknown_span(Stmt::Return(
+                                Positioned::with_unknown_span(Expr::Int(0)),
+                            )),
+                        ],
+                    },
+                ))),
+                Positioned::with_unknown_span(Decl::Struct(Positioned::with_unknown_span(
+                    StructDecl {
+                        name: "Point".to_string(),
+                        type_params: vec![],
+                        fields: vec![
+                            crate::ast::StructField {
+                                name: "x".to_string(),
+                                type_name: "int".to_string(),
+                            },
+                            crate::ast::StructField {
+                                name: "y".to_string(),
+                                type_name: "int".to_string(),
+                            },
+                        ],
+                        methods: vec![],
+                    },
+                ))),
+                Positioned::with_unknown_span(Decl::Struct(Positioned::with_unknown_span(
+                    StructDecl {
+                        name: "UnusedStruct".to_string(),
+                        type_params: vec![],
+                        fields: vec![],
+                        methods: vec![],
+                    },
+                ))),
             ],
         };
 
