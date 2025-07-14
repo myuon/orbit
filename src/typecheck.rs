@@ -845,7 +845,12 @@ impl TypeChecker {
     fn extract_myvector_element_type(&self, struct_name: &str) -> Option<Type> {
         if struct_name.starts_with("myvector(") && struct_name.ends_with(')') {
             let inner = &struct_name[9..struct_name.len() - 1]; // Remove "myvector(" and ")"
-            Some(Type::from_string(inner))
+            // Check if this is a simple type parameter (single letter)
+            if inner.len() == 1 && inner.chars().all(|c| c.is_alphabetic() && c.is_uppercase()) {
+                Some(Type::TypeParameter(inner.to_string()))
+            } else {
+                Some(Type::from_string(inner))
+            }
         } else {
             None
         }
@@ -1143,7 +1148,26 @@ impl TypeChecker {
                                 if let Some(element_type) =
                                     self.extract_myvector_element_type(struct_name)
                                 {
-                                    Ok(element_type)
+                                    // If the element type is a type parameter, we need to resolve it
+                                    // For now, we'll use a simplified approach for concrete types
+                                    if let Type::TypeParameter(_) = element_type {
+                                        // Try to extract the concrete type from the struct name
+                                        if struct_name.starts_with("myvector(") && struct_name.ends_with(')') {
+                                            let inner = &struct_name[9..struct_name.len() - 1];
+                                            if inner != "T" {
+                                                // This is a concrete type like "int", not a type parameter
+                                                Ok(Type::from_string(inner))
+                                            } else {
+                                                // This is a type parameter that needs substitution
+                                                // For now, return the type parameter as is
+                                                Ok(element_type)
+                                            }
+                                        } else {
+                                            Ok(element_type)
+                                        }
+                                    } else {
+                                        Ok(element_type)
+                                    }
                                 } else {
                                     bail!(
                                         "Cannot determine element type for myvector: {}",
@@ -1273,14 +1297,19 @@ impl TypeChecker {
                 }
 
                 // Return the appropriate struct type
-                let type_of_struct = match &type_name {
-                    Type::Generic { name, .. } => name.clone(),
-                    Type::Struct(name) => name.clone(),
-                    t => t.to_string(),
-                };
-                match self.structs.get(&type_of_struct) {
-                    Some(struct_type) => Ok(struct_type.clone()),
-                    None => {
+                match type_name {
+                    Type::Generic { .. } => {
+                        // For generic types, return the concrete instantiation
+                        Ok(type_name.clone())
+                    }
+                    Type::Struct(name) => {
+                        // For regular structs, look up the struct type
+                        match self.structs.get(name) {
+                            Some(struct_type) => Ok(struct_type.clone()),
+                            None => bail!("Unknown struct type: {}", name),
+                        }
+                    }
+                    _ => {
                         // Handle generic struct instantiation
                         if let Some(generic_type) =
                             self.resolve_generic_struct_type(&type_name.to_string())
@@ -1624,6 +1653,7 @@ impl TypeChecker {
                 concrete_fields.insert("length".to_string(), Type::Int);
                 return Some(concrete_fields);
             }
+
 
             if generic_name == "Pair" && concrete_args.len() == 2 {
                 // For Pair(A, B), we know the structure: { first: A, second: B }
