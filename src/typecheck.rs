@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOp, Decl, Expr, Function, IndexContainerType, PositionedDecl, PositionedStmt, Program,
-    Stmt, StructDecl, Type,
+    BinaryOp, Decl, Expr, Function, IndexContainerType, PositionedDecl, PositionedExpr,
+    PositionedStmt, Program, Stmt, StructDecl, Type,
 };
 use anyhow::{bail, Result};
 use std::collections::HashMap;
@@ -244,7 +244,7 @@ impl TypeChecker {
         // Second pass: register global variables (now that structs are available)
         for decl in &program.declarations {
             if let Decl::GlobalVariable(global_var) = &decl.value {
-                let var_type = self.check_expression(&global_var.value.value.value)?;
+                let var_type = self.check_expression(&global_var.value.value)?;
                 self.globals.insert(global_var.value.name.clone(), var_type);
             }
         }
@@ -277,9 +277,9 @@ impl TypeChecker {
             Decl::Struct(_) => Ok(()), // Struct types are already resolved during registration
             Decl::GlobalVariable(global_var) => {
                 // Type check the global variable's value
-                self.infer_expression_types(&mut global_var.value.value.value)?;
+                self.infer_expression_types(&mut global_var.value.value)?;
                 // Register the global variable's type
-                let var_type = self.check_expression(&global_var.value.value.value)?;
+                let var_type = self.check_expression(&global_var.value.value)?;
                 self.globals.insert(global_var.value.name.clone(), var_type);
                 Ok(())
             }
@@ -304,18 +304,18 @@ impl TypeChecker {
 
         // Infer types in function body
         for stmt in &mut function.body {
-            self.infer_statement_types(&mut stmt.value)?;
+            self.infer_statement_types(stmt)?;
         }
 
         self.call_stack.pop();
         Ok(())
     }
 
-    fn infer_statement_types(&mut self, stmt: &mut Stmt) -> Result<()> {
-        match stmt {
+    fn infer_statement_types(&mut self, stmt: &mut PositionedStmt) -> Result<()> {
+        match &mut stmt.value {
             Stmt::Let { name, value } => {
-                self.infer_expression_types(&mut value.value)?;
-                let value_type = self.check_expression(&value.value)?;
+                self.infer_expression_types(value)?;
+                let value_type = self.check_expression(value)?;
 
                 // Add to current scope
                 if let Some(locals) = self.call_stack.last_mut() {
@@ -327,12 +327,12 @@ impl TypeChecker {
             }
 
             Stmt::Expression(expr) => {
-                self.infer_expression_types(&mut expr.value)?;
+                self.infer_expression_types(expr)?;
                 Ok(())
             }
 
             Stmt::Return(expr) => {
-                self.infer_expression_types(&mut expr.value)?;
+                self.infer_expression_types(expr)?;
                 Ok(())
             }
 
@@ -341,45 +341,44 @@ impl TypeChecker {
                 then_branch,
                 else_branch,
             } => {
-                self.infer_expression_types(&mut condition.value)?;
+                self.infer_expression_types(condition)?;
 
                 for stmt in then_branch {
-                    self.infer_statement_types(&mut stmt.value)?;
+                    self.infer_statement_types(stmt)?;
                 }
 
                 if let Some(else_stmts) = else_branch {
                     for stmt in else_stmts {
-                        self.infer_statement_types(&mut stmt.value)?;
+                        self.infer_statement_types(stmt)?;
                     }
                 }
                 Ok(())
             }
 
             Stmt::While { condition, body } => {
-                self.infer_expression_types(&mut condition.value)?;
+                self.infer_expression_types(condition)?;
 
                 for stmt in body {
-                    self.infer_statement_types(&mut stmt.value)?;
+                    self.infer_statement_types(stmt)?;
                 }
                 Ok(())
             }
 
             Stmt::Assign { lvalue, value } => {
-                self.infer_expression_types(&mut lvalue.value)?;
-                self.infer_expression_types(&mut value.value)?;
+                self.infer_expression_types(lvalue)?;
+                self.infer_expression_types(value)?;
                 Ok(())
             }
 
             Stmt::VectorPush { vector: _, value } => {
-                self.infer_expression_types(&mut value.value)?;
+                self.infer_expression_types(value)?;
                 Ok(())
             }
-
         }
     }
 
-    fn infer_expression_types(&mut self, expr: &mut Expr) -> Result<()> {
-        match expr {
+    fn infer_expression_types(&mut self, expr: &mut PositionedExpr) -> Result<()> {
+        match &mut expr.value {
             Expr::Int(_)
             | Expr::Boolean(_)
             | Expr::String(_)
@@ -394,27 +393,27 @@ impl TypeChecker {
                 element_type: _,
                 size,
             } => {
-                self.infer_expression_types(&mut size.value)?;
+                self.infer_expression_types(size)?;
                 Ok(())
             }
 
             Expr::Binary { left, right, .. } => {
-                self.infer_expression_types(&mut left.value)?;
-                self.infer_expression_types(&mut right.value)?;
+                self.infer_expression_types(left)?;
+                self.infer_expression_types(right)?;
                 Ok(())
             }
 
             Expr::Call { callee, args } => {
-                self.infer_expression_types(&mut callee.value)?;
+                self.infer_expression_types(callee)?;
                 for arg in args {
-                    self.infer_expression_types(&mut arg.value)?;
+                    self.infer_expression_types(arg)?;
                 }
                 Ok(())
             }
 
             Expr::VectorNew { initial_values, .. } => {
                 for value in initial_values {
-                    self.infer_expression_types(&mut value.value)?;
+                    self.infer_expression_types(value)?;
                 }
                 Ok(())
             }
@@ -424,19 +423,19 @@ impl TypeChecker {
                 index,
                 container_type,
             } => {
-                self.infer_expression_types(&mut container.value)?;
-                self.infer_expression_types(&mut index.value)?;
+                self.infer_expression_types(container)?;
+                self.infer_expression_types(index)?;
 
                 // Infer container type based on container expression type
-                let container_value_type = self.check_expression(&container.value)?;
+                let container_value_type = self.check_expression(container)?;
                 match &container_value_type {
-                    Type::Vector { .. } => {
+                    Type::Vector(_) => {
                         *container_type = Some(IndexContainerType::Vector);
                     }
                     Type::Map(_, _) => {
                         *container_type = Some(IndexContainerType::Map);
                     }
-                    Type::Pointer { .. } => {
+                    Type::Pointer(_) => {
                         *container_type = Some(IndexContainerType::Pointer);
                     }
                     Type::String => {
@@ -449,21 +448,21 @@ impl TypeChecker {
 
             Expr::MapNew { initial_pairs, .. } => {
                 for (key, value) in initial_pairs {
-                    self.infer_expression_types(&mut key.value)?;
-                    self.infer_expression_types(&mut value.value)?;
+                    self.infer_expression_types(key)?;
+                    self.infer_expression_types(value)?;
                 }
                 Ok(())
             }
 
             Expr::StructNew { fields, .. } => {
                 for (_, value) in fields {
-                    self.infer_expression_types(&mut value.value)?;
+                    self.infer_expression_types(value)?;
                 }
                 Ok(())
             }
 
             Expr::FieldAccess { object, .. } => {
-                self.infer_expression_types(&mut object.value)?;
+                self.infer_expression_types(object)?;
                 Ok(())
             }
 
@@ -475,10 +474,10 @@ impl TypeChecker {
             } => {
                 if let Some(obj) = object {
                     // Instance method call (obj.method())
-                    self.infer_expression_types(&mut obj.value)?;
+                    self.infer_expression_types(obj)?;
 
                     // Set object type information based on object expression type
-                    let obj_type = self.check_expression(&obj.value)?;
+                    let obj_type = self.check_expression(obj)?;
                     if let Type::Struct(name) = obj_type {
                         *type_name = Some(name);
                     }
@@ -486,7 +485,7 @@ impl TypeChecker {
                 // For associated method calls, type_name should already be set
 
                 for arg in args {
-                    self.infer_expression_types(&mut arg.value)?;
+                    self.infer_expression_types(arg)?;
                 }
                 Ok(())
             }
@@ -599,7 +598,7 @@ impl TypeChecker {
             Decl::Struct(_) => Ok(()), // Struct declarations are checked during registration
             Decl::GlobalVariable(global_var) => {
                 // Type check the global variable's value
-                self.check_expression(&global_var.value.value.value)?;
+                self.check_expression(&global_var.value.value)?;
                 Ok(())
             }
         }
@@ -632,7 +631,7 @@ impl TypeChecker {
 
         // Check function body
         for stmt in &function.body {
-            self.check_statement(&stmt.value)?;
+            self.check_statement(stmt)?;
         }
 
         self.call_stack.pop();
@@ -647,10 +646,10 @@ impl TypeChecker {
     }
 
     /// Type check a statement
-    fn check_statement(&mut self, stmt: &Stmt) -> Result<()> {
-        match stmt {
+    fn check_statement(&mut self, stmt: &PositionedStmt) -> Result<()> {
+        match &stmt.value {
             Stmt::Let { name, value } => {
-                let value_type = self.check_expression(&value.value)?;
+                let value_type = self.check_expression(value)?;
 
                 // Add to current scope
                 if let Some(locals) = self.call_stack.last_mut() {
@@ -662,12 +661,12 @@ impl TypeChecker {
             }
 
             Stmt::Expression(expr) => {
-                self.check_expression(&expr.value)?;
+                self.check_expression(expr)?;
                 Ok(())
             }
 
             Stmt::Return(expr) => {
-                let expr_type = self.check_expression(&expr.value)?;
+                let expr_type = self.check_expression(expr)?;
 
                 // Check against expected return type if available
                 if let Some(expected_return_type) = &self.current_return_type {
@@ -687,31 +686,31 @@ impl TypeChecker {
                 then_branch,
                 else_branch,
             } => {
-                let condition_type = self.check_expression(&condition.value)?;
+                let condition_type = self.check_expression(condition)?;
                 if !condition_type.is_compatible_with(&Type::Boolean) {
                     bail!("If condition must be boolean, got {}", condition_type);
                 }
 
                 for stmt in then_branch {
-                    self.check_statement(&stmt.value)?;
+                    self.check_statement(stmt)?;
                 }
 
                 if let Some(else_stmts) = else_branch {
                     for stmt in else_stmts {
-                        self.check_statement(&stmt.value)?;
+                        self.check_statement(stmt)?;
                     }
                 }
                 Ok(())
             }
 
             Stmt::While { condition, body } => {
-                let condition_type = self.check_expression(&condition.value)?;
+                let condition_type = self.check_expression(condition)?;
                 if !condition_type.is_compatible_with(&Type::Boolean) {
                     bail!("While condition must be boolean, got {}", condition_type);
                 }
 
                 for stmt in body {
-                    self.check_statement(&stmt.value)?;
+                    self.check_statement(stmt)?;
                 }
                 Ok(())
             }
@@ -719,15 +718,15 @@ impl TypeChecker {
             Stmt::Assign { lvalue, value } => {
                 // Check for immutable string assignments in complex expressions
                 if let Expr::Index { container, .. } = &lvalue.value {
-                    let container_type = self.check_expression(&container.value)?;
+                    let container_type = self.check_expression(container)?;
                     if container_type == Type::String {
                         bail!("Cannot assign to string index - strings are immutable");
                     }
                 }
-                
-                let lvalue_type = self.check_lvalue_expression(&lvalue.value)?;
-                let value_type = self.check_expression(&value.value)?;
-                
+
+                let lvalue_type = self.check_lvalue_expression(lvalue)?;
+                let value_type = self.check_expression(value)?;
+
                 if !value_type.is_compatible_with(&lvalue_type) {
                     bail!(
                         "Assignment type mismatch: left-hand side has type {}, assigned {}",
@@ -739,7 +738,7 @@ impl TypeChecker {
             }
 
             Stmt::VectorPush { vector, value } => {
-                let value_type = self.check_expression(&value.value)?;
+                let value_type = self.check_expression(value)?;
                 let vector_type = self.lookup_variable(vector)?;
 
                 match &vector_type {
@@ -756,14 +755,12 @@ impl TypeChecker {
                 }
                 Ok(())
             }
-
-
         }
     }
 
     /// Type check a left-hand value expression and return its type
-    fn check_lvalue_expression(&mut self, expr: &Expr) -> Result<Type> {
-        match expr {
+    fn check_lvalue_expression(&mut self, expr: &PositionedExpr) -> Result<Type> {
+        match &expr.value {
             Expr::Identifier(_) | Expr::FieldAccess { .. } | Expr::Index { .. } => {
                 // Valid lvalues - delegate to normal expression type checking
                 self.check_expression(expr)
@@ -773,8 +770,8 @@ impl TypeChecker {
     }
 
     /// Type check an expression and return its type
-    fn check_expression(&mut self, expr: &Expr) -> Result<Type> {
-        match expr {
+    fn check_expression(&mut self, expr: &PositionedExpr) -> Result<Type> {
+        match &expr.value {
             Expr::Int(_) => Ok(Type::Int),
             Expr::Boolean(_) => Ok(Type::Boolean),
             Expr::String(_) => Ok(Type::String),
@@ -790,8 +787,8 @@ impl TypeChecker {
             }
 
             Expr::Binary { left, op, right } => {
-                let left_type = self.check_expression(&left.value)?;
-                let right_type = self.check_expression(&right.value)?;
+                let left_type = self.check_expression(left)?;
+                let right_type = self.check_expression(right)?;
 
                 match op {
                     BinaryOp::Add => {
@@ -860,7 +857,7 @@ impl TypeChecker {
                         }
                         // Check argument types
                         for arg in args {
-                            self.check_expression(&arg.value)?;
+                            self.check_expression(arg)?;
                         }
                         return Ok(Type::Int); // syscall returns a number (result code)
                     }
@@ -884,7 +881,7 @@ impl TypeChecker {
 
                         // For now, just check that the expressions are valid, don't enforce strict types
                         for arg in args {
-                            self.check_expression(&arg.value)?;
+                            self.check_expression(arg)?;
                         }
 
                         // Return the function's declared return type (if any), or Unknown
@@ -910,7 +907,7 @@ impl TypeChecker {
 
                             // Check argument types
                             for (i, arg) in args.iter().enumerate() {
-                                let arg_type = self.check_expression(&arg.value)?;
+                                let arg_type = self.check_expression(arg)?;
 
                                 // Be more permissive for monomorphized functions (containing parentheses)
                                 let is_monomorphized_function =
@@ -941,9 +938,9 @@ impl TypeChecker {
                     }
                 } else {
                     // Handle complex function expressions (function pointers, etc.)
-                    let _callee_type = self.check_expression(&callee.value)?;
+                    let _callee_type = self.check_expression(callee)?;
                     for arg in args {
-                        self.check_expression(&arg.value)?;
+                        self.check_expression(arg)?;
                     }
                     Ok(Type::Unknown) // For now, return unknown for complex function calls
                 }
@@ -957,7 +954,7 @@ impl TypeChecker {
 
                 // Check all initial values match element type
                 for value in initial_values {
-                    let value_type = self.check_expression(&value.value)?;
+                    let value_type = self.check_expression(value)?;
                     if !value_type.is_compatible_with(&element_type) {
                         bail!(
                             "Vector initial value type mismatch: expected {}, got {}",
@@ -975,8 +972,8 @@ impl TypeChecker {
                 index,
                 container_type: _,
             } => {
-                let container_value_type = self.check_expression(&container.value)?;
-                let index_type = self.check_expression(&index.value)?;
+                let container_value_type = self.check_expression(container)?;
+                let index_type = self.check_expression(index)?;
 
                 // Just perform type checking, inference will be done separately
                 match &container_value_type {
@@ -1026,8 +1023,8 @@ impl TypeChecker {
 
                 // Check all initial pairs match key/value types
                 for (key_expr, value_expr) in initial_pairs {
-                    let actual_key_type = self.check_expression(&key_expr.value)?;
-                    let actual_value_type = self.check_expression(&value_expr.value)?;
+                    let actual_key_type = self.check_expression(key_expr)?;
+                    let actual_value_type = self.check_expression(value_expr)?;
 
                     if !actual_key_type.is_compatible_with(&key_type) {
                         bail!(
@@ -1075,9 +1072,10 @@ impl TypeChecker {
                 for (field_name, _field_type) in &struct_fields {
                     if !fields.iter().any(|(name, _)| name == field_name) {
                         bail!(
-                            "Missing required field '{}' in struct '{}'",
+                            "Missing required field '{}' in struct '{}' at {:?}",
                             field_name,
-                            type_name
+                            type_name,
+                            expr.span.start
                         );
                     }
                 }
@@ -1088,7 +1086,7 @@ impl TypeChecker {
                         anyhow::anyhow!("Unknown field '{}' in struct '{}'", field_name, type_name)
                     })?;
 
-                    let actual_type = self.check_expression(&field_value.value)?;
+                    let actual_type = self.check_expression(field_value)?;
                     if !actual_type.is_compatible_with(field_type) {
                         bail!(
                             "Field '{}' type mismatch: expected {}, got {}",
@@ -1114,7 +1112,7 @@ impl TypeChecker {
             }
 
             Expr::FieldAccess { object, field } => {
-                let object_type = self.check_expression(&object.value)?;
+                let object_type = self.check_expression(object)?;
                 match object_type {
                     Type::Struct(struct_name) => {
                         // First try to find the struct fields directly
@@ -1177,7 +1175,7 @@ impl TypeChecker {
                 let element_type = self.resolve_type(element_type);
 
                 // Size-based allocation
-                let size_type = self.check_expression(&size.value)?;
+                let size_type = self.check_expression(size)?;
                 if !size_type.is_compatible_with(&Type::Int) {
                     bail!("Allocation size must be a number, got {}", size_type);
                 }
@@ -1193,7 +1191,7 @@ impl TypeChecker {
             } => {
                 if let Some(obj) = object {
                     // Instance method call (obj.method())
-                    let object_type = self.check_expression(&obj.value)?;
+                    let object_type = self.check_expression(obj)?;
                     match object_type {
                         Type::Struct(name) => {
                             // Handle generic struct instantiations
