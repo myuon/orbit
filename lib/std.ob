@@ -35,4 +35,12 @@ type myvector(T: type) = struct {
     self.data[self.length] = item;
     self.length = self.length + 1;
   end
+
+  fun _get(self: myvector(T), index: int): T do
+    return self.data[index];
+  end
+
+  fun _set(self: myvector(T), index: int, value: T) do
+    self.data[index] = value;
+  end
 };
