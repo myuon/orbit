@@ -48,7 +48,7 @@ impl Type {
                         let args_str = &type_str[paren_pos + 1..type_str.len() - 1];
 
                         if args_str.is_empty() {
-                            Type::Generic {
+                            Type::Struct {
                                 name: name.to_string(),
                                 args: vec![],
                             }
@@ -57,17 +57,23 @@ impl Type {
                                 .split(", ")
                                 .map(|arg| Type::from_string(arg.trim()))
                                 .collect();
-                            Type::Generic {
+                            Type::Struct {
                                 name: name.to_string(),
                                 args,
                             }
                         }
                     } else {
-                        Type::Struct(type_str.to_string())
+                        Type::Struct {
+                            name: type_str.to_string(),
+                            args: vec![],
+                        }
                     }
                 } else {
                     // Could be a struct name or type parameter
-                    Type::Struct(type_str.to_string())
+                    Type::Struct {
+                        name: type_str.to_string(),
+                        args: vec![],
+                    }
                 }
             }
         }
@@ -87,7 +93,14 @@ impl Type {
             (Type::Map(k1, v1), Type::Map(k2, v2)) => {
                 k1.is_compatible_with(k2) && v1.is_compatible_with(v2)
             }
-            (Type::Struct(n1), Type::Struct(n2)) => n1 == n2,
+            (Type::Struct { name: n1, args: a1 }, Type::Struct { name: n2, args: a2 }) => {
+                n1 == n2
+                    && a1.len() == a2.len()
+                    && a1
+                        .iter()
+                        .zip(a2.iter())
+                        .all(|(t1, t2)| t1.is_compatible_with(t2))
+            }
             (
                 Type::Function {
                     params: p1,
@@ -105,14 +118,6 @@ impl Type {
                         .all(|(t1, t2)| t1.is_compatible_with(t2))
                     && r1.is_compatible_with(r2)
             }
-            (Type::Generic { name: n1, args: a1 }, Type::Generic { name: n2, args: a2 }) => {
-                n1 == n2
-                    && a1.len() == a2.len()
-                    && a1
-                        .iter()
-                        .zip(a2.iter())
-                        .all(|(t1, t2)| t1.is_compatible_with(t2))
-            }
             (Type::TypeParameter(n1), Type::TypeParameter(n2)) => n1 == n2,
             _ => false,
         }
@@ -127,7 +132,11 @@ impl Type {
             (Type::Vector(e1), Type::Vector(e2)) => e1.is_exactly(e2),
             (Type::Pointer(e1), Type::Pointer(e2)) => e1.is_exactly(e2),
             (Type::Map(k1, v1), Type::Map(k2, v2)) => k1.is_exactly(k2) && v1.is_exactly(v2),
-            (Type::Struct(n1), Type::Struct(n2)) => n1 == n2,
+            (Type::Struct { name: n1, args: a1 }, Type::Struct { name: n2, args: a2 }) => {
+                n1 == n2
+                    && a1.len() == a2.len()
+                    && a1.iter().zip(a2.iter()).all(|(t1, t2)| t1.is_exactly(t2))
+            }
             (
                 Type::Function {
                     params: p1,
@@ -141,11 +150,6 @@ impl Type {
                 p1.len() == p2.len()
                     && p1.iter().zip(p2.iter()).all(|(t1, t2)| t1.is_exactly(t2))
                     && r1.is_exactly(r2)
-            }
-            (Type::Generic { name: n1, args: a1 }, Type::Generic { name: n2, args: a2 }) => {
-                n1 == n2
-                    && a1.len() == a2.len()
-                    && a1.iter().zip(a2.iter()).all(|(t1, t2)| t1.is_exactly(t2))
             }
             (Type::TypeParameter(n1), Type::TypeParameter(n2)) => n1 == n2,
             _ => false,
@@ -220,15 +224,50 @@ impl TypeChecker {
 
         // Try standard type parsing
         let parsed_type = Type::from_string(type_str);
-        match parsed_type {
-            Type::Struct(name) => {
+        self.resolve_type_recursive(&parsed_type)
+    }
+
+    fn resolve_type_recursive(&self, type_obj: &Type) -> Type {
+        match type_obj {
+            Type::Struct { name, args } => {
+                // First check if it's a type parameter
+                if let Some(param_type) = self.type_params.get(name) {
+                    return param_type.clone();
+                }
+
+                // Recursively resolve the arguments
+                let resolved_args: Vec<Type> = args
+                    .iter()
+                    .map(|arg| self.resolve_type_recursive(arg))
+                    .collect();
+
                 // Check if it's a registered struct type
-                self.structs
-                    .get(&name)
-                    .cloned()
-                    .unwrap_or(Type::Struct(name))
+                self.structs.get(name).cloned().unwrap_or(Type::Struct {
+                    name: name.clone(),
+                    args: resolved_args,
+                })
             }
-            other => other,
+            Type::Vector(elem_type) => {
+                Type::Vector(Box::new(self.resolve_type_recursive(elem_type)))
+            }
+            Type::Map(key_type, value_type) => Type::Map(
+                Box::new(self.resolve_type_recursive(key_type)),
+                Box::new(self.resolve_type_recursive(value_type)),
+            ),
+            Type::Pointer(elem_type) => {
+                Type::Pointer(Box::new(self.resolve_type_recursive(elem_type)))
+            }
+            Type::Function {
+                params,
+                return_type,
+            } => Type::Function {
+                params: params
+                    .iter()
+                    .map(|p| self.resolve_type_recursive(p))
+                    .collect(),
+                return_type: Box::new(self.resolve_type_recursive(return_type)),
+            },
+            other => other.clone(),
         }
     }
 
@@ -370,7 +409,11 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Stmt::VectorPush { vector: _, value, vector_type: _ } => {
+            Stmt::VectorPush {
+                vector: _,
+                value,
+                vector_type: _,
+            } => {
                 self.infer_expression_types(value)?;
                 Ok(())
             }
@@ -443,20 +486,18 @@ impl TypeChecker {
                     Type::String => {
                         *container_type = Some(IndexContainerType::String);
                     }
-                    Type::Struct(struct_name) => {
+                    Type::Struct {
+                        name: struct_name,
+                        args: _,
+                    } => {
                         // Check if this is a myvector type that supports indexing
                         let base_name = if struct_name.contains('(') {
                             struct_name.split('(').next().unwrap()
                         } else {
                             struct_name
                         };
-                        
+
                         if base_name == "myvector" {
-                            *container_type = Some(IndexContainerType::Vector);
-                        }
-                    }
-                    Type::Generic { name, .. } => {
-                        if name == "myvector" {
                             *container_type = Some(IndexContainerType::Vector);
                         }
                     }
@@ -497,8 +538,18 @@ impl TypeChecker {
 
                     // Set object type information based on object expression type
                     let obj_type = self.check_expression(obj)?;
-                    if let Type::Struct(name) = obj_type {
-                        *type_name = Some(name);
+                    if let Type::Struct { name, args } = obj_type {
+                        // For generic types, include type arguments in the type name
+                        if args.is_empty() {
+                            *type_name = Some(name);
+                        } else {
+                            let type_args_str = args
+                                .iter()
+                                .map(|t| t.to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            *type_name = Some(format!("{}({})", name, type_args_str));
+                        }
                     }
                 }
                 // For associated method calls, type_name should already be set
@@ -569,7 +620,7 @@ impl TypeChecker {
         // The actual instantiation will happen during monomorphization
         if !struct_decl.type_params.is_empty() {
             // This is a generic struct - store as a generic type template
-            let struct_type = Type::Generic {
+            let struct_type = Type::Struct {
                 name: struct_decl.name.clone(),
                 args: struct_decl
                     .type_params
@@ -583,7 +634,10 @@ impl TypeChecker {
             self.enter_generic_scope(&struct_decl.type_params);
         } else {
             // Regular struct - handle as before but with new Type enum structure
-            let struct_type = Type::Struct(struct_decl.name.clone());
+            let struct_type = Type::Struct {
+                name: struct_decl.name.clone(),
+                args: vec![],
+            };
             self.structs.insert(struct_decl.name.clone(), struct_type);
         }
 
@@ -603,7 +657,7 @@ impl TypeChecker {
         // Register struct methods with name mangling
         // For generic structs, these will also be generic function templates
         for method in &struct_decl.methods {
-            let mangled_name = format!("{}_{}", struct_decl.name, method.value.name);
+            let mangled_name = format!("{}__{}", struct_decl.name, method.value.name);
             self.register_function_with_name(&mangled_name, &method.value)?;
         }
 
@@ -756,7 +810,11 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Stmt::VectorPush { vector, value, vector_type: ref mut vtype } => {
+            Stmt::VectorPush {
+                vector,
+                value,
+                vector_type: ref mut vtype,
+            } => {
                 let value_type = self.check_expression(value)?;
                 let vector_type = self.lookup_variable(vector)?;
                 *vtype = Some(vector_type.clone());
@@ -771,7 +829,10 @@ impl TypeChecker {
                             );
                         }
                     }
-                    Type::Struct(struct_name) => {
+                    Type::Struct {
+                        name: struct_name,
+                        args,
+                    } => {
                         // Check if this is a myvector type that supports push
                         let base_name = if struct_name.contains('(') {
                             struct_name.split('(').next().unwrap()
@@ -779,14 +840,16 @@ impl TypeChecker {
                             struct_name
                         };
 
-                        if base_name == "myvector" {
+                        if base_name == "myvector" || struct_name == "myvector" {
                             // Check if _push method exists
-                            let push_method_name = format!("{}__push", base_name);
+                            let push_method_name = format!("{}___push", if base_name == "myvector" { base_name } else { struct_name });
                             if self.functions.contains_key(&push_method_name) {
                                 // For myvector(T), extract T and check compatibility
-                                if let Some(element_type) =
+                                if let Some(element_type) = if !args.is_empty() {
+                                    args.get(0).cloned()
+                                } else {
                                     self.extract_myvector_element_type(struct_name)
-                                {
+                                } {
                                     if !value_type.is_compatible_with(&element_type) {
                                         bail!(
                                             "Vector push type mismatch: vector element type is {}, pushed {}",
@@ -807,33 +870,6 @@ impl TypeChecker {
                             bail!("Cannot push to non-vector type: {}", vector_type);
                         }
                     }
-                    Type::Generic {
-                        name: struct_name,
-                        args,
-                    } => {
-                        if struct_name == "myvector" {
-                            // Check if _push method exists
-                            let push_method_name = format!("{}__push", struct_name);
-                            if self.functions.contains_key(&push_method_name) {
-                                // For myvector(T), the element type is in args[0]
-                                if let Some(element_type) = args.get(0) {
-                                    if !value_type.is_compatible_with(element_type) {
-                                        bail!(
-                                            "Vector push type mismatch: vector element type is {}, pushed {}",
-                                            element_type,
-                                            value_type
-                                        );
-                                    }
-                                } else {
-                                    bail!("myvector type has no type arguments");
-                                }
-                            } else {
-                                bail!("myvector type does not have a _push method");
-                            }
-                        } else {
-                            bail!("Cannot push to non-vector type: {}", vector_type);
-                        }
-                    }
                     _ => bail!("Cannot push to non-vector type: {}", vector_type),
                 }
                 Ok(())
@@ -845,7 +881,7 @@ impl TypeChecker {
     fn extract_myvector_element_type(&self, struct_name: &str) -> Option<Type> {
         if struct_name.starts_with("myvector(") && struct_name.ends_with(')') {
             let inner = &struct_name[9..struct_name.len() - 1]; // Remove "myvector(" and ")"
-            // Check if this is a simple type parameter (single letter)
+                                                                // Check if this is a simple type parameter (single letter)
             if inner.len() == 1 && inner.chars().all(|c| c.is_alphabetic() && c.is_uppercase()) {
                 Some(Type::TypeParameter(inner.to_string()))
             } else {
@@ -1105,55 +1141,33 @@ impl TypeChecker {
                         }
                         Ok(Type::Byte) // string indexing returns byte
                     }
-                    Type::Generic { name, args } => {
-                        if name == "myvector" {
-                            // Check if _get method exists
-                            let get_method_name = format!("{}__get", name);
-                            if self.functions.contains_key(&get_method_name) {
-                                if !index_type.is_compatible_with(&Type::Int) {
-                                    bail!("myvector index must be number, got {}", index_type);
-                                }
-                                // For myvector(T), the element type is in args[0]
-                                if let Some(element_type) = args.get(0) {
-                                    Ok(element_type.clone())
-                                } else {
-                                    bail!("myvector type has no type arguments");
-                                }
-                            } else {
-                                bail!("myvector type does not have a _get method");
-                            }
-                        } else {
-                            bail!(
-                                "Cannot index non-vector/map/pointer/string type: {}",
-                                container_value_type
-                            );
-                        }
-                    }
-                    Type::Struct(struct_name) => {
+                    Type::Struct { name, args } => {
                         // Check if this is a myvector type that supports indexing
-                        let base_name = if struct_name.contains('(') {
-                            struct_name.split('(').next().unwrap()
+                        let base_name = if name.contains('(') {
+                            name.split('(').next().unwrap()
                         } else {
-                            struct_name
+                            name
                         };
 
-                        if base_name == "myvector" {
+                        if base_name == "myvector" || name == "myvector" {
                             // Check if _get method exists
-                            let get_method_name = format!("{}__get", base_name);
+                            let get_method_name = format!("{}___get", if base_name == "myvector" { base_name } else { name });
                             if self.functions.contains_key(&get_method_name) {
                                 if !index_type.is_compatible_with(&Type::Int) {
                                     bail!("myvector index must be number, got {}", index_type);
                                 }
-                                // For myvector(T), extract T and return it
-                                if let Some(element_type) =
-                                    self.extract_myvector_element_type(struct_name)
-                                {
+                                // For myvector(T), get the element type
+                                if let Some(element_type) = args.get(0) {
+                                    Ok(element_type.clone())
+                                } else if let Some(element_type) = self.extract_myvector_element_type(name) {
                                     // If the element type is a type parameter, we need to resolve it
                                     // For now, we'll use a simplified approach for concrete types
                                     if let Type::TypeParameter(_) = element_type {
                                         // Try to extract the concrete type from the struct name
-                                        if struct_name.starts_with("myvector(") && struct_name.ends_with(')') {
-                                            let inner = &struct_name[9..struct_name.len() - 1];
+                                        if name.starts_with("myvector(")
+                                            && name.ends_with(')')
+                                        {
+                                            let inner = &name[9..name.len() - 1];
                                             if inner != "T" {
                                                 // This is a concrete type like "int", not a type parameter
                                                 Ok(Type::from_string(inner))
@@ -1171,11 +1185,11 @@ impl TypeChecker {
                                 } else {
                                     bail!(
                                         "Cannot determine element type for myvector: {}",
-                                        struct_name
+                                        name
                                     );
                                 }
                             } else {
-                                bail!("myvector type {} does not have a _get method", struct_name);
+                                bail!("myvector type {} does not have a _get method", name);
                             }
                         } else {
                             bail!(
@@ -1230,11 +1244,19 @@ impl TypeChecker {
             } => {
                 // Check if the struct has a _new function and update the kind accordingly
                 let new_function_name = match type_name {
-                    Type::Generic { name, .. } => format!("{}__new", name),
-                    Type::Struct(name) => format!("{}__new", name),
+                    Type::Struct { name, args: _ } => {
+                        // Method names starting with _ are mangled with 3 underscores total
+                        format!("{}___new", name)
+                    }
                     _ => {
-                        // Convert other types to string format for function name
-                        format!("{}__new", type_name.to_string())
+                        // Try to extract base name for generic types
+                        let type_str = type_name.to_string();
+                        if let Some(paren_pos) = type_str.find('(') {
+                            let base_name = &type_str[..paren_pos];
+                            format!("{}___new", base_name)
+                        } else {
+                            format!("{}___new", type_str)
+                        }
                     }
                 };
                 let updated_kind =
@@ -1298,15 +1320,23 @@ impl TypeChecker {
 
                 // Return the appropriate struct type
                 match type_name {
-                    Type::Generic { .. } => {
-                        // For generic types, return the concrete instantiation
-                        Ok(type_name.clone())
-                    }
-                    Type::Struct(name) => {
-                        // For regular structs, look up the struct type
+                    Type::Struct { name, args } => {
+                        // For struct types, look up the struct type or return the concrete instantiation
                         match self.structs.get(name) {
-                            Some(struct_type) => Ok(struct_type.clone()),
-                            None => bail!("Unknown struct type: {}", name),
+                            Some(struct_type) => {
+                                // Check if this is a generic struct with concrete type arguments
+                                if !args.is_empty() {
+                                    // Return the concrete instantiation instead of the generic type
+                                    Ok(type_name.clone())
+                                } else {
+                                    // Non-generic struct, return the registered type
+                                    Ok(struct_type.clone())
+                                }
+                            }
+                            None => {
+                                // For generic types, return the concrete instantiation
+                                Ok(type_name.clone())
+                            }
                         }
                     }
                     _ => {
@@ -1325,54 +1355,62 @@ impl TypeChecker {
             Expr::FieldAccess { object, field } => {
                 let object_type = self.check_expression(object)?;
                 match object_type {
-                    Type::Struct(struct_name) => {
-                        // First try to find the struct fields directly
-                        if let Some(fields) = self.struct_fields.get(&struct_name) {
-                            fields.get(field).cloned().ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "Field '{}' not found in struct '{}'",
-                                    field,
-                                    struct_name
-                                )
-                            })
-                        } else if let Some(generic_fields) =
-                            self.resolve_generic_struct_fields(&Type::from_string(&struct_name))
-                        {
-                            // Handle generic struct instantiation field access
-                            generic_fields.get(field).cloned().ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "Field '{}' not found in struct '{}'",
-                                    field,
-                                    struct_name
-                                )
-                            })
+                    Type::Struct {
+                        name: struct_name,
+                        args,
+                    } => {
+                        // Handle both generic and non-generic struct types
+                        if args.is_empty() {
+                            // Non-generic struct - try to find the struct fields directly
+                            if let Some(fields) = self.struct_fields.get(&struct_name) {
+                                fields.get(field).cloned().ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Field '{}' not found in struct '{}'",
+                                        field,
+                                        struct_name
+                                    )
+                                })
+                            } else if let Some(generic_fields) =
+                                self.resolve_generic_struct_fields(&Type::Struct {
+                                    name: struct_name.clone(),
+                                    args: args.clone(),
+                                })
+                            {
+                                // Handle generic struct instantiation field access
+                                generic_fields.get(field).cloned().ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Field '{}' not found in struct '{}'",
+                                        field,
+                                        struct_name
+                                    )
+                                })
+                            } else {
+                                bail!("Unknown struct type: {}", struct_name)
+                            }
                         } else {
-                            bail!("Unknown struct type: {}", struct_name)
-                        }
-                    }
-                    Type::Generic { name, args } => {
-                        // For generic types, resolve the field type using the concrete type arguments
-                        let type_name = format!(
-                            "{}({})",
-                            name,
-                            args.iter()
-                                .map(|t| t.to_string())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        );
+                            // Generic struct - resolve the field type using the concrete type arguments
+                            let type_name = format!(
+                                "{}({})",
+                                struct_name,
+                                args.iter()
+                                    .map(|t| t.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            );
 
-                        if let Some(generic_fields) =
-                            self.resolve_generic_struct_fields(&Type::from_string(&type_name))
-                        {
-                            generic_fields.get(field).cloned().ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "Field '{}' not found in generic struct '{}'",
-                                    field,
-                                    type_name
-                                )
-                            })
-                        } else {
-                            bail!("Cannot resolve fields for generic type: {}", type_name)
+                            if let Some(generic_fields) =
+                                self.resolve_generic_struct_fields(&Type::from_string(&type_name))
+                            {
+                                generic_fields.get(field).cloned().ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Field '{}' not found in generic struct '{}'",
+                                        field,
+                                        type_name
+                                    )
+                                })
+                            } else {
+                                bail!("Cannot resolve fields for generic type: {}", type_name)
+                            }
                         }
                     }
                     _ => bail!(
@@ -1405,14 +1443,14 @@ impl TypeChecker {
                     // Instance method call (obj.method())
                     let object_type = self.check_expression(obj)?;
                     match object_type {
-                        Type::Struct(name) => {
-                            // Handle generic struct instantiations
+                        Type::Struct { name, args: _ } => {
+                            // Handle both generic and non-generic struct types
                             if name.contains('(') && name.ends_with(')') {
                                 // This is a generic instantiation like "Container(int)"
                                 // Extract the base generic struct name
                                 if let Some(paren_pos) = name.find('(') {
                                     let base_name = &name[..paren_pos];
-                                    let generic_method_name = format!("{}_{}", base_name, method);
+                                    let generic_method_name = format!("{}__{}", base_name, method);
 
                                     // Check if the generic method exists
                                     if let Some(_) = self.functions.get(&generic_method_name) {
@@ -1422,22 +1460,12 @@ impl TypeChecker {
                                 }
                             }
 
-                            // Standard method resolution for non-generic structs
-                            let method_name = format!("{}_{}", name, method);
+                            // Standard method resolution for non-generic structs or generic types without instantiation
+                            let method_name = format!("{}__{}", name, method);
                             if let Some(_) = self.functions.get(&method_name) {
                                 Ok(Type::Unknown) // Return type will be determined by function signature
                             } else {
                                 bail!("Method '{}' not found for struct type '{}'", method, name)
-                            }
-                        }
-                        Type::Generic { name, .. } => {
-                            // For generic types, look for the method on the base generic type
-                            let generic_method_name = format!("{}_{}", name, method);
-                            if let Some(_) = self.functions.get(&generic_method_name) {
-                                // Method exists on the generic type, defer validation to monomorphization
-                                Ok(Type::Unknown)
-                            } else {
-                                bail!("Method '{}' not found for generic type '{}'", method, name)
                             }
                         }
                         _ => bail!(
@@ -1450,9 +1478,9 @@ impl TypeChecker {
                     // Associated method call (Type::method())
                     let resolved_type = self.resolve_type(type_name_str);
                     match resolved_type {
-                        Type::Struct(name) => {
+                        Type::Struct { name, args: _ } => {
                             // Check for method on the struct type
-                            let method_name = format!("{}_{}", name, method);
+                            let method_name = format!("{}__{}", name, method);
                             if let Some(func_type) = self.functions.get(&method_name).cloned() {
                                 if let Type::Function { return_type, .. } = func_type {
                                     Ok(*return_type)
@@ -1460,17 +1488,14 @@ impl TypeChecker {
                                     bail!("'{}' is not a function", method_name);
                                 }
                             } else {
-                                bail!("Method '{}' not found for struct type '{}'", method, name)
-                            }
-                        }
-                        Type::Generic { name, .. } => {
-                            // For generic types, look for the method on the base generic type
-                            let generic_method_name = format!("{}_{}", name, method);
-                            if let Some(_) = self.functions.get(&generic_method_name) {
-                                // Method exists on the generic type, defer validation to monomorphization
-                                Ok(Type::Unknown)
-                            } else {
-                                bail!("Method '{}' not found for generic type '{}'", method, name)
+                                // Try as generic type if direct method not found
+                                let generic_method_name = format!("{}__{}", name, method);
+                                if let Some(_) = self.functions.get(&generic_method_name) {
+                                    // Method exists on the generic type, defer validation to monomorphization
+                                    Ok(Type::Unknown)
+                                } else {
+                                    bail!("Method '{}' not found for struct type '{}'", method, name)
+                                }
                             }
                         }
                         _ => bail!(
@@ -1579,13 +1604,13 @@ impl TypeChecker {
     /// Resolve field information for a generic struct instantiation like "Container(int)"
     fn resolve_generic_struct_fields(&self, type_info: &Type) -> Option<HashMap<String, Type>> {
         // Handle generic type instantiation
-        if let Type::Generic { name, args } = type_info {
+        if let Type::Struct { name, args } = type_info {
             let generic_name = name.clone();
             let concrete_args = args.clone();
 
             // Find the generic struct declaration and get its type parameters
             if let Some(struct_type) = self.structs.get(&generic_name) {
-                if let Type::Generic {
+                if let Type::Struct {
                     name: _,
                     args: type_params,
                 } = struct_type
@@ -1614,7 +1639,7 @@ impl TypeChecker {
             // Fallback: if the generic struct is not found, try to find it among all structs
             // This handles cases where the type checker runs multiple times and state is lost
             for (struct_name, struct_type) in &self.structs {
-                if let Type::Generic {
+                if let Type::Struct {
                     name,
                     args: type_params,
                 } = struct_type
@@ -1667,7 +1692,6 @@ impl TypeChecker {
                 return Some(concrete_fields);
             }
 
-
             if generic_name == "Pair" && concrete_args.len() == 2 {
                 // For Pair(A, B), we know the structure: { first: A, second: B }
                 let first_type = &concrete_args[0];
@@ -1700,8 +1724,12 @@ impl TypeChecker {
                                 Type::TypeParameter(_) if concrete_args.len() == 1 => {
                                     concrete_args[0].clone()
                                 }
-                                Type::Struct(type_name)
-                                    if concrete_args.len() == 1 && type_name.len() == 1 =>
+                                Type::Struct {
+                                    name: type_name,
+                                    args,
+                                } if concrete_args.len() == 1
+                                    && type_name.len() == 1
+                                    && args.is_empty() =>
                                 {
                                     // Single letter type parameter
                                     concrete_args[0].clone()
@@ -1721,7 +1749,7 @@ impl TypeChecker {
     /// Resolve struct fields from a Type, handling both Generic and Struct types
     fn resolve_struct_fields_from_type(&self, type_info: &Type) -> Result<HashMap<String, Type>> {
         match type_info {
-            Type::Generic { .. } => {
+            Type::Struct { .. } => {
                 // Handle generic struct instantiation
                 if let Some(generic_fields) = self.resolve_generic_struct_fields(type_info) {
                     Ok(generic_fields)
@@ -1743,15 +1771,18 @@ impl TypeChecker {
 
     /// Resolve type for a generic struct instantiation like "Container(int)"
     fn resolve_generic_struct_type(&self, type_name: &str) -> Option<Type> {
-        // Parse generic instantiation and return proper Type::Generic
+        // Parse generic instantiation and return proper Type::Struct
         if let Some((generic_name, args)) = self.parse_generic_instantiation(type_name) {
-            Some(Type::Generic {
+            Some(Type::Struct {
                 name: generic_name,
                 args,
             })
         } else {
             // For non-generic types, return as struct
-            Some(Type::Struct(type_name.to_string()))
+            Some(Type::Struct {
+                name: type_name.to_string(),
+                args: vec![],
+            })
         }
     }
 
@@ -1801,13 +1832,21 @@ impl TypeChecker {
             Type::Pointer(elem_type) => Type::Pointer(Box::new(
                 self.substitute_type_with_mapping(elem_type, type_mapping),
             )),
-            Type::Generic { name, args } => Type::Generic {
-                name: name.clone(),
-                args: args
-                    .iter()
-                    .map(|arg| self.substitute_type_with_mapping(arg, type_mapping))
-                    .collect(),
-            },
+            Type::Struct { name, args } => {
+                // Check if the struct name is actually a type parameter
+                if let Some(concrete_type) = type_mapping.get(name) {
+                    concrete_type.clone()
+                } else {
+                    // Otherwise, recursively substitute the arguments
+                    Type::Struct {
+                        name: name.clone(),
+                        args: args
+                            .iter()
+                            .map(|arg| self.substitute_type_with_mapping(arg, type_mapping))
+                            .collect(),
+                    }
+                }
+            }
             Type::Function {
                 params,
                 return_type,
@@ -1818,14 +1857,6 @@ impl TypeChecker {
                     .collect(),
                 return_type: Box::new(self.substitute_type_with_mapping(return_type, type_mapping)),
             },
-            Type::Struct(struct_name) => {
-                // Check if the struct name is actually a type parameter
-                if let Some(concrete_type) = type_mapping.get(struct_name) {
-                    concrete_type.clone()
-                } else {
-                    field_type.clone()
-                }
-            }
             // For other types, return as-is
             _ => field_type.clone(),
         }

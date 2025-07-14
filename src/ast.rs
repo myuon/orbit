@@ -301,15 +301,14 @@ pub enum Type {
     Byte,
     Vector(Box<Type>),
     Map(Box<Type>, Box<Type>),
-    Struct(String),
+    Struct {
+        name: String,
+        args: Vec<Type>,
+    },
     Pointer(Box<Type>),
     Function {
         params: Vec<Type>,
         return_type: Box<Type>,
-    },
-    Generic {
-        name: String,
-        args: Vec<Type>,
     },
     TypeParameter(String),
 }
@@ -324,7 +323,27 @@ impl std::fmt::Display for Type {
             Type::Byte => write!(f, "byte"),
             Type::Vector(elem_type) => write!(f, "vec({})", elem_type),
             Type::Map(key_type, value_type) => write!(f, "map({}, {})", key_type, value_type),
-            Type::Struct(name) => write!(f, "{}", name),
+            Type::Struct { name, args } => {
+                if args.is_empty() {
+                    write!(f, "{}", name)
+                } else {
+                    write!(f, "{}(", name)?;
+                    for (i, arg) in args.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        // Use source-friendly names for common types in generic contexts
+                        match arg {
+                            Type::Int => write!(f, "int")?,
+                            Type::Boolean => write!(f, "bool")?,
+                            Type::String => write!(f, "string")?,
+                            Type::Byte => write!(f, "byte")?,
+                            other => write!(f, "{}", other)?,
+                        }
+                    }
+                    write!(f, ")")
+                }
+            }
             Type::Pointer(elem_type) => write!(f, "[*]{}", elem_type),
             Type::Function {
                 params,
@@ -338,23 +357,6 @@ impl std::fmt::Display for Type {
                     write!(f, "{}", param)?;
                 }
                 write!(f, "): {}", return_type)
-            }
-            Type::Generic { name, args } => {
-                write!(f, "{}(", name)?;
-                for (i, arg) in args.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    // Use source-friendly names for common types in generic contexts
-                    match arg {
-                        Type::Int => write!(f, "int")?,
-                        Type::Boolean => write!(f, "bool")?,
-                        Type::String => write!(f, "string")?,
-                        Type::Byte => write!(f, "byte")?,
-                        other => write!(f, "{}", other)?,
-                    }
-                }
-                write!(f, ")")
             }
             Type::TypeParameter(name) => write!(f, "{}", name),
         }

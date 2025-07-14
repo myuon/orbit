@@ -205,7 +205,7 @@ impl Monomorphizer {
             } => {
                 // Check if this is a generic struct instantiation
                 if let Some(generic_type) = self.parse_generic_type(&type_name.to_string()) {
-                    if let Type::Generic { name, args } = generic_type {
+                    if let Type::Struct { name, args } = generic_type {
                         // Only add as target if the struct is actually registered as generic
                         if self.generic_structs.contains_key(&name) {
                             self.add_target(MonomorphizationTarget { symbol: name, args });
@@ -284,7 +284,10 @@ impl Monomorphizer {
                             Some(generic_type)
                         } else {
                             // Assume it's a struct type
-                            Some(Type::Struct(type_name_str))
+                            Some(Type::Struct {
+                                name: type_name_str,
+                                args: vec![],
+                            })
                         }
                     }
                 }
@@ -312,7 +315,7 @@ impl Monomorphizer {
                 let args_str = &type_str[paren_pos + 1..type_str.len() - 1];
 
                 if args_str.is_empty() {
-                    return Some(Type::Generic {
+                    return Some(Type::Struct {
                         name: name.to_string(),
                         args: vec![],
                     });
@@ -323,7 +326,7 @@ impl Monomorphizer {
                     .map(|arg| Type::from_string(arg.trim()))
                     .collect();
 
-                return Some(Type::Generic {
+                return Some(Type::Struct {
                     name: name.to_string(),
                     args,
                 });
@@ -469,7 +472,8 @@ impl Monomorphizer {
 
         // Also register methods as standalone functions with mangled names
         for method in &monomorphized_struct.methods {
-            let mangled_name = format!("{}_{}", target.instantiated_name(), method.value.name);
+            let separator = if method.value.name.starts_with('_') { "___" } else { "__" };
+            let mangled_name = format!("{}{}{}", target.instantiated_name(), separator, method.value.name);
             let mangled_function = Function {
                 name: mangled_name.clone(),
                 type_params: method.value.type_params.clone(),
@@ -531,7 +535,11 @@ impl Monomorphizer {
                 lvalue: self.substitute_expression(lvalue, substitutions)?,
                 value: self.substitute_expression(value, substitutions)?,
             },
-            Stmt::VectorPush { vector, value, vector_type } => Stmt::VectorPush {
+            Stmt::VectorPush {
+                vector,
+                value,
+                vector_type,
+            } => Stmt::VectorPush {
                 vector: vector.clone(),
                 value: self.substitute_expression(value, substitutions)?,
                 vector_type: vector_type.clone(),
@@ -554,7 +562,10 @@ impl Monomorphizer {
             Expr::Byte(b) => Expr::Byte(*b),
             Expr::Identifier(name) => Expr::Identifier(name.clone()),
             Expr::TypeExpr { type_name } => Expr::TypeExpr {
-                type_name: Type::from_string(&substitute_type_in_string(&type_name.to_string(), substitutions)),
+                type_name: Type::from_string(&substitute_type_in_string(
+                    &type_name.to_string(),
+                    substitutions,
+                )),
             },
             Expr::Alloc { element_type, size } => Expr::Alloc {
                 element_type: substitute_type_in_string(element_type, substitutions),
@@ -620,7 +631,10 @@ impl Monomorphizer {
                 fields,
                 kind,
             } => Expr::StructNew {
-                type_name: Type::from_string(&substitute_type_in_string(&type_name.to_string(), substitutions)),
+                type_name: Type::from_string(&substitute_type_in_string(
+                    &type_name.to_string(),
+                    substitutions,
+                )),
                 fields: fields
                     .iter()
                     .map(|(name, expr)| {
@@ -768,7 +782,11 @@ impl Monomorphizer {
                 lvalue: self.substitute_expression_globally(lvalue)?,
                 value: self.substitute_expression_globally(value)?,
             },
-            Stmt::VectorPush { vector, value, vector_type } => Stmt::VectorPush {
+            Stmt::VectorPush {
+                vector,
+                value,
+                vector_type,
+            } => Stmt::VectorPush {
                 vector: vector.clone(),
                 value: self.substitute_expression_globally(value)?,
                 vector_type: vector_type.clone(),
@@ -895,7 +913,9 @@ impl Monomorphizer {
                 fields,
                 kind,
             } => Expr::StructNew {
-                type_name: Type::from_string(&substitute_type_in_string_globally(&type_name.to_string())),
+                type_name: Type::from_string(&substitute_type_in_string_globally(
+                    &type_name.to_string(),
+                )),
                 fields: fields
                     .iter()
                     .map(|(name, expr)| {

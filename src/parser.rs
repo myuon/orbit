@@ -574,16 +574,17 @@ impl Parser {
         }
     }
 
-
     fn parse_vector_push_stmt(&mut self) -> Result<Stmt> {
         let vector = self.parse_identifier("in push statement")?;
         self.consume(TokenType::Push)?; // consume '<-'
         let value = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
-        Ok(Stmt::VectorPush { vector, value, vector_type: None })
+        Ok(Stmt::VectorPush {
+            vector,
+            value,
+            vector_type: None,
+        })
     }
-
-
 
     fn parse_expression(&mut self) -> Result<PositionedExpr> {
         self.parse_comparison()
@@ -857,7 +858,8 @@ impl Parser {
                         self.advance(); // consume '['
                         let index = self.parse_expression()?;
                         self.consume(TokenType::RightBracket)?;
-                        let positioned_expr = Positioned::new(expr, Span::new(start_pos, start_pos));
+                        let positioned_expr =
+                            Positioned::new(expr, Span::new(start_pos, start_pos));
                         expr = Expr::Index {
                             container: Box::new(positioned_expr),
                             index: Box::new(index),
@@ -1206,7 +1208,11 @@ impl Parser {
                     Span::new(start_pos, end_pos),
                 ))
             }
-            _ => bail!("Unexpected token: {:?} at position {}", self.current_token().token_type, self.current_token().position),
+            _ => bail!(
+                "Unexpected token: {:?} at position {}",
+                self.current_token().token_type,
+                self.current_token().position
+            ),
         }
     }
 
@@ -1220,11 +1226,10 @@ impl Parser {
         }
     }
 
-
     fn parse_assignment_or_expression(&mut self) -> Result<Stmt> {
         // Parse a potentially complex left-hand value and check if it's followed by assignment
         let lvalue = self.parse_expression()?;
-        
+
         // Check if this is an assignment
         if matches!(self.current_token().token_type, TokenType::Assign) {
             // Validate that the left-hand side is a valid lvalue
@@ -1234,11 +1239,11 @@ impl Parser {
                     lvalue.span.start.unwrap_or(0)
                 );
             }
-            
+
             self.advance(); // consume '='
             let value = self.parse_expression()?;
             self.consume(TokenType::Semicolon)?;
-            
+
             Ok(Stmt::Assign { lvalue, value })
         } else {
             // Not an assignment, treat as expression statement
@@ -1246,7 +1251,6 @@ impl Parser {
             Ok(Stmt::Expression(lvalue))
         }
     }
-
 }
 
 #[cfg(test)]
@@ -1520,7 +1524,10 @@ type Point = struct {
         let mut parser = Parser::new(tokens);
         let expr = parser.parse().unwrap();
 
-        if let Expr::Index { container, index, .. } = expr.value {
+        if let Expr::Index {
+            container, index, ..
+        } = expr.value
+        {
             if let Expr::Identifier(container_name) = &container.value {
                 assert_eq!(container_name, "arr");
             } else {
@@ -1544,7 +1551,10 @@ type Point = struct {
         let mut parser = Parser::new(tokens);
         let expr = parser.parse().unwrap();
 
-        if let Expr::Index { container, index, .. } = expr.value {
+        if let Expr::Index {
+            container, index, ..
+        } = expr.value
+        {
             // The container should be field access (self.data)
             if let Expr::FieldAccess { object, field } = &container.value {
                 if let Expr::Identifier(obj_name) = &object.value {
@@ -1556,7 +1566,7 @@ type Point = struct {
             } else {
                 panic!("Expected FieldAccess for container in index expression");
             }
-            
+
             // The index should be 'i'
             if let Expr::Identifier(index_name) = &index.value {
                 assert_eq!(index_name, "i");
@@ -1576,13 +1586,20 @@ type Point = struct {
         let mut parser = Parser::new(tokens);
         let expr = parser.parse().unwrap();
 
-        if let Expr::Index { container, index, .. } = expr.value {
+        if let Expr::Index {
+            container, index, ..
+        } = expr.value
+        {
             // The container should be nested field access (obj.container.data)
             if let Expr::FieldAccess { object, field } = &container.value {
                 assert_eq!(field, "data");
-                
+
                 // The object should be another field access (obj.container)
-                if let Expr::FieldAccess { object: inner_object, field: inner_field } = &object.value {
+                if let Expr::FieldAccess {
+                    object: inner_object,
+                    field: inner_field,
+                } = &object.value
+                {
                     if let Expr::Identifier(obj_name) = &inner_object.value {
                         assert_eq!(obj_name, "obj");
                     } else {
@@ -1595,7 +1612,7 @@ type Point = struct {
             } else {
                 panic!("Expected FieldAccess for container in index expression");
             }
-            
+
             // The index should be 'index'
             if let Expr::Identifier(index_name) = &index.value {
                 assert_eq!(index_name, "index");
@@ -1615,7 +1632,10 @@ type Point = struct {
         let mut parser = Parser::new(tokens);
         let expr = parser.parse().unwrap();
 
-        if let Expr::Index { container, index, .. } = expr.value {
+        if let Expr::Index {
+            container, index, ..
+        } = expr.value
+        {
             // The container should be field access (self.data)
             if let Expr::FieldAccess { object, field } = &container.value {
                 if let Expr::Identifier(obj_name) = &object.value {
@@ -1627,7 +1647,7 @@ type Point = struct {
             } else {
                 panic!("Expected FieldAccess for container in index expression");
             }
-            
+
             // The index should be numeric 0
             if let Expr::Int(index_num) = &index.value {
                 assert_eq!(*index_num, 0);
@@ -1647,7 +1667,10 @@ type Point = struct {
         let mut parser = Parser::new(tokens);
         let expr = parser.parse().unwrap();
 
-        if let Expr::Index { container, index, .. } = expr.value {
+        if let Expr::Index {
+            container, index, ..
+        } = expr.value
+        {
             // The container should be field access (self.data)
             if let Expr::FieldAccess { object, field } = &container.value {
                 if let Expr::Identifier(obj_name) = &object.value {
@@ -1659,7 +1682,7 @@ type Point = struct {
             } else {
                 panic!("Expected FieldAccess for container in index expression");
             }
-            
+
             // The index should be a binary expression (i + 1)
             if let Expr::Binary { left, op, right } = &index.value {
                 if let Expr::Identifier(left_name) = &left.value {
@@ -1721,7 +1744,10 @@ type Point = struct {
 
         // Simple index assignments are now parsed as Assign since they use the new parser
         if let Stmt::Assign { lvalue, value } = stmt.value {
-            if let Expr::Index { container, index, .. } = &lvalue.value {
+            if let Expr::Index {
+                container, index, ..
+            } = &lvalue.value
+            {
                 if let Expr::Identifier(container_name) = &container.value {
                     assert_eq!(container_name, "arr");
                 } else {
@@ -1756,7 +1782,10 @@ type Point = struct {
 
         if let Stmt::Assign { lvalue, value } = stmt.value {
             // The lvalue should be index access (self.data[i])
-            if let Expr::Index { container, index, .. } = &lvalue.value {
+            if let Expr::Index {
+                container, index, ..
+            } = &lvalue.value
+            {
                 // The container should be field access (self.data)
                 if let Expr::FieldAccess { object, field } = &container.value {
                     if let Expr::Identifier(obj_name) = &object.value {
@@ -1768,7 +1797,7 @@ type Point = struct {
                 } else {
                     panic!("Expected FieldAccess for container in index expression");
                 }
-                
+
                 // The index should be 'i'
                 if let Expr::Identifier(index_name) = &index.value {
                     assert_eq!(index_name, "i");
@@ -1778,7 +1807,7 @@ type Point = struct {
             } else {
                 panic!("Expected Index expression for lvalue");
             }
-            
+
             // The value should be 42
             if let Expr::Int(val) = value.value {
                 assert_eq!(val, 42);
@@ -1801,7 +1830,10 @@ type Point = struct {
 
         if let Stmt::Assign { lvalue, value } = stmt.value {
             // The lvalue should be index access (self.data[i])
-            if let Expr::Index { container, index, .. } = &lvalue.value {
+            if let Expr::Index {
+                container, index, ..
+            } = &lvalue.value
+            {
                 // The container should be field access (self.data)
                 if let Expr::FieldAccess { object, field } = &container.value {
                     if let Expr::Identifier(obj_name) = &object.value {
@@ -1813,7 +1845,7 @@ type Point = struct {
                 } else {
                     panic!("Expected FieldAccess for container in index expression");
                 }
-                
+
                 // The index should be 'i'
                 if let Expr::Identifier(index_name) = &index.value {
                     assert_eq!(index_name, "i");
@@ -1823,13 +1855,16 @@ type Point = struct {
             } else {
                 panic!("Expected Index expression for lvalue");
             }
-            
+
             // The value should be a binary expression: self.data[i] + 1
             if let Expr::Binary { left, op, right } = &value.value {
                 assert_eq!(*op, BinaryOp::Add);
-                
+
                 // Left side should be self.data[i]
-                if let Expr::Index { container, index, .. } = &left.value {
+                if let Expr::Index {
+                    container, index, ..
+                } = &left.value
+                {
                     if let Expr::FieldAccess { object, field } = &container.value {
                         if let Expr::Identifier(obj_name) = &object.value {
                             assert_eq!(obj_name, "self");
@@ -1840,7 +1875,7 @@ type Point = struct {
                         assert_eq!(index_name, "i");
                     }
                 }
-                
+
                 // Right side should be 1
                 if let Expr::Int(val) = &right.value {
                     assert_eq!(*val, 1);

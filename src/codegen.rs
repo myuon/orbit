@@ -493,7 +493,7 @@ impl CodeGenerator {
                 // Check if this is a myvector type that should be converted to method call
                 if let Some(ref vtype) = vector_type {
                     match vtype {
-                        Type::Generic { name, args } if name == "myvector" => {
+                        Type::Struct { name, args } if name == "myvector" => {
                             // Convert to method call: vector._push(value)
                             self.compile_expression(value);
                             if let Some(&offset) = self.local_vars.get(vector) {
@@ -523,7 +523,7 @@ impl CodeGenerator {
                             }
                             return;
                         }
-                        Type::Struct(struct_name) if struct_name.contains("myvector") => {
+                        Type::Struct { name, args: _ } if name.contains("myvector") => {
                             // Convert to method call: vector._push(value)
                             self.compile_expression(value);
                             if let Some(&offset) = self.local_vars.get(vector) {
@@ -533,10 +533,10 @@ impl CodeGenerator {
                             }
 
                             // Extract base name from struct type
-                            let base_name = if struct_name.contains('(') {
-                                struct_name.split('(').next().unwrap()
+                            let base_name = if name.contains('(') {
+                                name.split('(').next().unwrap()
                             } else {
-                                struct_name
+                                name
                             };
 
                             let method_name = format!("{}__push", base_name);
@@ -754,9 +754,10 @@ impl CodeGenerator {
             Expr::Alloc { element_type, size } => {
                 // Size-based alloc: compile the size expression
                 self.compile_expression(size);
-                // Push element size for multiplication 
+                // Push element size for multiplication
                 let element_size = self.sizeof_type(element_type);
-                self.instructions.push(Instruction::Push(element_size as i64));
+                self.instructions
+                    .push(Instruction::Push(element_size as i64));
                 // Multiply size by element size to get total size
                 self.instructions.push(Instruction::Mul);
                 // Allocate heap space with total size
@@ -993,7 +994,7 @@ fn compile_expr_recursive(expr: &PositionedExpr, instructions: &mut Vec<Instruct
         Expr::Alloc { element_type, size } => {
             // Size-based alloc: compile the size expression
             compile_expr_recursive(size, instructions);
-            // Push element size for multiplication 
+            // Push element size for multiplication
             let element_size = sizeof_type(element_type);
             instructions.push(Instruction::Push(element_size as i64));
             // Multiply size by element size to get total size

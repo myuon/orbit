@@ -1,4 +1,6 @@
-use crate::ast::{Decl, Expr, Function, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl, Type};
+use crate::ast::{
+    Decl, Expr, Function, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl, Type,
+};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
@@ -208,32 +210,41 @@ impl DeadCodeEliminator {
                     // For now, assume it's a myvector and mark _set method
                     // TODO: This is a simplified approach - ideally we'd have type information
                     self.mark_expr_dependencies(container)?;
-                    
+
                     // Mark _set method for myvector types
                     let method_name = "myvector(int)__set".to_string();
                     let _ = self.mark_function_reachable(&method_name);
                 }
-                
+
                 self.mark_expr_dependencies(lvalue)?;
                 self.mark_expr_dependencies(value)?;
             }
-            Stmt::VectorPush { vector, value, vector_type } => {
+            Stmt::VectorPush {
+                vector,
+                value,
+                vector_type,
+            } => {
                 self.mark_global_reachable(vector);
                 self.mark_expr_dependencies(value)?;
-                
+
                 // If this is a myvector type, mark the _push method as used
                 if let Some(ref vtype) = vector_type {
                     match vtype {
-                        Type::Generic { name, args } if name == "myvector" => {
+                        Type::Struct { name, args } if name == "myvector" => {
                             let type_params = if args.is_empty() {
                                 "T".to_string()
                             } else {
-                                args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")
+                                args.iter()
+                                    .map(|t| t.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
                             };
                             let method_name = format!("{}({})__push", name, type_params);
                             let _ = self.mark_function_reachable(&method_name);
                         }
-                        Type::Struct(struct_name) if struct_name.contains("myvector") => {
+                        Type::Struct {
+                            name: struct_name, ..
+                        } if struct_name.contains("myvector") => {
                             let base_name = if struct_name.contains('(') {
                                 struct_name.split('(').next().unwrap()
                             } else {
@@ -300,7 +311,7 @@ impl DeadCodeEliminator {
                 self.mark_type_reachable(&type_name_str);
                 // Mark the base type as reachable as well (for generic instantiations)
                 match type_name {
-                    Type::Generic { name, .. } => {
+                    Type::Struct { name, .. } => {
                         self.mark_type_reachable(name);
                     }
                     _ => {}
@@ -339,7 +350,7 @@ impl DeadCodeEliminator {
             } => {
                 self.mark_expr_dependencies(container)?;
                 self.mark_expr_dependencies(index)?;
-                
+
                 // Mark _get method for myvector types
                 // TODO: This is a simplified approach - ideally we'd have type information
                 let method_name = "myvector(int)__get".to_string();

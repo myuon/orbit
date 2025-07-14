@@ -190,7 +190,9 @@ fn run_single_error_test(test_file: &Path) {
             let error_message = error.to_string();
             // Check the full error chain for the expected fragment
             let full_error = format!("{:?}", error);
-            if !error_message.contains(&expected_error_fragment) && !full_error.contains(&expected_error_fragment) {
+            if !error_message.contains(&expected_error_fragment)
+                && !full_error.contains(&expected_error_fragment)
+            {
                 panic!(
                     "Error test {} failed.\nExpected error to contain: '{}'\nActual error: '{}'\nFull error: '{}'",
                     test_name, expected_error_fragment, error_message, full_error

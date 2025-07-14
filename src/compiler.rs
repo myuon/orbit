@@ -99,7 +99,8 @@ impl Compiler {
 
     /// Compile and execute Orbit source code, returning the last value
     pub fn execute(&mut self, code: &str) -> Result<Option<Value>> {
-        let processed_code = self.preprocess_code(code)
+        let processed_code = self
+            .preprocess_code(code)
             .with_context(|| "Preprocessing phase: Failed to preprocess code")?;
         let tokens = self.tokenize(&processed_code)?;
         let program = self.parse(tokens)?;
@@ -137,23 +138,29 @@ impl Compiler {
         let mut program_with_type_info = program;
 
         // First register struct types and functions
-        type_checker.check_program(&mut program_with_type_info)
-            .with_context(|| "Type checking phase: Failed to register struct types and functions")?;
+        type_checker
+            .check_program(&mut program_with_type_info)
+            .with_context(|| {
+                "Type checking phase: Failed to register struct types and functions"
+            })?;
         // Then perform type inference to set type_name fields
-        type_checker.infer_types(&mut program_with_type_info)
+        type_checker
+            .infer_types(&mut program_with_type_info)
             .with_context(|| "Type checking phase: Failed to infer types")?;
 
         // 2. Monomorphization phase: collect and instantiate generic types
         let mut monomorphizer = Monomorphizer::new();
-        monomorphizer.collect_targets(&program_with_type_info)
+        monomorphizer
+            .collect_targets(&program_with_type_info)
             .with_context(|| "Monomorphization phase: Failed to collect targets")?;
-        monomorphizer.monomorphize()
+        monomorphizer
+            .monomorphize()
             .with_context(|| "Monomorphization phase: Failed to monomorphize")?;
 
         // Generate the monomorphized program with concrete types
-        let monomorphized_program =
-            monomorphizer.generate_monomorphized_program(&program_with_type_info)
-                .with_context(|| "Monomorphization phase: Failed to generate monomorphized program")?;
+        let monomorphized_program = monomorphizer
+            .generate_monomorphized_program(&program_with_type_info)
+            .with_context(|| "Monomorphization phase: Failed to generate monomorphized program")?;
 
         // Handle monomorphized code dumping if requested (early, before potential errors)
         if self.options.dump_monomorphized_code {
@@ -171,7 +178,8 @@ impl Compiler {
 
         // 3. Desugar phase: transform method calls to function calls using type info
         let mut desugarer = Desugarer::new();
-        let desugared_program = desugarer.desugar_program(monomorphized_program)
+        let desugared_program = desugarer
+            .desugar_program(monomorphized_program)
             .with_context(|| "Desugar phase: Failed to desugar program")?;
 
         // Handle desugared code dumping if requested
@@ -192,7 +200,8 @@ impl Compiler {
             desugared_program
         } else {
             let mut dce = DeadCodeEliminator::new();
-            let dce_program = dce.eliminate_dead_code(desugared_program)
+            let dce_program = dce
+                .eliminate_dead_code(desugared_program)
                 .with_context(|| "Dead code elimination phase: Failed to eliminate dead code")?;
 
             // Handle dead code elimination dumping if requested
@@ -231,9 +240,11 @@ impl Compiler {
         // 5. Final type checking on final program
         // Create a fresh type checker to avoid duplicate struct definitions
         let mut final_type_checker = TypeChecker::new();
-        final_type_checker.check_program(&mut final_program)
+        final_type_checker
+            .check_program(&mut final_program)
             .with_context(|| "Final type checking phase: Failed to check program")?;
-        final_type_checker.infer_types(&mut final_program)
+        final_type_checker
+            .infer_types(&mut final_program)
             .with_context(|| "Final type checking phase: Failed to infer types")?;
 
         // 6. Handle IR dumping if requested
@@ -262,7 +273,8 @@ impl Compiler {
                 .execute_program_with_options(&final_program, self.options.print_stacks)
                 .with_context(|| "Execution phase: Failed to execute program with debug options")
         } else {
-            self.runtime.execute_program(&final_program)
+            self.runtime
+                .execute_program(&final_program)
                 .with_context(|| "Execution phase: Failed to execute program")
         };
 
@@ -283,14 +295,16 @@ impl Compiler {
     /// Tokenize the source code
     fn tokenize(&self, code: &str) -> Result<Vec<crate::ast::Token>> {
         let mut lexer = Lexer::new(code);
-        lexer.tokenize()
+        lexer
+            .tokenize()
             .with_context(|| "Lexing phase: Failed to tokenize source code")
     }
 
     /// Parse tokens into a program
     fn parse(&self, tokens: Vec<crate::ast::Token>) -> Result<Program> {
         let mut parser = Parser::new(tokens);
-        parser.parse_program()
+        parser
+            .parse_program()
             .with_context(|| "Parsing phase: Failed to parse tokens into program")
     }
 
@@ -424,7 +438,10 @@ impl Compiler {
                         }
                         output.push_str(") do\n");
                         for stmt in &func.value.body {
-                            output.push_str(&format!("    {}\n", self.format_statement(&stmt.value, 1)));
+                            output.push_str(&format!(
+                                "    {}\n",
+                                self.format_statement(&stmt.value, 1)
+                            ));
                         }
                         output.push_str("end\n\n");
                     } else {
@@ -441,7 +458,8 @@ impl Compiler {
                         }
                         output.push_str(") do\n");
                         for stmt in &func.value.body {
-                            output.push_str(&format!("{}\n", self.format_statement(&stmt.value, 1)));
+                            output
+                                .push_str(&format!("{}\n", self.format_statement(&stmt.value, 1)));
                         }
                         output.push_str("end\n\n");
                     }
@@ -505,7 +523,11 @@ impl Compiler {
                 then_branch,
                 else_branch,
             } => {
-                let mut result = format!("{}if {} do\n", indent, self.format_expression(&condition.value));
+                let mut result = format!(
+                    "{}if {} do\n",
+                    indent,
+                    self.format_expression(&condition.value)
+                );
                 for stmt in then_branch {
                     result.push_str(&format!(
                         "{}\n",
@@ -525,8 +547,11 @@ impl Compiler {
                 result
             }
             crate::ast::Stmt::While { condition, body } => {
-                let mut result =
-                    format!("{}while {} do\n", indent, self.format_expression(&condition.value));
+                let mut result = format!(
+                    "{}while {} do\n",
+                    indent,
+                    self.format_expression(&condition.value)
+                );
                 for stmt in body {
                     result.push_str(&format!(
                         "{}\n",
@@ -593,7 +618,9 @@ impl Compiler {
             } => {
                 let fields_str = fields
                     .iter()
-                    .map(|(name, expr)| format!(".{} = {}", name, self.format_expression(&expr.value)))
+                    .map(|(name, expr)| {
+                        format!(".{} = {}", name, self.format_expression(&expr.value))
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 if kind == &StructNewKind::Pattern {
@@ -632,7 +659,11 @@ impl Compiler {
                 format!("map({}, {}, {})", key_type, value_type, entries_str)
             }
             crate::ast::Expr::Alloc { element_type, size } => {
-                format!("alloc({}, {})", element_type, self.format_expression(&size.value))
+                format!(
+                    "alloc({}, {})",
+                    element_type,
+                    self.format_expression(&size.value)
+                )
             }
             crate::ast::Expr::MethodCall {
                 object,
@@ -646,7 +677,12 @@ impl Compiler {
                     .collect::<Vec<_>>()
                     .join(", ");
                 if let Some(obj) = object {
-                    format!("{}.{}({})", self.format_expression(&obj.value), method, args_str)
+                    format!(
+                        "{}.{}({})",
+                        self.format_expression(&obj.value),
+                        method,
+                        args_str
+                    )
                 } else if let Some(type_name) = type_name {
                     format!("(type {}).{}({})", type_name, method, args_str)
                 } else {

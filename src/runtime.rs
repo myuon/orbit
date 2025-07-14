@@ -1104,7 +1104,6 @@ impl VM {
                 }
             }
 
-
             Instruction::PointerIndex => {
                 // Stack: [pointer_heap_ref] [element_index]
                 if self.stack.len() < 2 {
@@ -1118,13 +1117,13 @@ impl VM {
                         if heap_index.0 >= self.heap.len() {
                             return Err(format!("Invalid heap index: {}", heap_index.0));
                         }
-                        
+
                         // Calculate the target index for HeapAlloc-allocated memory
                         let target_index = heap_index.0 + element_index;
                         if target_index >= self.heap.len() {
                             return Err(format!("Pointer index out of bounds: {}", target_index));
                         }
-                        
+
                         match &self.heap[heap_index.0] {
                             HeapObject::Pointer(arr) => {
                                 if element_index >= arr.len() {
@@ -1143,13 +1142,16 @@ impl VM {
                                         self.stack.push(value.clone());
                                     }
                                     _ => {
-                                        return Err("Invalid heap object at pointer index".to_string())
+                                        return Err(
+                                            "Invalid heap object at pointer index".to_string()
+                                        )
                                     }
                                 }
                             }
                             _ => {
                                 return Err(
-                                    "PointerIndex requires a pointer or raw value heap object".to_string()
+                                    "PointerIndex requires a pointer or raw value heap object"
+                                        .to_string(),
                                 )
                             }
                         }
@@ -1174,13 +1176,13 @@ impl VM {
                         if heap_index.0 >= self.heap.len() {
                             return Err(format!("Invalid heap index: {}", heap_index.0));
                         }
-                        
+
                         // Calculate the target index for HeapAlloc-allocated memory
                         let target_index = heap_index.0 + element_index;
                         if target_index >= self.heap.len() {
                             return Err(format!("Pointer index out of bounds: {}", target_index));
                         }
-                        
+
                         match &mut self.heap[heap_index.0] {
                             HeapObject::Pointer(arr) => {
                                 if element_index >= arr.len() {
@@ -1194,7 +1196,10 @@ impl VM {
                                 self.heap[target_index] = HeapObject::RawValue(value);
                             }
                             _ => {
-                                return Err("PointerSet requires a pointer or raw value heap object".to_string())
+                                return Err(
+                                    "PointerSet requires a pointer or raw value heap object"
+                                        .to_string(),
+                                )
                             }
                         }
                     }
@@ -1248,7 +1253,7 @@ impl VM {
                 for _ in 0..field_count {
                     let field_value = self.stack.pop().unwrap();
                     let field_name_addr = self.stack.pop().unwrap();
-                    
+
                     let field_name = match field_name_addr {
                         Value::Address(addr) => self.address_to_string(addr)?,
                         _ => return Err("StructNew requires address for field names".to_string()),
