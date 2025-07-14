@@ -751,10 +751,83 @@ impl TypeChecker {
                             );
                         }
                     }
+                    Type::Struct(struct_name) => {
+                        // Check if this is a myvector type that supports push
+                        let base_name = if struct_name.contains('(') {
+                            struct_name.split('(').next().unwrap()
+                        } else {
+                            struct_name
+                        };
+
+                        if base_name == "myvector" {
+                            // Check if _push method exists
+                            let push_method_name = format!("{}__push", base_name);
+                            if self.functions.contains_key(&push_method_name) {
+                                // For myvector(T), extract T and check compatibility
+                                if let Some(element_type) =
+                                    self.extract_myvector_element_type(struct_name)
+                                {
+                                    if !value_type.is_compatible_with(&element_type) {
+                                        bail!(
+                                            "Vector push type mismatch: vector element type is {}, pushed {}",
+                                            element_type,
+                                            value_type
+                                        );
+                                    }
+                                } else {
+                                    bail!(
+                                        "Cannot determine element type for myvector: {}",
+                                        struct_name
+                                    );
+                                }
+                            } else {
+                                bail!("myvector type {} does not have a _push method", struct_name);
+                            }
+                        } else {
+                            bail!("Cannot push to non-vector type: {}", vector_type);
+                        }
+                    }
+                    Type::Generic {
+                        name: struct_name,
+                        args,
+                    } => {
+                        if struct_name == "myvector" {
+                            // Check if _push method exists
+                            let push_method_name = format!("{}__push", struct_name);
+                            if self.functions.contains_key(&push_method_name) {
+                                // For myvector(T), the element type is in args[0]
+                                if let Some(element_type) = args.get(0) {
+                                    if !value_type.is_compatible_with(element_type) {
+                                        bail!(
+                                            "Vector push type mismatch: vector element type is {}, pushed {}",
+                                            element_type,
+                                            value_type
+                                        );
+                                    }
+                                } else {
+                                    bail!("myvector type has no type arguments");
+                                }
+                            } else {
+                                bail!("myvector type does not have a _push method");
+                            }
+                        } else {
+                            bail!("Cannot push to non-vector type: {}", vector_type);
+                        }
+                    }
                     _ => bail!("Cannot push to non-vector type: {}", vector_type),
                 }
                 Ok(())
             }
+        }
+    }
+
+    /// Extract element type from myvector type string (e.g., "myvector(int)" -> Type::Int)
+    fn extract_myvector_element_type(&self, struct_name: &str) -> Option<Type> {
+        if struct_name.starts_with("myvector(") && struct_name.ends_with(')') {
+            let inner = &struct_name[9..struct_name.len() - 1]; // Remove "myvector(" and ")"
+            Some(Type::from_string(inner))
+        } else {
+            None
         }
     }
 
@@ -1006,6 +1079,66 @@ impl TypeChecker {
                         }
                         Ok(Type::Byte) // string indexing returns byte
                     }
+                    Type::Generic { name, args } => {
+                        if name == "myvector" {
+                            // Check if _get method exists
+                            let get_method_name = format!("{}__get", name);
+                            if self.functions.contains_key(&get_method_name) {
+                                if !index_type.is_compatible_with(&Type::Int) {
+                                    bail!("myvector index must be number, got {}", index_type);
+                                }
+                                // For myvector(T), the element type is in args[0]
+                                if let Some(element_type) = args.get(0) {
+                                    Ok(element_type.clone())
+                                } else {
+                                    bail!("myvector type has no type arguments");
+                                }
+                            } else {
+                                bail!("myvector type does not have a _get method");
+                            }
+                        } else {
+                            bail!(
+                                "Cannot index non-vector/map/pointer/string type: {}",
+                                container_value_type
+                            );
+                        }
+                    }
+                    Type::Struct(struct_name) => {
+                        // Check if this is a myvector type that supports indexing
+                        let base_name = if struct_name.contains('(') {
+                            struct_name.split('(').next().unwrap()
+                        } else {
+                            struct_name
+                        };
+
+                        if base_name == "myvector" {
+                            // Check if _get method exists
+                            let get_method_name = format!("{}__get", base_name);
+                            if self.functions.contains_key(&get_method_name) {
+                                if !index_type.is_compatible_with(&Type::Int) {
+                                    bail!("myvector index must be number, got {}", index_type);
+                                }
+                                // For myvector(T), extract T and return it
+                                if let Some(element_type) =
+                                    self.extract_myvector_element_type(struct_name)
+                                {
+                                    Ok(element_type)
+                                } else {
+                                    bail!(
+                                        "Cannot determine element type for myvector: {}",
+                                        struct_name
+                                    );
+                                }
+                            } else {
+                                bail!("myvector type {} does not have a _get method", struct_name);
+                            }
+                        } else {
+                            bail!(
+                                "Cannot index non-vector/map/pointer/string type: {}",
+                                container_value_type
+                            );
+                        }
+                    }
                     _ => bail!(
                         "Cannot index non-vector/map/pointer/string type: {}",
                         container_value_type
@@ -1059,11 +1192,12 @@ impl TypeChecker {
                     // Non-generic struct
                     format!("{}__new", type_name)
                 };
-                let updated_kind = if self.functions.contains_key(&new_function_name) && fields.is_empty() {
-                    StructNewKind::Pattern
-                } else {
-                    StructNewKind::Regular
-                };
+                let updated_kind =
+                    if self.functions.contains_key(&new_function_name) && fields.is_empty() {
+                        StructNewKind::Pattern
+                    } else {
+                        StructNewKind::Regular
+                    };
                 *kind = updated_kind;
 
                 // For Pattern kind with empty fields, skip field validation (_new function will handle it)
@@ -1073,7 +1207,8 @@ impl TypeChecker {
                         Some(struct_type) => return Ok(struct_type.clone()),
                         None => {
                             // Handle generic struct instantiation
-                            if let Some(generic_type) = self.resolve_generic_struct_type(type_name) {
+                            if let Some(generic_type) = self.resolve_generic_struct_type(type_name)
+                            {
                                 return Ok(generic_type);
                             } else {
                                 bail!("Unknown struct type: {}", type_name)
