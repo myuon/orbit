@@ -921,6 +921,19 @@ impl Parser {
                         }
                     }
 
+                    // Check for indexing after field access
+                    if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                        self.advance(); // consume '['
+                        let index = self.parse_expression()?;
+                        self.consume(TokenType::RightBracket)?;
+                        let positioned_expr = Positioned::new(expr, Span::new(start_pos, start_pos));
+                        expr = Expr::Index {
+                            container: Box::new(positioned_expr),
+                            index: Box::new(index),
+                            container_type: None, // Will be filled in by type checker
+                        };
+                    }
+
                     let end_pos = if self.position > 0 {
                         self.tokens[self.position - 1].position
                     } else {
@@ -1555,6 +1568,195 @@ type Point = struct {
             assert_eq!(fields.len(), 2);
         } else {
             panic!("Expected StructNew expression with kind=Pattern");
+        }
+    }
+
+    #[test]
+    fn test_field_access_parsing() {
+        let code = "self.data";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse().unwrap();
+
+        if let Expr::FieldAccess { object, field } = expr.value {
+            if let Expr::Identifier(obj_name) = &object.value {
+                assert_eq!(obj_name, "self");
+            } else {
+                panic!("Expected identifier for object");
+            }
+            assert_eq!(field, "data");
+        } else {
+            panic!("Expected FieldAccess expression, got: {:?}", expr);
+        }
+    }
+
+    #[test]
+    fn test_index_access_parsing() {
+        let code = "arr[i]";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse().unwrap();
+
+        if let Expr::Index { container, index, .. } = expr.value {
+            if let Expr::Identifier(container_name) = &container.value {
+                assert_eq!(container_name, "arr");
+            } else {
+                panic!("Expected identifier for container");
+            }
+            if let Expr::Identifier(index_name) = &index.value {
+                assert_eq!(index_name, "i");
+            } else {
+                panic!("Expected identifier for index");
+            }
+        } else {
+            panic!("Expected Index expression, got: {:?}", expr);
+        }
+    }
+
+    #[test]
+    fn test_field_access_with_index_parsing() {
+        let code = "self.data[i]";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse().unwrap();
+
+        if let Expr::Index { container, index, .. } = expr.value {
+            // The container should be field access (self.data)
+            if let Expr::FieldAccess { object, field } = &container.value {
+                if let Expr::Identifier(obj_name) = &object.value {
+                    assert_eq!(obj_name, "self");
+                } else {
+                    panic!("Expected identifier for object in field access");
+                }
+                assert_eq!(field, "data");
+            } else {
+                panic!("Expected FieldAccess for container in index expression");
+            }
+            
+            // The index should be 'i'
+            if let Expr::Identifier(index_name) = &index.value {
+                assert_eq!(index_name, "i");
+            } else {
+                panic!("Expected identifier for index");
+            }
+        } else {
+            panic!("Expected Index expression, got: {:?}", expr);
+        }
+    }
+
+    #[test]
+    fn test_nested_field_access_with_index_parsing() {
+        let code = "obj.container.data[index]";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse().unwrap();
+
+        if let Expr::Index { container, index, .. } = expr.value {
+            // The container should be nested field access (obj.container.data)
+            if let Expr::FieldAccess { object, field } = &container.value {
+                assert_eq!(field, "data");
+                
+                // The object should be another field access (obj.container)
+                if let Expr::FieldAccess { object: inner_object, field: inner_field } = &object.value {
+                    if let Expr::Identifier(obj_name) = &inner_object.value {
+                        assert_eq!(obj_name, "obj");
+                    } else {
+                        panic!("Expected identifier for innermost object");
+                    }
+                    assert_eq!(inner_field, "container");
+                } else {
+                    panic!("Expected nested FieldAccess for object");
+                }
+            } else {
+                panic!("Expected FieldAccess for container in index expression");
+            }
+            
+            // The index should be 'index'
+            if let Expr::Identifier(index_name) = &index.value {
+                assert_eq!(index_name, "index");
+            } else {
+                panic!("Expected identifier for index");
+            }
+        } else {
+            panic!("Expected Index expression, got: {:?}", expr);
+        }
+    }
+
+    #[test]
+    fn test_field_access_with_numeric_index_parsing() {
+        let code = "self.data[0]";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse().unwrap();
+
+        if let Expr::Index { container, index, .. } = expr.value {
+            // The container should be field access (self.data)
+            if let Expr::FieldAccess { object, field } = &container.value {
+                if let Expr::Identifier(obj_name) = &object.value {
+                    assert_eq!(obj_name, "self");
+                } else {
+                    panic!("Expected identifier for object in field access");
+                }
+                assert_eq!(field, "data");
+            } else {
+                panic!("Expected FieldAccess for container in index expression");
+            }
+            
+            // The index should be numeric 0
+            if let Expr::Int(index_num) = &index.value {
+                assert_eq!(*index_num, 0);
+            } else {
+                panic!("Expected integer for index");
+            }
+        } else {
+            panic!("Expected Index expression, got: {:?}", expr);
+        }
+    }
+
+    #[test]
+    fn test_field_access_with_expression_index_parsing() {
+        let code = "self.data[i + 1]";
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse().unwrap();
+
+        if let Expr::Index { container, index, .. } = expr.value {
+            // The container should be field access (self.data)
+            if let Expr::FieldAccess { object, field } = &container.value {
+                if let Expr::Identifier(obj_name) = &object.value {
+                    assert_eq!(obj_name, "self");
+                } else {
+                    panic!("Expected identifier for object in field access");
+                }
+                assert_eq!(field, "data");
+            } else {
+                panic!("Expected FieldAccess for container in index expression");
+            }
+            
+            // The index should be a binary expression (i + 1)
+            if let Expr::Binary { left, op, right } = &index.value {
+                if let Expr::Identifier(left_name) = &left.value {
+                    assert_eq!(left_name, "i");
+                } else {
+                    panic!("Expected identifier for left operand");
+                }
+                assert_eq!(*op, BinaryOp::Add);
+                if let Expr::Int(right_num) = &right.value {
+                    assert_eq!(*right_num, 1);
+                } else {
+                    panic!("Expected integer for right operand");
+                }
+            } else {
+                panic!("Expected Binary expression for index");
+            }
+        } else {
+            panic!("Expected Index expression, got: {:?}", expr);
         }
     }
 }
