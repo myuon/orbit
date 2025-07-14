@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     ast::{
         BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, PositionedDecl,
-        PositionedExpr, PositionedStmt, Program, Stmt, StructDecl,
+        PositionedExpr, PositionedStmt, Program, Stmt, StructDecl, Type,
     },
     vm::Instruction,
 };
@@ -485,7 +485,73 @@ impl CodeGenerator {
                 self.instructions[jump_to_end] = Instruction::Jump(end);
             }
 
-            Stmt::VectorPush { vector, value } => {
+            Stmt::VectorPush {
+                vector,
+                value,
+                vector_type,
+            } => {
+                // Check if this is a myvector type that should be converted to method call
+                if let Some(ref vtype) = vector_type {
+                    match vtype {
+                        Type::Generic { name, args } if name == "myvector" => {
+                            // Convert to method call: vector._push(value)
+                            self.compile_expression(value);
+                            if let Some(&offset) = self.local_vars.get(vector) {
+                                self.instructions.push(Instruction::GetLocal(offset));
+                            } else {
+                                panic!("Undefined vector variable: {}", vector);
+                            }
+
+                            // Create method call instruction with type parameters
+                            let type_params = if args.is_empty() {
+                                "T".to_string()
+                            } else {
+                                args.iter()
+                                    .map(|t| t.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            };
+                            let method_name = format!("{}({})__push", name, type_params);
+                            if self.functions.contains_key(&method_name) {
+                                self.instructions.push(Instruction::Call(method_name));
+                            } else {
+                                eprintln!(
+                                    "Available functions: {:?}",
+                                    self.functions.keys().collect::<Vec<_>>()
+                                );
+                                panic!("Method not found: {}", method_name);
+                            }
+                            return;
+                        }
+                        Type::Struct(struct_name) if struct_name.contains("myvector") => {
+                            // Convert to method call: vector._push(value)
+                            self.compile_expression(value);
+                            if let Some(&offset) = self.local_vars.get(vector) {
+                                self.instructions.push(Instruction::GetLocal(offset));
+                            } else {
+                                panic!("Undefined vector variable: {}", vector);
+                            }
+
+                            // Extract base name from struct type
+                            let base_name = if struct_name.contains('(') {
+                                struct_name.split('(').next().unwrap()
+                            } else {
+                                struct_name
+                            };
+
+                            let method_name = format!("{}__push", base_name);
+                            if self.functions.contains_key(&method_name) {
+                                self.instructions.push(Instruction::Call(method_name));
+                            } else {
+                                panic!("Method not found: {}", method_name);
+                            }
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Default case: regular vector push
                 // vector: 変数名, value: 式
                 // valueをpushし、vector変数の位置をpushし、VectorPush命令
                 self.compile_expression(value);
@@ -496,8 +562,6 @@ impl CodeGenerator {
                 }
                 self.instructions.push(Instruction::VectorPush);
             }
-
-
         }
     }
 
@@ -515,21 +579,27 @@ impl CodeGenerator {
                     self.instructions.push(Instruction::SetGlobal(global_index));
                 }
             }
-            
+
             Expr::FieldAccess { object, field } => {
                 // Field assignment: obj.field = value
                 self.compile_expression(value);
-                self.instructions.push(Instruction::PushString(field.clone()));
+                self.instructions
+                    .push(Instruction::PushString(field.clone()));
                 self.compile_expression(object);
                 self.instructions.push(Instruction::StructFieldSet);
             }
-            
-            Expr::Index { container, index, container_type } => {
+
+            Expr::Index {
+                container,
+                index,
+                container_type,
+                ..
+            } => {
                 // Index assignment: container[index] = value
                 self.compile_expression(value);
                 self.compile_expression(index);
                 self.compile_expression(container);
-                
+
                 match container_type {
                     Some(IndexContainerType::Vector) => {
                         self.instructions.push(Instruction::VectorSet);
@@ -544,13 +614,19 @@ impl CodeGenerator {
                         panic!("Cannot assign to string index - strings are immutable");
                     }
                     None => {
-                        panic!("Container type not resolved during type checking");
+                        panic!(
+                            "Container type not resolved during type checking, {:?}",
+                            container_type
+                        );
                     }
                 }
             }
-            
+
             _ => {
-                panic!("Invalid left-hand side in complex assignment: {:?}", lvalue.value);
+                panic!(
+                    "Invalid left-hand side in complex assignment: {:?}",
+                    lvalue.value
+                );
             }
         }
     }
@@ -689,6 +765,7 @@ impl CodeGenerator {
                 container,
                 index,
                 container_type,
+                ..
             } => {
                 // container, indexの順でpushし、適切なIndex命令
                 self.compile_expression(container);
@@ -709,7 +786,10 @@ impl CodeGenerator {
                     }
                     None => {
                         // Type checking should have resolved this
-                        panic!("Container type not resolved during type checking");
+                        panic!(
+                            "Container type not resolved during type checking, {:?}",
+                            container_type
+                        );
                     }
                 }
             }

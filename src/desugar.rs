@@ -1,5 +1,5 @@
 use crate::ast::{
-    Decl, Expr, Function, Positioned, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl,
+    Decl, Expr, Function, Positioned, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl, Type,
 };
 use anyhow::{bail, Result};
 use std::collections::HashMap;
@@ -181,18 +181,61 @@ impl Desugarer {
                 }
             }
             Stmt::Assign { lvalue, value } => {
-                let desugared_lvalue = self.desugar_expression(lvalue)?;
                 let desugared_value = self.desugar_expression(value)?;
+                
+                // Check if lvalue is an Index expression with myvector type
+                if let Expr::Index { container, index, container_value_type, .. } = &lvalue.value {
+                    if let Some(ref container_type) = container_value_type {
+                        match container_type {
+                            Type::Generic { name, args } if name == "myvector" => {
+                                // Convert to method call: container._set(index, value)
+                                let desugared_container = self.desugar_expression(container)?;
+                                let desugared_index = self.desugar_expression(index)?;
+                                let type_params = if args.is_empty() {
+                                    "T".to_string()
+                                } else {
+                                    args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")
+                                };
+                                let method_call = Expr::MethodCall {
+                                    object: Some(Box::new(desugared_container)),
+                                    type_name: Some(format!("{}({})", name, type_params)),
+                                    method: "_set".to_string(),
+                                    args: vec![desugared_index, desugared_value],
+                                };
+                                let desugared_method_call = self.desugar_expression(&Positioned::with_unknown_span(method_call))?;
+                                return Ok(Positioned::with_unknown_span(Stmt::Expression(desugared_method_call)));
+                            }
+                            Type::Struct(struct_name) if struct_name.contains("myvector") => {
+                                // Convert to method call: container._set(index, value)
+                                let desugared_container = self.desugar_expression(container)?;
+                                let desugared_index = self.desugar_expression(index)?;
+                                let method_call = Expr::MethodCall {
+                                    object: Some(Box::new(desugared_container)),
+                                    type_name: Some(struct_name.clone()),
+                                    method: "_set".to_string(),
+                                    args: vec![desugared_index, desugared_value],
+                                };
+                                let desugared_method_call = self.desugar_expression(&Positioned::with_unknown_span(method_call))?;
+                                return Ok(Positioned::with_unknown_span(Stmt::Expression(desugared_method_call)));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                
+                // Default case: regular assignment
+                let desugared_lvalue = self.desugar_expression(lvalue)?;
                 Stmt::Assign {
                     lvalue: desugared_lvalue,
                     value: desugared_value,
                 }
             }
-            Stmt::VectorPush { vector, value } => {
+            Stmt::VectorPush { vector, value, vector_type } => {
                 let desugared_value = self.desugar_expression(value)?;
                 Stmt::VectorPush {
                     vector: vector.clone(),
                     value: desugared_value,
+                    vector_type: vector_type.clone(),
                 }
             }
         };
@@ -219,7 +262,7 @@ impl Desugarer {
 
                     // Use embedded type information if available, otherwise fall back to heuristic
                     let mangled_name = if let Some(struct_type) = type_name {
-                        format!("{}_{}", struct_type, method)
+                        format!("{}__{}", struct_type, method.trim_start_matches('_'))
                     } else {
                         self.resolve_method_name(&desugared_object.value, method)?
                     };
@@ -294,13 +337,49 @@ impl Desugarer {
                 container,
                 index,
                 container_type,
+                container_value_type,
             } => {
                 let desugared_container = self.desugar_expression(container)?;
                 let desugared_index = self.desugar_expression(index)?;
+                
+                // Check if this is a myvector type that should be desugared to _get method call
+                if let Some(ref container_type) = container_value_type {
+                    match container_type {
+                        Type::Generic { name, args } if name == "myvector" => {
+                            // Convert to method call: container._get(index)
+                            let type_params = if args.is_empty() {
+                                "T".to_string()
+                            } else {
+                                args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")
+                            };
+                            let method_call = Expr::MethodCall {
+                                object: Some(Box::new(desugared_container)),
+                                type_name: Some(format!("{}({})", name, type_params)),
+                                method: "_get".to_string(),
+                                args: vec![desugared_index],
+                            };
+                            return Ok(self.desugar_expression(&Positioned::with_unknown_span(method_call))?);
+                        }
+                        Type::Struct(struct_name) if struct_name.contains("myvector") => {
+                            // Convert to method call: container._get(index)
+                            let method_call = Expr::MethodCall {
+                                object: Some(Box::new(desugared_container)),
+                                type_name: Some(struct_name.clone()),
+                                method: "_get".to_string(),
+                                args: vec![desugared_index],
+                            };
+                            return Ok(self.desugar_expression(&Positioned::with_unknown_span(method_call))?);
+                        }
+                        _ => {}
+                    }
+                }
+                
+                // Default case: regular index operation
                 Expr::Index {
                     container: Box::new(desugared_container),
                     index: Box::new(desugared_index),
                     container_type: container_type.clone(),
+                    container_value_type: container_value_type.clone(),
                 }
             }
             Expr::MapNew {
@@ -427,7 +506,7 @@ impl Desugarer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{BinaryOp, FunParam, StructNewKind};
+    use crate::ast::{BinaryOp, FunParam, StructNewKind, Type};
 
     #[test]
     fn test_method_call_desugaring() {

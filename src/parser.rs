@@ -580,7 +580,7 @@ impl Parser {
         self.consume(TokenType::Push)?; // consume '<-'
         let value = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
-        Ok(Stmt::VectorPush { vector, value })
+        Ok(Stmt::VectorPush { vector, value, vector_type: None })
     }
 
 
@@ -766,6 +766,7 @@ impl Parser {
                             container: Box::new(positioned_expr),
                             index: Box::new(index),
                             container_type: None, // Will be filled in by type checker
+                            container_value_type: None, // Will be filled in by type checker
                         };
                     }
 
@@ -795,6 +796,7 @@ impl Parser {
                             container: Box::new(identifier_pos),
                             index: Box::new(index),
                             container_type: None, // Will be filled in by type checker
+                            container_value_type: None, // Will be filled in by type checker
                         },
                         Span::new(start_pos, end_pos),
                     ))
@@ -860,6 +862,7 @@ impl Parser {
                             container: Box::new(positioned_expr),
                             index: Box::new(index),
                             container_type: None, // Will be filled in by type checker
+                            container_value_type: None, // Will be filled in by type checker
                         };
                     }
 

@@ -220,8 +220,8 @@ impl Compiler {
         };
 
         // 5. Final type checking on final program
-        let mut final_type_checker = TypeChecker::new();
-        final_type_checker.check_program(&mut final_program)?;
+        // Reuse the original type checker to preserve struct information
+        type_checker.check_program(&mut final_program)?;
 
         // 6. Handle IR dumping if requested
         if self.options.dump_ir {
@@ -519,7 +519,7 @@ impl Compiler {
                 result.push_str(&format!("{}end", indent));
                 result
             }
-            crate::ast::Stmt::VectorPush { vector, value } => {
+            crate::ast::Stmt::VectorPush { vector, value, .. } => {
                 format!(
                     "{}{}.push({});",
                     indent,
@@ -558,6 +558,7 @@ impl Compiler {
                 container,
                 index,
                 container_type: _,
+                container_value_type: _,
             } => {
                 format!(
                     "{}[{}]",

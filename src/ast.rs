@@ -163,6 +163,7 @@ pub enum Expr {
         container: Box<PositionedExpr>,
         index: Box<PositionedExpr>,
         container_type: Option<IndexContainerType>,
+        container_value_type: Option<Type>,
     },
     MapNew {
         key_type: String,
@@ -286,6 +287,7 @@ pub enum Stmt {
     VectorPush {
         vector: String,
         value: PositionedExpr,
+        vector_type: Option<Type>,
     },
 }
 

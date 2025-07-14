@@ -531,9 +531,10 @@ impl Monomorphizer {
                 lvalue: self.substitute_expression(lvalue, substitutions)?,
                 value: self.substitute_expression(value, substitutions)?,
             },
-            Stmt::VectorPush { vector, value } => Stmt::VectorPush {
+            Stmt::VectorPush { vector, value, vector_type } => Stmt::VectorPush {
                 vector: vector.clone(),
                 value: self.substitute_expression(value, substitutions)?,
+                vector_type: vector_type.clone(),
             },
         };
         Ok(Positioned::with_unknown_span(substituted))
@@ -590,10 +591,12 @@ impl Monomorphizer {
                 container,
                 index,
                 container_type,
+                container_value_type,
             } => Expr::Index {
                 container: Box::new(self.substitute_expression(container, substitutions)?),
                 index: Box::new(self.substitute_expression(index, substitutions)?),
                 container_type: *container_type,
+                container_value_type: container_value_type.clone(),
             },
             Expr::MapNew {
                 key_type,
@@ -765,9 +768,10 @@ impl Monomorphizer {
                 lvalue: self.substitute_expression_globally(lvalue)?,
                 value: self.substitute_expression_globally(value)?,
             },
-            Stmt::VectorPush { vector, value } => Stmt::VectorPush {
+            Stmt::VectorPush { vector, value, vector_type } => Stmt::VectorPush {
                 vector: vector.clone(),
                 value: self.substitute_expression_globally(value)?,
+                vector_type: vector_type.clone(),
             },
         };
         Ok(Positioned::with_unknown_span(substituted))
@@ -862,10 +866,12 @@ impl Monomorphizer {
                 container,
                 index,
                 container_type,
+                container_value_type,
             } => Expr::Index {
                 container: Box::new(self.substitute_expression_globally(container)?),
                 index: Box::new(self.substitute_expression_globally(index)?),
                 container_type: *container_type,
+                container_value_type: container_value_type.clone(),
             },
             Expr::MapNew {
                 key_type,
