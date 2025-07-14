@@ -978,6 +978,13 @@ fn substitute_type_in_string(type_str: &str, substitutions: &HashMap<String, Typ
         }
     }
 
+    // Handle pointer types like [*]T
+    if type_str.starts_with("[*]") {
+        let inner_type = &type_str[3..];
+        let substituted_inner = substitute_type_in_string(inner_type, substitutions);
+        return format!("[*]{}", substituted_inner);
+    }
+
     // Simple string substitution for type parameters
     if let Some(replacement) = substitutions.get(type_str) {
         // Convert Type back to source-friendly string representation

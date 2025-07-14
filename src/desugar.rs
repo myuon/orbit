@@ -1,5 +1,5 @@
 use crate::ast::{
-    Decl, Expr, Function, Positioned, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl, Type,
+    Decl, Expr, Function, Positioned, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl, StructNewKind, Type,
 };
 use anyhow::{bail, Result};
 use std::collections::HashMap;
@@ -232,6 +232,42 @@ impl Desugarer {
             }
             Stmt::VectorPush { vector, value, vector_type } => {
                 let desugared_value = self.desugar_expression(value)?;
+                
+                // Check if this is a myvector type that should be desugared to method call
+                if let Some(ref vtype) = vector_type {
+                    match vtype {
+                        Type::Generic { name, args } if name == "myvector" => {
+                            // Convert to method call: vector._push(value)
+                            let type_params = if args.is_empty() {
+                                "T".to_string()
+                            } else {
+                                args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")
+                            };
+                            let method_call = Expr::MethodCall {
+                                object: Some(Box::new(Positioned::with_unknown_span(Expr::Identifier(vector.clone())))),
+                                type_name: Some(format!("{}({})", name, type_params)),
+                                method: "_push".to_string(),
+                                args: vec![desugared_value],
+                            };
+                            let desugared_method_call = self.desugar_expression(&Positioned::with_unknown_span(method_call))?;
+                            return Ok(Positioned::with_unknown_span(Stmt::Expression(desugared_method_call)));
+                        }
+                        Type::Struct(struct_name) if struct_name.contains("myvector") => {
+                            // Convert to method call: vector._push(value)
+                            let method_call = Expr::MethodCall {
+                                object: Some(Box::new(Positioned::with_unknown_span(Expr::Identifier(vector.clone())))),
+                                type_name: Some(struct_name.clone()),
+                                method: "_push".to_string(),
+                                args: vec![desugared_value],
+                            };
+                            let desugared_method_call = self.desugar_expression(&Positioned::with_unknown_span(method_call))?;
+                            return Ok(Positioned::with_unknown_span(Stmt::Expression(desugared_method_call)));
+                        }
+                        _ => {}
+                    }
+                }
+                
+                // Default case: regular vector push
                 Stmt::VectorPush {
                     vector: vector.clone(),
                     value: desugared_value,
@@ -404,6 +440,38 @@ impl Desugarer {
                 fields,
                 kind,
             } => {
+                // Check if this is a myvector type with Pattern kind (empty fields) that should be desugared to _new method call
+                if *kind == StructNewKind::Pattern && fields.is_empty() {
+                    match type_name {
+                        Type::Generic { name, args } if name == "myvector" => {
+                            // Convert to method call: myvector(T)._new()
+                            let type_params = if args.is_empty() {
+                                "T".to_string()
+                            } else {
+                                args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")
+                            };
+                            let method_call = Expr::MethodCall {
+                                object: None,
+                                type_name: Some(format!("{}({})", name, type_params)),
+                                method: "_new".to_string(),
+                                args: vec![],
+                            };
+                            return Ok(self.desugar_expression(&Positioned::with_unknown_span(method_call))?);
+                        }
+                        Type::Struct(struct_name) if struct_name.contains("myvector") => {
+                            // Convert to method call: myvector(T)._new()
+                            let method_call = Expr::MethodCall {
+                                object: None,
+                                type_name: Some(struct_name.clone()),
+                                method: "_new".to_string(),
+                                args: vec![],
+                            };
+                            return Ok(self.desugar_expression(&Positioned::with_unknown_span(method_call))?);
+                        }
+                        _ => {}
+                    }
+                }
+                
                 let mut desugared_fields = Vec::new();
                 for (field_name, field_value) in fields {
                     let desugared_value = self.desugar_expression(field_value)?;

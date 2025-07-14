@@ -222,6 +222,7 @@ impl Compiler {
         // 5. Final type checking on final program
         // Reuse the original type checker to preserve struct information
         type_checker.check_program(&mut final_program)?;
+        type_checker.infer_types(&mut final_program)?;
 
         // 6. Handle IR dumping if requested
         if self.options.dump_ir {
