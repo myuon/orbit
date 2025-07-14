@@ -3,7 +3,10 @@ fun process_vector(T: type, v: vec(T)): int do
 end
 
 fun main() do
-  let numbers = new vec(int) { 10, 20, 30 };
+  let numbers = new vec(int) {};
+  numbers <- 10;
+  numbers <- 20;
+  numbers <- 30;
   let result = process_vector(type int, numbers);
   
   return result;

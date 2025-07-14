@@ -544,18 +544,6 @@ impl Parser {
                         Ok(n)
                     }
                 }
-                // Handle built-in generic types
-                TokenType::Vec => {
-                    self.advance(); // consume 'vec'
-                    if matches!(self.current_token().token_type, TokenType::LeftParen) {
-                        self.advance(); // consume '('
-                        let arg_type = self.parse_type_name()?;
-                        self.consume(TokenType::RightParen)?;
-                        Ok(format!("vec({})", arg_type))
-                    } else {
-                        Ok("vec".to_string())
-                    }
-                }
                 TokenType::Map => {
                     self.advance(); // consume 'map'
                     if matches!(self.current_token().token_type, TokenType::LeftParen) {
@@ -931,50 +919,6 @@ impl Parser {
                     } else {
                         bail!("Expected 'struct' after 'new('");
                     }
-                } else if matches!(self.current_token().token_type, TokenType::Vec) {
-                    self.advance(); // consume 'vec'
-                    self.consume(TokenType::LeftParen)?; // consume '('
-
-                    // Get the element type
-                    let element_type = match &self.current_token().token_type {
-                        TokenType::Identifier(type_name) => {
-                            let t = type_name.clone();
-                            self.advance();
-                            t
-                        }
-                        _ => bail!("Expected type name in vector constructor"),
-                    };
-
-                    self.consume(TokenType::RightParen)?; // consume ')'
-                    self.consume(TokenType::LeftBrace)?; // consume '{'
-
-                    // Parse initial values (if any)
-                    let mut initial_values = Vec::new();
-                    if !matches!(self.current_token().token_type, TokenType::RightBrace) {
-                        loop {
-                            initial_values.push(self.parse_expression()?);
-
-                            if matches!(self.current_token().token_type, TokenType::Comma) {
-                                self.advance();
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-
-                    self.consume(TokenType::RightBrace)?; // consume '}'
-                    let end_pos = if self.position > 0 {
-                        self.tokens[self.position - 1].position
-                    } else {
-                        start_pos
-                    };
-                    Ok(Positioned::new(
-                        Expr::VectorNew {
-                            element_type,
-                            initial_values,
-                        },
-                        Span::new(start_pos, end_pos),
-                    ))
                 } else if matches!(self.current_token().token_type, TokenType::Map) {
                     self.advance(); // consume 'map'
                     self.consume(TokenType::LeftParen)?; // consume '('
@@ -1356,9 +1300,13 @@ mod tests {
 
         for test_case in test_cases {
             let mut lexer = Lexer::new(test_case.input);
-            let tokens = lexer.tokenize().unwrap_or_else(|e| panic!("Tokenize failed for {}: {}", test_case.name, e));
+            let tokens = lexer
+                .tokenize()
+                .unwrap_or_else(|e| panic!("Tokenize failed for {}: {}", test_case.name, e));
             let mut parser = Parser::new(tokens);
-            let result = parser.parse_program().unwrap_or_else(|e| panic!("Parse failed for {}: {}", test_case.name, e));
+            let result = parser
+                .parse_program()
+                .unwrap_or_else(|e| panic!("Parse failed for {}: {}", test_case.name, e));
             (test_case.validate)(&result);
         }
     }
@@ -1376,7 +1324,13 @@ mod tests {
                 name: "method call",
                 input: "p.sum()",
                 validate: |expr| {
-                    if let Expr::MethodCall { object, type_name, method, args } = &expr.value {
+                    if let Expr::MethodCall {
+                        object,
+                        type_name,
+                        method,
+                        args,
+                    } = &expr.value
+                    {
                         if let Some(obj) = object {
                             if let Expr::Identifier(obj_name) = &obj.value {
                                 assert_eq!(obj_name, "p");
@@ -1414,7 +1368,10 @@ mod tests {
                 name: "index access",
                 input: "arr[i]",
                 validate: |expr| {
-                    if let Expr::Index { container, index, .. } = &expr.value {
+                    if let Expr::Index {
+                        container, index, ..
+                    } = &expr.value
+                    {
                         if let Expr::Identifier(container_name) = &container.value {
                             assert_eq!(container_name, "arr");
                         } else {
@@ -1434,7 +1391,10 @@ mod tests {
                 name: "field access with index",
                 input: "self.data[i]",
                 validate: |expr| {
-                    if let Expr::Index { container, index, .. } = &expr.value {
+                    if let Expr::Index {
+                        container, index, ..
+                    } = &expr.value
+                    {
                         if let Expr::FieldAccess { object, field } = &container.value {
                             if let Expr::Identifier(obj_name) = &object.value {
                                 assert_eq!(obj_name, "self");
@@ -1459,10 +1419,17 @@ mod tests {
                 name: "nested field access with index",
                 input: "obj.container.data[index]",
                 validate: |expr| {
-                    if let Expr::Index { container, index, .. } = &expr.value {
+                    if let Expr::Index {
+                        container, index, ..
+                    } = &expr.value
+                    {
                         if let Expr::FieldAccess { object, field } = &container.value {
                             assert_eq!(field, "data");
-                            if let Expr::FieldAccess { object: inner_object, field: inner_field } = &object.value {
+                            if let Expr::FieldAccess {
+                                object: inner_object,
+                                field: inner_field,
+                            } = &object.value
+                            {
                                 if let Expr::Identifier(obj_name) = &inner_object.value {
                                     assert_eq!(obj_name, "obj");
                                 } else {
@@ -1489,7 +1456,10 @@ mod tests {
                 name: "field access with numeric index",
                 input: "self.data[0]",
                 validate: |expr| {
-                    if let Expr::Index { container, index, .. } = &expr.value {
+                    if let Expr::Index {
+                        container, index, ..
+                    } = &expr.value
+                    {
                         if let Expr::FieldAccess { object, field } = &container.value {
                             if let Expr::Identifier(obj_name) = &object.value {
                                 assert_eq!(obj_name, "self");
@@ -1514,7 +1484,10 @@ mod tests {
                 name: "field access with expression index",
                 input: "self.data[i + 1]",
                 validate: |expr| {
-                    if let Expr::Index { container, index, .. } = &expr.value {
+                    if let Expr::Index {
+                        container, index, ..
+                    } = &expr.value
+                    {
                         if let Expr::FieldAccess { object, field } = &container.value {
                             if let Expr::Identifier(obj_name) = &object.value {
                                 assert_eq!(obj_name, "self");
@@ -1549,9 +1522,13 @@ mod tests {
 
         for test_case in test_cases {
             let mut lexer = Lexer::new(test_case.input);
-            let tokens = lexer.tokenize().unwrap_or_else(|e| panic!("Tokenize failed for {}: {}", test_case.name, e));
+            let tokens = lexer
+                .tokenize()
+                .unwrap_or_else(|e| panic!("Tokenize failed for {}: {}", test_case.name, e));
             let mut parser = Parser::new(tokens);
-            let expr = parser.parse().unwrap_or_else(|e| panic!("Parse failed for {}: {}", test_case.name, e));
+            let expr = parser
+                .parse()
+                .unwrap_or_else(|e| panic!("Parse failed for {}: {}", test_case.name, e));
             (test_case.validate)(&expr);
         }
     }
@@ -1585,11 +1562,20 @@ mod tests {
 
         for test_case in test_cases {
             let mut lexer = Lexer::new(test_case.input);
-            let tokens = lexer.tokenize().unwrap_or_else(|e| panic!("Tokenize failed for {}: {}", test_case.name, e));
+            let tokens = lexer
+                .tokenize()
+                .unwrap_or_else(|e| panic!("Tokenize failed for {}: {}", test_case.name, e));
             let mut parser = Parser::new(tokens);
-            let expr = parser.parse().unwrap_or_else(|e| panic!("Parse failed for {}: {}", test_case.name, e));
+            let expr = parser
+                .parse()
+                .unwrap_or_else(|e| panic!("Parse failed for {}: {}", test_case.name, e));
 
-            if let Expr::StructNew { type_name, fields, kind } = expr.value {
+            if let Expr::StructNew {
+                type_name,
+                fields,
+                kind,
+            } = expr.value
+            {
                 assert_eq!(type_name, Type::from_string(test_case.expected_type));
                 assert_eq!(fields.len(), test_case.expected_fields);
                 assert_eq!(kind, test_case.expected_kind);
@@ -1652,7 +1638,10 @@ mod tests {
                 name: "simple index assignment",
                 input: "arr[0] = 42;",
                 validate_lvalue: |lvalue| {
-                    if let Expr::Index { container, index, .. } = lvalue {
+                    if let Expr::Index {
+                        container, index, ..
+                    } = lvalue
+                    {
                         if let Expr::Identifier(container_name) = &container.value {
                             assert_eq!(container_name, "arr");
                         } else {
@@ -1679,7 +1668,10 @@ mod tests {
                 name: "complex field index assignment",
                 input: "self.data[i] = 42;",
                 validate_lvalue: |lvalue| {
-                    if let Expr::Index { container, index, .. } = lvalue {
+                    if let Expr::Index {
+                        container, index, ..
+                    } = lvalue
+                    {
                         if let Expr::FieldAccess { object, field } = &container.value {
                             if let Expr::Identifier(obj_name) = &object.value {
                                 assert_eq!(obj_name, "self");
@@ -1711,7 +1703,10 @@ mod tests {
                 name: "complex assignment with expression",
                 input: "self.data[i] = self.data[i] + 1;",
                 validate_lvalue: |lvalue| {
-                    if let Expr::Index { container, index, .. } = lvalue {
+                    if let Expr::Index {
+                        container, index, ..
+                    } = lvalue
+                    {
                         if let Expr::FieldAccess { object, field } = &container.value {
                             if let Expr::Identifier(obj_name) = &object.value {
                                 assert_eq!(obj_name, "self");
@@ -1734,7 +1729,10 @@ mod tests {
                 validate_rvalue: |rvalue| {
                     if let Expr::Binary { left, op, right } = rvalue {
                         assert_eq!(*op, BinaryOp::Add);
-                        if let Expr::Index { container, index, .. } = &left.value {
+                        if let Expr::Index {
+                            container, index, ..
+                        } = &left.value
+                        {
                             if let Expr::FieldAccess { object, field } = &container.value {
                                 if let Expr::Identifier(obj_name) = &object.value {
                                     assert_eq!(obj_name, "self");
@@ -1759,9 +1757,13 @@ mod tests {
 
         for test_case in test_cases {
             let mut lexer = Lexer::new(test_case.input);
-            let tokens = lexer.tokenize().unwrap_or_else(|e| panic!("Tokenize failed for {}: {}", test_case.name, e));
+            let tokens = lexer
+                .tokenize()
+                .unwrap_or_else(|e| panic!("Tokenize failed for {}: {}", test_case.name, e));
             let mut parser = Parser::new(tokens);
-            let stmt = parser.parse_stmt().unwrap_or_else(|e| panic!("Parse failed for {}: {}", test_case.name, e));
+            let stmt = parser
+                .parse_stmt()
+                .unwrap_or_else(|e| panic!("Parse failed for {}: {}", test_case.name, e));
 
             if let Stmt::Assign { lvalue, value } = stmt.value {
                 (test_case.validate_lvalue)(&lvalue.value);

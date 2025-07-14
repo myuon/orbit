@@ -131,7 +131,6 @@ impl Lexer {
                         "else" => TokenType::Else,
                         "while" => TokenType::While,
                         "new" => TokenType::New,
-                        "vec" => TokenType::Vec,
                         "map" => TokenType::Map,
                         "type" => TokenType::Type,
                         "struct" => TokenType::Struct,

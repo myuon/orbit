@@ -1,5 +1,5 @@
 fun main() do
-  let myVec = new myvector(int) {};
+  let myVec = new vec(int) {};
   myVec <- 1;
   myVec <- 2;
   myVec[0] = 10;

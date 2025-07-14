@@ -7,20 +7,20 @@ type array(T: type) = struct {
   end
 };
 
-type myvector(T: type) = struct {
+type vec(T: type) = struct {
   data: [*]T,
   length: int,
   capacity: int,
 
-  fun _new(): myvector(T) do
-    return new(struct) myvector(T) { 
+  fun _new(): vec(T) do
+    return new(struct) vec(T) { 
       .data = alloc(T, 4), 
       .length = 0, 
       .capacity = 4 
     };
   end
 
-  fun _push(self: myvector(T), item: T) do
+  fun _push(self: vec(T), item: T) do
     if (self.length >= self.capacity) do
       self.capacity = self.capacity * 2;
       let new_data = alloc(T, self.capacity);
@@ -37,11 +37,11 @@ type myvector(T: type) = struct {
     return 0;
   end
 
-  fun _get(self: myvector(T), index: int): T do
+  fun _get(self: vec(T), index: int): T do
     return self.data[index];
   end
 
-  fun _set(self: myvector(T), index: int, value: T) do
+  fun _set(self: vec(T), index: int, value: T) do
     self.data[index] = value;
     return 0;
   end

@@ -25,7 +25,10 @@ impl Type {
             _ => {
                 if type_str.starts_with("vec(") && type_str.ends_with(')') {
                     let inner = &type_str[4..type_str.len() - 1];
-                    Type::Vector(Box::new(Type::from_string(inner)))
+                    Type::Struct {
+                        name: "vec".to_string(),
+                        args: vec![Type::from_string(inner)],
+                    }
                 } else if type_str.starts_with("map(") && type_str.ends_with(')') {
                     let inner = &type_str[4..type_str.len() - 1];
                     if let Some(comma_pos) = inner.find(", ") {
@@ -88,7 +91,6 @@ impl Type {
             (Type::Int, Type::Int) => true,
             (Type::String, Type::String) => true,
             (Type::Byte, Type::Byte) => true,
-            (Type::Vector(e1), Type::Vector(e2)) => e1.is_compatible_with(e2),
             (Type::Pointer(e1), Type::Pointer(e2)) => e1.is_compatible_with(e2),
             (Type::Map(k1, v1), Type::Map(k2, v2)) => {
                 k1.is_compatible_with(k2) && v1.is_compatible_with(v2)
@@ -129,7 +131,6 @@ impl Type {
             (Type::Boolean, Type::Boolean) => true,
             (Type::Int, Type::Int) => true,
             (Type::String, Type::String) => true,
-            (Type::Vector(e1), Type::Vector(e2)) => e1.is_exactly(e2),
             (Type::Pointer(e1), Type::Pointer(e2)) => e1.is_exactly(e2),
             (Type::Map(k1, v1), Type::Map(k2, v2)) => k1.is_exactly(k2) && v1.is_exactly(v2),
             (Type::Struct { name: n1, args: a1 }, Type::Struct { name: n2, args: a2 }) => {
@@ -246,9 +247,6 @@ impl TypeChecker {
                     name: name.clone(),
                     args: resolved_args,
                 })
-            }
-            Type::Vector(elem_type) => {
-                Type::Vector(Box::new(self.resolve_type_recursive(elem_type)))
             }
             Type::Map(key_type, value_type) => Type::Map(
                 Box::new(self.resolve_type_recursive(key_type)),
@@ -474,7 +472,7 @@ impl TypeChecker {
                 let container_value_type_result = self.check_expression(container)?;
                 *container_value_type = Some(container_value_type_result.clone());
                 match &container_value_type_result {
-                    Type::Vector(_) => {
+                    Type::Struct { name, .. } if name == "vec" => {
                         *container_type = Some(IndexContainerType::Vector);
                     }
                     Type::Map(_, _) => {
@@ -490,14 +488,14 @@ impl TypeChecker {
                         name: struct_name,
                         args: _,
                     } => {
-                        // Check if this is a myvector type that supports indexing
+                        // Check if this is a vec type that supports indexing
                         let base_name = if struct_name.contains('(') {
                             struct_name.split('(').next().unwrap()
                         } else {
                             struct_name
                         };
 
-                        if base_name == "myvector" {
+                        if base_name == "vec" {
                             *container_type = Some(IndexContainerType::Vector);
                         }
                     }
@@ -820,35 +818,48 @@ impl TypeChecker {
                 *vtype = Some(vector_type.clone());
 
                 match &vector_type {
-                    Type::Vector(element_type) => {
-                        if !value_type.is_compatible_with(element_type) {
-                            bail!(
-                                "Vector push type mismatch: vector element type is {}, pushed {}",
-                                element_type,
-                                value_type
-                            );
+                    Type::Struct { name, args } if name == "vec" => {
+                        if let Some(element_type) = args.first() {
+                            if !value_type.is_compatible_with(element_type) {
+                                bail!(
+                                    "Vector push type mismatch: vector element type is {}, pushed {}",
+                                    element_type,
+                                    value_type
+                                );
+                            }
                         }
                     }
                     Type::Struct {
                         name: struct_name,
                         args,
                     } => {
-                        // Check if this is a myvector type that supports push
+                        // Check if this is a vec type that supports push
                         let base_name = if struct_name.contains('(') {
                             struct_name.split('(').next().unwrap()
                         } else {
                             struct_name
                         };
 
-                        if base_name == "myvector" || struct_name == "myvector" {
+                        if base_name == "vec" || struct_name == "vec" {
                             // Check if _push method exists
-                            let push_method_name = format!("{}___push", if base_name == "myvector" { base_name } else { struct_name });
+                            let push_method_name = if base_name == "vec" {
+                                format!(
+                                    "{}({})__push",
+                                    base_name,
+                                    args.iter()
+                                        .map(|t| t.to_string())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                )
+                            } else {
+                                format!("{}__push", struct_name)
+                            };
                             if self.functions.contains_key(&push_method_name) {
-                                // For myvector(T), extract T and check compatibility
+                                // For vec(T), extract T and check compatibility
                                 if let Some(element_type) = if !args.is_empty() {
                                     args.get(0).cloned()
                                 } else {
-                                    self.extract_myvector_element_type(struct_name)
+                                    self.extract_vec_element_type(struct_name)
                                 } {
                                     if !value_type.is_compatible_with(&element_type) {
                                         bail!(
@@ -858,13 +869,10 @@ impl TypeChecker {
                                         );
                                     }
                                 } else {
-                                    bail!(
-                                        "Cannot determine element type for myvector: {}",
-                                        struct_name
-                                    );
+                                    bail!("Cannot determine element type for vec: {}", struct_name);
                                 }
                             } else {
-                                bail!("myvector type {} does not have a _push method", struct_name);
+                                bail!("vec type {} does not have a _push method", struct_name);
                             }
                         } else {
                             bail!("Cannot push to non-vector type: {}", vector_type);
@@ -877,10 +885,10 @@ impl TypeChecker {
         }
     }
 
-    /// Extract element type from myvector type string (e.g., "myvector(int)" -> Type::Int)
-    fn extract_myvector_element_type(&self, struct_name: &str) -> Option<Type> {
-        if struct_name.starts_with("myvector(") && struct_name.ends_with(')') {
-            let inner = &struct_name[9..struct_name.len() - 1]; // Remove "myvector(" and ")"
+    /// Extract element type from vec type string (e.g., "vec(int)" -> Type::Int)
+    fn extract_vec_element_type(&self, struct_name: &str) -> Option<Type> {
+        if struct_name.starts_with("vec(") && struct_name.ends_with(')') {
+            let inner = &struct_name[9..struct_name.len() - 1]; // Remove "vec(" and ")"
                                                                 // Check if this is a simple type parameter (single letter)
             if inner.len() == 1 && inner.chars().all(|c| c.is_alphabetic() && c.is_uppercase()) {
                 Some(Type::TypeParameter(inner.to_string()))
@@ -1098,7 +1106,10 @@ impl TypeChecker {
                     }
                 }
 
-                Ok(Type::Vector(Box::new(element_type)))
+                Ok(Type::Struct {
+                    name: "vec".to_string(),
+                    args: vec![element_type],
+                })
             }
 
             Expr::Index {
@@ -1112,11 +1123,15 @@ impl TypeChecker {
 
                 // Just perform type checking, inference will be done separately
                 match &container_value_type {
-                    Type::Vector(element_type) => {
+                    Type::Struct { name, args } if name == "vec" => {
                         if !index_type.is_compatible_with(&Type::Int) {
-                            bail!("Vector index must be number, got {}", index_type);
+                            bail!("vec index must be number, got {}", index_type);
                         }
-                        Ok(*element_type.clone())
+                        if let Some(element_type) = args.first() {
+                            Ok(element_type.clone())
+                        } else {
+                            bail!("vec type missing element type")
+                        }
                     }
                     Type::Map(key_type, value_type) => {
                         if !index_type.is_compatible_with(key_type) {
@@ -1142,31 +1157,42 @@ impl TypeChecker {
                         Ok(Type::Byte) // string indexing returns byte
                     }
                     Type::Struct { name, args } => {
-                        // Check if this is a myvector type that supports indexing
+                        // Check if this is a vec type that supports indexing
                         let base_name = if name.contains('(') {
                             name.split('(').next().unwrap()
                         } else {
                             name
                         };
 
-                        if base_name == "myvector" || name == "myvector" {
+                        if base_name == "vec" || name == "vec" {
                             // Check if _get method exists
-                            let get_method_name = format!("{}___get", if base_name == "myvector" { base_name } else { name });
+                            let get_method_name = if base_name == "vec" {
+                                format!(
+                                    "{}({})__get",
+                                    base_name,
+                                    args.iter()
+                                        .map(|t| t.to_string())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                )
+                            } else {
+                                format!("{}__get", name)
+                            };
                             if self.functions.contains_key(&get_method_name) {
                                 if !index_type.is_compatible_with(&Type::Int) {
-                                    bail!("myvector index must be number, got {}", index_type);
+                                    bail!("vec index must be number, got {}", index_type);
                                 }
-                                // For myvector(T), get the element type
+                                // For vec(T), get the element type
                                 if let Some(element_type) = args.get(0) {
                                     Ok(element_type.clone())
-                                } else if let Some(element_type) = self.extract_myvector_element_type(name) {
+                                } else if let Some(element_type) =
+                                    self.extract_vec_element_type(name)
+                                {
                                     // If the element type is a type parameter, we need to resolve it
                                     // For now, we'll use a simplified approach for concrete types
                                     if let Type::TypeParameter(_) = element_type {
                                         // Try to extract the concrete type from the struct name
-                                        if name.starts_with("myvector(")
-                                            && name.ends_with(')')
-                                        {
+                                        if name.starts_with("vec(") && name.ends_with(')') {
                                             let inner = &name[9..name.len() - 1];
                                             if inner != "T" {
                                                 // This is a concrete type like "int", not a type parameter
@@ -1183,13 +1209,10 @@ impl TypeChecker {
                                         Ok(element_type)
                                     }
                                 } else {
-                                    bail!(
-                                        "Cannot determine element type for myvector: {}",
-                                        name
-                                    );
+                                    bail!("Cannot determine element type for vec: {}", name);
                                 }
                             } else {
-                                bail!("myvector type {} does not have a _get method", name);
+                                bail!("vec type {} does not have a _get method", name);
                             }
                         } else {
                             bail!(
@@ -1494,7 +1517,11 @@ impl TypeChecker {
                                     // Method exists on the generic type, defer validation to monomorphization
                                     Ok(Type::Unknown)
                                 } else {
-                                    bail!("Method '{}' not found for struct type '{}'", method, name)
+                                    bail!(
+                                        "Method '{}' not found for struct type '{}'",
+                                        method,
+                                        name
+                                    )
                                 }
                             }
                         }
@@ -1679,8 +1706,8 @@ impl TypeChecker {
                 return Some(concrete_fields);
             }
 
-            if generic_name == "myvector" && concrete_args.len() == 1 {
-                // For myvector(T), we know the structure: { data: [*]T, length: int, capacity: int }
+            if generic_name == "vec" && concrete_args.len() == 1 {
+                // For vec(T), we know the structure: { data: [*]T, length: int, capacity: int }
                 let element_type = &concrete_args[0];
                 let mut concrete_fields = HashMap::new();
                 concrete_fields.insert(
@@ -1822,9 +1849,6 @@ impl TypeChecker {
                     .cloned()
                     .unwrap_or_else(|| field_type.clone())
             }
-            Type::Vector(elem_type) => Type::Vector(Box::new(
-                self.substitute_type_with_mapping(elem_type, type_mapping),
-            )),
             Type::Map(key_type, value_type) => Type::Map(
                 Box::new(self.substitute_type_with_mapping(key_type, type_mapping)),
                 Box::new(self.substitute_type_with_mapping(value_type, type_mapping)),
@@ -1897,8 +1921,32 @@ mod tests {
     #[test]
     fn test_vector_type_checking() {
         let input = r#"
+            type vec(T: type) = struct {
+              data: [*]T,
+              length: int,
+              capacity: int,
+              fun _new(): vec(T) do
+                return new(struct) vec(T) { .data = alloc(T, 4), .length = 0, .capacity = 4 };
+              end
+              fun _push(self: vec(T), item: T) do
+                self.data[self.length] = item;
+                self.length = self.length + 1;
+                return 0;
+              end
+              fun _get(self: vec(T), index: int): T do
+                return self.data[index];
+              end
+              fun _set(self: vec(T), index: int, value: T) do
+                self.data[index] = value;
+                return 0;
+              end
+            };
+            
             fun main() do
-                let v = new vec(int) {1, 2, 3};
+                let v = new vec(int) {};
+                v <- 1;
+                v <- 2;
+                v <- 3;
                 v[0] = 4;
                 return v[0];
             end

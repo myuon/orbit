@@ -204,15 +204,15 @@ impl DeadCodeEliminator {
                 }
             }
             Stmt::Assign { lvalue, value } => {
-                // Check if lvalue is an Index expression with myvector type
+                // Check if lvalue is an Index expression with vec type
                 if let Expr::Index { container, .. } = &lvalue.value {
                     // We need to determine the type of the container
-                    // For now, assume it's a myvector and mark _set method
+                    // For now, assume it's a vec and mark _set method
                     // TODO: This is a simplified approach - ideally we'd have type information
                     self.mark_expr_dependencies(container)?;
 
-                    // Mark _set method for myvector types
-                    let method_name = "myvector(int)__set".to_string();
+                    // Mark _set method for vec types
+                    let method_name = "vec(int)__set".to_string();
                     let _ = self.mark_function_reachable(&method_name);
                 }
 
@@ -227,10 +227,10 @@ impl DeadCodeEliminator {
                 self.mark_global_reachable(vector);
                 self.mark_expr_dependencies(value)?;
 
-                // If this is a myvector type, mark the _push method as used
+                // If this is a vec type, mark the _push method as used
                 if let Some(ref vtype) = vector_type {
                     match vtype {
-                        Type::Struct { name, args } if name == "myvector" => {
+                        Type::Struct { name, args } if name == "vec" => {
                             let type_params = if args.is_empty() {
                                 "T".to_string()
                             } else {
@@ -244,7 +244,7 @@ impl DeadCodeEliminator {
                         }
                         Type::Struct {
                             name: struct_name, ..
-                        } if struct_name.contains("myvector") => {
+                        } if struct_name.contains("vec") => {
                             let base_name = if struct_name.contains('(') {
                                 struct_name.split('(').next().unwrap()
                             } else {
@@ -351,9 +351,9 @@ impl DeadCodeEliminator {
                 self.mark_expr_dependencies(container)?;
                 self.mark_expr_dependencies(index)?;
 
-                // Mark _get method for myvector types
+                // Mark _get method for vec types
                 // TODO: This is a simplified approach - ideally we'd have type information
-                let method_name = "myvector(int)__get".to_string();
+                let method_name = "vec(int)__get".to_string();
                 let _ = self.mark_function_reachable(&method_name);
             }
             Expr::FieldAccess { object, .. } => {

@@ -472,8 +472,17 @@ impl Monomorphizer {
 
         // Also register methods as standalone functions with mangled names
         for method in &monomorphized_struct.methods {
-            let separator = if method.value.name.starts_with('_') { "___" } else { "__" };
-            let mangled_name = format!("{}{}{}", target.instantiated_name(), separator, method.value.name);
+            let separator = if method.value.name.starts_with('_') {
+                "___"
+            } else {
+                "__"
+            };
+            let mangled_name = format!(
+                "{}{}{}",
+                target.instantiated_name(),
+                separator,
+                method.value.name
+            );
             let mangled_function = Function {
                 name: mangled_name.clone(),
                 type_params: method.value.type_params.clone(),

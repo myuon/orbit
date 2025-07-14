@@ -12,7 +12,7 @@ Orbit is a statically typed programming language with JIT compilation for AArch6
 
 - `cargo check --message-format=short` - Check compilation errors
 - `cargo test --message-format=short` - Run all tests (ALWAYS run after changes)
-- `cargo test test_orbit_files --message-format=short` - Run integration tests
+- `cargo test test_program_files --message-format=short` - Run integration tests
 - `cargo fmt` - Format code before commits
 - `cargo fix` - Auto-fix warnings
 

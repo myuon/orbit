@@ -77,7 +77,6 @@ pub enum TokenType {
     While,
     // Vector keywords
     New,
-    Vec,
     Push,         // <-
     LeftBracket,  // [
     RightBracket, // ]
@@ -299,7 +298,6 @@ pub enum Type {
     Boolean,
     String,
     Byte,
-    Vector(Box<Type>),
     Map(Box<Type>, Box<Type>),
     Struct {
         name: String,
@@ -321,7 +319,6 @@ impl std::fmt::Display for Type {
             Type::Boolean => write!(f, "boolean"),
             Type::String => write!(f, "string"),
             Type::Byte => write!(f, "byte"),
-            Type::Vector(elem_type) => write!(f, "vec({})", elem_type),
             Type::Map(key_type, value_type) => write!(f, "map({}, {})", key_type, value_type),
             Type::Struct { name, args } => {
                 if args.is_empty() {
