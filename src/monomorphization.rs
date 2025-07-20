@@ -203,8 +203,8 @@ impl Monomorphizer {
                     // Look for type arguments in the arguments
                     let mut type_args = Vec::new();
                     for arg in args {
-                        if let Some(type_arg) = self.extract_type_from_expr(arg) {
-                            type_args.push(type_arg);
+                        if let Expr::TypeExpr { type_name } = &arg.value {
+                            type_args.push(type_name.clone());
                         }
                     }
 
@@ -336,27 +336,6 @@ impl Monomorphizer {
         Ok(())
     }
 
-    /// Extract type from expression if it's a type expression
-    fn extract_type_from_expr(&self, expr: &PositionedExpr) -> Option<Type> {
-        match &expr.value {
-            Expr::TypeExpr { type_name } => {
-                // Return the type directly since it's already parsed
-                Some(type_name.clone())
-            }
-            Expr::Identifier(name) => {
-                // Keep old handling for backward compatibility
-                match name.as_str() {
-                    "type" => Some(Type::TypeParameter("type".to_string())),
-                    "int" | "number" => Some(Type::Int),
-                    "bool" | "boolean" => Some(Type::Boolean),
-                    "string" => Some(Type::String),
-                    _ => None, // Don't assume all identifiers are types
-                }
-            }
-            // Add more type expression patterns as needed
-            _ => None,
-        }
-    }
 
     /// Process all targets and generate monomorphized code
     pub fn monomorphize(&mut self) -> Result<()> {
@@ -850,8 +829,8 @@ impl Monomorphizer {
                         // First n arguments should be type expressions
                         for (i, arg) in args.iter().enumerate() {
                             if i < num_type_params {
-                                if let Some(type_arg) = self.extract_type_from_expr(arg) {
-                                    type_args.push(type_arg);
+                                if let Expr::TypeExpr { type_name } = &arg.value {
+                                    type_args.push(type_name.clone());
                                 }
                             } else {
                                 remaining_args.push(self.substitute_expression_globally(arg)?);
