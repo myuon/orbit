@@ -732,7 +732,7 @@ impl Monomorphizer {
                 )),
             },
             Expr::Alloc { element_type, size } => Expr::Alloc {
-                element_type: substitute_type_in_string(element_type, substitutions),
+                element_type: Type::from_string(&substitute_type_in_string(&element_type.to_string(), substitutions)),
                 size: Box::new(self.substitute_expression(size, substitutions)?),
             },
             Expr::Sizeof { type_name } => Expr::Sizeof {
@@ -978,7 +978,7 @@ impl Monomorphizer {
                 type_name: type_name.clone(),
             },
             Expr::Alloc { element_type, size } => Expr::Alloc {
-                element_type: substitute_type_in_string_globally(element_type),
+                element_type: Type::from_string(&substitute_type_in_string_globally(&element_type.to_string())),
                 size: Box::new(self.substitute_expression_globally(size)?),
             },
             Expr::Sizeof { type_name } => Expr::Sizeof {

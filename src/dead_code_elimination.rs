@@ -350,7 +350,7 @@ impl DeadCodeEliminator {
                 self.mark_expr_dependencies(object)?;
             }
             Expr::Alloc { element_type, size } => {
-                self.mark_type_reachable(element_type);
+                self.mark_type_reachable(&element_type.to_string());
                 self.mark_expr_dependencies(size)?;
             }
             Expr::Sizeof { type_name } => {

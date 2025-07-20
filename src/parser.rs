@@ -1075,7 +1075,7 @@ impl Parser {
                 self.consume(TokenType::LeftParen)?; // consume '('
 
                 // Parse element type
-                let element_type = self.parse_type_name()?;
+                let element_type = Type::from_string(&self.parse_type_name()?);
 
                 self.consume(TokenType::Comma)?; // consume ','
 

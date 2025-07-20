@@ -697,7 +697,7 @@ impl CodeGenerator {
                 // Size-based alloc: compile the size expression
                 self.compile_expression(size);
                 // Push element size for multiplication
-                let element_size = self.sizeof_type(element_type);
+                let element_size = element_type.sizeof();
                 self.instructions
                     .push(Instruction::Push(element_size as i64));
                 // Multiply size by element size to get total size
@@ -708,7 +708,7 @@ impl CodeGenerator {
 
             Expr::Sizeof { type_name } => {
                 // Push the size of the type as a constant
-                let size = self.sizeof_type(&type_name.to_string());
+                let size = type_name.sizeof();
                 self.instructions.push(Instruction::Push(size as i64));
             }
 
@@ -794,40 +794,8 @@ impl CodeGenerator {
         }
     }
 
-    fn sizeof_type(&self, type_name: &str) -> usize {
-        match type_name {
-            "bool" | "boolean" => 1,
-            "byte" => 1,
-            "int" | "number" => 8, // Using 8 bytes for numbers
-            "string" => 8,         // String is a pointer, so 8 bytes
-            _ => {
-                if type_name.starts_with("[*]") {
-                    8 // Pointer types are 8 bytes
-                } else {
-                    // For struct types or unknown types, default to 8 bytes
-                    8
-                }
-            }
-        }
-    }
 }
 
-fn sizeof_type(type_name: &str) -> usize {
-    match type_name {
-        "bool" | "boolean" => 1,
-        "byte" => 1,
-        "int" | "number" => 8, // Using 8 bytes for numbers
-        "string" => 8,         // String is a pointer, so 8 bytes
-        _ => {
-            if type_name.starts_with("[*]") {
-                8 // Pointer types are 8 bytes
-            } else {
-                // For struct types or unknown types, default to 8 bytes
-                8
-            }
-        }
-    }
-}
 
 
 #[cfg(test)]

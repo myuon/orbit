@@ -1475,7 +1475,7 @@ impl TypeChecker {
             }
 
             Expr::Alloc { element_type, size } => {
-                let element_type = self.resolve_type(element_type);
+                let element_type = self.resolve_type_recursive(element_type);
 
                 // Size-based allocation
                 let size_type = self.check_expression(size)?;
