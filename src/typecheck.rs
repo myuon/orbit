@@ -219,18 +219,6 @@ impl TypeChecker {
         }
     }
 
-    /// Resolve a type string to a concrete type, handling type parameters
-    fn resolve_type(&self, type_str: &str) -> Type {
-        // First check if it's a type parameter
-        if let Some(param_type) = self.type_params.get(type_str) {
-            return param_type.clone();
-        }
-
-        // Try standard type parsing
-        let parsed_type = Type::simple_type_from_string(type_str);
-        self.resolve_type_recursive(&parsed_type)
-    }
-
     fn resolve_type_recursive(&self, type_obj: &Type) -> Type {
         match type_obj {
             Type::Struct { name, args } => {
