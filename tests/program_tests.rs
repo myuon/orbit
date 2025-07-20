@@ -3,11 +3,24 @@ use std::path::Path;
 
 use orbit::{execute_code, execute_code_with_output};
 
+#[derive(Debug)]
+enum TestResult {
+    Passed,
+    Failed(String),
+}
+
+struct TestSummary {
+    name: String,
+    result: TestResult,
+}
+
 #[test]
 fn test_program_files() {
     let testcase_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("testcase");
+
+    let mut all_results = Vec::new();
 
     // Test success cases
     let mut success_test_files = Vec::new();
@@ -28,7 +41,8 @@ fn test_program_files() {
     );
 
     for test_file in success_test_files {
-        run_single_program_test(&test_file);
+        let result = run_single_program_test_safe(&test_file);
+        all_results.push(result);
     }
 
     // Test error cases
@@ -47,7 +61,57 @@ fn test_program_files() {
         }
 
         for test_file in error_test_files {
-            run_single_error_test(&test_file);
+            let result = run_single_error_test_safe(&test_file);
+            all_results.push(result);
+        }
+    }
+
+    // Print summary
+    let passed_count = all_results.iter().filter(|r| matches!(r.result, TestResult::Passed)).count();
+    let failed_count = all_results.len() - passed_count;
+
+    println!("\n=== Test Summary ===");
+    println!("Total: {}, Passed: {}, Failed: {}", all_results.len(), passed_count, failed_count);
+
+    if failed_count > 0 {
+        println!("\nFailed tests:");
+        for summary in &all_results {
+            if let TestResult::Failed(error) = &summary.result {
+                println!("  ✗ {}: {}", summary.name, error);
+            }
+        }
+        
+        panic!("Some tests failed. See details above.");
+    } else {
+        println!("All tests passed!");
+    }
+}
+
+fn run_single_program_test_safe(test_file: &Path) -> TestSummary {
+    let test_name = test_file.file_stem().unwrap().to_str().unwrap().to_string();
+    println!("Running program test: {}", test_name);
+
+    let result = std::panic::catch_unwind(|| {
+        run_single_program_test(test_file);
+    });
+
+    match result {
+        Ok(_) => TestSummary {
+            name: test_name.clone(),
+            result: TestResult::Passed,
+        },
+        Err(panic_info) => {
+            let error_message = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "Unknown panic".to_string()
+            };
+            TestSummary {
+                name: test_name.clone(),
+                result: TestResult::Failed(error_message),
+            }
         }
     }
 }
@@ -146,6 +210,35 @@ fn run_single_program_test(test_file: &Path) {
     }
 
     println!("✓ Program test {} passed", test_name);
+}
+
+fn run_single_error_test_safe(test_file: &Path) -> TestSummary {
+    let test_name = test_file.file_stem().unwrap().to_str().unwrap().to_string();
+    println!("Running error test: {}", test_name);
+
+    let result = std::panic::catch_unwind(|| {
+        run_single_error_test(test_file);
+    });
+
+    match result {
+        Ok(_) => TestSummary {
+            name: format!("{} (error)", test_name),
+            result: TestResult::Passed,
+        },
+        Err(panic_info) => {
+            let error_message = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "Unknown panic".to_string()
+            };
+            TestSummary {
+                name: format!("{} (error)", test_name),
+                result: TestResult::Failed(error_message),
+            }
+        }
+    }
 }
 
 fn run_single_error_test(test_file: &Path) {
