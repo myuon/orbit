@@ -1,0 +1,7 @@
+[tasks.fmt]
+description = "Format code and commit changes"
+run = [
+    "cargo fmt",
+    "git add .",
+    "git commit -m 'style: cargo format'"
+]

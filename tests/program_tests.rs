@@ -67,11 +67,19 @@ fn test_program_files() {
     }
 
     // Print summary
-    let passed_count = all_results.iter().filter(|r| matches!(r.result, TestResult::Passed)).count();
+    let passed_count = all_results
+        .iter()
+        .filter(|r| matches!(r.result, TestResult::Passed))
+        .count();
     let failed_count = all_results.len() - passed_count;
 
     println!("\n=== Test Summary ===");
-    println!("Total: {}, Passed: {}, Failed: {}", all_results.len(), passed_count, failed_count);
+    println!(
+        "Total: {}, Passed: {}, Failed: {}",
+        all_results.len(),
+        passed_count,
+        failed_count
+    );
 
     if failed_count > 0 {
         println!("\nFailed tests:");
@@ -80,7 +88,7 @@ fn test_program_files() {
                 println!("  ✗ {}: {}", summary.name, error);
             }
         }
-        
+
         panic!("Some tests failed. See details above.");
     } else {
         println!("All tests passed!");

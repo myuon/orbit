@@ -321,12 +321,12 @@ impl Type {
             Type::Boolean => 1,
             Type::Byte => 1,
             Type::Int => 8,
-            Type::String => 8, // String is a pointer, so 8 bytes
-            Type::Pointer(_) => 8, // Pointer types are 8 bytes
-            Type::Struct { .. } => 8, // For struct types, default to 8 bytes
-            Type::Function { .. } => 8, // Function pointers are 8 bytes
+            Type::String => 8,           // String is a pointer, so 8 bytes
+            Type::Pointer(_) => 8,       // Pointer types are 8 bytes
+            Type::Struct { .. } => 8,    // For struct types, default to 8 bytes
+            Type::Function { .. } => 8,  // Function pointers are 8 bytes
             Type::TypeParameter(_) => 8, // Type parameters default to 8 bytes
-            Type::Unknown => 8, // Unknown types default to 8 bytes
+            Type::Unknown => 8,          // Unknown types default to 8 bytes
         }
     }
 }

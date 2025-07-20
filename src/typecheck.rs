@@ -445,7 +445,10 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Expr::Cast { expr, target_type: _ } => {
+            Expr::Cast {
+                expr,
+                target_type: _,
+            } => {
                 self.infer_expression_types(expr)?;
                 Ok(())
             }
@@ -457,7 +460,6 @@ impl TypeChecker {
                 self.infer_expression_types(size)?;
                 Ok(())
             }
-
 
             Expr::Binary { left, right, .. } => {
                 self.infer_expression_types(left)?;
@@ -991,7 +993,10 @@ impl TypeChecker {
                             bail!("Addition operation type mismatch: {} + {} (can only add numbers/bytes or concatenate strings)", left_type, right_type);
                         }
                     }
-                    BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Modulo => {
+                    BinaryOp::Subtract
+                    | BinaryOp::Multiply
+                    | BinaryOp::Divide
+                    | BinaryOp::Modulo => {
                         if left_type.is_numeric_or_unknown() && right_type.is_numeric_or_unknown() {
                             Ok(Type::Int) // arithmetic with bytes always promotes to int
                         } else {
@@ -2019,7 +2024,6 @@ mod tests {
         assert!(result.is_ok());
     }
 
-
     #[test]
     fn test_type_error_detection() {
         let input = r#"
@@ -2112,4 +2116,3 @@ mod tests {
         assert!(error_msg.contains("strings are immutable"));
     }
 }
-

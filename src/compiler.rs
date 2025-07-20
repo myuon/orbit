@@ -353,7 +353,7 @@ impl Compiler {
     /// Format a parse error with position information
     pub fn format_parse_error(&self, error: &anyhow::Error) -> String {
         let error_msg = error.to_string();
-        
+
         // Look for "at position X" pattern in parse errors
         if let Some(pos_start) = error_msg.find("at position ") {
             if let Some(pos_str) = error_msg[pos_start + 12..].split_whitespace().next() {
@@ -361,9 +361,9 @@ impl Compiler {
                     if let Some(location) = self.position_to_location(position) {
                         // Extract the actual error message before "at position"
                         let actual_msg = error_msg[..pos_start].trim();
-                        
+
                         let diagnostic = Diagnostic::error_at(actual_msg.to_string(), location);
-                        
+
                         // Use the position calculator to format with correct source context
                         if let Some(calc) = &self.position_calculator {
                             return diagnostic.format_with_calculator(calc);
@@ -372,7 +372,7 @@ impl Compiler {
                 }
             }
         }
-        
+
         // If no position found, use the general error formatter
         self.format_error_with_position(error)
     }
@@ -530,10 +530,7 @@ impl Compiler {
                             self.format_expression(&value_expr.value)
                         ));
                     } else {
-                        output.push_str(&format!(
-                            "let {};\n\n",
-                            var.value.name
-                        ));
+                        output.push_str(&format!("let {};\n\n", var.value.name));
                     }
                 }
             }
@@ -803,7 +800,11 @@ impl Compiler {
             }
             crate::ast::Expr::TypeExpr { type_name } => type_name.to_string(),
             crate::ast::Expr::Sizeof { type_name } => format!("sizeof({})", type_name.to_string()),
-            crate::ast::Expr::Cast { expr, target_type } => format!("{} as {}", self.format_expression(&expr.value), target_type.to_string()),
+            crate::ast::Expr::Cast { expr, target_type } => format!(
+                "{} as {}",
+                self.format_expression(&expr.value),
+                target_type.to_string()
+            ),
         }
     }
 

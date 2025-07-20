@@ -122,7 +122,7 @@ impl Parser {
         } else {
             None
         };
-        
+
         self.consume(TokenType::Semicolon)?;
 
         let end_pos = if self.position > 0 {
@@ -659,13 +659,13 @@ impl Parser {
 
     fn parse_cast(&mut self) -> Result<PositionedExpr> {
         let mut expr = self.parse_primary()?;
-        
+
         while matches!(self.current_token().token_type, TokenType::As) {
             self.advance(); // consume 'as'
             let target_type = self.parse_type_name()?;
             let start_pos = expr.span.start.unwrap_or(0);
             let end_pos = expr.span.end.unwrap_or(start_pos);
-            
+
             expr = Positioned::new(
                 Expr::Cast {
                     expr: Box::new(expr),
@@ -674,7 +674,7 @@ impl Parser {
                 Span::new(start_pos, end_pos),
             );
         }
-        
+
         Ok(expr)
     }
 
@@ -1101,13 +1101,13 @@ impl Parser {
                 self.advance(); // consume 'sizeof'
                 self.consume(TokenType::LeftParen)?; // consume '('
                 self.consume(TokenType::Type)?; // consume 'type'
-                
+
                 // Parse the type
                 let type_name_str = self.parse_type_name()?;
                 let type_name = Type::from_string(&type_name_str);
-                
+
                 self.consume(TokenType::RightParen)?; // consume ')'
-                
+
                 let end_pos = if self.position > 0 {
                     self.tokens[self.position - 1].position
                 } else {

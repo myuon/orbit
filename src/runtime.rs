@@ -917,7 +917,6 @@ impl VM {
                 };
             }
 
-
             Instruction::PointerIndex => {
                 // Stack: [pointer_heap_ref] [element_index]
                 if self.stack.len() < 2 {

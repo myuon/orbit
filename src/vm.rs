@@ -75,7 +75,6 @@ pub enum Instruction {
     // String operations
     StringNew,
 
-
     // Pointer operations
     PointerIndex,
     PointerSet,

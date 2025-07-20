@@ -194,7 +194,10 @@ impl CodeGenerator {
             Expr::Sizeof { .. } => {
                 // sizeof expressions don't contain string constants
             }
-            Expr::Cast { expr, target_type: _ } => {
+            Expr::Cast {
+                expr,
+                target_type: _,
+            } => {
                 self.collect_string_constants_from_expr(expr);
             }
             Expr::TypeExpr { type_name } => {
@@ -712,7 +715,10 @@ impl CodeGenerator {
                 self.instructions.push(Instruction::Push(size as i64));
             }
 
-            Expr::Cast { expr, target_type: _ } => {
+            Expr::Cast {
+                expr,
+                target_type: _,
+            } => {
                 // For now, just compile the expression (no runtime cast needed)
                 self.compile_expression(expr);
             }
@@ -746,7 +752,6 @@ impl CodeGenerator {
                     }
                 }
             }
-
 
             Expr::StructNew {
                 type_name,
@@ -793,10 +798,7 @@ impl CodeGenerator {
             }
         }
     }
-
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -928,7 +930,6 @@ mod tests {
         let result = vm.execute().unwrap();
         assert_eq!(result, 99);
     }
-
 
     #[test]
     fn test_vm_simple_function() {
