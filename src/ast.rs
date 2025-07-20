@@ -46,6 +46,67 @@ impl<T> Positioned<T> {
     }
 }
 
+/// Custom error type with span information for better error handling
+#[derive(Debug, Clone)]
+pub struct CompilerError {
+    pub message: String,
+    pub span: Span,
+}
+
+impl std::fmt::Display for CompilerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for CompilerError {}
+
+impl CompilerError {
+    /// Create a compiler error with a span
+    pub fn new_with_span(message: String, span: Span) -> Self {
+        Self { message, span }
+    }
+
+    /// Create a compiler error without span information
+    pub fn new_without_span(message: String) -> Self {
+        Self {
+            message,
+            span: Span::unknown(),
+        }
+    }
+
+    /// Convert to anyhow::Error
+    pub fn into_anyhow(self) -> anyhow::Error {
+        anyhow::anyhow!(self)
+    }
+}
+
+/// Type alias for positioned errors - errors with span information
+pub type PositionedError = Positioned<anyhow::Error>;
+
+impl PositionedError {
+    /// Create a positioned error with a span
+    pub fn new_with_span(message: String, span: Span) -> Self {
+        Self {
+            value: anyhow::anyhow!(message),
+            span,
+        }
+    }
+
+    /// Create a positioned error from an anyhow::Error and span
+    pub fn from_error_with_span(error: anyhow::Error, span: Span) -> Self {
+        Self { value: error, span }
+    }
+
+    /// Create a positioned error without span information
+    pub fn new_without_span(message: String) -> Self {
+        Self {
+            value: anyhow::anyhow!(message),
+            span: Span::unknown(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     Int(i64),

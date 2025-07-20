@@ -1,4 +1,4 @@
-use crate::ast::{Program, StructNewKind};
+use crate::ast::{CompilerError, Program, StructNewKind};
 use crate::codegen::CodeGenerator;
 use crate::dead_code_elimination::DeadCodeEliminator;
 use crate::desugar::Desugarer;
@@ -377,8 +377,32 @@ impl Compiler {
         self.format_error_with_position(error)
     }
 
+    /// Extract CompilerError from an anyhow::Error if it exists
+    fn try_extract_compiler_error(&self, error: &anyhow::Error) -> Option<CompilerError> {
+        // Try to downcast to CompilerError
+        if let Some(compiler_error) = error.downcast_ref::<CompilerError>() {
+            return Some(compiler_error.clone());
+        }
+
+        // Check if the error chain contains a CompilerError
+        let mut current = error.source();
+        while let Some(source) = current {
+            if let Some(compiler_error) = source.downcast_ref::<CompilerError>() {
+                return Some(compiler_error.clone());
+            }
+            current = source.source();
+        }
+
+        None
+    }
+
     /// Format an error with position information
     pub fn format_error_with_position(&self, error: &anyhow::Error) -> String {
+        // First try to extract structured CompilerError
+        if let Some(compiler_error) = self.try_extract_compiler_error(error) {
+            return self.format_compiler_error(&compiler_error);
+        }
+
         // Get the full error chain including causes
         let full_error_msg = format!("{:?}", error);
 
@@ -410,6 +434,23 @@ impl Compiler {
 
         // Fallback to standard error formatting
         format!("error: {}", error_msg)
+    }
+
+    /// Format a compiler error using span information
+    fn format_compiler_error(&self, compiler_error: &CompilerError) -> String {
+        let error_msg = &compiler_error.message;
+        let span = &compiler_error.span;
+
+        // If we have span information and a position calculator, create a diagnostic
+        if let (Some(start_pos), Some(calc)) = (span.start, &self.position_calculator) {
+            let location = calc.position_to_location(start_pos, &self.current_filename);
+            let diagnostic =
+                Diagnostic::error_with_span(error_msg.clone(), span.clone(), Some(location));
+            diagnostic.format_with_calculator(calc)
+        } else {
+            // Fallback to standard error formatting
+            format!("error: {}", error_msg)
+        }
     }
 
     /// Tokenize the source code
@@ -495,7 +536,11 @@ impl Compiler {
                         output.push_str(&format!(
                             "{}: {}",
                             param.name,
-                            param.param_type.as_ref().map(|t| t.to_string()).unwrap_or("unknown".to_string())
+                            param
+                                .param_type
+                                .as_ref()
+                                .map(|t| t.to_string())
+                                .unwrap_or("unknown".to_string())
                         ));
                     }
                     output.push_str(") do\n");
@@ -518,7 +563,11 @@ impl Compiler {
                     }
                     output.push_str(" = struct {\n");
                     for field in &struct_decl.value.fields {
-                        output.push_str(&format!("    {}: {},\n", field.name, field.field_type.to_string()));
+                        output.push_str(&format!(
+                            "    {}: {},\n",
+                            field.name,
+                            field.field_type.to_string()
+                        ));
                     }
                     output.push_str("};\n\n");
                 }
@@ -559,7 +608,11 @@ impl Compiler {
                             output.push_str(&format!(
                                 "{}: {}",
                                 param.name,
-                                param.param_type.as_ref().map(|t| t.to_string()).unwrap_or("unknown".to_string())
+                                param
+                                    .param_type
+                                    .as_ref()
+                                    .map(|t| t.to_string())
+                                    .unwrap_or("unknown".to_string())
                             ));
                         }
                         output.push_str(") do\n");
@@ -579,7 +632,11 @@ impl Compiler {
                             output.push_str(&format!(
                                 "{}: {}",
                                 param.name,
-                                param.param_type.as_ref().map(|t| t.to_string()).unwrap_or("unknown".to_string())
+                                param
+                                    .param_type
+                                    .as_ref()
+                                    .map(|t| t.to_string())
+                                    .unwrap_or("unknown".to_string())
                             ));
                         }
                         output.push_str(") do\n");
@@ -605,7 +662,11 @@ impl Compiler {
                     }
 
                     for field in &struct_decl.value.fields {
-                        output.push_str(&format!("    {}: {}\n", field.name, field.field_type.to_string()));
+                        output.push_str(&format!(
+                            "    {}: {}\n",
+                            field.name,
+                            field.field_type.to_string()
+                        ));
                     }
                     output.push_str("};\n\n");
                 }

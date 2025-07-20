@@ -36,11 +36,11 @@ fn test_typecheck_error_position() {
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    let error_msg = compiler.format_error_with_position(&err);
+    let error_msg = format!("{:?}", err);
 
     // Should contain position information for undefined variable
     assert!(error_msg.contains("Undefined variable: unknown_var"));
-    assert!(error_msg.contains("at position"));
+    assert!(error_msg.contains("typecheck_undefined_variable.ob:2:"));
 }
 
 #[test]
@@ -55,11 +55,11 @@ fn test_if_condition_error_position() {
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    let error_msg = compiler.format_error_with_position(&err);
+    let error_msg = format!("{:?}", err);
 
     // Should contain position information for the condition
     assert!(error_msg.contains("If condition must be boolean"));
-    assert!(error_msg.contains("at position"));
+    assert!(error_msg.contains("typecheck_if_condition_error.ob:2:"));
 }
 
 #[test]
@@ -74,11 +74,11 @@ fn test_while_condition_error_position() {
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    let error_msg = compiler.format_error_with_position(&err);
+    let error_msg = format!("{:?}", err);
 
     // Should contain position information for the condition
     assert!(error_msg.contains("While condition must be boolean"));
-    assert!(error_msg.contains("at position"));
+    assert!(error_msg.contains("typecheck_while_condition_error.ob:2:"));
 }
 
 #[test]
@@ -157,11 +157,11 @@ fn test_error_position_with_disabled_std_lib() {
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    let error_msg = compiler.format_error_with_position(&err);
+    let error_msg = format!("{:?}", err);
 
     // Should still contain position information
     assert!(error_msg.contains("Undefined variable: unknown_var"));
-    assert!(error_msg.contains("at position"));
+    assert!(error_msg.contains("typecheck_undefined_variable.ob:2:"));
 }
 
 #[test]
@@ -173,7 +173,7 @@ fn test_error_position_with_enabled_std_lib() {
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    let error_msg = compiler.format_error_with_position(&err);
+    let error_msg = format!("{:?}", err);
 
     // Should contain position information and show proper file:line:column
     assert!(error_msg.contains("typecheck_undefined_variable.ob:2:"));
