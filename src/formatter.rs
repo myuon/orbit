@@ -128,6 +128,42 @@ impl OrbitFormatter {
                     )?;
                 }
 
+                // Format methods if any exist
+                if !struct_decl.value.methods.is_empty() {
+                    writeln!(writer)?;
+                    for method in &struct_decl.value.methods {
+                        write!(writer, "    fun {}(", method.value.name)?;
+
+                        // Format method parameters
+                        for (i, param) in method.value.params.iter().enumerate() {
+                            if i > 0 {
+                                write!(writer, ", ")?;
+                            }
+                            write!(
+                                writer,
+                                "{}: {}",
+                                param.name,
+                                param
+                                    .param_type
+                                    .as_ref()
+                                    .map(|t| t.to_string())
+                                    .unwrap_or_else(|| "unknown".to_string())
+                            )?;
+                        }
+
+                        writeln!(writer, ") do")?;
+
+                        // Format method body
+                        for stmt in &method.value.body {
+                            self.format_statement(&stmt.value, 2, writer)?;
+                            writeln!(writer)?;
+                        }
+
+                        writeln!(writer, "    end")?;
+                        writeln!(writer)?;
+                    }
+                }
+
                 writeln!(writer, "}};")?;
                 writeln!(writer)?;
             }
