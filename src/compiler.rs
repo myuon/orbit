@@ -409,7 +409,7 @@ impl Compiler {
 
     /// Format a positioned error using span information
     fn format_positioned_error(&self, positioned_error: &PositionedError) -> String {
-        let error_msg = &positioned_error.message;
+        let error_msg = &positioned_error.value;
         let span = &positioned_error.span;
 
         // If we have span information and a position calculator, create a diagnostic

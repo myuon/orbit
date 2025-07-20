@@ -51,60 +51,49 @@ impl<T> Positioned<T> {
     }
 }
 
-/// Positioned error with cloneable string message
+/// Positioned error - wrapper around anyhow::Error with position information
 #[derive(Debug, Clone)]
 pub struct PositionedError {
-    pub message: String,
+    pub value: String, // Store the error message as string to allow cloning
     pub span: Span,
 }
 
 impl PositionedError {
-    /// Create a positioned error with a span from a string message
-    pub fn new_with_span(message: String, span: Span) -> Self {
-        Self { message, span }
-    }
-
-    /// Create a positioned error from an anyhow::Error and span  
-    pub fn from_error_with_span(error: anyhow::Error, span: Span) -> Self {
+    pub fn new(value: anyhow::Error, span: Span) -> Self {
         Self {
-            message: error.to_string(),
+            value: value.to_string(),
             span,
         }
     }
 
-    /// Create a positioned error without span information
-    pub fn new_without_span(message: String) -> Self {
+    pub fn new_with_message(message: String, span: Span) -> Self {
         Self {
-            message,
-            span: Span::unknown(),
+            value: message,
+            span,
         }
-    }
-
-    /// Convert to anyhow::Error (for Result compatibility)
-    pub fn into_anyhow(self) -> anyhow::Error {
-        anyhow::Error::from(self)
     }
 }
 
 impl std::fmt::Display for PositionedError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
+        write!(f, "{}", self.value)
     }
 }
 
 impl std::error::Error for PositionedError {}
 
+
 /// Macro for creating positioned errors similar to anyhow!
 #[macro_export]
 macro_rules! anyhow_with_position {
     ($span:expr, $msg:literal $(,)?) => {
-        $crate::utils::positioned::PositionedError::new_with_span($msg.to_string(), $span)
+        anyhow::Error::new($crate::utils::positioned::PositionedError::new_with_message($msg.to_string(), $span))
     };
     ($span:expr, $err:expr $(,)?) => {
-        $crate::utils::positioned::PositionedError::from_error_with_span($err, $span)
+        anyhow::Error::new($crate::utils::positioned::PositionedError::new($err, $span))
     };
     ($span:expr, $fmt:expr, $($arg:tt)*) => {
-        $crate::utils::positioned::PositionedError::new_with_span(format!($fmt, $($arg)*), $span)
+        anyhow::Error::new($crate::utils::positioned::PositionedError::new_with_message(format!($fmt, $($arg)*), $span))
     };
 }
 
@@ -112,12 +101,12 @@ macro_rules! anyhow_with_position {
 #[macro_export]
 macro_rules! bail_with_position {
     ($span:expr, $msg:literal $(,)?) => {
-        return Err($crate::anyhow_with_position!($span, $msg).into_anyhow())
+        return Err($crate::anyhow_with_position!($span, $msg))
     };
     ($span:expr, $err:expr $(,)?) => {
-        return Err($crate::anyhow_with_position!($span, $err).into_anyhow())
+        return Err($crate::anyhow_with_position!($span, $err))
     };
     ($span:expr, $fmt:expr, $($arg:tt)*) => {
-        return Err($crate::anyhow_with_position!($span, $fmt, $($arg)*).into_anyhow())
+        return Err($crate::anyhow_with_position!($span, $fmt, $($arg)*))
     };
 }

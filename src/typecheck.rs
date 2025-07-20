@@ -946,7 +946,7 @@ impl TypeChecker {
             Expr::Identifier(name) => {
                 let name_clone = name.clone();
                 self.lookup_variable(name).map_err(|_| {
-                    crate::anyhow_with_position!(expr.span.clone(), "Undefined variable: {}", name_clone).into_anyhow()
+                    crate::anyhow_with_position!(expr.span.clone(), "Undefined variable: {}", name_clone)
                 })
             }
 
@@ -1336,7 +1336,7 @@ impl TypeChecker {
                 // Check that all provided fields are valid and have correct types
                 for (field_name, field_value) in fields {
                     let field_type = struct_fields.get(field_name).ok_or_else(|| {
-                        crate::anyhow_with_position!(field_value.span.clone(), "Unknown field '{}' in struct '{}'", field_name, type_name).into_anyhow()
+                        crate::anyhow_with_position!(field_value.span.clone(), "Unknown field '{}' in struct '{}'", field_name, type_name)
                     })?;
 
                     let actual_type = self.check_expression(field_value)?;
@@ -1420,7 +1420,7 @@ impl TypeChecker {
                                         "Field '{}' not found in struct '{}'",
                                         field,
                                         struct_name
-                                    ).into_anyhow()
+                                    )
                                 })
                             } else if let Some(generic_fields) =
                                 self.resolve_generic_struct_fields(&Type::Struct {
@@ -1435,7 +1435,7 @@ impl TypeChecker {
                                         "Field '{}' not found in struct '{}'",
                                         field,
                                         struct_name
-                                    ).into_anyhow()
+                                    )
                                 })
                             } else {
                                 bail_with_position!(object.span.clone(), "Unknown struct type: {}", struct_name)
@@ -1460,7 +1460,7 @@ impl TypeChecker {
                                         "Field '{}' not found in generic struct '{}'",
                                         field,
                                         type_name
-                                    ).into_anyhow()
+                                    )
                                 })
                             } else {
                                 bail_with_position!(object.span.clone(), "Cannot resolve fields for generic type: {}", type_name)
