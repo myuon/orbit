@@ -4,6 +4,7 @@ pub mod compiler;
 pub mod dead_code_elimination;
 pub mod desugar;
 pub mod diagnostics;
+pub mod formatter;
 pub mod label_resolution;
 pub mod lexer;
 pub mod monomorphization;

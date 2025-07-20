@@ -1,8 +1,9 @@
-use crate::ast::{PositionedError, Program, StructNewKind};
+use crate::ast::{PositionedError, Program};
 use crate::codegen::CodeGenerator;
 use crate::dead_code_elimination::DeadCodeEliminator;
 use crate::desugar::Desugarer;
 use crate::diagnostics::{Diagnostic, PositionCalculator};
+use crate::formatter::OrbitFormatter;
 use crate::label_resolution::LabelResolver;
 use crate::lexer::Lexer;
 use crate::monomorphization::Monomorphizer;
@@ -10,6 +11,7 @@ use crate::parser::Parser;
 use crate::runtime::{Runtime, Value};
 use crate::typecheck::TypeChecker;
 use anyhow::{Context, Result};
+use std::io::Write;
 
 /// Compiler configuration options
 #[derive(Debug, Clone)]
@@ -198,14 +200,24 @@ impl Compiler {
 
         // Handle monomorphized code dumping if requested (early, before potential errors)
         if self.options.dump_monomorphized_code {
-            let dump_output = self.format_monomorphized_program(&monomorphized_program);
+            let formatter = OrbitFormatter::new();
             if let Some(output_file) = &self.options.dump_monomorphized_code_output {
-                std::fs::write(output_file, &dump_output).map_err(|e| {
-                    anyhow::anyhow!("Failed to write monomorphized code dump: {}", e)
+                let mut file = std::fs::File::create(output_file).map_err(|e| {
+                    anyhow::anyhow!("Failed to create monomorphized code dump file: {}", e)
                 })?;
+                formatter
+                    .format_monomorphized_program(&monomorphized_program, &mut file)
+                    .map_err(|e| {
+                        anyhow::anyhow!("Failed to write monomorphized code dump: {}", e)
+                    })?;
             } else {
                 println!("=== Monomorphized Code ===");
-                println!("{}", dump_output);
+                let mut stdout = std::io::stdout();
+                formatter
+                    .format_monomorphized_program(&monomorphized_program, &mut stdout)
+                    .map_err(|e| {
+                        anyhow::anyhow!("Failed to write monomorphized code to stdout: {}", e)
+                    })?;
                 println!(); // Add a blank line before continuing
             }
         }
@@ -218,13 +230,22 @@ impl Compiler {
 
         // Handle desugared code dumping if requested
         if self.options.dump_desugared_code {
-            let dump_output = self.format_desugared_program(&desugared_program);
+            let formatter = OrbitFormatter::new();
             if let Some(output_file) = &self.options.dump_desugared_code_output {
-                std::fs::write(output_file, &dump_output)
+                let mut file = std::fs::File::create(output_file).map_err(|e| {
+                    anyhow::anyhow!("Failed to create desugared code dump file: {}", e)
+                })?;
+                formatter
+                    .format_desugared_program(&desugared_program, &mut file)
                     .map_err(|e| anyhow::anyhow!("Failed to write desugared code dump: {}", e))?;
             } else {
                 println!("=== Desugared Code ===");
-                println!("{}", dump_output);
+                let mut stdout = std::io::stdout();
+                formatter
+                    .format_desugared_program(&desugared_program, &mut stdout)
+                    .map_err(|e| {
+                        anyhow::anyhow!("Failed to write desugared code to stdout: {}", e)
+                    })?;
                 println!(); // Add a blank line before continuing
             }
         }
@@ -240,31 +261,60 @@ impl Compiler {
 
             // Handle dead code elimination dumping if requested
             if self.options.dump_dce_code {
-                let dump_output = self.format_desugared_program(&dce_program);
+                let formatter = OrbitFormatter::new();
                 let stats = dce.get_elimination_stats();
-                let mut output = format!("=== Dead Code Elimination Results ===\n");
-                output.push_str(&format!(
-                    "Functions eliminated: {} (kept {})\n",
-                    stats.eliminated_functions(),
-                    stats.reachable_functions
-                ));
-                output.push_str(&format!(
-                    "Types eliminated: {} (kept {})\n",
-                    stats.eliminated_types(),
-                    stats.reachable_types
-                ));
-                output.push_str(&format!(
-                    "Globals eliminated: {} (kept {})\n\n",
-                    stats.eliminated_globals(),
-                    stats.reachable_globals
-                ));
-                output.push_str(&dump_output);
 
                 if let Some(output_file) = &self.options.dump_dce_code_output {
-                    std::fs::write(output_file, &output)
+                    let mut file = std::fs::File::create(output_file)
+                        .map_err(|e| anyhow::anyhow!("Failed to create DCE dump file: {}", e))?;
+
+                    writeln!(file, "=== Dead Code Elimination Results ===")?;
+                    writeln!(
+                        file,
+                        "Functions eliminated: {} (kept {})",
+                        stats.eliminated_functions(),
+                        stats.reachable_functions
+                    )?;
+                    writeln!(
+                        file,
+                        "Types eliminated: {} (kept {})",
+                        stats.eliminated_types(),
+                        stats.reachable_types
+                    )?;
+                    writeln!(
+                        file,
+                        "Globals eliminated: {} (kept {})\n",
+                        stats.eliminated_globals(),
+                        stats.reachable_globals
+                    )?;
+
+                    formatter
+                        .format_program(&dce_program, &mut file)
                         .map_err(|e| anyhow::anyhow!("Failed to write DCE dump: {}", e))?;
                 } else {
-                    println!("{}", output);
+                    println!("=== Dead Code Elimination Results ===");
+                    println!(
+                        "Functions eliminated: {} (kept {})",
+                        stats.eliminated_functions(),
+                        stats.reachable_functions
+                    );
+                    println!(
+                        "Types eliminated: {} (kept {})",
+                        stats.eliminated_types(),
+                        stats.reachable_types
+                    );
+                    println!(
+                        "Globals eliminated: {} (kept {})\n",
+                        stats.eliminated_globals(),
+                        stats.reachable_globals
+                    );
+
+                    let mut stdout = std::io::stdout();
+                    formatter
+                        .format_program(&dce_program, &mut stdout)
+                        .map_err(|e| {
+                            anyhow::anyhow!("Failed to write DCE dump to stdout: {}", e)
+                        })?;
                 }
             }
 
@@ -488,373 +538,6 @@ impl Compiler {
         let resolved_instructions = label_resolver.resolve_labels(instructions);
 
         Ok(resolved_instructions)
-    }
-
-    /// Format a desugared program as readable code
-    fn format_desugared_program(&self, program: &Program) -> String {
-        let mut output = String::new();
-        output.push_str("// === Desugared Code Output ===\n");
-        output.push_str("// This shows the program after desugaring transformations\n\n");
-
-        for decl in &program.declarations {
-            match &decl.value {
-                crate::ast::Decl::Function(func) => {
-                    output.push_str(&format!("fun {}(", func.value.name));
-                    for (i, param) in func.value.params.iter().enumerate() {
-                        if i > 0 {
-                            output.push_str(", ");
-                        }
-                        output.push_str(&format!(
-                            "{}: {}",
-                            param.name,
-                            param
-                                .param_type
-                                .as_ref()
-                                .map(|t| t.to_string())
-                                .unwrap_or("unknown".to_string())
-                        ));
-                    }
-                    output.push_str(") do\n");
-                    for stmt in &func.value.body {
-                        output.push_str(&format!("{}\n", self.format_statement(&stmt.value, 1)));
-                    }
-                    output.push_str("end\n\n");
-                }
-                crate::ast::Decl::Struct(struct_decl) => {
-                    output.push_str(&format!("type {}", struct_decl.value.name));
-                    if !struct_decl.value.type_params.is_empty() {
-                        output.push('(');
-                        for (i, param) in struct_decl.value.type_params.iter().enumerate() {
-                            if i > 0 {
-                                output.push_str(", ");
-                            }
-                            output.push_str(&format!("{}: type", param));
-                        }
-                        output.push(')');
-                    }
-                    output.push_str(" = struct {\n");
-                    for field in &struct_decl.value.fields {
-                        output.push_str(&format!(
-                            "    {}: {},\n",
-                            field.name,
-                            field.field_type.to_string()
-                        ));
-                    }
-                    output.push_str("};\n\n");
-                }
-                crate::ast::Decl::GlobalVariable(var) => {
-                    if let Some(ref value_expr) = var.value.value {
-                        output.push_str(&format!(
-                            "let {} = {};\n\n",
-                            var.value.name,
-                            self.format_expression(&value_expr.value)
-                        ));
-                    } else {
-                        output.push_str(&format!("let {};\n\n", var.value.name));
-                    }
-                }
-            }
-        }
-
-        output
-    }
-
-    /// Format a monomorphized program as readable code
-    fn format_monomorphized_program(&self, program: &Program) -> String {
-        let mut output = String::new();
-
-        for decl in &program.declarations {
-            match &decl.value {
-                crate::ast::Decl::Function(func) => {
-                    if !func.value.type_params.is_empty() {
-                        output.push_str(&format!("fun {}(", func.value.name));
-                        for (i, param) in func.value.type_params.iter().enumerate() {
-                            if i > 0 {
-                                output.push_str(", ");
-                            }
-                            output.push_str(&format!("{}: type", param));
-                        }
-                        for param in &func.value.params {
-                            output.push_str(", ");
-                            output.push_str(&format!(
-                                "{}: {}",
-                                param.name,
-                                param
-                                    .param_type
-                                    .as_ref()
-                                    .map(|t| t.to_string())
-                                    .unwrap_or("unknown".to_string())
-                            ));
-                        }
-                        output.push_str(") do\n");
-                        for stmt in &func.value.body {
-                            output.push_str(&format!(
-                                "    {}\n",
-                                self.format_statement(&stmt.value, 1)
-                            ));
-                        }
-                        output.push_str("end\n\n");
-                    } else {
-                        output.push_str(&format!("fun {}(", func.value.name));
-                        for (i, param) in func.value.params.iter().enumerate() {
-                            if i > 0 {
-                                output.push_str(", ");
-                            }
-                            output.push_str(&format!(
-                                "{}: {}",
-                                param.name,
-                                param
-                                    .param_type
-                                    .as_ref()
-                                    .map(|t| t.to_string())
-                                    .unwrap_or("unknown".to_string())
-                            ));
-                        }
-                        output.push_str(") do\n");
-                        for stmt in &func.value.body {
-                            output
-                                .push_str(&format!("{}\n", self.format_statement(&stmt.value, 1)));
-                        }
-                        output.push_str("end\n\n");
-                    }
-                }
-                crate::ast::Decl::Struct(struct_decl) => {
-                    if !struct_decl.value.type_params.is_empty() {
-                        output.push_str(&format!("type {}(", struct_decl.value.name));
-                        for (i, param) in struct_decl.value.type_params.iter().enumerate() {
-                            if i > 0 {
-                                output.push_str(", ");
-                            }
-                            output.push_str(&format!("{}: type", param));
-                        }
-                        output.push_str(") = struct {\n");
-                    } else {
-                        output.push_str(&format!("type {} = struct {{\n", struct_decl.value.name));
-                    }
-
-                    for field in &struct_decl.value.fields {
-                        output.push_str(&format!(
-                            "    {}: {}\n",
-                            field.name,
-                            field.field_type.to_string()
-                        ));
-                    }
-                    output.push_str("};\n\n");
-                }
-                crate::ast::Decl::GlobalVariable(var) => {
-                    output.push_str(&format!("let {} = /* ... */;\n\n", var.value.name));
-                }
-            }
-        }
-
-        output
-    }
-
-    /// Format a statement as readable code with proper indentation
-    fn format_statement(&self, stmt: &crate::ast::Stmt, indent_level: usize) -> String {
-        let indent = "    ".repeat(indent_level);
-        match stmt {
-            crate::ast::Stmt::Let { name, value } => {
-                format!(
-                    "{}let {} = {};",
-                    indent,
-                    name,
-                    self.format_expression(&value.value)
-                )
-            }
-            crate::ast::Stmt::Expression(expr) => {
-                format!("{}{};", indent, self.format_expression(&expr.value))
-            }
-            crate::ast::Stmt::Return(expr) => {
-                format!("{}return {};", indent, self.format_expression(&expr.value))
-            }
-            crate::ast::Stmt::Assign { lvalue, value } => {
-                format!(
-                    "{}{} = {};",
-                    indent,
-                    self.format_expression(&lvalue.value),
-                    self.format_expression(&value.value)
-                )
-            }
-            crate::ast::Stmt::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                let mut result = format!(
-                    "{}if {} do\n",
-                    indent,
-                    self.format_expression(&condition.value)
-                );
-                for stmt in then_branch {
-                    result.push_str(&format!(
-                        "{}\n",
-                        self.format_statement(&stmt.value, indent_level + 1)
-                    ));
-                }
-                if let Some(else_branch) = else_branch {
-                    result.push_str(&format!("{}else do\n", indent));
-                    for stmt in else_branch {
-                        result.push_str(&format!(
-                            "{}\n",
-                            self.format_statement(&stmt.value, indent_level + 1)
-                        ));
-                    }
-                }
-                result.push_str(&format!("{}end", indent));
-                result
-            }
-            crate::ast::Stmt::While { condition, body } => {
-                let mut result = format!(
-                    "{}while {} do\n",
-                    indent,
-                    self.format_expression(&condition.value)
-                );
-                for stmt in body {
-                    result.push_str(&format!(
-                        "{}\n",
-                        self.format_statement(&stmt.value, indent_level + 1)
-                    ));
-                }
-                result.push_str(&format!("{}end", indent));
-                result
-            }
-            crate::ast::Stmt::VectorPush { vector, value, .. } => {
-                format!(
-                    "{}{}.push({});",
-                    indent,
-                    vector,
-                    self.format_expression(&value.value)
-                )
-            }
-        }
-    }
-
-    /// Format an expression as readable code
-    fn format_expression(&self, expr: &crate::ast::Expr) -> String {
-        match expr {
-            crate::ast::Expr::Int(n) => n.to_string(),
-            crate::ast::Expr::String(s) => format!("\"{}\"", s),
-            crate::ast::Expr::PushString(s) => format!("pushString(\"{}\")", s),
-            crate::ast::Expr::Boolean(b) => b.to_string(),
-            crate::ast::Expr::Byte(b) => b.to_string(),
-            crate::ast::Expr::Identifier(name) => name.clone(),
-            crate::ast::Expr::Binary { left, op, right } => {
-                format!(
-                    "{} {} {}",
-                    self.format_expression(&left.value),
-                    self.format_binary_op(op),
-                    self.format_expression(&right.value)
-                )
-            }
-            crate::ast::Expr::Call { callee, args } => {
-                let args_str = args
-                    .iter()
-                    .map(|arg| self.format_expression(&arg.value))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{}({})", self.format_expression(&callee.value), args_str)
-            }
-            crate::ast::Expr::Index {
-                container,
-                index,
-                container_type: _,
-                container_value_type: _,
-            } => {
-                format!(
-                    "{}[{}]",
-                    self.format_expression(&container.value),
-                    self.format_expression(&index.value)
-                )
-            }
-            crate::ast::Expr::FieldAccess { object, field } => {
-                format!("{}.{}", self.format_expression(&object.value), field)
-            }
-            crate::ast::Expr::StructNew {
-                type_name,
-                fields,
-                kind,
-            } => {
-                let fields_str = fields
-                    .iter()
-                    .map(|(name, expr)| {
-                        format!(".{} = {}", name, self.format_expression(&expr.value))
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                if kind == &StructNewKind::Pattern {
-                    format!("new(struct) {} {{ {} }}", type_name, fields_str)
-                } else {
-                    format!("new {} {{ {} }}", type_name, fields_str)
-                }
-            }
-            crate::ast::Expr::VectorNew {
-                element_type,
-                initial_values,
-            } => {
-                let elements_str = initial_values
-                    .iter()
-                    .map(|elem| self.format_expression(&elem.value))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("vec({}, {})", element_type, elements_str)
-            }
-            crate::ast::Expr::Alloc { element_type, size } => {
-                format!(
-                    "alloc({}, {})",
-                    element_type,
-                    self.format_expression(&size.value)
-                )
-            }
-            crate::ast::Expr::MethodCall {
-                object,
-                object_type,
-                method,
-                args,
-            } => {
-                let args_str = args
-                    .iter()
-                    .map(|arg| self.format_expression(&arg.value))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                if let Some(obj) = object {
-                    format!(
-                        "{}.{}({})",
-                        self.format_expression(&obj.value),
-                        method,
-                        args_str
-                    )
-                } else if let Some(obj_type) = object_type {
-                    format!("(type {}).{}({})", obj_type, method, args_str)
-                } else {
-                    format!("<unknown>.{}({})", method, args_str)
-                }
-            }
-            crate::ast::Expr::TypeExpr { type_name } => type_name.to_string(),
-            crate::ast::Expr::Sizeof { type_name } => format!("sizeof({})", type_name.to_string()),
-            crate::ast::Expr::Cast { expr, target_type } => format!(
-                "{} as {}",
-                self.format_expression(&expr.value),
-                target_type.to_string()
-            ),
-        }
-    }
-
-    /// Format a binary operator
-    fn format_binary_op(&self, op: &crate::ast::BinaryOp) -> &'static str {
-        match op {
-            crate::ast::BinaryOp::Add => "+",
-            crate::ast::BinaryOp::Subtract => "-",
-            crate::ast::BinaryOp::Multiply => "*",
-            crate::ast::BinaryOp::Divide => "/",
-            crate::ast::BinaryOp::Modulo => "%",
-            crate::ast::BinaryOp::Equal => "==",
-            crate::ast::BinaryOp::NotEqual => "!=",
-            crate::ast::BinaryOp::Less => "<",
-            crate::ast::BinaryOp::LessEqual => "<=",
-            crate::ast::BinaryOp::Greater => ">",
-            crate::ast::BinaryOp::GreaterEqual => ">=",
-        }
     }
 }
 
