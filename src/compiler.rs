@@ -403,37 +403,8 @@ impl Compiler {
             return self.format_compiler_error(&compiler_error);
         }
 
-        // Get the full error chain including causes
-        let full_error_msg = format!("{:?}", error);
-
-        // Try to extract position information from the error message
-        let error_msg = error.to_string();
-
-        // Look for "at position X" pattern in the full error chain
-        if let Some(pos_start) = full_error_msg.find("at position ") {
-            if let Some(pos_str) = full_error_msg[pos_start + 12..].split_whitespace().next() {
-                if let Ok(position) = pos_str.parse::<usize>() {
-                    if let Some(location) = self.position_to_location(position) {
-                        // Extract the actual error message from the chain
-                        let actual_msg = if let Some(cause) = error.source() {
-                            cause.to_string()
-                        } else {
-                            error_msg.clone()
-                        };
-
-                        let diagnostic = Diagnostic::error_at(actual_msg, location);
-
-                        // Use the position calculator to format with correct source context
-                        if let Some(calc) = &self.position_calculator {
-                            return diagnostic.format_with_calculator(calc);
-                        }
-                    }
-                }
-            }
-        }
-
         // Fallback to standard error formatting
-        format!("error: {}", error_msg)
+        format!("error: {}", error.to_string())
     }
 
     /// Format a compiler error using span information
