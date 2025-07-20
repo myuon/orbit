@@ -115,8 +115,14 @@ impl Parser {
             ),
         };
 
-        self.consume(TokenType::Assign)?;
-        let value = self.parse_expression()?;
+        // Check if there's an initialization
+        let value = if matches!(self.current_token().token_type, TokenType::Assign) {
+            self.consume(TokenType::Assign)?;
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+        
         self.consume(TokenType::Semicolon)?;
 
         let end_pos = if self.position > 0 {
@@ -655,12 +661,34 @@ impl Parser {
 
     fn parse_factor(&mut self) -> Result<PositionedExpr> {
         self.parse_binary_left_assoc(
-            |parser| parser.parse_primary(),
+            |parser| parser.parse_cast(),
             &[
                 (TokenType::Star, BinaryOp::Multiply),
                 (TokenType::Slash, BinaryOp::Divide),
+                (TokenType::Modulo, BinaryOp::Modulo),
             ],
         )
+    }
+
+    fn parse_cast(&mut self) -> Result<PositionedExpr> {
+        let mut expr = self.parse_primary()?;
+        
+        while matches!(self.current_token().token_type, TokenType::As) {
+            self.advance(); // consume 'as'
+            let target_type = self.parse_type_name()?;
+            let start_pos = expr.span.start.unwrap_or(0);
+            let end_pos = expr.span.end.unwrap_or(start_pos);
+            
+            expr = Positioned::new(
+                Expr::Cast {
+                    expr: Box::new(expr),
+                    target_type: Type::from_string(&target_type),
+                },
+                Span::new(start_pos, end_pos),
+            );
+        }
+        
+        Ok(expr)
     }
 
     fn parse_primary(&mut self) -> Result<PositionedExpr> {
@@ -1155,6 +1183,27 @@ impl Parser {
                         element_type,
                         size: Box::new(size),
                     },
+                    Span::new(start_pos, end_pos),
+                ))
+            }
+            TokenType::Sizeof => {
+                self.advance(); // consume 'sizeof'
+                self.consume(TokenType::LeftParen)?; // consume '('
+                self.consume(TokenType::Type)?; // consume 'type'
+                
+                // Parse the type
+                let type_name_str = self.parse_type_name()?;
+                let type_name = Type::from_string(&type_name_str);
+                
+                self.consume(TokenType::RightParen)?; // consume ')'
+                
+                let end_pos = if self.position > 0 {
+                    self.tokens[self.position - 1].position
+                } else {
+                    start_pos
+                };
+                Ok(Positioned::new(
+                    Expr::Sizeof { type_name },
                     Span::new(start_pos, end_pos),
                 ))
             }

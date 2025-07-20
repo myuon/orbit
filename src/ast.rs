@@ -55,11 +55,13 @@ pub enum TokenType {
     Identifier(String),
     Let,
     Assign,
+    As,
     Semicolon,
     Plus,
     Minus,
     Star,
     Slash,
+    Modulo,
     LeftParen,
     RightParen,
     // Comparison operators
@@ -98,6 +100,8 @@ pub enum TokenType {
     Pointer,
     // Memory allocation
     Alloc,
+    // Type size operator
+    Sizeof,
     Eof,
 }
 
@@ -113,6 +117,7 @@ pub enum BinaryOp {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
     // Comparison operators
     Equal,
     NotEqual,
@@ -191,6 +196,13 @@ pub enum Expr {
         element_type: String,
         size: Box<PositionedExpr>,
     },
+    Sizeof {
+        type_name: Type,
+    },
+    Cast {
+        expr: Box<PositionedExpr>,
+        target_type: Type,
+    },
     PushString(String),
 }
 
@@ -222,7 +234,7 @@ pub type PositionedGlobalVariable = Positioned<GlobalVariable>;
 #[derive(Debug, Clone, PartialEq)]
 pub struct GlobalVariable {
     pub name: String,
-    pub value: PositionedExpr,
+    pub value: Option<PositionedExpr>, // Optional initialization
 }
 
 // Struct declaration

@@ -21,18 +21,55 @@ impl MonomorphizationTarget {
         if self.args.is_empty() {
             self.symbol.clone()
         } else {
-            // Use the original type names as they appear in source code
-            let args_str = self
-                .args
-                .iter()
-                .map(|t| match t {
-                    Type::Int => "int".to_string(),      // Keep as "int" not "number"
-                    Type::Boolean => "bool".to_string(), // Keep as "bool" not "boolean"
-                    _ => t.to_string(),
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("{}({})", self.symbol, args_str)
+            // Check if this is a struct method (contains "__")
+            if let Some(separator_pos) = self.symbol.find("__") {
+                // For struct methods, replace the generic type in the struct part
+                // e.g., "Container(T)__create_default" with args [int] -> "Container(int)__create_default"
+                let struct_part = &self.symbol[..separator_pos];
+                let method_part = &self.symbol[separator_pos..];
+                
+                // Replace T with the actual type
+                if let Some(paren_pos) = struct_part.find('(') {
+                    let struct_name = &struct_part[..paren_pos];
+                    let args_str = self
+                        .args
+                        .iter()
+                        .map(|t| match t {
+                            Type::Int => "int".to_string(),
+                            Type::Boolean => "bool".to_string(),
+                            _ => t.to_string(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{}({}){}", struct_name, args_str, method_part)
+                } else {
+                    // Fallback to original logic
+                    let args_str = self
+                        .args
+                        .iter()
+                        .map(|t| match t {
+                            Type::Int => "int".to_string(),
+                            Type::Boolean => "bool".to_string(),
+                            _ => t.to_string(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{}({})", self.symbol, args_str)
+                }
+            } else {
+                // For regular functions, use the original logic
+                let args_str = self
+                    .args
+                    .iter()
+                    .map(|t| match t {
+                        Type::Int => "int".to_string(),
+                        Type::Boolean => "bool".to_string(),
+                        _ => t.to_string(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}({})", self.symbol, args_str)
+            }
         }
     }
 }
@@ -110,15 +147,38 @@ impl Monomorphizer {
                 if !struct_decl.value.type_params.is_empty() {
                     self.register_generic_struct(struct_decl.clone());
                 }
-                // Look for generic calls in methods
+                // Look for generic calls in methods AND register generic methods
                 for method in &struct_decl.value.methods {
+                    // Register generic methods as standalone functions with mangled names
+                    if !struct_decl.value.type_params.is_empty() {
+                        let method_name = format!("{}({})__{}", 
+                            struct_decl.value.name,
+                            struct_decl.value.type_params.iter().map(|_| "T").collect::<Vec<_>>().join(", "),
+                            method.value.name
+                        );
+                        
+                        // Create a standalone function from the method
+                        let standalone_function = PositionedFunction {
+                            value: Function {
+                                name: method_name.clone(),
+                                type_params: struct_decl.value.type_params.clone(),
+                                params: method.value.params.clone(),
+                                body: method.value.body.clone(),
+                            },
+                            span: method.span.clone(),
+                        };
+                        self.register_generic_function(standalone_function);
+                    }
+                    
                     for stmt in &method.value.body {
                         self.collect_targets_from_stmt(stmt)?;
                     }
                 }
             }
             Decl::GlobalVariable(var) => {
-                self.collect_targets_from_expr(&var.value.value)?;
+                if let Some(ref value_expr) = var.value.value {
+                    self.collect_targets_from_expr(value_expr)?;
+                }
             }
         }
         Ok(())
@@ -172,6 +232,7 @@ impl Monomorphizer {
     fn collect_targets_from_expr(&mut self, expr: &PositionedExpr) -> Result<()> {
         match &expr.value {
             Expr::Call { callee, args } => {
+                eprintln!("DEBUG: Processing call expression");
                 // Check if this is a generic function call
                 if let Expr::Identifier(name) = &callee.value {
                     // Look for type arguments in the arguments
@@ -189,6 +250,9 @@ impl Monomorphizer {
                             symbol: name.clone(),
                             args: type_args,
                         });
+                    } else {
+                        // Check if this is a desugared method call (e.g., "Container(int)__create_default")
+                        self.try_extract_monomorphization_target_from_desugared_name(name);
                     }
                 }
 
@@ -242,7 +306,36 @@ impl Monomorphizer {
             Expr::FieldAccess { object, .. } => {
                 self.collect_targets_from_expr(object)?;
             }
-            Expr::MethodCall { object, args, .. } => {
+            Expr::MethodCall { object, type_name, method, args } => {
+                // Check if this is a type method call (type_name is set and object is None)
+                if let Some(type_str) = type_name {
+                    // Parse the type to extract generic information
+                    if let Some(parsed_type) = self.parse_generic_type(type_str) {
+                        if let Type::Struct { name, args: type_args } = parsed_type {
+                            // Generate the generic function name that this should call
+                            let generic_function_name = format!("{}(T)__{}", name, method);
+                            
+                            // Check if this generic function exists
+                            if self.generic_functions.contains_key(&generic_function_name) {
+                                let target = MonomorphizationTarget {
+                                    symbol: generic_function_name,
+                                    args: type_args.clone(),
+                                };
+                                self.add_target(target);
+                                
+                                // Also add the struct itself as a target for monomorphization
+                                if self.generic_structs.contains_key(&name) {
+                                    let struct_target = MonomorphizationTarget {
+                                        symbol: name,
+                                        args: type_args,
+                                    };
+                                    self.add_target(struct_target);
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 if let Some(obj) = object {
                     self.collect_targets_from_expr(obj)?;
                 }
@@ -255,6 +348,12 @@ impl Monomorphizer {
                 size,
             } => {
                 self.collect_targets_from_expr(size)?;
+            }
+            Expr::Sizeof { .. } => {
+                // sizeof expressions don't need recursive processing
+            }
+            Expr::Cast { expr, target_type: _ } => {
+                self.collect_targets_from_expr(expr)?;
             }
             // Simple expressions don't need recursive processing
             Expr::Int(_)
@@ -334,6 +433,66 @@ impl Monomorphizer {
             }
         }
         None
+    }
+
+    /// Try to extract monomorphization target from a desugared function name
+    /// e.g., "Container(int)__create_default" -> MonomorphizationTarget { symbol: "Container(T)__create_default", args: [int] }
+    fn try_extract_monomorphization_target_from_desugared_name(&mut self, desugared_name: &str) {
+        // Look for pattern: Type(args)__method or Type(args)___method
+        if let Some(separator_pos) = desugared_name.find("__") {
+            let type_part = &desugared_name[..separator_pos];
+            let method_part = &desugared_name[separator_pos..];
+            
+            // Extract type and arguments from type_part (e.g., "Container(int)" -> "Container", [int])
+            if let Some(paren_pos) = type_part.find('(') {
+                if type_part.ends_with(')') {
+                    let base_type = &type_part[..paren_pos];
+                    let args_str = &type_part[paren_pos + 1..type_part.len() - 1];
+                    
+                    // Parse the type arguments
+                    let mut type_args = Vec::new();
+                    if !args_str.is_empty() {
+                        for arg in args_str.split(',') {
+                            let arg = arg.trim();
+                            match arg {
+                                "int" | "number" => type_args.push(Type::Int),
+                                "bool" | "boolean" => type_args.push(Type::Boolean),
+                                "string" | "[*]byte" => type_args.push(Type::String),
+                                "byte" => type_args.push(Type::Byte),
+                                _ => {
+                                    // Try to parse as a complex type
+                                    if let Some(parsed_type) = self.parse_generic_type(arg) {
+                                        type_args.push(parsed_type);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Generate the generic function name (e.g., "Container(T)__create_default")
+                    let generic_function_name = if !type_args.is_empty() {
+                        let type_params = type_args.iter()
+                            .enumerate()
+                            .map(|(i, _)| format!("T{}", if i == 0 { "".to_string() } else { i.to_string() }))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("{}({}){}", base_type, type_params, method_part)
+                    } else {
+                        format!("{}{}", base_type, method_part)
+                    };
+                    
+                    // Check if this generic function exists and add as target
+                    if self.generic_functions.contains_key(&generic_function_name) || 
+                       self.generic_structs.contains_key(base_type) {
+                        let target = MonomorphizationTarget {
+                            symbol: generic_function_name,
+                            args: type_args,
+                        };
+                        self.add_target(target);
+                    }
+                }
+            }
+        }
     }
 
     /// Process all targets and generate monomorphized code
@@ -582,6 +741,19 @@ impl Monomorphizer {
                 element_type: substitute_type_in_string(element_type, substitutions),
                 size: Box::new(self.substitute_expression(size, substitutions)?),
             },
+            Expr::Sizeof { type_name } => Expr::Sizeof {
+                type_name: Type::from_string(&substitute_type_in_string(
+                    &type_name.to_string(),
+                    substitutions,
+                )),
+            },
+            Expr::Cast { expr, target_type } => Expr::Cast {
+                expr: Box::new(self.substitute_expression(expr, substitutions)?),
+                target_type: Type::from_string(&substitute_type_in_string(
+                    &target_type.to_string(),
+                    substitutions,
+                )),
+            },
 
             // Complex expressions that may contain type information
             Expr::Binary { left, op, right } => Expr::Binary {
@@ -722,9 +894,15 @@ impl Monomorphizer {
                 }
                 Decl::GlobalVariable(var) => {
                     // Substitute expressions in global variable values
+                    let substituted_value = if let Some(ref value_expr) = var.value.value {
+                        Some(self.substitute_expression_globally(value_expr)?)
+                    } else {
+                        None
+                    };
+                    
                     let substituted_var = crate::ast::GlobalVariable {
                         name: var.value.name.clone(),
-                        value: self.substitute_expression_globally(&var.value.value)?,
+                        value: substituted_value,
                     };
                     let positioned_var = Positioned::with_unknown_span(substituted_var);
                     new_declarations.push(Positioned::with_unknown_span(Decl::GlobalVariable(
@@ -825,6 +1003,17 @@ impl Monomorphizer {
             Expr::Alloc { element_type, size } => Expr::Alloc {
                 element_type: substitute_type_in_string_globally(element_type),
                 size: Box::new(self.substitute_expression_globally(size)?),
+            },
+            Expr::Sizeof { type_name } => Expr::Sizeof {
+                type_name: Type::from_string(&substitute_type_in_string_globally(
+                    &type_name.to_string(),
+                )),
+            },
+            Expr::Cast { expr, target_type } => Expr::Cast {
+                expr: Box::new(self.substitute_expression_globally(expr)?),
+                target_type: Type::from_string(&substitute_type_in_string_globally(
+                    &target_type.to_string(),
+                )),
             },
 
             // Complex expressions

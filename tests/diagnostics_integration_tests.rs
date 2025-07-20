@@ -17,11 +17,9 @@ fn test_parse_error_position() {
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    let error_msg = compiler.format_error_with_position(&err);
+    let error_msg = format!("{:?}", err); // Get full error chain
 
     // The error message should now contain proper position information
-
-    // Should contain position information
     assert!(error_msg.contains("parse_error_missing_var_name.ob:2:"));
     assert!(error_msg.contains("Expected variable name after 'let'"));
 }

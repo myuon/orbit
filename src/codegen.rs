@@ -83,7 +83,9 @@ impl CodeGenerator {
                 }
             }
             Decl::GlobalVariable(global_var) => {
-                self.collect_string_constants_from_expr(&global_var.value.value);
+                if let Some(ref value_expr) = global_var.value.value {
+                    self.collect_string_constants_from_expr(value_expr);
+                }
             }
             Decl::Struct(struct_decl) => {
                 for method in &struct_decl.value.methods {
@@ -188,6 +190,12 @@ impl CodeGenerator {
                 size,
             } => {
                 self.collect_string_constants_from_expr(size);
+            }
+            Expr::Sizeof { .. } => {
+                // sizeof expressions don't contain string constants
+            }
+            Expr::Cast { expr, target_type: _ } => {
+                self.collect_string_constants_from_expr(expr);
             }
             Expr::MapNew { initial_pairs, .. } => {
                 for (key, value) in initial_pairs {
@@ -304,9 +312,16 @@ impl CodeGenerator {
 
         // Initialize global variables second
         for global_var in &global_variables {
-            self.compile_expression(&global_var.value);
-            let global_index = self.get_or_create_global_var_index(&global_var.name);
-            self.instructions.push(Instruction::SetGlobal(global_index));
+            if let Some(ref value_expr) = global_var.value {
+                self.compile_expression(value_expr);
+                let global_index = self.get_or_create_global_var_index(&global_var.name);
+                self.instructions.push(Instruction::SetGlobal(global_index));
+            } else {
+                // For uninitialized globals, set them to 0 (null pointer)
+                self.instructions.push(Instruction::Push(0));
+                let global_index = self.get_or_create_global_var_index(&global_var.name);
+                self.instructions.push(Instruction::SetGlobal(global_index));
+            }
         }
 
         self.instructions.push(Instruction::Push(-1)); // placeholder for return value
@@ -614,6 +629,7 @@ impl CodeGenerator {
                     BinaryOp::Subtract => self.instructions.push(Instruction::Sub),
                     BinaryOp::Multiply => self.instructions.push(Instruction::Mul),
                     BinaryOp::Divide => self.instructions.push(Instruction::Div),
+                    BinaryOp::Modulo => self.instructions.push(Instruction::Mod),
                     BinaryOp::Equal => self.instructions.push(Instruction::Eq),
                     BinaryOp::NotEqual => {
                         self.instructions.push(Instruction::Eq);
@@ -697,6 +713,17 @@ impl CodeGenerator {
                 self.instructions.push(Instruction::Mul);
                 // Allocate heap space with total size
                 self.instructions.push(Instruction::HeapAlloc);
+            }
+
+            Expr::Sizeof { type_name } => {
+                // Push the size of the type as a constant
+                let size = self.sizeof_type(&type_name.to_string());
+                self.instructions.push(Instruction::Push(size as i64));
+            }
+
+            Expr::Cast { expr, target_type: _ } => {
+                // For now, just compile the expression (no runtime cast needed)
+                self.compile_expression(expr);
             }
 
             Expr::Index {
@@ -858,6 +885,7 @@ fn compile_expr_recursive(expr: &PositionedExpr, instructions: &mut Vec<Instruct
                 BinaryOp::Subtract => instructions.push(Instruction::Sub),
                 BinaryOp::Multiply => instructions.push(Instruction::Mul),
                 BinaryOp::Divide => instructions.push(Instruction::Div),
+                BinaryOp::Modulo => instructions.push(Instruction::Mod),
                 BinaryOp::Equal => instructions.push(Instruction::Eq),
                 BinaryOp::NotEqual => {
                     instructions.push(Instruction::Eq);
@@ -937,6 +965,16 @@ fn compile_expr_recursive(expr: &PositionedExpr, instructions: &mut Vec<Instruct
             instructions.push(Instruction::Mul);
             // Allocate heap space with total size
             instructions.push(Instruction::HeapAlloc);
+        }
+
+        Expr::Sizeof { type_name } => {
+            // Push the size of the type as a constant
+            let size = sizeof_type(&type_name.to_string());
+            instructions.push(Instruction::Push(size as i64));
+        }
+        Expr::Cast { expr, target_type: _ } => {
+            // For now, just compile the expression (no runtime cast needed)
+            compile_expr_recursive(expr, instructions);
         }
 
         Expr::TypeExpr { type_name } => {

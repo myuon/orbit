@@ -654,6 +654,21 @@ impl Desugarer {
                 }
             }
 
+            Expr::Sizeof { type_name } => {
+                // sizeof expressions don't need desugaring
+                Expr::Sizeof {
+                    type_name: type_name.clone(),
+                }
+            }
+
+            Expr::Cast { expr, target_type } => {
+                // Cast expressions just need their inner expression desugared
+                Expr::Cast {
+                    expr: Box::new(self.desugar_expression(expr)?),
+                    target_type: target_type.clone(),
+                }
+            }
+
             // String literals need to be converted to array(byte) structures
             Expr::String(s) => {
                 // Convert "hello" to new(struct) array(byte) { .data = pushString("hello"), .length = 5 }

@@ -82,7 +82,9 @@ impl DeadCodeEliminator {
         // Process all global variable initializers as additional entry points
         for (global_name, global_var) in &self.globals.clone() {
             self.mark_global_reachable(global_name);
-            self.mark_expr_dependencies(&global_var.value)?;
+            if let Some(ref value_expr) = global_var.value {
+                self.mark_expr_dependencies(value_expr)?;
+            }
         }
 
         Ok(())
@@ -362,6 +364,13 @@ impl DeadCodeEliminator {
             Expr::Alloc { element_type, size } => {
                 self.mark_type_reachable(element_type);
                 self.mark_expr_dependencies(size)?;
+            }
+            Expr::Sizeof { type_name } => {
+                self.mark_type_reachable(&type_name.to_string());
+            }
+            Expr::Cast { expr, target_type } => {
+                self.mark_expr_dependencies(expr)?;
+                self.mark_type_reachable(&target_type.to_string());
             }
             Expr::TypeExpr { type_name } => {
                 self.mark_type_reachable(&type_name.to_string());

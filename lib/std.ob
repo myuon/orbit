@@ -56,3 +56,69 @@ type vec(T: type) = struct {
   end
 };
 
+type hashmap(K: type, V: type) = struct {
+  data: [*]int,
+  capacity: int,
+
+  fun _new(): hashmap(K, V) do
+    let capacity = 128;
+    let data = alloc(int, capacity * 3);
+    
+    let i = 0;
+    while (i < capacity * 3) do
+      data[i] = 0;
+      i = i + 1;
+    end
+    
+    return new(struct) hashmap(K, V) { 
+      .data = data, 
+      .capacity = capacity
+    };
+  end
+
+  fun _set(self: hashmap(K, V), key: K, value: V): int do
+    let hash = (key as int) % self.capacity;
+    
+    let i = 0;
+    while (i < self.capacity) do
+      let current_index = ((hash + i) % self.capacity) * 3;
+      
+      if self.data[current_index + 2] == 0 do
+        self.data[current_index] = key as int;
+        self.data[current_index + 1] = value as int;
+        self.data[current_index + 2] = 1;
+        return 0;
+      end
+      
+      if self.data[current_index] == (key as int) do
+        self.data[current_index + 1] = value as int;
+        return 0;
+      end
+      
+      i = i + 1;
+    end
+    
+    return 0;
+  end
+
+  fun _get(self: hashmap(K, V), key: K): V do
+    let hash = (key as int) % self.capacity;
+    
+    let i = 0;
+    while (i < self.capacity) do
+      let current_index = ((hash + i) % self.capacity) * 3;
+      
+      if self.data[current_index + 2] == 0 do
+        return 0 as V;
+      end
+      
+      if self.data[current_index] == (key as int) do
+        return self.data[current_index + 1] as V;
+      end
+      
+      i = i + 1;
+    end
+    
+    return 0 as V;
+  end
+};

@@ -122,6 +122,7 @@ impl Lexer {
                         "true" => TokenType::Boolean(true),
                         "false" => TokenType::Boolean(false),
                         "let" => TokenType::Let,
+                        "as" => TokenType::As,
                         "fun" => TokenType::Fun,
                         "do" => TokenType::Do,
                         "end" => TokenType::End,
@@ -136,6 +137,7 @@ impl Lexer {
                         "struct" => TokenType::Struct,
                         "pointer" => TokenType::Pointer,
                         "alloc" => TokenType::Alloc,
+                        "sizeof" => TokenType::Sizeof,
                         _ => TokenType::Identifier(identifier),
                     };
                     return Token {
@@ -192,6 +194,14 @@ impl Lexer {
                     }
                     return Token {
                         token_type: TokenType::Slash,
+                        position: pos,
+                    };
+                }
+                Some('%') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::Modulo,
                         position: pos,
                     };
                 }

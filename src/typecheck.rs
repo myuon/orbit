@@ -307,7 +307,12 @@ impl TypeChecker {
         // Second pass: register global variables (now that structs are available)
         for decl in &mut program.declarations {
             if let Decl::GlobalVariable(global_var) = &mut decl.value {
-                let var_type = self.check_expression(&mut global_var.value.value)?;
+                let var_type = if let Some(ref mut value_expr) = global_var.value.value {
+                    self.check_expression(value_expr)?
+                } else {
+                    // For uninitialized globals, use int as default type (like a null pointer)
+                    Type::Int
+                };
                 self.globals.insert(global_var.value.name.clone(), var_type);
             }
         }
@@ -339,11 +344,13 @@ impl TypeChecker {
             Decl::Function(function) => self.infer_function_types(&mut function.value),
             Decl::Struct(_) => Ok(()), // Struct types are already resolved during registration
             Decl::GlobalVariable(global_var) => {
-                // Type check the global variable's value
-                self.infer_expression_types(&mut global_var.value.value)?;
-                // Register the global variable's type
-                let var_type = self.check_expression(&mut global_var.value.value)?;
-                self.globals.insert(global_var.value.name.clone(), var_type);
+                // Type check the global variable's value if it exists
+                if let Some(ref mut value_expr) = global_var.value.value {
+                    self.infer_expression_types(value_expr)?;
+                    // Register the global variable's type
+                    let var_type = self.check_expression(value_expr)?;
+                    self.globals.insert(global_var.value.name.clone(), var_type);
+                }
                 Ok(())
             }
         }
@@ -452,8 +459,14 @@ impl TypeChecker {
             | Expr::PushString(_)
             | Expr::Byte(_)
             | Expr::Identifier(_)
-            | Expr::TypeExpr { .. } => {
+            | Expr::TypeExpr { .. }
+            | Expr::Sizeof { .. } => {
                 // No inference needed for literals, identifiers, and type expressions
+                Ok(())
+            }
+
+            Expr::Cast { expr, target_type: _ } => {
+                self.infer_expression_types(expr)?;
                 Ok(())
             }
 
@@ -462,6 +475,11 @@ impl TypeChecker {
                 size,
             } => {
                 self.infer_expression_types(size)?;
+                Ok(())
+            }
+
+            Expr::Sizeof { .. } => {
+                // No inference needed for sizeof expressions
                 Ok(())
             }
 
@@ -710,8 +728,10 @@ impl TypeChecker {
             Decl::Function(function) => self.check_function(&mut function.value),
             Decl::Struct(_) => Ok(()), // Struct declarations are checked during registration
             Decl::GlobalVariable(global_var) => {
-                // Type check the global variable's value
-                self.check_expression(&mut global_var.value.value)?;
+                // Type check the global variable's value if it exists
+                if let Some(ref mut value_expr) = global_var.value.value {
+                    self.check_expression(value_expr)?;
+                }
                 Ok(())
             }
         }
@@ -1006,7 +1026,7 @@ impl TypeChecker {
                             bail!("Addition operation type mismatch: {} + {} (can only add numbers/bytes or concatenate strings)", left_type, right_type);
                         }
                     }
-                    BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide => {
+                    BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Modulo => {
                         if left_type.is_numeric_or_unknown() && right_type.is_numeric_or_unknown() {
                             Ok(Type::Int) // arithmetic with bytes always promotes to int
                         } else {
@@ -1543,6 +1563,17 @@ impl TypeChecker {
                 Ok(Type::Pointer(Box::new(element_type)))
             }
 
+            Expr::Sizeof { .. } => {
+                // sizeof always returns int
+                Ok(Type::Int)
+            }
+
+            Expr::Cast { expr, target_type } => {
+                // Type check the expression being cast
+                self.check_expression(expr)?;
+                Ok(target_type.clone())
+            }
+
             Expr::MethodCall {
                 object,
                 type_name,
@@ -1999,6 +2030,7 @@ fn op_to_string(op: &BinaryOp) -> &'static str {
         BinaryOp::Subtract => "-",
         BinaryOp::Multiply => "*",
         BinaryOp::Divide => "/",
+        BinaryOp::Modulo => "%",
         BinaryOp::Equal => "==",
         BinaryOp::NotEqual => "!=",
         BinaryOp::Less => "<",
