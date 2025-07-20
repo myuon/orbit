@@ -1,6 +1,0 @@
-fun main() do
-  let mymap = new map([*]byte, int) {};
-  mymap["hello"] = 1;
-  mymap["world"] = 2;
-  return mymap["hello"] + mymap["world"];
-end

@@ -56,11 +56,11 @@ type vec(T: type) = struct {
   end
 };
 
-type hashmap(K: type, V: type) = struct {
+type map(K: type, V: type) = struct {
   data: [*]int,
   capacity: int,
 
-  fun _new(): hashmap(K, V) do
+  fun _new(): map(K, V) do
     let capacity = 128;
     let data = alloc(int, capacity * 3);
     
@@ -70,13 +70,13 @@ type hashmap(K: type, V: type) = struct {
       i = i + 1;
     end
     
-    return new(struct) hashmap(K, V) { 
+    return new(struct) map(K, V) { 
       .data = data, 
       .capacity = capacity
     };
   end
 
-  fun _set(self: hashmap(K, V), key: K, value: V): int do
+  fun _set(self: map(K, V), key: K, value: V): int do
     let hash = (key as int) % self.capacity;
     
     let i = 0;
@@ -101,7 +101,7 @@ type hashmap(K: type, V: type) = struct {
     return 0;
   end
 
-  fun _get(self: hashmap(K, V), key: K): V do
+  fun _get(self: map(K, V), key: K): V do
     let hash = (key as int) % self.capacity;
     
     let i = 0;
