@@ -323,7 +323,10 @@ impl DeadCodeEliminator {
                 // Mark the base type as reachable as well (for generic instantiations)
                 match type_name {
                     Type::Struct { name, .. } => {
-                        let base_type = Type::Struct { name: name.clone(), args: vec![] };
+                        let base_type = Type::Struct {
+                            name: name.clone(),
+                            args: vec![],
+                        };
                         self.mark_type_reachable(&base_type);
                     }
                     _ => {}
@@ -589,7 +592,10 @@ mod tests {
                             Positioned::with_unknown_span(Stmt::Let {
                                 name: "point".to_string(),
                                 value: Positioned::with_unknown_span(Expr::StructNew {
-                                    type_name: Type::Struct { name: "Point".to_string(), args: vec![] },
+                                    type_name: Type::Struct {
+                                        name: "Point".to_string(),
+                                        args: vec![],
+                                    },
                                     fields: vec![
                                         (
                                             "x".to_string(),

@@ -760,10 +760,10 @@ impl CodeGenerator {
             } => {
                 // Verify struct exists (special handling for built-in types and generic instantiations)
                 let type_name_str = type_name.to_string();
-                let is_builtin_or_generic = type_name_str.starts_with("array(") 
-                    || type_name_str.starts_with("vec(") 
+                let is_builtin_or_generic = type_name_str.starts_with("array(")
+                    || type_name_str.starts_with("vec(")
                     || type_name_str.contains('('); // Any type with parentheses is likely a generic instantiation
-                
+
                 if !self.structs.contains_key(&type_name_str) && !is_builtin_or_generic {
                     panic!("Unknown struct type: {}", type_name);
                 }

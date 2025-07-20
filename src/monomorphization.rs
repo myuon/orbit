@@ -10,7 +10,10 @@ fn substitute_type(original_type: &Type, substitutions: &HashMap<String, Type>) 
     match original_type {
         Type::TypeParameter(param_name) => {
             // Replace type parameter with concrete type if substitution exists
-            substitutions.get(param_name).cloned().unwrap_or_else(|| original_type.clone())
+            substitutions
+                .get(param_name)
+                .cloned()
+                .unwrap_or_else(|| original_type.clone())
         }
         Type::Struct { name, args } => {
             // Recursively substitute type arguments
@@ -30,7 +33,10 @@ fn substitute_type(original_type: &Type, substitutions: &HashMap<String, Type>) 
         Type::Int | Type::Boolean | Type::String | Type::Byte => original_type.clone(),
         // Unknown and Function types are passed through without substitution
         Type::Unknown => original_type.clone(),
-        Type::Function { params, return_type } => {
+        Type::Function {
+            params,
+            return_type,
+        } => {
             // Recursively substitute function parameter and return types
             let substituted_params = params
                 .iter()
@@ -44,7 +50,6 @@ fn substitute_type(original_type: &Type, substitutions: &HashMap<String, Type>) 
         }
     }
 }
-
 
 /// Target for monomorphization - represents a generic symbol that needs to be instantiated
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -487,7 +492,7 @@ impl Monomorphizer {
                             _ => Type::Struct {
                                 name: trimmed.to_string(),
                                 args: vec![],
-                            }
+                            },
                         }
                     })
                     .collect();
@@ -1180,7 +1185,6 @@ impl Monomorphizer {
         Ok(Positioned::with_unknown_span(substituted))
     }
 }
-
 
 #[cfg(test)]
 mod tests {

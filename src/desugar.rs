@@ -809,7 +809,10 @@ mod tests {
             type_params: vec![],
             params: vec![FunParam {
                 name: "self".to_string(),
-                param_type: Some(Type::Struct { name: "Point".to_string(), args: vec![] }),
+                param_type: Some(Type::Struct {
+                    name: "Point".to_string(),
+                    args: vec![],
+                }),
             }],
             body: vec![],
         };
@@ -861,7 +864,10 @@ mod tests {
 
         // Create a StructNew expression with kind=Pattern and a nested expression
         let struct_new_pattern = Positioned::with_unknown_span(Expr::StructNew {
-            type_name: Type::Struct { name: "Point".to_string(), args: vec![] },
+            type_name: Type::Struct {
+                name: "Point".to_string(),
+                args: vec![],
+            },
             fields: vec![
                 ("x".to_string(), Positioned::with_unknown_span(Expr::Int(5))),
                 (
@@ -885,7 +891,13 @@ mod tests {
             kind: StructNewKind::Pattern,
         } = &result.value
         {
-            assert_eq!(*type_name, Type::Struct { name: "Point".to_string(), args: vec![] });
+            assert_eq!(
+                *type_name,
+                Type::Struct {
+                    name: "Point".to_string(),
+                    args: vec![]
+                }
+            );
             assert_eq!(fields.len(), 2);
 
             // Check first field
