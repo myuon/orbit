@@ -4,6 +4,7 @@ use crate::ast::{
     PositionedStructDecl, Program, Span, Stmt, StructDecl, StructField, StructNewKind, Token,
     TokenType, Type,
 };
+use crate::bail_with_position;
 use anyhow::{bail, Result};
 use std::collections::HashSet;
 
@@ -38,6 +39,11 @@ impl Parser {
         }
     }
 
+    /// Create a span from a token position
+    fn token_span(&self, token: &Token) -> Span {
+        Span::single(token.position)
+    }
+
     fn consume(&mut self, expected: TokenType) -> Result<()> {
         if std::mem::discriminant(&self.current_token().token_type)
             == std::mem::discriminant(&expected)
@@ -45,11 +51,11 @@ impl Parser {
             self.advance();
             Ok(())
         } else {
-            bail!(
-                "Expected {:?}, found {:?} at position {}",
+            bail_with_position!(
+                self.token_span(self.current_token()),
+                "Expected {:?}, found {:?}",
                 expected,
-                self.current_token().token_type,
-                self.current_token().position
+                self.current_token().token_type
             )
         }
     }
@@ -113,9 +119,9 @@ impl Parser {
                 self.advance();
                 n
             }
-            _ => bail!(
-                "Expected variable name after 'let' at position {}",
-                self.current_token().position
+            _ => bail_with_position!(
+                self.token_span(self.current_token()),
+                "Expected variable name after 'let'"
             ),
         };
 
@@ -437,9 +443,9 @@ impl Parser {
                 self.advance();
                 n
             }
-            _ => bail!(
-                "Expected variable name after 'let' at position {}",
-                self.current_token().position
+            _ => bail_with_position!(
+                self.token_span(self.current_token()),
+                "Expected variable name after 'let'"
             ),
         };
 
@@ -1171,10 +1177,10 @@ impl Parser {
                     Span::new(start_pos, end_pos),
                 ))
             }
-            _ => bail!(
-                "Unexpected token: {:?} at position {}",
-                self.current_token().token_type,
-                self.current_token().position
+            _ => bail_with_position!(
+                self.token_span(self.current_token()),
+                "Unexpected token: {:?}",
+                self.current_token().token_type
             ),
         }
     }
@@ -1197,9 +1203,9 @@ impl Parser {
         if matches!(self.current_token().token_type, TokenType::Assign) {
             // Validate that the left-hand side is a valid lvalue
             if !Self::is_valid_lvalue(&lvalue.value) {
-                bail!(
-                    "Invalid left-hand side in assignment at position {}. Only variables, field access (obj.field), and indexing (arr[i]) are allowed.",
-                    lvalue.span.start.unwrap_or(0)
+                bail_with_position!(
+                    lvalue.span.clone(),
+                    "Invalid left-hand side in assignment. Only variables, field access (obj.field), and indexing (arr[i]) are allowed."
                 );
             }
 

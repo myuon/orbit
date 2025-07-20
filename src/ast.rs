@@ -46,28 +46,28 @@ impl<T> Positioned<T> {
     }
 }
 
-/// Custom error type with span information for better error handling
+/// Positioned error with cloneable string message
 #[derive(Debug, Clone)]
-pub struct CompilerError {
+pub struct PositionedError {
     pub message: String,
     pub span: Span,
 }
 
-impl std::fmt::Display for CompilerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for CompilerError {}
-
-impl CompilerError {
-    /// Create a compiler error with a span
+impl PositionedError {
+    /// Create a positioned error with a span from a string message
     pub fn new_with_span(message: String, span: Span) -> Self {
         Self { message, span }
     }
 
-    /// Create a compiler error without span information
+    /// Create a positioned error from an anyhow::Error and span  
+    pub fn from_error_with_span(error: anyhow::Error, span: Span) -> Self {
+        Self {
+            message: error.to_string(),
+            span,
+        }
+    }
+
+    /// Create a positioned error without span information
     pub fn new_without_span(message: String) -> Self {
         Self {
             message,
@@ -75,36 +75,46 @@ impl CompilerError {
         }
     }
 
-    /// Convert to anyhow::Error
+    /// Convert to anyhow::Error (for Result compatibility)
     pub fn into_anyhow(self) -> anyhow::Error {
-        anyhow::anyhow!(self)
+        anyhow::Error::from(self)
     }
 }
 
-/// Type alias for positioned errors - errors with span information
-pub type PositionedError = Positioned<anyhow::Error>;
-
-impl PositionedError {
-    /// Create a positioned error with a span
-    pub fn new_with_span(message: String, span: Span) -> Self {
-        Self {
-            value: anyhow::anyhow!(message),
-            span,
-        }
+impl std::fmt::Display for PositionedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
     }
+}
 
-    /// Create a positioned error from an anyhow::Error and span
-    pub fn from_error_with_span(error: anyhow::Error, span: Span) -> Self {
-        Self { value: error, span }
-    }
+impl std::error::Error for PositionedError {}
 
-    /// Create a positioned error without span information
-    pub fn new_without_span(message: String) -> Self {
-        Self {
-            value: anyhow::anyhow!(message),
-            span: Span::unknown(),
-        }
-    }
+/// Macro for creating positioned errors similar to anyhow!
+#[macro_export]
+macro_rules! anyhow_with_position {
+    ($span:expr, $msg:literal $(,)?) => {
+        $crate::ast::PositionedError::new_with_span($msg.to_string(), $span)
+    };
+    ($span:expr, $err:expr $(,)?) => {
+        $crate::ast::PositionedError::from_error_with_span($err, $span)
+    };
+    ($span:expr, $fmt:expr, $($arg:tt)*) => {
+        $crate::ast::PositionedError::new_with_span(format!($fmt, $($arg)*), $span)
+    };
+}
+
+/// Macro for early return with positioned errors similar to bail!
+#[macro_export]
+macro_rules! bail_with_position {
+    ($span:expr, $msg:literal $(,)?) => {
+        return Err($crate::anyhow_with_position!($span, $msg).into_anyhow())
+    };
+    ($span:expr, $err:expr $(,)?) => {
+        return Err($crate::anyhow_with_position!($span, $err).into_anyhow())
+    };
+    ($span:expr, $fmt:expr, $($arg:tt)*) => {
+        return Err($crate::anyhow_with_position!($span, $fmt, $($arg)*).into_anyhow())
+    };
 }
 
 #[derive(Debug, Clone, PartialEq)]

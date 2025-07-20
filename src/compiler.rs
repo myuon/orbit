@@ -1,4 +1,4 @@
-use crate::ast::{CompilerError, Program, StructNewKind};
+use crate::ast::{PositionedError, Program, StructNewKind};
 use crate::codegen::CodeGenerator;
 use crate::dead_code_elimination::DeadCodeEliminator;
 use crate::desugar::Desugarer;
@@ -377,18 +377,18 @@ impl Compiler {
         self.format_error_with_position(error)
     }
 
-    /// Extract CompilerError from an anyhow::Error if it exists
-    fn try_extract_compiler_error(&self, error: &anyhow::Error) -> Option<CompilerError> {
-        // Try to downcast to CompilerError
-        if let Some(compiler_error) = error.downcast_ref::<CompilerError>() {
-            return Some(compiler_error.clone());
+    /// Extract PositionedError from an anyhow::Error if it exists
+    fn try_extract_positioned_error(&self, error: &anyhow::Error) -> Option<PositionedError> {
+        // Try to downcast to PositionedError
+        if let Some(positioned_error) = error.downcast_ref::<PositionedError>() {
+            return Some(positioned_error.clone());
         }
 
-        // Check if the error chain contains a CompilerError
+        // Check if the error chain contains a PositionedError
         let mut current = error.source();
         while let Some(source) = current {
-            if let Some(compiler_error) = source.downcast_ref::<CompilerError>() {
-                return Some(compiler_error.clone());
+            if let Some(positioned_error) = source.downcast_ref::<PositionedError>() {
+                return Some(positioned_error.clone());
             }
             current = source.source();
         }
@@ -398,19 +398,19 @@ impl Compiler {
 
     /// Format an error with position information
     pub fn format_error_with_position(&self, error: &anyhow::Error) -> String {
-        // First try to extract structured CompilerError
-        if let Some(compiler_error) = self.try_extract_compiler_error(error) {
-            return self.format_compiler_error(&compiler_error);
+        // First try to extract structured PositionedError
+        if let Some(positioned_error) = self.try_extract_positioned_error(error) {
+            return self.format_positioned_error(&positioned_error);
         }
 
         // Fallback to standard error formatting
         format!("error: {}", error.to_string())
     }
 
-    /// Format a compiler error using span information
-    fn format_compiler_error(&self, compiler_error: &CompilerError) -> String {
-        let error_msg = &compiler_error.message;
-        let span = &compiler_error.span;
+    /// Format a positioned error using span information
+    fn format_positioned_error(&self, positioned_error: &PositionedError) -> String {
+        let error_msg = &positioned_error.message;
+        let span = &positioned_error.span;
 
         // If we have span information and a position calculator, create a diagnostic
         if let (Some(start_pos), Some(calc)) = (span.start, &self.position_calculator) {
