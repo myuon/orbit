@@ -245,11 +245,6 @@ impl Monomorphizer {
                     self.collect_targets_from_expr(field_expr)?;
                 }
             }
-            Expr::VectorNew { initial_values, .. } => {
-                for value in initial_values {
-                    self.collect_targets_from_expr(value)?;
-                }
-            }
             Expr::Binary { left, right, .. } => {
                 self.collect_targets_from_expr(left)?;
                 self.collect_targets_from_expr(right)?;
@@ -586,16 +581,6 @@ impl Monomorphizer {
                         .collect::<Result<Vec<_>>>()?,
                 }
             }
-            Expr::VectorNew {
-                element_type,
-                initial_values,
-            } => Expr::VectorNew {
-                element_type: element_type.substitute(substitutions),
-                initial_values: initial_values
-                    .iter()
-                    .map(|val| self.substitute_expression(val, substitutions))
-                    .collect::<Result<Vec<_>>>()?,
-            },
             Expr::Index {
                 container,
                 index,
@@ -864,16 +849,6 @@ impl Monomorphizer {
                         .collect::<Result<Vec<_>>>()?,
                 }
             }
-            Expr::VectorNew {
-                element_type,
-                initial_values,
-            } => Expr::VectorNew {
-                element_type: element_type.clone(), // No global substitution needed for types
-                initial_values: initial_values
-                    .iter()
-                    .map(|val| self.substitute_expression_globally(val))
-                    .collect::<Result<Vec<_>>>()?,
-            },
             Expr::Index {
                 container,
                 index,

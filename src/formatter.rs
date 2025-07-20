@@ -338,17 +338,6 @@ impl OrbitFormatter {
                     format!("new {} {{ {} }}", type_name, fields_str)
                 }
             }
-            Expr::VectorNew {
-                element_type,
-                initial_values,
-            } => {
-                let elements_str = initial_values
-                    .iter()
-                    .map(|elem| self.format_expression(&elem.value))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("vec({}, {})", element_type, elements_str)
-            }
             Expr::Alloc { element_type, size } => {
                 format!(
                     "alloc({}, {})",

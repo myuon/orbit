@@ -111,10 +111,6 @@ pub enum Expr {
         callee: Box<PositionedExpr>,
         args: Vec<PositionedExpr>,
     },
-    VectorNew {
-        element_type: Type,
-        initial_values: Vec<PositionedExpr>,
-    },
     Index {
         container: Box<PositionedExpr>,
         index: Box<PositionedExpr>,

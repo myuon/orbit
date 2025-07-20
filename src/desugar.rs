@@ -506,19 +506,6 @@ impl Desugarer {
                     args: desugared_args,
                 }
             }
-            Expr::VectorNew {
-                element_type,
-                initial_values,
-            } => {
-                let mut desugared_values = Vec::new();
-                for value in initial_values {
-                    desugared_values.push(self.desugar_expression(value)?);
-                }
-                Expr::VectorNew {
-                    element_type: element_type.clone(),
-                    initial_values: desugared_values,
-                }
-            }
             Expr::Index {
                 container,
                 index,

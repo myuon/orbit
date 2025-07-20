@@ -456,12 +456,6 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Expr::VectorNew { initial_values, .. } => {
-                for value in initial_values {
-                    self.infer_expression_types(value)?;
-                }
-                Ok(())
-            }
 
             Expr::Index {
                 container,
@@ -1151,30 +1145,6 @@ impl TypeChecker {
                 }
             }
 
-            Expr::VectorNew {
-                element_type,
-                initial_values,
-            } => {
-                let element_type = self.resolve_type_recursive(element_type);
-
-                // Check all initial values match element type
-                for value in initial_values {
-                    let value_type = self.check_expression(value)?;
-                    if !value_type.is_compatible_with(&element_type) {
-                        bail_with_position!(
-                            value.span.clone(),
-                            "Vector initial value type mismatch: expected {}, got {}",
-                            element_type,
-                            value_type
-                        );
-                    }
-                }
-
-                Ok(Type::Struct {
-                    name: "vec".to_string(),
-                    args: vec![element_type],
-                })
-            }
 
             Expr::Index {
                 container,

@@ -180,11 +180,6 @@ impl CodeGenerator {
                     self.collect_string_constants_from_expr(field_value);
                 }
             }
-            Expr::VectorNew { initial_values, .. } => {
-                for value in initial_values {
-                    self.collect_string_constants_from_expr(value);
-                }
-            }
             Expr::Alloc {
                 element_type: _,
                 size,
@@ -690,11 +685,6 @@ impl CodeGenerator {
                 }
             }
 
-            Expr::VectorNew { .. } => {
-                panic!(
-                    "VectorNew expressions should have been desugared into struct instantiation"
-                );
-            }
 
             Expr::Alloc { element_type, size } => {
                 // Size-based alloc: compile the size expression

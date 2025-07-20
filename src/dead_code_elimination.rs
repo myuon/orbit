@@ -347,15 +347,6 @@ impl DeadCodeEliminator {
                     self.mark_expr_dependencies(positioned_field_expr)?;
                 }
             }
-            Expr::VectorNew {
-                element_type,
-                initial_values,
-            } => {
-                self.mark_type_reachable(element_type);
-                for positioned_value in initial_values {
-                    self.mark_expr_dependencies(positioned_value)?;
-                }
-            }
             Expr::Binary { left, right, .. } => {
                 self.mark_expr_dependencies(left)?;
                 self.mark_expr_dependencies(right)?;
