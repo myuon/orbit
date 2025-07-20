@@ -243,7 +243,6 @@ impl Monomorphizer {
     fn collect_targets_from_expr(&mut self, expr: &PositionedExpr) -> Result<()> {
         match &expr.value {
             Expr::Call { callee, args } => {
-                eprintln!("DEBUG: Processing call expression");
                 // Check if this is a generic function call
                 if let Expr::Identifier(name) = &callee.value {
                     // Look for type arguments in the arguments
@@ -260,10 +259,8 @@ impl Monomorphizer {
                             symbol: name.clone(),
                             args: type_args,
                         });
-                    } else {
-                        // Check if this is a desugared method call
-                        self.try_extract_monomorphization_target_from_desugared_name(name);
                     }
+                    // Note: Removed desugared name extraction since methods are now handled via struct monomorphization
                 }
 
                 // Recursively check callee and arguments
@@ -278,12 +275,13 @@ impl Monomorphizer {
                 kind: _,
             } => {
                 // Check if this is a generic struct instantiation
-                if let Some(generic_type) = self.parse_generic_type(&type_name.to_string()) {
-                    if let Type::Struct { name, args } = generic_type {
-                        // Only add as target if the struct is actually registered as generic
-                        if self.generic_structs.contains_key(&name) {
-                            self.add_target(MonomorphizationTarget { symbol: name, args });
-                        }
+                if let Type::Struct { name, args } = type_name {
+                    // Only add as target if the struct is actually registered as generic
+                    if self.generic_structs.contains_key(name) {
+                        self.add_target(MonomorphizationTarget {
+                            symbol: name.clone(),
+                            args: args.clone(),
+                        });
                     }
                 }
 
@@ -387,26 +385,8 @@ impl Monomorphizer {
     fn extract_type_from_expr(&self, expr: &PositionedExpr) -> Option<Type> {
         match &expr.value {
             Expr::TypeExpr { type_name } => {
-                // For monomorphization, we need to preserve original type names
-                // So we'll create a custom type that maintains the source name
-                let type_name_str = type_name.to_string();
-                match type_name_str.as_str() {
-                    "int" | "number" => Some(Type::Int),
-                    "bool" | "boolean" => Some(Type::Boolean),
-                    "string" | "[*]byte" => Some(Type::String),
-                    _ => {
-                        // Try to parse as a generic type or struct type
-                        if let Some(generic_type) = self.parse_generic_type(&type_name_str) {
-                            Some(generic_type)
-                        } else {
-                            // Assume it's a struct type
-                            Some(Type::Struct {
-                                name: type_name_str,
-                                args: vec![],
-                            })
-                        }
-                    }
-                }
+                // Return the type directly since it's already parsed
+                Some(type_name.clone())
             }
             Expr::Identifier(name) => {
                 // Keep old handling for backward compatibility
@@ -420,92 +400,6 @@ impl Monomorphizer {
             }
             // Add more type expression patterns as needed
             _ => None,
-        }
-    }
-
-    /// Parse a generic type string like "Container(int, string)"
-    fn parse_generic_type(&self, type_str: &str) -> Option<Type> {
-        if type_str.contains('(') && type_str.ends_with(')') {
-            if let Some(paren_pos) = type_str.find('(') {
-                let name = &type_str[..paren_pos];
-                let args_str = &type_str[paren_pos + 1..type_str.len() - 1];
-
-                if args_str.is_empty() {
-                    return Some(Type::Struct {
-                        name: name.to_string(),
-                        args: vec![],
-                    });
-                }
-
-                let args: Vec<Type> = args_str
-                    .split(", ")
-                    .map(|arg| {
-                        let trimmed = arg.trim();
-                        match trimmed {
-                            "bool" | "boolean" => Type::Boolean,
-                            "int" | "number" => Type::Int,
-                            "string" => Type::String,
-                            "byte" => Type::Byte,
-                            _ => Type::Struct {
-                                name: trimmed.to_string(),
-                                args: vec![],
-                            },
-                        }
-                    })
-                    .collect();
-
-                return Some(Type::Struct {
-                    name: name.to_string(),
-                    args,
-                });
-            }
-        }
-        None
-    }
-
-    /// Try to extract monomorphization target from a desugared function name
-    /// e.g., "Container(int)#_create_default" -> MonomorphizationTarget { symbol: "Container", args: [int] }
-    fn try_extract_monomorphization_target_from_desugared_name(&mut self, desugared_name: &str) {
-        // Look for pattern: Type(args)#method
-        if let Some(separator_pos) = desugared_name.find(Type::METHOD_SEPARATOR) {
-            let type_part = &desugared_name[..separator_pos];
-
-            // Extract type and arguments from type_part (e.g., "Container(int)" -> "Container", [int])
-            if let Some(paren_pos) = type_part.find('(') {
-                if type_part.ends_with(')') {
-                    let base_type = &type_part[..paren_pos];
-                    let args_str = &type_part[paren_pos + 1..type_part.len() - 1];
-
-                    // Parse the type arguments
-                    let mut type_args = Vec::new();
-                    if !args_str.is_empty() {
-                        for arg in args_str.split(',') {
-                            let arg = arg.trim();
-                            match arg {
-                                "int" | "number" => type_args.push(Type::Int),
-                                "bool" | "boolean" => type_args.push(Type::Boolean),
-                                "string" | "[*]byte" => type_args.push(Type::String),
-                                "byte" => type_args.push(Type::Byte),
-                                _ => {
-                                    // Try to parse as a complex type
-                                    if let Some(parsed_type) = self.parse_generic_type(arg) {
-                                        type_args.push(parsed_type);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Check if this is a struct and add as target
-                    if self.generic_structs.contains_key(base_type) {
-                        let target = MonomorphizationTarget {
-                            symbol: base_type.to_string(),
-                            args: type_args,
-                        };
-                        self.add_target(target);
-                    }
-                }
-            }
         }
     }
 
