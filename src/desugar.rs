@@ -5,17 +5,166 @@ use crate::ast::{
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
+/// Operations that can be desugared to method calls
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum DesugarOperation {
+    Index,  // container[index] -> container._get(index)
+    Assign, // container[index] = value -> container._set(index, value)
+    Push,   // push(container, value) -> container._push(value)
+    New,    // new Type {} -> Type._new()
+}
+
+/// Configuration for which operations a type supports desugaring for
+#[derive(Debug, Clone)]
+struct TypeDesugarConfig {
+    operations: HashMap<DesugarOperation, String>, // operation -> method_name
+}
+
+impl TypeDesugarConfig {
+    fn new() -> Self {
+        Self {
+            operations: HashMap::new(),
+        }
+    }
+
+    fn with_operation(mut self, op: DesugarOperation, method_name: &str) -> Self {
+        self.operations.insert(op, method_name.to_string());
+        self
+    }
+
+    fn supports_operation(&self, op: &DesugarOperation) -> bool {
+        self.operations.contains_key(op)
+    }
+
+    fn get_method_name(&self, op: &DesugarOperation) -> Option<&String> {
+        self.operations.get(op)
+    }
+}
+
 /// Desugaring phase that transforms high-level constructs into simpler forms
 pub struct Desugarer {
     /// Map of struct names to their declarations for method resolution
     structs: HashMap<String, StructDecl>,
+    /// Map of type names to their desugar operation configurations
+    type_operations: HashMap<String, TypeDesugarConfig>,
 }
 
 impl Desugarer {
     pub fn new() -> Self {
+        let mut type_operations = HashMap::new();
+
+        // Configure vec type operations
+        let vec_config = TypeDesugarConfig::new()
+            .with_operation(DesugarOperation::Index, "_get")
+            .with_operation(DesugarOperation::Assign, "_set")
+            .with_operation(DesugarOperation::Push, "_push")
+            .with_operation(DesugarOperation::New, "_new");
+        type_operations.insert("vec".to_string(), vec_config);
+
+        // Configure array type operations
+        let array_config = TypeDesugarConfig::new()
+            .with_operation(DesugarOperation::Index, "_get")
+            .with_operation(DesugarOperation::Assign, "_set");
+        type_operations.insert("array".to_string(), array_config);
+
         Self {
             structs: HashMap::new(),
+            type_operations,
         }
+    }
+
+    /// Check if a type supports a specific desugar operation
+    fn supports_operation(&self, type_name: &str, operation: &DesugarOperation) -> bool {
+        self.type_operations
+            .get(type_name)
+            .map(|config| config.supports_operation(operation))
+            .unwrap_or(false)
+    }
+
+    /// Get the method name for a specific operation on a type
+    fn get_method_name(&self, type_name: &str, operation: &DesugarOperation) -> Option<&String> {
+        self.type_operations
+            .get(type_name)
+            .and_then(|config| config.get_method_name(operation))
+    }
+
+    /// Create a method call expression for collection operations
+    fn create_collection_method_call(
+        &mut self,
+        container: PositionedExpr,
+        operation: DesugarOperation,
+        args: Vec<PositionedExpr>,
+        type_name: &str,
+        type_args: &[Type],
+    ) -> Result<PositionedExpr> {
+        let method_name = self
+            .get_method_name(type_name, &operation)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Operation {:?} not supported for type {}",
+                    operation,
+                    type_name
+                )
+            })?
+            .clone();
+
+        let type_params = if type_args.is_empty() {
+            "T".to_string()
+        } else {
+            type_args
+                .iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
+        let method_call = Expr::MethodCall {
+            object: Some(Box::new(container)),
+            type_name: Some(format!("{}({})", type_name, type_params)),
+            method: method_name,
+            args,
+        };
+
+        self.desugar_expression(&Positioned::with_unknown_span(method_call))
+    }
+
+    /// Create an associated method call expression for collection types (like _new)
+    fn create_collection_associated_method_call(
+        &mut self,
+        operation: DesugarOperation,
+        args: Vec<PositionedExpr>,
+        type_name: &str,
+        type_args: &[Type],
+    ) -> Result<PositionedExpr> {
+        let method_name = self
+            .get_method_name(type_name, &operation)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Operation {:?} not supported for type {}",
+                    operation,
+                    type_name
+                )
+            })?
+            .clone();
+
+        let type_params = if type_args.is_empty() {
+            "T".to_string()
+        } else {
+            type_args
+                .iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
+        let method_call = Expr::MethodCall {
+            object: None,
+            type_name: Some(format!("{}({})", type_name, type_params)),
+            method: method_name,
+            args,
+        };
+
+        self.desugar_expression(&Positioned::with_unknown_span(method_call))
     }
 
     /// Desugar a complete program
@@ -194,51 +343,18 @@ impl Desugarer {
                 {
                     if let Some(ref container_type) = container_value_type {
                         match container_type {
-                            Type::Struct { name, args } if name == "vec" => {
+                            Type::Struct { name, args }
+                                if self.supports_operation(name, &DesugarOperation::Assign) =>
+                            {
                                 // Convert to method call: container._set(index, value)
                                 let desugared_container = self.desugar_expression(container)?;
                                 let desugared_index = self.desugar_expression(index)?;
-                                let type_params = if args.is_empty() {
-                                    "T".to_string()
-                                } else {
-                                    args.iter()
-                                        .map(|t| t.to_string())
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
-                                };
-                                let method_call = Expr::MethodCall {
-                                    object: Some(Box::new(desugared_container)),
-                                    type_name: Some(format!("{}({})", name, type_params)),
-                                    method: "_set".to_string(),
-                                    args: vec![desugared_index, desugared_value],
-                                };
-                                let desugared_method_call = self.desugar_expression(
-                                    &Positioned::with_unknown_span(method_call),
-                                )?;
-                                return Ok(Positioned::with_unknown_span(Stmt::Expression(
-                                    desugared_method_call,
-                                )));
-                            }
-                            Type::Struct { name, args } if name == "array" => {
-                                // Convert to method call: container._set(index, value)
-                                let desugared_container = self.desugar_expression(container)?;
-                                let desugared_index = self.desugar_expression(index)?;
-                                let type_params = if args.is_empty() {
-                                    "T".to_string()
-                                } else {
-                                    args.iter()
-                                        .map(|t| t.to_string())
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
-                                };
-                                let method_call = Expr::MethodCall {
-                                    object: Some(Box::new(desugared_container)),
-                                    type_name: Some(format!("{}({})", name, type_params)),
-                                    method: "_set".to_string(),
-                                    args: vec![desugared_index, desugared_value],
-                                };
-                                let desugared_method_call = self.desugar_expression(
-                                    &Positioned::with_unknown_span(method_call),
+                                let desugared_method_call = self.create_collection_method_call(
+                                    desugared_container,
+                                    DesugarOperation::Assign,
+                                    vec![desugared_index, desugared_value],
+                                    name,
+                                    args,
                                 )?;
                                 return Ok(Positioned::with_unknown_span(Stmt::Expression(
                                     desugared_method_call,
@@ -286,26 +402,19 @@ impl Desugarer {
                 // Check if this is a vec type that should be desugared to method call
                 if let Some(ref vtype) = vector_type {
                     match vtype {
-                        Type::Struct { name, args } if name == "vec" => {
+                        Type::Struct { name, args }
+                            if self.supports_operation(name, &DesugarOperation::Push) =>
+                        {
                             // Convert to method call: vector._push(value)
-                            let type_params = if args.is_empty() {
-                                "T".to_string()
-                            } else {
-                                args.iter()
-                                    .map(|t| t.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            };
-                            let method_call = Expr::MethodCall {
-                                object: Some(Box::new(Positioned::with_unknown_span(
-                                    Expr::Identifier(vector.clone()),
-                                ))),
-                                type_name: Some(format!("{}({})", name, type_params)),
-                                method: "_push".to_string(),
-                                args: vec![desugared_value],
-                            };
-                            let desugared_method_call = self
-                                .desugar_expression(&Positioned::with_unknown_span(method_call))?;
+                            let vector_expr =
+                                Positioned::with_unknown_span(Expr::Identifier(vector.clone()));
+                            let desugared_method_call = self.create_collection_method_call(
+                                vector_expr,
+                                DesugarOperation::Push,
+                                vec![desugared_value],
+                                name,
+                                args,
+                            )?;
                             return Ok(Positioned::with_unknown_span(Stmt::Expression(
                                 desugared_method_call,
                             )));
@@ -445,7 +554,6 @@ impl Desugarer {
                 let desugared_container = self.desugar_expression(container)?;
                 let desugared_index = self.desugar_expression(index)?;
 
-
                 // Check if this is a string type that should be converted to array(byte) indexing
                 if let Some(ref container_type) = container_value_type {
                     match container_type {
@@ -459,45 +567,17 @@ impl Desugarer {
                             };
                             return Ok(Positioned::with_unknown_span(function_call));
                         }
-                        Type::Struct { name, args } if name == "vec" => {
+                        Type::Struct { name, args }
+                            if self.supports_operation(name, &DesugarOperation::Index) =>
+                        {
                             // Convert to method call: container._get(index)
-                            let type_params = if args.is_empty() {
-                                "T".to_string()
-                            } else {
-                                args.iter()
-                                    .map(|t| t.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            };
-                            let method_call = Expr::MethodCall {
-                                object: Some(Box::new(desugared_container)),
-                                type_name: Some(format!("{}({})", name, type_params)),
-                                method: "_get".to_string(),
-                                args: vec![desugared_index],
-                            };
-                            return Ok(self.desugar_expression(&Positioned::with_unknown_span(
-                                method_call,
-                            ))?);
-                        }
-                        Type::Struct { name, args } if name == "array" => {
-                            // Convert to method call: container._get(index)
-                            let type_params = if args.is_empty() {
-                                "T".to_string()
-                            } else {
-                                args.iter()
-                                    .map(|t| t.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            };
-                            let method_call = Expr::MethodCall {
-                                object: Some(Box::new(desugared_container)),
-                                type_name: Some(format!("{}({})", name, type_params)),
-                                method: "_get".to_string(),
-                                args: vec![desugared_index],
-                            };
-                            return Ok(self.desugar_expression(&Positioned::with_unknown_span(
-                                method_call,
-                            ))?);
+                            return self.create_collection_method_call(
+                                desugared_container,
+                                DesugarOperation::Index,
+                                vec![desugared_index],
+                                name,
+                                args,
+                            );
                         }
                         Type::Struct {
                             name: struct_name,
@@ -551,25 +631,16 @@ impl Desugarer {
                 // Check if this is a vec type with Pattern kind (empty fields) that should be desugared to _new method call
                 if *kind == StructNewKind::Pattern && fields.is_empty() {
                     match type_name {
-                        Type::Struct { name, args } if name == "vec" => {
+                        Type::Struct { name, args }
+                            if self.supports_operation(name, &DesugarOperation::New) =>
+                        {
                             // Convert to method call: vec(T)._new()
-                            let type_params = if args.is_empty() {
-                                "T".to_string()
-                            } else {
-                                args.iter()
-                                    .map(|t| t.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            };
-                            let method_call = Expr::MethodCall {
-                                object: None,
-                                type_name: Some(format!("{}({})", name, type_params)),
-                                method: "_new".to_string(),
-                                args: vec![],
-                            };
-                            return Ok(self.desugar_expression(&Positioned::with_unknown_span(
-                                method_call,
-                            ))?);
+                            return self.create_collection_associated_method_call(
+                                DesugarOperation::New,
+                                vec![],
+                                name,
+                                args,
+                            );
                         }
                         Type::Struct {
                             name: struct_name,
@@ -627,8 +698,14 @@ impl Desugarer {
                         args: vec![Type::Byte],
                     },
                     fields: vec![
-                        ("data".to_string(), Positioned::with_unknown_span(Expr::PushString(s.clone()))),
-                        ("length".to_string(), Positioned::with_unknown_span(Expr::Int(string_length))),
+                        (
+                            "data".to_string(),
+                            Positioned::with_unknown_span(Expr::PushString(s.clone())),
+                        ),
+                        (
+                            "length".to_string(),
+                            Positioned::with_unknown_span(Expr::Int(string_length)),
+                        ),
                     ],
                     kind: StructNewKind::Regular,
                 }
