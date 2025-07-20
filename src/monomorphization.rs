@@ -45,62 +45,6 @@ fn substitute_type(original_type: &Type, substitutions: &HashMap<String, Type>) 
     }
 }
 
-/// Helper function to create simple types from strings (for monomorphization use)
-fn simple_type_from_string(type_str: &str) -> Type {
-    match type_str {
-        "bool" | "boolean" => Type::Boolean,
-        "int" | "number" => Type::Int,
-        "string" => Type::String,
-        "byte" => Type::Byte,
-        _ => {
-            // Handle vec(T) syntax
-            if type_str.starts_with("vec(") && type_str.ends_with(')') {
-                let inner = &type_str[4..type_str.len() - 1];
-                Type::Struct {
-                    name: "vec".to_string(),
-                    args: vec![simple_type_from_string(inner)],
-                }
-            } else if type_str.starts_with("array(") && type_str.ends_with(')') {
-                let inner = &type_str[6..type_str.len() - 1];
-                Type::Struct {
-                    name: "array".to_string(),
-                    args: vec![simple_type_from_string(inner)],
-                }
-            } else if type_str.contains('(') && type_str.ends_with(')') {
-                // Handle generic type instantiation: Type(arg1, arg2, ...)
-                if let Some(paren_pos) = type_str.find('(') {
-                    let name = &type_str[..paren_pos];
-                    let args_str = &type_str[paren_pos + 1..type_str.len() - 1];
-                    if args_str.is_empty() {
-                        Type::Struct {
-                            name: name.to_string(),
-                            args: vec![],
-                        }
-                    } else {
-                        let args: Vec<Type> = args_str
-                            .split(", ")
-                            .map(|arg| simple_type_from_string(arg.trim()))
-                            .collect();
-                        Type::Struct {
-                            name: name.to_string(),
-                            args,
-                        }
-                    }
-                } else {
-                    Type::Struct {
-                        name: type_str.to_string(),
-                        args: vec![],
-                    }
-                }
-            } else {
-                Type::Struct {
-                    name: type_str.to_string(),
-                    args: vec![],
-                }
-            }
-        }
-    }
-}
 
 /// Target for monomorphization - represents a generic symbol that needs to be instantiated
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -533,7 +477,19 @@ impl Monomorphizer {
 
                 let args: Vec<Type> = args_str
                     .split(", ")
-                    .map(|arg| simple_type_from_string(arg.trim()))
+                    .map(|arg| {
+                        let trimmed = arg.trim();
+                        match trimmed {
+                            "bool" | "boolean" => Type::Boolean,
+                            "int" | "number" => Type::Int,
+                            "string" => Type::String,
+                            "byte" => Type::Byte,
+                            _ => Type::Struct {
+                                name: trimmed.to_string(),
+                                args: vec![],
+                            }
+                        }
+                    })
                     .collect();
 
                 return Some(Type::Struct {
@@ -857,30 +813,18 @@ impl Monomorphizer {
             Expr::Byte(b) => Expr::Byte(*b),
             Expr::Identifier(name) => Expr::Identifier(name.clone()),
             Expr::TypeExpr { type_name } => Expr::TypeExpr {
-                type_name: simple_type_from_string(&substitute_type_in_string(
-                    &type_name.to_string(),
-                    substitutions,
-                )),
+                type_name: substitute_type(type_name, substitutions),
             },
             Expr::Alloc { element_type, size } => Expr::Alloc {
-                element_type: simple_type_from_string(&substitute_type_in_string(
-                    &element_type.to_string(),
-                    substitutions,
-                )),
+                element_type: substitute_type(element_type, substitutions),
                 size: Box::new(self.substitute_expression(size, substitutions)?),
             },
             Expr::Sizeof { type_name } => Expr::Sizeof {
-                type_name: simple_type_from_string(&substitute_type_in_string(
-                    &type_name.to_string(),
-                    substitutions,
-                )),
+                type_name: substitute_type(type_name, substitutions),
             },
             Expr::Cast { expr, target_type } => Expr::Cast {
                 expr: Box::new(self.substitute_expression(expr, substitutions)?),
-                target_type: simple_type_from_string(&substitute_type_in_string(
-                    &target_type.to_string(),
-                    substitutions,
-                )),
+                target_type: substitute_type(target_type, substitutions),
             },
 
             // Complex expressions that may contain type information
@@ -903,7 +847,7 @@ impl Monomorphizer {
                 element_type,
                 initial_values,
             } => Expr::VectorNew {
-                element_type: simple_type_from_string(&substitute_type_in_string(&element_type.to_string(), substitutions)),
+                element_type: substitute_type(element_type, substitutions),
                 initial_values: initial_values
                     .iter()
                     .map(|val| self.substitute_expression(val, substitutions))
@@ -925,10 +869,7 @@ impl Monomorphizer {
                 fields,
                 kind,
             } => Expr::StructNew {
-                type_name: simple_type_from_string(&substitute_type_in_string(
-                    &type_name.to_string(),
-                    substitutions,
-                )),
+                type_name: substitute_type(type_name, substitutions),
                 fields: fields
                     .iter()
                     .map(|(name, expr)| {
@@ -1112,21 +1053,15 @@ impl Monomorphizer {
                 type_name: type_name.clone(),
             },
             Expr::Alloc { element_type, size } => Expr::Alloc {
-                element_type: simple_type_from_string(&substitute_type_in_string_globally(
-                    &element_type.to_string(),
-                )),
+                element_type: element_type.clone(), // No global substitution needed for types
                 size: Box::new(self.substitute_expression_globally(size)?),
             },
             Expr::Sizeof { type_name } => Expr::Sizeof {
-                type_name: simple_type_from_string(&substitute_type_in_string_globally(
-                    &type_name.to_string(),
-                )),
+                type_name: type_name.clone(), // No global substitution needed for types
             },
             Expr::Cast { expr, target_type } => Expr::Cast {
                 expr: Box::new(self.substitute_expression_globally(expr)?),
-                target_type: simple_type_from_string(&substitute_type_in_string_globally(
-                    &target_type.to_string(),
-                )),
+                target_type: target_type.clone(), // No global substitution needed for types
             },
 
             // Complex expressions
@@ -1188,7 +1123,7 @@ impl Monomorphizer {
                 element_type,
                 initial_values,
             } => Expr::VectorNew {
-                element_type: simple_type_from_string(&substitute_type_in_string_globally(&element_type.to_string())),
+                element_type: element_type.clone(), // No global substitution needed for types
                 initial_values: initial_values
                     .iter()
                     .map(|val| self.substitute_expression_globally(val))
@@ -1210,9 +1145,7 @@ impl Monomorphizer {
                 fields,
                 kind,
             } => Expr::StructNew {
-                type_name: simple_type_from_string(&substitute_type_in_string_globally(
-                    &type_name.to_string(),
-                )),
+                type_name: type_name.clone(), // No global substitution needed for types
                 fields: fields
                     .iter()
                     .map(|(name, expr)| {
@@ -1248,73 +1181,6 @@ impl Monomorphizer {
     }
 }
 
-/// Substitute type parameters in a type string globally (for type instantiations)
-fn substitute_type_in_string_globally(type_str: &str) -> String {
-    // Keep type string as-is: "Container(int)" stays "Container(int)"
-    // No normalization needed - preserve the original type syntax
-    type_str.to_string()
-}
-
-/// Substitute type parameters in a type string
-fn substitute_type_in_string(type_str: &str, substitutions: &HashMap<String, Type>) -> String {
-    // Handle generic type instantiation like "Container(T)" -> "Container(int)"
-    if type_str.contains('(') && type_str.ends_with(')') {
-        if let Some(paren_pos) = type_str.find('(') {
-            let name = &type_str[..paren_pos];
-            let args_str = &type_str[paren_pos + 1..type_str.len() - 1];
-
-            if args_str.is_empty() {
-                return name.to_string();
-            }
-
-            let args: Vec<Type> = args_str
-                .split(", ")
-                .map(|arg| {
-                    let trimmed = arg.trim();
-                    // Apply substitutions to each argument
-                    if let Some(replacement) = substitutions.get(trimmed) {
-                        replacement.clone()
-                    } else {
-                        simple_type_from_string(trimmed)
-                    }
-                })
-                .collect();
-
-            // Keep the original format with substituted types using source syntax
-            let args_str = args
-                .iter()
-                .map(|t| match t {
-                    Type::Int => "int".to_string(),      // Keep as "int" not "number"
-                    Type::Boolean => "bool".to_string(), // Keep as "bool" not "boolean"
-                    _ => t.to_string(),
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            return format!("{}({})", name, args_str);
-        }
-    }
-
-    // Handle pointer types like [*]T
-    if type_str.starts_with("[*]") {
-        let inner_type = &type_str[3..];
-        let substituted_inner = substitute_type_in_string(inner_type, substitutions);
-        return format!("[*]{}", substituted_inner);
-    }
-
-    // Simple string substitution for type parameters
-    if let Some(replacement) = substitutions.get(type_str) {
-        // Convert Type back to source-friendly string representation
-        match replacement {
-            Type::Int => "int".to_string(),       // Prefer "int" over "number"
-            Type::Boolean => "bool".to_string(),  // Prefer "bool" over "boolean"
-            Type::String => "string".to_string(), // Could be "string" or "[*]byte", use "string"
-            other => other.to_string(),
-        }
-    } else {
-        type_str.to_string()
-    }
-}
 
 #[cfg(test)]
 mod tests {
