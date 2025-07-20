@@ -419,25 +419,6 @@ impl Desugarer {
                                 desugared_method_call,
                             )));
                         }
-                        Type::Struct {
-                            name: struct_name,
-                            args: _,
-                        } if struct_name.contains("vec") => {
-                            // Convert to method call: vector._push(value)
-                            let method_call = Expr::MethodCall {
-                                object: Some(Box::new(Positioned::with_unknown_span(
-                                    Expr::Identifier(vector.clone()),
-                                ))),
-                                type_name: Some(struct_name.clone()),
-                                method: "_push".to_string(),
-                                args: vec![desugared_value],
-                            };
-                            let desugared_method_call = self
-                                .desugar_expression(&Positioned::with_unknown_span(method_call))?;
-                            return Ok(Positioned::with_unknown_span(Stmt::Expression(
-                                desugared_method_call,
-                            )));
-                        }
                         _ => {}
                     }
                 }
@@ -578,21 +559,6 @@ impl Desugarer {
                                 name,
                                 args,
                             );
-                        }
-                        Type::Struct {
-                            name: struct_name,
-                            args: _,
-                        } if struct_name.contains("vec") => {
-                            // Convert to method call: container._get(index)
-                            let method_call = Expr::MethodCall {
-                                object: Some(Box::new(desugared_container)),
-                                type_name: Some(struct_name.clone()),
-                                method: "_get".to_string(),
-                                args: vec![desugared_index],
-                            };
-                            return Ok(self.desugar_expression(&Positioned::with_unknown_span(
-                                method_call,
-                            ))?);
                         }
                         _ => {}
                     }
