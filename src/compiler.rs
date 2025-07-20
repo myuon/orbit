@@ -99,9 +99,9 @@ impl Compiler {
             Runtime::new()
         };
 
-        Compiler { 
-            runtime, 
-            options, 
+        Compiler {
+            runtime,
+            options,
             position_calculator: None,
             current_filename: "<unknown>".to_string(),
         }
@@ -115,17 +115,17 @@ impl Compiler {
     /// Compile and execute Orbit source code with a specific filename, returning the last value
     pub fn execute_with_filename(&mut self, code: &str, filename: &str) -> Result<Option<Value>> {
         self.current_filename = filename.to_string();
-        
+
         let (processed_code, std_lib_content) = self
             .preprocess_code_with_std_info(code)
             .with_context(|| "Preprocessing phase: Failed to preprocess code")?;
-            
+
         // Set up position calculator
         self.position_calculator = Some(PositionCalculator::new(
             processed_code.clone(),
             std_lib_content,
         ));
-        
+
         let tokens = self.tokenize(&processed_code)?;
         let program = self.parse(tokens)?;
         self.execute_program(program)
@@ -153,10 +153,7 @@ impl Compiler {
 
         let std_lib_path = "lib/std.ob";
         match std::fs::read_to_string(std_lib_path) {
-            Ok(std_content) => Ok((
-                format!("{}\n{}", std_content, code),
-                Some(std_content)
-            )),
+            Ok(std_content) => Ok((format!("{}\n{}", std_content, code), Some(std_content))),
             Err(_) => {
                 // If std.ob doesn't exist, just return the original code
                 Ok((code.to_string(), None))
@@ -330,13 +327,21 @@ impl Compiler {
     }
 
     /// Convert a byte position to a diagnostic location
-    pub fn position_to_location(&self, byte_offset: usize) -> Option<crate::diagnostics::SourceLocation> {
-        self.position_calculator.as_ref()
+    pub fn position_to_location(
+        &self,
+        byte_offset: usize,
+    ) -> Option<crate::diagnostics::SourceLocation> {
+        self.position_calculator
+            .as_ref()
             .map(|calc| calc.position_to_location(byte_offset, &self.current_filename))
     }
 
     /// Create a diagnostic from a span and message
-    pub fn create_diagnostic_from_span(&self, span: &crate::ast::Span, message: String) -> Diagnostic {
+    pub fn create_diagnostic_from_span(
+        &self,
+        span: &crate::ast::Span,
+        message: String,
+    ) -> Diagnostic {
         if let (Some(start_pos), Some(calc)) = (span.start, &self.position_calculator) {
             let location = calc.position_to_location(start_pos, &self.current_filename);
             Diagnostic::error_with_span(message, span.clone(), Some(location))
@@ -349,10 +354,10 @@ impl Compiler {
     pub fn format_error_with_position(&self, error: &anyhow::Error) -> String {
         // Get the full error chain including causes
         let full_error_msg = format!("{:?}", error);
-        
+
         // Try to extract position information from the error message
         let error_msg = error.to_string();
-        
+
         // Look for "at position X" pattern in the full error chain
         if let Some(pos_start) = full_error_msg.find("at position ") {
             if let Some(pos_str) = full_error_msg[pos_start + 12..].split_whitespace().next() {
@@ -364,9 +369,9 @@ impl Compiler {
                         } else {
                             error_msg.clone()
                         };
-                        
+
                         let diagnostic = Diagnostic::error_at(actual_msg, location);
-                        
+
                         // Use the position calculator to format with correct source context
                         if let Some(calc) = &self.position_calculator {
                             return diagnostic.format_with_calculator(calc);

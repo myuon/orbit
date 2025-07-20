@@ -74,14 +74,16 @@ impl Diagnostic {
         // Format the main message
         let level_str = match self.level {
             DiagnosticLevel::Error => "error",
-            DiagnosticLevel::Warning => "warning", 
+            DiagnosticLevel::Warning => "warning",
             DiagnosticLevel::Info => "info",
         };
 
         if let Some(location) = &self.location {
-            output.push_str(&format!("{}:{}:{}: {}: {}\n", 
-                location.file, location.line, location.column, level_str, self.message));
-            
+            output.push_str(&format!(
+                "{}:{}:{}: {}: {}\n",
+                location.file, location.line, location.column, level_str, self.message
+            ));
+
             // Show source context if available
             if let Some(source) = source_content {
                 if let Some(context) = self.get_source_context(source, location) {
@@ -107,14 +109,16 @@ impl Diagnostic {
         // Format the main message
         let level_str = match self.level {
             DiagnosticLevel::Error => "error",
-            DiagnosticLevel::Warning => "warning", 
+            DiagnosticLevel::Warning => "warning",
             DiagnosticLevel::Info => "info",
         };
 
         if let Some(location) = &self.location {
-            output.push_str(&format!("{}:{}:{}: {}: {}\n", 
-                location.file, location.line, location.column, level_str, self.message));
-            
+            output.push_str(&format!(
+                "{}:{}:{}: {}: {}\n",
+                location.file, location.line, location.column, level_str, self.message
+            ));
+
             // Get the appropriate source content based on the location
             let source_content = position_calculator.get_source_for_location(location);
             if let Some(context) = self.get_source_context(&source_content, location) {
@@ -135,26 +139,28 @@ impl Diagnostic {
     /// Get source context around the error location
     fn get_source_context(&self, source: &str, location: &SourceLocation) -> Option<String> {
         let lines: Vec<&str> = source.lines().collect();
-        
+
         if location.line == 0 || location.line > lines.len() {
             return None;
         }
 
         let line_idx = location.line - 1;
         let line_content = lines[line_idx];
-        
+
         let mut context = String::new();
-        
+
         // Show the line with the error
         context.push_str(&format!("{:4} | {}\n", location.line, line_content));
-        
+
         // Show pointer to the exact column
-        let pointer_line = format!("{:4} | {}{}\n", 
-            "", 
-            " ".repeat(location.column.saturating_sub(1)), 
-            "^");
+        let pointer_line = format!(
+            "{:4} | {}{}\n",
+            "",
+            " ".repeat(location.column.saturating_sub(1)),
+            "^"
+        );
         context.push_str(&pointer_line);
-        
+
         Some(context)
     }
 }
@@ -169,10 +175,11 @@ pub struct PositionCalculator {
 impl PositionCalculator {
     /// Create a new position calculator
     pub fn new(source: String, std_lib_content: Option<String>) -> Self {
-        let std_lib_offset = std_lib_content.as_ref()
+        let std_lib_offset = std_lib_content
+            .as_ref()
             .map(|content| content.len() + 1) // +1 for the newline added between std and user code
             .unwrap_or(0);
-            
+
         Self {
             source,
             std_lib_content,
@@ -208,7 +215,12 @@ impl PositionCalculator {
     }
 
     /// Calculate line/column in a specific content string
-    fn calculate_location_in_content(&self, content: &str, offset: usize, filename: &str) -> SourceLocation {
+    fn calculate_location_in_content(
+        &self,
+        content: &str,
+        offset: usize,
+        filename: &str,
+    ) -> SourceLocation {
         let mut line = 1;
         let mut column = 1;
         let mut current_offset = 0;
@@ -250,7 +262,10 @@ impl PositionCalculator {
             // Return user code content
             if let Some(_) = &self.std_lib_content {
                 // Skip std.ob content and newline
-                self.source.get(self.std_lib_offset..).unwrap_or("").to_string()
+                self.source
+                    .get(self.std_lib_offset..)
+                    .unwrap_or("")
+                    .to_string()
             } else {
                 self.source.clone()
             }
@@ -270,11 +285,11 @@ mod tests {
         let source = "let x = 5;\nlet y = 10;".to_string();
         let y_pos = source.find('y').unwrap();
         let calc = PositionCalculator::new(source, None);
-        
+
         let loc = calc.position_to_location(0, "test.ob");
         assert_eq!(loc.line, 1);
         assert_eq!(loc.column, 1);
-        
+
         let loc = calc.position_to_location(y_pos, "test.ob"); // Position of "y"
         assert_eq!(loc.line, 2);
         assert_eq!(loc.column, 5);
@@ -285,15 +300,15 @@ mod tests {
         let std_content = "type int = struct {};".to_string();
         let user_code = "let x = 5;".to_string();
         let full_source = format!("{}\n{}", std_content, user_code);
-        
+
         let calc = PositionCalculator::new(full_source, Some(std_content.clone()));
-        
+
         // Position in std.ob
         let loc = calc.position_to_location(5, "test.ob"); // Position of "int"
         assert_eq!(loc.file, "std.ob");
         assert_eq!(loc.line, 1);
         assert_eq!(loc.column, 6);
-        
+
         // Position in user code
         let user_start = std_content.len() + 1; // +1 for newline
         let loc = calc.position_to_location(user_start + 4, "test.ob"); // Position of "x"
@@ -310,15 +325,13 @@ mod tests {
             column: 5,
             byte_offset: 15,
         };
-        
-        let diagnostic = Diagnostic::error_at(
-            "Undefined variable 'x'".to_string(), 
-            location
-        ).with_help("Did you mean to declare 'x' first?".to_string());
-        
+
+        let diagnostic = Diagnostic::error_at("Undefined variable 'x'".to_string(), location)
+            .with_help("Did you mean to declare 'x' first?".to_string());
+
         let source = "let y = 10;\nlet z = x + 5;";
         let formatted = diagnostic.format(Some(source));
-        
+
         assert!(formatted.contains("test.ob:2:5: error: Undefined variable 'x'"));
         assert!(formatted.contains("let z = x + 5;"));
         assert!(formatted.contains("^"));

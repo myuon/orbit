@@ -681,7 +681,9 @@ impl CodeGenerator {
             }
 
             Expr::VectorNew { .. } => {
-                panic!("VectorNew expressions should have been desugared into struct instantiation");
+                panic!(
+                    "VectorNew expressions should have been desugared into struct instantiation"
+                );
             }
 
             Expr::Alloc { element_type, size } => {
@@ -741,7 +743,9 @@ impl CodeGenerator {
             } => {
                 // Verify struct exists (special handling for built-in types)
                 let type_name_str = type_name.to_string();
-                if !self.structs.contains_key(&type_name_str) && !type_name_str.starts_with("array(") {
+                if !self.structs.contains_key(&type_name_str)
+                    && !type_name_str.starts_with("array(")
+                {
                     panic!("Unknown struct type: {}", type_name);
                 }
 
@@ -885,7 +889,6 @@ fn compile_expr_recursive(expr: &PositionedExpr, instructions: &mut Vec<Instruct
             // For other function calls, just push 0 - need more complex handling
             instructions.push(Instruction::Push(0));
         }
-
 
         Expr::Index { .. } => {
             // For now, just push 0 - indexing needs more complex handling

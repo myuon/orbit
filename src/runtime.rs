@@ -922,7 +922,6 @@ impl VM {
                 };
             }
 
-
             Instruction::MapNew => {
                 // Create a new empty map and push its heap index
                 let heap_index = self.heap.len();
@@ -945,24 +944,30 @@ impl VM {
 
                         // Extract key string from either Address or array(byte) structure
                         let key = match key_value {
-                            Value::Address(key_addr) => {
-                                self.address_to_string(key_addr)?
-                            }
+                            Value::Address(key_addr) => self.address_to_string(key_addr)?,
                             Value::HeapRef(key_heap_index) => {
                                 // Handle array(byte) structure - extract .data field
                                 if key_heap_index.0 >= self.heap.len() {
-                                    return Err(format!("Invalid key heap index: {}", key_heap_index.0));
+                                    return Err(format!(
+                                        "Invalid key heap index: {}",
+                                        key_heap_index.0
+                                    ));
                                 }
                                 match &self.heap[key_heap_index.0] {
                                     HeapObject::Struct(fields) => {
-                                        if let Some(Value::Address(data_addr)) = fields.get("data") {
+                                        if let Some(Value::Address(data_addr)) = fields.get("data")
+                                        {
                                             self.address_to_string(*data_addr)?
                                         } else {
-                                            return Err("MapIndex: array key missing .data field".to_string());
+                                            return Err("MapIndex: array key missing .data field"
+                                                .to_string());
                                         }
                                     }
                                     _ => {
-                                        return Err("MapIndex: key heap reference must point to a struct".to_string());
+                                        return Err(
+                                            "MapIndex: key heap reference must point to a struct"
+                                                .to_string(),
+                                        );
                                     }
                                 }
                             }
@@ -983,9 +988,7 @@ impl VM {
                             _ => return Err("MapIndex requires a map heap object".to_string()),
                         }
                     }
-                    _ => {
-                        return Err("MapIndex requires a heap reference for the map".to_string())
-                    }
+                    _ => return Err("MapIndex requires a heap reference for the map".to_string()),
                 }
             }
 
@@ -1005,24 +1008,31 @@ impl VM {
 
                         // Extract key string from either Address or array(byte) structure
                         let key = match key_value {
-                            Value::Address(key_addr) => {
-                                self.address_to_string(key_addr)?
-                            }
+                            Value::Address(key_addr) => self.address_to_string(key_addr)?,
                             Value::HeapRef(key_heap_index) => {
                                 // Handle array(byte) structure - extract .data field
                                 if key_heap_index.0 >= self.heap.len() {
-                                    return Err(format!("Invalid key heap index: {}", key_heap_index.0));
+                                    return Err(format!(
+                                        "Invalid key heap index: {}",
+                                        key_heap_index.0
+                                    ));
                                 }
                                 match &self.heap[key_heap_index.0] {
                                     HeapObject::Struct(fields) => {
-                                        if let Some(Value::Address(data_addr)) = fields.get("data") {
+                                        if let Some(Value::Address(data_addr)) = fields.get("data")
+                                        {
                                             self.address_to_string(*data_addr)?
                                         } else {
-                                            return Err("MapSet: array key missing .data field".to_string());
+                                            return Err(
+                                                "MapSet: array key missing .data field".to_string()
+                                            );
                                         }
                                     }
                                     _ => {
-                                        return Err("MapSet: key heap reference must point to a struct".to_string());
+                                        return Err(
+                                            "MapSet: key heap reference must point to a struct"
+                                                .to_string(),
+                                        );
                                     }
                                 }
                             }
@@ -1163,9 +1173,7 @@ impl VM {
                             HeapObject::RawValue(Value::Byte(byte)) => {
                                 self.stack.push(Value::Byte(*byte));
                             }
-                            _ => {
-                                return Err("String index out of bounds".to_string())
-                            }
+                            _ => return Err("String index out of bounds".to_string()),
                         }
                     }
                     _ => return Err("StringIndex requires an address and number".to_string()),

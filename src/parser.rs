@@ -109,7 +109,10 @@ impl Parser {
                 self.advance();
                 n
             }
-            _ => bail!("Expected variable name after 'let' at position {}", self.current_token().position),
+            _ => bail!(
+                "Expected variable name after 'let' at position {}",
+                self.current_token().position
+            ),
         };
 
         self.consume(TokenType::Assign)?;
@@ -394,7 +397,10 @@ impl Parser {
                 self.advance();
                 n
             }
-            _ => bail!("Expected variable name after 'let' at position {}", self.current_token().position),
+            _ => bail!(
+                "Expected variable name after 'let' at position {}",
+                self.current_token().position
+            ),
         };
 
         self.consume(TokenType::Assign)?;

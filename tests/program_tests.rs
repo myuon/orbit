@@ -154,13 +154,13 @@ fn run_single_error_test(test_file: &Path) {
 
     // Collect all .stderr files (.stderr, .stderr.2, .stderr.3, etc.)
     let mut expected_error_files = Vec::new();
-    
+
     // Check for primary .stderr file
     let primary_stderr = test_file.with_extension("stderr");
     if primary_stderr.exists() {
         expected_error_files.push(primary_stderr);
     }
-    
+
     // Check for additional .stderr.N files
     let mut counter = 2;
     loop {
@@ -214,18 +214,24 @@ fn run_single_error_test(test_file: &Path) {
             let error_message = error.to_string();
             // Check the full error chain for debugging
             let full_error = format!("{:?}", error);
-            
+
             // All expected fragments must be present (AND condition)
             for (i, expected_fragment) in expected_error_fragments.iter().enumerate() {
-                if !error_message.contains(expected_fragment) && !full_error.contains(expected_fragment) {
+                if !error_message.contains(expected_fragment)
+                    && !full_error.contains(expected_fragment)
+                {
                     panic!(
                         "Error test {} failed.\nExpected error to contain fragment #{}: '{}'\nActual error: '{}'\nFull error: '{}'",
                         test_name, i + 1, expected_fragment, error_message, full_error
                     );
                 }
             }
-            
-            println!("✓ Error test {} passed ({} conditions checked)", test_name, expected_error_fragments.len());
+
+            println!(
+                "✓ Error test {} passed ({} conditions checked)",
+                test_name,
+                expected_error_fragments.len()
+            );
         }
     }
 }

@@ -106,10 +106,16 @@ impl Type {
             (Type::Int, Type::Int) => true,
             (Type::String, Type::String) => true,
             // String and array(byte) are compatible
-            (Type::String, Type::Struct { name, args }) 
-                if name == "array" && args.len() == 1 && args[0] == Type::Byte => true,
-            (Type::Struct { name, args }, Type::String) 
-                if name == "array" && args.len() == 1 && args[0] == Type::Byte => true,
+            (Type::String, Type::Struct { name, args })
+                if name == "array" && args.len() == 1 && args[0] == Type::Byte =>
+            {
+                true
+            }
+            (Type::Struct { name, args }, Type::String)
+                if name == "array" && args.len() == 1 && args[0] == Type::Byte =>
+            {
+                true
+            }
             (Type::Byte, Type::Byte) => true,
             (Type::Pointer(e1), Type::Pointer(e2)) => e1.is_compatible_with(e2),
             (Type::Map(k1, v1), Type::Map(k2, v2)) => {
@@ -796,7 +802,8 @@ impl TypeChecker {
                 let condition_type = self.check_expression(condition)?;
                 if !condition_type.is_compatible_with(&Type::Boolean) {
                     return Err(condition.error_at_span(format!(
-                        "If condition must be boolean, got {}", condition_type
+                        "If condition must be boolean, got {}",
+                        condition_type
                     )));
                 }
 
@@ -816,7 +823,8 @@ impl TypeChecker {
                 let condition_type = self.check_expression(condition)?;
                 if !condition_type.is_compatible_with(&Type::Boolean) {
                     return Err(condition.error_at_span(format!(
-                        "While condition must be boolean, got {}", condition_type
+                        "While condition must be boolean, got {}",
+                        condition_type
                     )));
                 }
 
@@ -970,7 +978,7 @@ impl TypeChecker {
                         anyhow::anyhow!("Undefined variable: {}", name_clone)
                     }
                 })
-            },
+            }
 
             Expr::TypeExpr { type_name: _ } => {
                 // Type expressions represent types themselves
@@ -1553,7 +1561,10 @@ impl TypeChecker {
                                 bail!("Method '{}' not found in string type", method);
                             }
                         }
-                        Type::Struct { name: ref struct_name, ref args } if struct_name == "array" && args.len() == 1 && args[0] == Type::Byte => {
+                        Type::Struct {
+                            name: ref struct_name,
+                            ref args,
+                        } if struct_name == "array" && args.len() == 1 && args[0] == Type::Byte => {
                             // array(byte) supports length and data methods
                             if method == "length" {
                                 return Ok(Type::Int);
