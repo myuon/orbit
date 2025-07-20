@@ -219,6 +219,31 @@ impl Desugarer {
                                     desugared_method_call,
                                 )));
                             }
+                            Type::Struct { name, args } if name == "array" => {
+                                // Convert to method call: container._set(index, value)
+                                let desugared_container = self.desugar_expression(container)?;
+                                let desugared_index = self.desugar_expression(index)?;
+                                let type_params = if args.is_empty() {
+                                    "T".to_string()
+                                } else {
+                                    args.iter()
+                                        .map(|t| t.to_string())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                };
+                                let method_call = Expr::MethodCall {
+                                    object: Some(Box::new(desugared_container)),
+                                    type_name: Some(format!("{}({})", name, type_params)),
+                                    method: "_set".to_string(),
+                                    args: vec![desugared_index, desugared_value],
+                                };
+                                let desugared_method_call = self.desugar_expression(
+                                    &Positioned::with_unknown_span(method_call),
+                                )?;
+                                return Ok(Positioned::with_unknown_span(Stmt::Expression(
+                                    desugared_method_call,
+                                )));
+                            }
                             Type::Struct {
                                 name: struct_name,
                                 args: _,

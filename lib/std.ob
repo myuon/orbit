@@ -9,6 +9,11 @@ type array(T: type) = struct {
   fun _get(self: array(T), index: int): T do
     return self.data[index];
   end
+
+  fun _set(self: array(T), index: int, value: T) do
+    self.data[index] = value;
+    return 0;
+  end
 };
 
 type vec(T: type) = struct {
