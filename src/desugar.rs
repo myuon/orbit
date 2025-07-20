@@ -240,7 +240,8 @@ impl Desugarer {
 
     /// Convert a struct method to a standalone function with mangled name
     fn desugar_method(&mut self, struct_name: &str, method: &Function) -> Result<Function> {
-        let mangled_name = format!("{}#{}", struct_name, method.name);
+        let struct_type = Type::from_struct_name(struct_name);
+        let mangled_name = struct_type.mangle_method_name(&method.name);
         let mut desugared_body = self.desugar_statements(&method.body)?;
 
         // Add return 0; if the last statement is not a return
@@ -447,7 +448,7 @@ impl Desugarer {
 
                     // Use embedded type information if available, otherwise fall back to heuristic
                     let mangled_name = if let Some(struct_type) = object_type {
-                        format!("{}#{}", struct_type, method)
+                        struct_type.mangle_method_name(method)
                     } else {
                         self.resolve_method_name(&desugared_object.value, method)?
                     };
@@ -471,7 +472,7 @@ impl Desugarer {
 
                     // Convert to a regular function call with mangled name
                     // For (type T).method(args), this becomes T_method(args)
-                    let mangled_name = format!("{}#{}", type_name_str, method);
+                    let mangled_name = type_name_str.mangle_method_name(method);
 
                     Expr::Call {
                         callee: Box::new(Positioned::with_unknown_span(Expr::Identifier(
@@ -691,7 +692,8 @@ impl Desugarer {
                 for (struct_name, struct_decl) in &self.structs {
                     for struct_method in &struct_decl.methods {
                         if struct_method.value.name == method {
-                            return Ok(format!("{}#{}", struct_name, method));
+                            let struct_type = Type::from_struct_name(struct_name);
+                            return Ok(struct_type.mangle_method_name(method));
                         }
                     }
                 }
@@ -712,7 +714,7 @@ impl Desugarer {
                 for (_struct_name, struct_decl) in &self.structs {
                     for struct_field in &struct_decl.fields {
                         if struct_field.name == *field {
-                            return Ok(format!("{}#{}", struct_field.field_type, method));
+                            return Ok(struct_field.field_type.mangle_method_name(method));
                         }
                     }
                 }
@@ -737,7 +739,8 @@ impl Desugarer {
             }
         };
 
-        Ok(format!("{}#{}", struct_name, method))
+        let struct_type = Type::from_struct_name(&struct_name);
+        Ok(struct_type.mangle_method_name(method))
     }
 }
 

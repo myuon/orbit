@@ -271,6 +271,9 @@ pub enum Type {
 }
 
 impl Type {
+    /// Separator used for method name mangling
+    pub const METHOD_SEPARATOR: &'static str = "#";
+
     pub fn sizeof(&self) -> usize {
         match self {
             Type::Boolean => 1,
@@ -282,6 +285,22 @@ impl Type {
             Type::Function { .. } => 8,  // Function pointers are 8 bytes
             Type::TypeParameter(_) => 8, // Type parameters default to 8 bytes
             Type::Unknown => 8,          // Unknown types default to 8 bytes
+        }
+    }
+
+    /// Generate a mangled method name from this type and a method name
+    /// Example: Type::Struct("Point", []) + "sum" -> "Point#sum"
+    /// Example: Type::Struct("Container", [Type::Int]) + "get" -> "Container(int)#get"
+    pub fn mangle_method_name(&self, method_name: &str) -> String {
+        format!("{}{}{}", self, Self::METHOD_SEPARATOR, method_name)
+    }
+
+    /// Create a simple struct type from a name (for legacy compatibility)
+    /// Example: Type::from_struct_name("Point") -> Type::Struct { name: "Point", args: [] }
+    pub fn from_struct_name(name: &str) -> Self {
+        Type::Struct {
+            name: name.to_string(),
+            args: vec![],
         }
     }
 }

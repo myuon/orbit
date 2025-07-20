@@ -1,5 +1,5 @@
 //! Position tracking and error handling utilities
-//! 
+//!
 //! This module provides utilities for tracking source code positions and creating
 //! positioned errors that can provide precise error locations in source files.
 
@@ -81,7 +81,6 @@ impl std::fmt::Display for PositionedError {
 }
 
 impl std::error::Error for PositionedError {}
-
 
 /// Macro for creating positioned errors similar to anyhow!
 #[macro_export]

@@ -67,8 +67,8 @@ impl MonomorphizationTarget {
         if self.args.is_empty() {
             self.symbol.clone()
         } else {
-            // Check if this is a struct method (contains "#")
-            if let Some(separator_pos) = self.symbol.find('#') {
+            // Check if this is a struct method (contains separator)
+            if let Some(separator_pos) = self.symbol.find(Type::METHOD_SEPARATOR) {
                 // For struct methods, replace the generic type in the struct part
                 // e.g., "Container#_create_default" with args [int] -> "Container(int)#_create_default"
                 let struct_part = &self.symbol[..separator_pos];
@@ -183,8 +183,8 @@ impl Monomorphizer {
                 for method in &struct_decl.value.methods {
                     // Register generic methods as standalone functions with mangled names
                     if !struct_decl.value.type_params.is_empty() {
-                        let method_name =
-                            format!("{}#{}", struct_decl.value.name, method.value.name);
+                        let struct_type = Type::from_struct_name(&struct_decl.value.name);
+                        let method_name = struct_type.mangle_method_name(&method.value.name);
 
                         // Create a standalone function from the method
                         let standalone_function = PositionedFunction {
@@ -365,7 +365,8 @@ impl Monomorphizer {
                     } = obj_type
                     {
                         // Generate the generic function name that this should call
-                        let generic_function_name = format!("{}#{}", name, method);
+                        let struct_type = Type::from_struct_name(name);
+                        let generic_function_name = struct_type.mangle_method_name(method);
 
                         // Check if this generic function exists
                         if self.generic_functions.contains_key(&generic_function_name) {
@@ -505,7 +506,7 @@ impl Monomorphizer {
     /// e.g., "Container(int)#_create_default" -> MonomorphizationTarget { symbol: "Container#_create_default", args: [int] }
     fn try_extract_monomorphization_target_from_desugared_name(&mut self, desugared_name: &str) {
         // Look for pattern: Type(args)#method
-        if let Some(separator_pos) = desugared_name.find("#") {
+        if let Some(separator_pos) = desugared_name.find(Type::METHOD_SEPARATOR) {
             let type_part = &desugared_name[..separator_pos];
             let method_part = &desugared_name[separator_pos..];
 
@@ -694,7 +695,12 @@ impl Monomorphizer {
 
         // Also register methods as standalone functions with mangled names
         for method in &monomorphized_struct.methods {
-            let mangled_name = format!("{}#{}", target.instantiated_name(), method.value.name);
+            // Create the proper type for the instantiated struct
+            let instantiated_type = Type::Struct {
+                name: target.symbol.clone(),
+                args: target.args.clone(),
+            };
+            let mangled_name = instantiated_type.mangle_method_name(&method.value.name);
             let mangled_function = Function {
                 name: mangled_name.clone(),
                 type_params: method.value.type_params.clone(),

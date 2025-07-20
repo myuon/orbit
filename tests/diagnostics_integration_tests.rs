@@ -37,7 +37,7 @@ fn test_typecheck_error_position() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     let error_msg = format!("{:?}", err);
-    
+
     println!("Actual error message: {}", error_msg);
 
     // Should contain position information for undefined variable

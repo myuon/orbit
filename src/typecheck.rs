@@ -666,7 +666,8 @@ impl TypeChecker {
         // Register struct methods with name mangling
         // For generic structs, these will also be generic function templates
         for method in &struct_decl.value.methods {
-            let mangled_name = format!("{}#{}", struct_decl.value.name, method.value.name);
+            let struct_type = Type::from_struct_name(&struct_decl.value.name);
+            let mangled_name = struct_type.mangle_method_name(&method.value.name);
             self.register_function_with_name(&mangled_name, &method.value)?;
         }
 
@@ -1647,7 +1648,9 @@ impl TypeChecker {
                                 // Extract the base generic struct name
                                 if let Some(paren_pos) = name.find('(') {
                                     let base_name = &name[..paren_pos];
-                                    let generic_method_name = format!("{}#{}", base_name, method);
+                                    let struct_type = Type::from_struct_name(base_name);
+                                    let generic_method_name =
+                                        struct_type.mangle_method_name(method);
 
                                     // Check if the generic method exists
                                     if let Some(_) = self.functions.get(&generic_method_name) {
@@ -1658,7 +1661,8 @@ impl TypeChecker {
                             }
 
                             // Standard method resolution for non-generic structs or generic types without instantiation
-                            let method_name = format!("{}#{}", name, method);
+                            let struct_type = Type::from_struct_name(&name);
+                            let method_name = struct_type.mangle_method_name(method);
                             if let Some(_) = self.functions.get(&method_name) {
                                 Ok(Type::Unknown) // Return type will be determined by function signature
                             } else {
@@ -1682,7 +1686,8 @@ impl TypeChecker {
                     match obj_type {
                         Type::Struct { name, args: _ } => {
                             // Check for method on the struct type
-                            let method_name = format!("{}#{}", name, method);
+                            let struct_type = Type::from_struct_name(&name);
+                            let method_name = struct_type.mangle_method_name(method);
                             if let Some(func_type) = self.functions.get(&method_name).cloned() {
                                 if let Type::Function { return_type, .. } = func_type {
                                     Ok(*return_type)
@@ -1695,7 +1700,8 @@ impl TypeChecker {
                                 }
                             } else {
                                 // Try as generic type if direct method not found
-                                let generic_method_name = format!("{}#{}", name, method);
+                                let struct_type = Type::from_struct_name(&name);
+                                let generic_method_name = struct_type.mangle_method_name(method);
                                 if let Some(_) = self.functions.get(&generic_method_name) {
                                     // Method exists on the generic type, defer validation to monomorphization
                                     Ok(Type::Unknown)
