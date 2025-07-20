@@ -67,41 +67,26 @@ impl MonomorphizationTarget {
         if self.args.is_empty() {
             self.symbol.clone()
         } else {
-            // Check if this is a struct method (contains "__")
-            if let Some(separator_pos) = self.symbol.find("__") {
+            // Check if this is a struct method (contains "#")
+            if let Some(separator_pos) = self.symbol.find('#') {
                 // For struct methods, replace the generic type in the struct part
-                // e.g., "Container(T)__create_default" with args [int] -> "Container(int)__create_default"
+                // e.g., "Container#_create_default" with args [int] -> "Container(int)#_create_default"
                 let struct_part = &self.symbol[..separator_pos];
                 let method_part = &self.symbol[separator_pos..];
 
-                // Replace T with the actual type
-                if let Some(paren_pos) = struct_part.find('(') {
-                    let struct_name = &struct_part[..paren_pos];
-                    let args_str = self
-                        .args
-                        .iter()
-                        .map(|t| match t {
-                            Type::Int => "int".to_string(),
-                            Type::Boolean => "bool".to_string(),
-                            _ => t.to_string(),
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    format!("{}({}){}", struct_name, args_str, method_part)
-                } else {
-                    // Fallback to original logic
-                    let args_str = self
-                        .args
-                        .iter()
-                        .map(|t| match t {
-                            Type::Int => "int".to_string(),
-                            Type::Boolean => "bool".to_string(),
-                            _ => t.to_string(),
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    format!("{}({})", self.symbol, args_str)
-                }
+                // Generate the instantiated struct name with type arguments
+                let args_str = self
+                    .args
+                    .iter()
+                    .map(|t| match t {
+                        Type::Int => "int".to_string(),
+                        Type::Boolean => "bool".to_string(),
+                        Type::Byte => "byte".to_string(),
+                        _ => t.to_string(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}({}){}", struct_part, args_str, method_part)
             } else {
                 // For regular functions, use the original logic
                 let args_str = self
@@ -110,6 +95,7 @@ impl MonomorphizationTarget {
                     .map(|t| match t {
                         Type::Int => "int".to_string(),
                         Type::Boolean => "bool".to_string(),
+                        Type::Byte => "byte".to_string(),
                         _ => t.to_string(),
                     })
                     .collect::<Vec<_>>()
@@ -198,15 +184,8 @@ impl Monomorphizer {
                     // Register generic methods as standalone functions with mangled names
                     if !struct_decl.value.type_params.is_empty() {
                         let method_name = format!(
-                            "{}({})__{}",
+                            "{}#{}",
                             struct_decl.value.name,
-                            struct_decl
-                                .value
-                                .type_params
-                                .iter()
-                                .map(|_| "T")
-                                .collect::<Vec<_>>()
-                                .join(", "),
                             method.value.name
                         );
 
@@ -304,7 +283,7 @@ impl Monomorphizer {
                             args: type_args,
                         });
                     } else {
-                        // Check if this is a desugared method call (e.g., "Container(int)__create_default")
+                        // Check if this is a desugared method call (e.g., "Container(int)_create_default")
                         self.try_extract_monomorphization_target_from_desugared_name(name);
                     }
                 }
@@ -345,8 +324,27 @@ impl Monomorphizer {
                 self.collect_targets_from_expr(right)?;
             }
             Expr::Index {
-                container, index, ..
+                container, index, container_value_type, ..
             } => {
+                // Check if this is string indexing - if so, add array(byte)#_get as monomorphization target
+                if let Some(ref container_type) = container_value_type {
+                    if matches!(container_type, Type::String) {
+                        // Add array(byte)#_get as a monomorphization target
+                        let target = MonomorphizationTarget {
+                            symbol: "array#_get".to_string(),
+                            args: vec![Type::Byte],
+                        };
+                        self.add_target(target);
+                        
+                        // Also add array(byte) struct as a target
+                        let struct_target = MonomorphizationTarget {
+                            symbol: "array".to_string(),
+                            args: vec![Type::Byte],
+                        };
+                        self.add_target(struct_target);
+                    }
+                }
+                
                 self.collect_targets_from_expr(container)?;
                 self.collect_targets_from_expr(index)?;
             }
@@ -369,7 +367,7 @@ impl Monomorphizer {
                         } = parsed_type
                         {
                             // Generate the generic function name that this should call
-                            let generic_function_name = format!("{}(T)__{}", name, method);
+                            let generic_function_name = format!("{}#{}", name, method);
 
                             // Check if this generic function exists
                             if self.generic_functions.contains_key(&generic_function_name) {
@@ -507,10 +505,10 @@ impl Monomorphizer {
     }
 
     /// Try to extract monomorphization target from a desugared function name
-    /// e.g., "Container(int)__create_default" -> MonomorphizationTarget { symbol: "Container(T)__create_default", args: [int] }
+    /// e.g., "Container(int)#_create_default" -> MonomorphizationTarget { symbol: "Container#_create_default", args: [int] }
     fn try_extract_monomorphization_target_from_desugared_name(&mut self, desugared_name: &str) {
-        // Look for pattern: Type(args)__method or Type(args)___method
-        if let Some(separator_pos) = desugared_name.find("__") {
+        // Look for pattern: Type(args)#method
+        if let Some(separator_pos) = desugared_name.find("#") {
             let type_part = &desugared_name[..separator_pos];
             let method_part = &desugared_name[separator_pos..];
 
@@ -540,27 +538,8 @@ impl Monomorphizer {
                         }
                     }
 
-                    // Generate the generic function name (e.g., "Container(T)__create_default")
-                    let generic_function_name = if !type_args.is_empty() {
-                        let type_params = type_args
-                            .iter()
-                            .enumerate()
-                            .map(|(i, _)| {
-                                format!(
-                                    "T{}",
-                                    if i == 0 {
-                                        "".to_string()
-                                    } else {
-                                        i.to_string()
-                                    }
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        format!("{}({}){}", base_type, type_params, method_part)
-                    } else {
-                        format!("{}{}", base_type, method_part)
-                    };
+                    // Generate the generic function name (e.g., "Container#_create_default")
+                    let generic_function_name = format!("{}{}", base_type, method_part);
 
                     // Check if this generic function exists and add as target
                     if self.generic_functions.contains_key(&generic_function_name)
@@ -718,15 +697,9 @@ impl Monomorphizer {
 
         // Also register methods as standalone functions with mangled names
         for method in &monomorphized_struct.methods {
-            let separator = if method.value.name.starts_with('_') {
-                "___"
-            } else {
-                "__"
-            };
             let mangled_name = format!(
-                "{}{}{}",
+                "{}#{}",
                 target.instantiated_name(),
-                separator,
                 method.value.name
             );
             let mangled_function = Function {

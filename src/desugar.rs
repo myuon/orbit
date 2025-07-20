@@ -250,7 +250,7 @@ impl Desugarer {
 
     /// Convert a struct method to a standalone function with mangled name
     fn desugar_method(&mut self, struct_name: &str, method: &Function) -> Result<Function> {
-        let mangled_name = format!("{}__{}", struct_name, method.name);
+        let mangled_name = format!("{}#{}", struct_name, method.name);
         let mut desugared_body = self.desugar_statements(&method.body)?;
 
         // Add return 0; if the last statement is not a return
@@ -454,8 +454,7 @@ impl Desugarer {
 
                     // Use embedded type information if available, otherwise fall back to heuristic
                     let mangled_name = if let Some(struct_type) = type_name {
-                        let separator = if method.starts_with('_') { "___" } else { "__" };
-                        format!("{}{}{}", struct_type, separator, method)
+                        format!("{}#{}", struct_type, method)
                     } else {
                         self.resolve_method_name(&desugared_object.value, method)?
                     };
@@ -478,8 +477,8 @@ impl Desugarer {
                     }
 
                     // Convert to a regular function call with mangled name
-                    // For (type T).method(args), this becomes T__method(args)
-                    let mangled_name = format!("{}__{}", type_name_str, method);
+                    // For (type T).method(args), this becomes T_method(args)
+                    let mangled_name = format!("{}#{}", type_name_str, method);
 
                     Expr::Call {
                         callee: Box::new(Positioned::with_unknown_span(Expr::Identifier(
@@ -539,10 +538,10 @@ impl Desugarer {
                 if let Some(ref container_type) = container_value_type {
                     match container_type {
                         Type::String => {
-                            // Convert string[index] to generic array function call: array(T)____get(container, index)
+                            // Convert string[index] to concrete array function call: array(byte)#_get(container, index)
                             let function_call = Expr::Call {
                                 callee: Box::new(Positioned::with_unknown_span(Expr::Identifier(
-                                    "array(T)____get".to_string(),
+                                    "array(byte)#_get".to_string(),
                                 ))),
                                 args: vec![desugared_container, desugared_index],
                             };
@@ -696,7 +695,7 @@ impl Desugarer {
                 for (struct_name, struct_decl) in &self.structs {
                     for struct_method in &struct_decl.methods {
                         if struct_method.value.name == method {
-                            return Ok(format!("{}__{}", struct_name, method));
+                            return Ok(format!("{}#{}", struct_name, method));
                         }
                     }
                 }
@@ -717,7 +716,7 @@ impl Desugarer {
                 for (_struct_name, struct_decl) in &self.structs {
                     for struct_field in &struct_decl.fields {
                         if struct_field.name == *field {
-                            return Ok(format!("{}__{}", struct_field.field_type, method));
+                            return Ok(format!("{}#{}", struct_field.field_type, method));
                         }
                     }
                 }
@@ -742,7 +741,7 @@ impl Desugarer {
             }
         };
 
-        Ok(format!("{}__{}", struct_name, method))
+        Ok(format!("{}#{}", struct_name, method))
     }
 }
 
@@ -781,10 +780,10 @@ mod tests {
 
         let result = desugarer.desugar_expression(&method_call).unwrap();
 
-        // Should be converted to: Point__sum(p)
+        // Should be converted to: Point#sum(p)
         if let Expr::Call { callee, args } = &result.value {
             if let Expr::Identifier(func_name) = &callee.value {
-                assert_eq!(func_name, "Point__sum");
+                assert_eq!(func_name, "Point#sum");
                 assert_eq!(args.len(), 1);
                 if let Expr::Identifier(arg_name) = &args[0].value {
                     assert_eq!(arg_name, "p");
@@ -819,7 +818,7 @@ mod tests {
 
         let result = desugarer.desugar_method("Point", &method).unwrap();
 
-        assert_eq!(result.name, "Point__sum");
+        assert_eq!(result.name, "Point#sum");
         assert_eq!(result.params.len(), 1);
         assert_eq!(result.params[0].name, "self");
     }
@@ -840,10 +839,10 @@ mod tests {
 
         let result = desugarer.desugar_expression(&method_call).unwrap();
 
-        // Should be converted to: Point__sum(p) using embedded type info
+        // Should be converted to: Point#sum(p) using embedded type info
         if let Expr::Call { callee, args } = &result.value {
             if let Expr::Identifier(func_name) = &callee.value {
-                assert_eq!(func_name, "Point__sum");
+                assert_eq!(func_name, "Point#sum");
                 assert_eq!(args.len(), 1);
                 if let Expr::Identifier(arg_name) = &args[0].value {
                     assert_eq!(arg_name, "p");

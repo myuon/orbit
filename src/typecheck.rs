@@ -672,7 +672,7 @@ impl TypeChecker {
         // Register struct methods with name mangling
         // For generic structs, these will also be generic function templates
         for method in &struct_decl.value.methods {
-            let mangled_name = format!("{}__{}", struct_decl.value.name, method.value.name);
+            let mangled_name = format!("{}#{}", struct_decl.value.name, method.value.name);
             self.register_function_with_name(&mangled_name, &method.value)?;
         }
 
@@ -866,7 +866,7 @@ impl TypeChecker {
                             // Check if _push method exists
                             let push_method_name = if base_name == "vec" {
                                 format!(
-                                    "{}({})__push",
+                                    "{}({})#_push",
                                     base_name,
                                     args.iter()
                                         .map(|t| t.to_string())
@@ -874,7 +874,7 @@ impl TypeChecker {
                                         .join(", ")
                                 )
                             } else {
-                                format!("{}__push", struct_name)
+                                format!("{}#_push", struct_name)
                             };
                             if self.functions.contains_key(&push_method_name) {
                                 // For vec(T), extract T and check compatibility
@@ -1207,7 +1207,7 @@ impl TypeChecker {
                             // Check if _get method exists
                             let get_method_name = if base_name == "vec" {
                                 format!(
-                                    "{}({})__get",
+                                    "{}({})#_get",
                                     base_name,
                                     args.iter()
                                         .map(|t| t.to_string())
@@ -1215,7 +1215,7 @@ impl TypeChecker {
                                         .join(", ")
                                 )
                             } else {
-                                format!("{}__get", name)
+                                format!("{}#_get", name)
                             };
                             if self.functions.contains_key(&get_method_name) {
                                 if !index_type.is_compatible_with(&Type::Int) {
@@ -1278,16 +1278,16 @@ impl TypeChecker {
                 let new_function_name = match type_name {
                     Type::Struct { name, args: _ } => {
                         // Method names starting with _ are mangled with 3 underscores total
-                        format!("{}___new", name)
+                        format!("{}#_new", name)
                     }
                     _ => {
                         // Try to extract base name for generic types
                         let type_str = type_name.to_string();
                         if let Some(paren_pos) = type_str.find('(') {
                             let base_name = &type_str[..paren_pos];
-                            format!("{}___new", base_name)
+                            format!("{}#_new", base_name)
                         } else {
-                            format!("{}___new", type_str)
+                            format!("{}#_new", type_str)
                         }
                     }
                 };
@@ -1535,7 +1535,7 @@ impl TypeChecker {
                                 // Extract the base generic struct name
                                 if let Some(paren_pos) = name.find('(') {
                                     let base_name = &name[..paren_pos];
-                                    let generic_method_name = format!("{}__{}", base_name, method);
+                                    let generic_method_name = format!("{}#{}", base_name, method);
 
                                     // Check if the generic method exists
                                     if let Some(_) = self.functions.get(&generic_method_name) {
@@ -1546,7 +1546,7 @@ impl TypeChecker {
                             }
 
                             // Standard method resolution for non-generic structs or generic types without instantiation
-                            let method_name = format!("{}__{}", name, method);
+                            let method_name = format!("{}#{}", name, method);
                             if let Some(_) = self.functions.get(&method_name) {
                                 Ok(Type::Unknown) // Return type will be determined by function signature
                             } else {
@@ -1566,7 +1566,7 @@ impl TypeChecker {
                     match resolved_type {
                         Type::Struct { name, args: _ } => {
                             // Check for method on the struct type
-                            let method_name = format!("{}__{}", name, method);
+                            let method_name = format!("{}#{}", name, method);
                             if let Some(func_type) = self.functions.get(&method_name).cloned() {
                                 if let Type::Function { return_type, .. } = func_type {
                                     Ok(*return_type)
@@ -1575,7 +1575,7 @@ impl TypeChecker {
                                 }
                             } else {
                                 // Try as generic type if direct method not found
-                                let generic_method_name = format!("{}__{}", name, method);
+                                let generic_method_name = format!("{}#{}", name, method);
                                 if let Some(_) = self.functions.get(&generic_method_name) {
                                     // Method exists on the generic type, defer validation to monomorphization
                                     Ok(Type::Unknown)

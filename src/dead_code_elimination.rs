@@ -224,7 +224,7 @@ impl DeadCodeEliminator {
                     self.mark_expr_dependencies(container)?;
 
                     // Mark _set method for vec types
-                    let method_name = "vec(int)__set".to_string();
+                    let method_name = "vec(int)#_set".to_string();
                     let _ = self.mark_function_reachable(&method_name);
                 }
 
@@ -251,7 +251,7 @@ impl DeadCodeEliminator {
                                     .collect::<Vec<_>>()
                                     .join(", ")
                             };
-                            let method_name = format!("{}({})__push", name, type_params);
+                            let method_name = format!("{}({})#_push", name, type_params);
                             let _ = self.mark_function_reachable(&method_name);
                         }
                         Type::Struct {
@@ -262,7 +262,7 @@ impl DeadCodeEliminator {
                             } else {
                                 struct_name
                             };
-                            let method_name = format!("{}__push", base_name);
+                            let method_name = format!("{}#_push", base_name);
                             let _ = self.mark_function_reachable(&method_name);
                         }
                         _ => {}
@@ -356,7 +356,7 @@ impl DeadCodeEliminator {
 
                 // Mark _get method for vec types
                 // TODO: This is a simplified approach - ideally we'd have type information
-                let method_name = "vec(int)__get".to_string();
+                let method_name = "vec(int)#_get".to_string();
                 let _ = self.mark_function_reachable(&method_name);
             }
             Expr::FieldAccess { object, .. } => {
