@@ -179,14 +179,13 @@ impl Monomorphizer {
                 if !struct_decl.value.type_params.is_empty() {
                     self.register_generic_struct(struct_decl.clone());
                 }
-                // Look for generic calls in methods AND register generic methods
+                // Register generic methods as potential monomorphization targets
                 for method in &struct_decl.value.methods {
-                    // Register generic methods as standalone functions with mangled names
                     if !struct_decl.value.type_params.is_empty() {
                         let struct_type = Type::from_struct_name(&struct_decl.value.name);
                         let method_name = struct_type.mangle_method_name(&method.value.name);
 
-                        // Create a standalone function from the method
+                        // Create a standalone function from the method for monomorphization
                         let standalone_function = PositionedFunction {
                             value: Function {
                                 name: method_name.clone(),
@@ -199,6 +198,7 @@ impl Monomorphizer {
                         self.register_generic_function(standalone_function);
                     }
 
+                    // Look for generic calls in method bodies
                     for stmt in &method.value.body {
                         self.collect_targets_from_stmt(stmt)?;
                     }
@@ -693,7 +693,7 @@ impl Monomorphizer {
         self.monomorphized_structs
             .insert(target.instantiated_name(), positioned_struct);
 
-        // Also register methods as standalone functions with mangled names
+        // Register all methods as standalone functions for this monomorphized struct
         for method in &monomorphized_struct.methods {
             // Create the proper type for the instantiated struct
             let instantiated_type = Type::Struct {
@@ -703,7 +703,7 @@ impl Monomorphizer {
             let mangled_name = instantiated_type.mangle_method_name(&method.value.name);
             let mangled_function = Function {
                 name: mangled_name.clone(),
-                type_params: method.value.type_params.clone(),
+                type_params: Vec::new(), // Monomorphized methods have no type parameters
                 params: method.value.params.clone(),
                 body: method.value.body.clone(),
             };

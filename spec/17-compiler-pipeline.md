@@ -58,6 +58,7 @@ Source Code → Lexing → Parsing → Type Checking → Monomorphization → De
 - **Input**: Monomorphized program
 - **Output**: Desugared program
 - **Details**:
+  - Converts struct methods to standalone functions (method flattening)
   - Converts method calls to function calls
   - Expands `push()` operations into explicit function calls
   - Transforms `new` expressions into function calls
@@ -117,7 +118,7 @@ The compiler provides several debugging options to inspect intermediate represen
 2. **Tokens → AST**: Parser builds syntax tree from tokens
 3. **AST → Typed AST**: Type checker adds type information
 4. **Typed AST → Monomorphized AST**: Generic instantiation with concrete types
-5. **Monomorphized AST → Desugared AST**: High-level constructs simplified
+5. **Monomorphized AST → Desugared AST**: High-level constructs simplified, methods flattened
 6. **Desugared AST → Optimized AST**: Dead code elimination removes unused code
 7. **Optimized AST → Bytecode**: Code generation produces VM instructions
 8. **Bytecode → Resolved Bytecode**: Label resolution fixes addresses
