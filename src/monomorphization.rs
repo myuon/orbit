@@ -5,51 +5,6 @@ use crate::ast::{
 use anyhow::{bail, Result};
 use std::collections::{HashMap, HashSet};
 
-/// Helper function to substitute type parameters in a Type enum
-fn substitute_type(original_type: &Type, substitutions: &HashMap<String, Type>) -> Type {
-    match original_type {
-        Type::TypeParameter(param_name) => {
-            // Replace type parameter with concrete type if substitution exists
-            substitutions
-                .get(param_name)
-                .cloned()
-                .unwrap_or_else(|| original_type.clone())
-        }
-        Type::Struct { name, args } => {
-            // Recursively substitute type arguments
-            let substituted_args = args
-                .iter()
-                .map(|arg| substitute_type(arg, substitutions))
-                .collect();
-            Type::Struct {
-                name: name.clone(),
-                args: substituted_args,
-            }
-        }
-        Type::Pointer(inner_type) => {
-            Type::Pointer(Box::new(substitute_type(inner_type, substitutions)))
-        }
-        // Primitive types don't need substitution
-        Type::Int | Type::Boolean | Type::String | Type::Byte => original_type.clone(),
-        // Unknown and Function types are passed through without substitution
-        Type::Unknown => original_type.clone(),
-        Type::Function {
-            params,
-            return_type,
-        } => {
-            // Recursively substitute function parameter and return types
-            let substituted_params = params
-                .iter()
-                .map(|param| substitute_type(param, substitutions))
-                .collect();
-            let substituted_return_type = Box::new(substitute_type(return_type, substitutions));
-            Type::Function {
-                params: substituted_params,
-                return_type: substituted_return_type,
-            }
-        }
-    }
-}
 
 /// Target for monomorphization - represents a generic symbol that needs to be instantiated
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -461,7 +416,7 @@ impl Monomorphizer {
                     param_type: param
                         .param_type
                         .as_ref()
-                        .map(|t| substitute_type(t, &substitutions)),
+                        .map(|t| t.substitute(&substitutions)),
                 })
                 .collect(),
             body: self.substitute_statements(&function.value.body, &substitutions)?,
@@ -506,7 +461,7 @@ impl Monomorphizer {
                 .iter()
                 .map(|field| crate::ast::StructField {
                     name: field.name.clone(),
-                    field_type: field.field_type.clone(), // TODO: implement proper type substitution
+                    field_type: field.field_type.substitute(&substitutions),
                 })
                 .collect(),
             methods: struct_decl
@@ -526,7 +481,7 @@ impl Monomorphizer {
                                 param_type: param
                                     .param_type
                                     .as_ref()
-                                    .map(|t| substitute_type(t, &substitutions)),
+                                    .map(|t| t.substitute(&substitutions)),
                             })
                             .collect(),
                         body: self
@@ -622,18 +577,18 @@ impl Monomorphizer {
             Expr::Byte(b) => Expr::Byte(*b),
             Expr::Identifier(name) => Expr::Identifier(name.clone()),
             Expr::TypeExpr { type_name } => Expr::TypeExpr {
-                type_name: substitute_type(type_name, substitutions),
+                type_name: type_name.substitute(substitutions),
             },
             Expr::Alloc { element_type, size } => Expr::Alloc {
-                element_type: substitute_type(element_type, substitutions),
+                element_type: element_type.substitute(substitutions),
                 size: Box::new(self.substitute_expression(size, substitutions)?),
             },
             Expr::Sizeof { type_name } => Expr::Sizeof {
-                type_name: substitute_type(type_name, substitutions),
+                type_name: type_name.substitute(substitutions),
             },
             Expr::Cast { expr, target_type } => Expr::Cast {
                 expr: Box::new(self.substitute_expression(expr, substitutions)?),
-                target_type: substitute_type(target_type, substitutions),
+                target_type: target_type.substitute(substitutions),
             },
 
             // Complex expressions that may contain type information
@@ -656,7 +611,7 @@ impl Monomorphizer {
                 element_type,
                 initial_values,
             } => Expr::VectorNew {
-                element_type: substitute_type(element_type, substitutions),
+                element_type: element_type.substitute(substitutions),
                 initial_values: initial_values
                     .iter()
                     .map(|val| self.substitute_expression(val, substitutions))
@@ -678,7 +633,7 @@ impl Monomorphizer {
                 fields,
                 kind,
             } => Expr::StructNew {
-                type_name: substitute_type(type_name, substitutions),
+                type_name: type_name.substitute(substitutions),
                 fields: fields
                     .iter()
                     .map(|(name, expr)| {
@@ -707,7 +662,7 @@ impl Monomorphizer {
                 },
                 object_type: object_type
                     .as_ref()
-                    .map(|t| substitute_type(t, substitutions)),
+                    .map(|t| t.substitute(substitutions)),
                 method: method.clone(),
                 args: args
                     .iter()

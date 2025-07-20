@@ -303,6 +303,51 @@ impl Type {
             args: vec![],
         }
     }
+
+    /// Substitute type parameters with concrete types
+    /// Example: Type::TypeParameter("T") with {"T": Type::Int} -> Type::Int
+    pub fn substitute(&self, substitutions: &std::collections::HashMap<String, Type>) -> Type {
+        match self {
+            Type::TypeParameter(param_name) => {
+                // Replace type parameter with concrete type if substitution exists
+                substitutions
+                    .get(param_name)
+                    .cloned()
+                    .unwrap_or_else(|| self.clone())
+            }
+            Type::Struct { name, args } => {
+                // Recursively substitute type arguments
+                let substituted_args = args
+                    .iter()
+                    .map(|arg| arg.substitute(substitutions))
+                    .collect();
+                Type::Struct {
+                    name: name.clone(),
+                    args: substituted_args,
+                }
+            }
+            Type::Pointer(inner_type) => {
+                Type::Pointer(Box::new(inner_type.substitute(substitutions)))
+            }
+            Type::Function {
+                params,
+                return_type,
+            } => {
+                // Recursively substitute function parameter and return types
+                let substituted_params = params
+                    .iter()
+                    .map(|param| param.substitute(substitutions))
+                    .collect();
+                let substituted_return_type = Box::new(return_type.substitute(substitutions));
+                Type::Function {
+                    params: substituted_params,
+                    return_type: substituted_return_type,
+                }
+            }
+            // Primitive types don't need substitution
+            Type::Int | Type::Boolean | Type::String | Type::Byte | Type::Unknown => self.clone(),
+        }
+    }
 }
 
 impl std::fmt::Display for Type {
