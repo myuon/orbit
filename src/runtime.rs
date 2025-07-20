@@ -1346,25 +1346,6 @@ impl VM {
         &self.stack
     }
 
-    /// Calculate the size in bytes for a given type
-    fn sizeof_type(&self, type_name: &str) -> usize {
-        match type_name {
-            "bool" | "boolean" => 1,
-            "byte" => 1,
-            "int" | "number" => 8, // Using 8 bytes for numbers
-            "string" => 8,         // String is a pointer, so 8 bytes
-            _ => {
-                if type_name.starts_with("[*]") {
-                    8 // Pointer types are 8 bytes
-                } else {
-                    // For struct types or unknown types, default to 8 bytes
-                    // In a full implementation, this would look up the struct size
-                    8
-                }
-            }
-        }
-    }
-
     /// Calculate the length of a null-terminated string starting at the given address
     fn string_length(&self, start_addr: usize) -> Result<usize, String> {
         let mut length = 0;

@@ -1048,7 +1048,6 @@ mod tests {
         use std::fs;
 
         let path = "tests/testcase/vector_program.ob";
-        let ir_path = "target/vector_program.ir";
         let code = fs::read_to_string(path).expect("failed to read vector_program.ob");
 
         let mut compiler = Compiler::new();
