@@ -331,18 +331,6 @@ impl DeadCodeEliminator {
                     self.mark_expr_dependencies(positioned_value)?;
                 }
             }
-            Expr::MapNew {
-                key_type,
-                value_type,
-                initial_pairs,
-            } => {
-                self.mark_type_reachable(key_type);
-                self.mark_type_reachable(value_type);
-                for (positioned_key, positioned_value) in initial_pairs {
-                    self.mark_expr_dependencies(positioned_key)?;
-                    self.mark_expr_dependencies(positioned_value)?;
-                }
-            }
             Expr::Binary { left, right, .. } => {
                 self.mark_expr_dependencies(left)?;
                 self.mark_expr_dependencies(right)?;

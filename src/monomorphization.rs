@@ -287,12 +287,6 @@ impl Monomorphizer {
                     self.collect_targets_from_expr(value)?;
                 }
             }
-            Expr::MapNew { initial_pairs, .. } => {
-                for (key, value) in initial_pairs {
-                    self.collect_targets_from_expr(key)?;
-                    self.collect_targets_from_expr(value)?;
-                }
-            }
             Expr::Binary { left, right, .. } => {
                 self.collect_targets_from_expr(left)?;
                 self.collect_targets_from_expr(right)?;
@@ -792,23 +786,6 @@ impl Monomorphizer {
                 container_type: *container_type,
                 container_value_type: container_value_type.clone(),
             },
-            Expr::MapNew {
-                key_type,
-                value_type,
-                initial_pairs,
-            } => Expr::MapNew {
-                key_type: substitute_type_in_string(key_type, substitutions),
-                value_type: substitute_type_in_string(value_type, substitutions),
-                initial_pairs: initial_pairs
-                    .iter()
-                    .map(|(k, v)| {
-                        Ok((
-                            self.substitute_expression(k, substitutions)?,
-                            self.substitute_expression(v, substitutions)?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>>>()?,
-            },
             Expr::StructNew {
                 type_name,
                 fields,
@@ -1091,23 +1068,6 @@ impl Monomorphizer {
                 index: Box::new(self.substitute_expression_globally(index)?),
                 container_type: *container_type,
                 container_value_type: container_value_type.clone(),
-            },
-            Expr::MapNew {
-                key_type,
-                value_type,
-                initial_pairs,
-            } => Expr::MapNew {
-                key_type: substitute_type_in_string_globally(key_type),
-                value_type: substitute_type_in_string_globally(value_type),
-                initial_pairs: initial_pairs
-                    .iter()
-                    .map(|(k, v)| {
-                        Ok((
-                            self.substitute_expression_globally(k)?,
-                            self.substitute_expression_globally(v)?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>>>()?,
             },
             Expr::StructNew {
                 type_name,

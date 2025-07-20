@@ -1,6 +1,6 @@
 use crate::ast::{
     BinaryOp, Decl, Expr, Function, IndexContainerType, PositionedDecl, PositionedExpr,
-    PositionedStmt, Program, Span, Stmt, StructDecl, StructNewKind, Type,
+    PositionedStmt, Program, Stmt, StructDecl, StructNewKind, Type,
 };
 use anyhow::{bail, Result};
 use std::collections::HashMap;
@@ -43,18 +43,6 @@ impl Type {
                     Type::Struct {
                         name: "vec".to_string(),
                         args: vec![Type::from_string(inner)],
-                    }
-                } else if type_str.starts_with("map(") && type_str.ends_with(')') {
-                    let inner = &type_str[4..type_str.len() - 1];
-                    if let Some(comma_pos) = inner.find(", ") {
-                        let key_type = &inner[..comma_pos];
-                        let value_type = &inner[comma_pos + 2..];
-                        Type::Map(
-                            Box::new(Type::from_string(key_type)),
-                            Box::new(Type::from_string(value_type)),
-                        )
-                    } else {
-                        Type::Unknown
                     }
                 } else if type_str.starts_with("[*]") {
                     let inner = &type_str[3..];
@@ -118,9 +106,6 @@ impl Type {
             }
             (Type::Byte, Type::Byte) => true,
             (Type::Pointer(e1), Type::Pointer(e2)) => e1.is_compatible_with(e2),
-            (Type::Map(k1, v1), Type::Map(k2, v2)) => {
-                k1.is_compatible_with(k2) && v1.is_compatible_with(v2)
-            }
             (Type::Struct { name: n1, args: a1 }, Type::Struct { name: n2, args: a2 }) => {
                 n1 == n2
                     && a1.len() == a2.len()
@@ -158,7 +143,6 @@ impl Type {
             (Type::Int, Type::Int) => true,
             (Type::String, Type::String) => true,
             (Type::Pointer(e1), Type::Pointer(e2)) => e1.is_exactly(e2),
-            (Type::Map(k1, v1), Type::Map(k2, v2)) => k1.is_exactly(k2) && v1.is_exactly(v2),
             (Type::Struct { name: n1, args: a1 }, Type::Struct { name: n2, args: a2 }) => {
                 n1 == n2
                     && a1.len() == a2.len()
@@ -274,10 +258,6 @@ impl TypeChecker {
                     args: resolved_args,
                 })
             }
-            Type::Map(key_type, value_type) => Type::Map(
-                Box::new(self.resolve_type_recursive(key_type)),
-                Box::new(self.resolve_type_recursive(value_type)),
-            ),
             Type::Pointer(elem_type) => {
                 Type::Pointer(Box::new(self.resolve_type_recursive(elem_type)))
             }
@@ -478,10 +458,6 @@ impl TypeChecker {
                 Ok(())
             }
 
-            Expr::Sizeof { .. } => {
-                // No inference needed for sizeof expressions
-                Ok(())
-            }
 
             Expr::Binary { left, right, .. } => {
                 self.infer_expression_types(left)?;
@@ -523,9 +499,6 @@ impl TypeChecker {
                     Type::Struct { name, .. } if name == "array" => {
                         *container_type = Some(IndexContainerType::Vector); // array behaves like vector for indexing
                     }
-                    Type::Map(_, _) => {
-                        *container_type = Some(IndexContainerType::Map);
-                    }
                     Type::Pointer(element_type) => {
                         // Use StringIndex for [*]byte pointers and generic [*]T, PointerIndex for others
                         match element_type.as_ref() {
@@ -560,14 +533,6 @@ impl TypeChecker {
                         }
                     }
                     _ => {}
-                }
-                Ok(())
-            }
-
-            Expr::MapNew { initial_pairs, .. } => {
-                for (key, value) in initial_pairs {
-                    self.infer_expression_types(key)?;
-                    self.infer_expression_types(value)?;
                 }
                 Ok(())
             }
@@ -1222,16 +1187,6 @@ impl TypeChecker {
                             bail!("array type missing element type")
                         }
                     }
-                    Type::Map(key_type, value_type) => {
-                        if !index_type.is_compatible_with(key_type) {
-                            bail!(
-                                "Map key type mismatch: expected {}, got {}",
-                                key_type,
-                                index_type
-                            );
-                        }
-                        Ok(*value_type.clone())
-                    }
                     Type::Pointer(element_type) => {
                         if !index_type.is_compatible_with(&Type::Int) {
                             bail!("Pointer index must be number, got {}", index_type);
@@ -1315,38 +1270,6 @@ impl TypeChecker {
                         container_value_type
                     ),
                 }
-            }
-
-            Expr::MapNew {
-                key_type,
-                value_type,
-                initial_pairs,
-            } => {
-                let key_type = self.resolve_type(key_type);
-                let value_type = self.resolve_type(value_type);
-
-                // Check all initial pairs match key/value types
-                for (key_expr, value_expr) in initial_pairs {
-                    let actual_key_type = self.check_expression(key_expr)?;
-                    let actual_value_type = self.check_expression(value_expr)?;
-
-                    if !actual_key_type.is_compatible_with(&key_type) {
-                        bail!(
-                            "Map initial key type mismatch: expected {}, got {}",
-                            key_type,
-                            actual_key_type
-                        );
-                    }
-                    if !actual_value_type.is_compatible_with(&value_type) {
-                        bail!(
-                            "Map initial value type mismatch: expected {}, got {}",
-                            value_type,
-                            actual_value_type
-                        );
-                    }
-                }
-
-                Ok(Type::Map(Box::new(key_type), Box::new(value_type)))
             }
 
             Expr::StructNew {
@@ -1986,10 +1909,6 @@ impl TypeChecker {
                     .cloned()
                     .unwrap_or_else(|| field_type.clone())
             }
-            Type::Map(key_type, value_type) => Type::Map(
-                Box::new(self.substitute_type_with_mapping(key_type, type_mapping)),
-                Box::new(self.substitute_type_with_mapping(value_type, type_mapping)),
-            ),
             Type::Pointer(elem_type) => Type::Pointer(Box::new(
                 self.substitute_type_with_mapping(elem_type, type_mapping),
             )),
@@ -2100,25 +2019,6 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_map_type_checking() {
-        let input = r#"
-            fun main() do
-                let mymap = new map(string, int) {};
-                mymap["hello"] = 1;
-                return mymap["hello"];
-            end
-        "#;
-
-        let mut lexer = Lexer::new(input);
-        let tokens = lexer.tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let mut program = parser.parse_program().unwrap();
-
-        let mut checker = TypeChecker::new();
-        let result = checker.check_program(&mut program);
-        assert!(result.is_ok());
-    }
 
     #[test]
     fn test_type_error_detection() {
@@ -2212,3 +2112,4 @@ mod tests {
         assert!(error_msg.contains("strings are immutable"));
     }
 }
+

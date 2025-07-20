@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     ast::{
         BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, PositionedDecl,
-        PositionedExpr, PositionedStmt, Program, Stmt, StructDecl, Type,
+        PositionedExpr, PositionedStmt, Program, Stmt, StructDecl,
     },
     vm::Instruction,
 };
@@ -196,12 +196,6 @@ impl CodeGenerator {
             }
             Expr::Cast { expr, target_type: _ } => {
                 self.collect_string_constants_from_expr(expr);
-            }
-            Expr::MapNew { initial_pairs, .. } => {
-                for (key, value) in initial_pairs {
-                    self.collect_string_constants_from_expr(key);
-                    self.collect_string_constants_from_expr(value);
-                }
             }
             Expr::TypeExpr { type_name } => {
                 self.get_or_create_string_constant(&type_name.to_string());
@@ -548,9 +542,6 @@ impl CodeGenerator {
                     Some(IndexContainerType::Vector) => {
                         panic!("Vector indexing should be handled as method calls, not VM instructions");
                     }
-                    Some(IndexContainerType::Map) => {
-                        self.instructions.push(Instruction::MapSet);
-                    }
                     Some(IndexContainerType::Pointer) => {
                         self.instructions.push(Instruction::PointerSet);
                     }
@@ -740,9 +731,6 @@ impl CodeGenerator {
                     Some(IndexContainerType::Vector) => {
                         panic!("Vector indexing should be handled as method calls, not VM instructions");
                     }
-                    Some(IndexContainerType::Map) => {
-                        self.instructions.push(Instruction::MapIndex);
-                    }
                     Some(IndexContainerType::Pointer) => {
                         self.instructions.push(Instruction::PointerIndex);
                     }
@@ -759,9 +747,6 @@ impl CodeGenerator {
                 }
             }
 
-            Expr::MapNew { .. } => {
-                self.instructions.push(Instruction::MapNew);
-            }
 
             Expr::StructNew {
                 type_name,
@@ -923,9 +908,6 @@ fn compile_expr_recursive(expr: &PositionedExpr, instructions: &mut Vec<Instruct
             instructions.push(Instruction::Push(0));
         }
 
-        Expr::MapNew { .. } => {
-            instructions.push(Instruction::MapNew);
-        }
 
         Expr::StructNew {
             type_name: _,

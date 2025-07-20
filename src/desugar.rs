@@ -572,23 +572,6 @@ impl Desugarer {
                     container_value_type: container_value_type.clone(),
                 }
             }
-            Expr::MapNew {
-                key_type,
-                value_type,
-                initial_pairs,
-            } => {
-                let mut desugared_pairs = Vec::new();
-                for (key, value) in initial_pairs {
-                    let desugared_key = self.desugar_expression(key)?;
-                    let desugared_value = self.desugar_expression(value)?;
-                    desugared_pairs.push((desugared_key, desugared_value));
-                }
-                Expr::MapNew {
-                    key_type: key_type.clone(),
-                    value_type: value_type.clone(),
-                    initial_pairs: desugared_pairs,
-                }
-            }
             Expr::StructNew {
                 type_name,
                 fields,

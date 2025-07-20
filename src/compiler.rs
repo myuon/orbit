@@ -770,24 +770,6 @@ impl Compiler {
                     .join(", ");
                 format!("vec({}, {})", element_type, elements_str)
             }
-            crate::ast::Expr::MapNew {
-                key_type,
-                value_type,
-                initial_pairs,
-            } => {
-                let entries_str = initial_pairs
-                    .iter()
-                    .map(|(key, value)| {
-                        format!(
-                            "{}: {}",
-                            self.format_expression(&key.value),
-                            self.format_expression(&value.value)
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("map({}, {}, {})", key_type, value_type, entries_str)
-            }
             crate::ast::Expr::Alloc { element_type, size } => {
                 format!(
                     "alloc({}, {})",

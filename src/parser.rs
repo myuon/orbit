@@ -556,19 +556,6 @@ impl Parser {
                         Ok(n)
                     }
                 }
-                TokenType::Map => {
-                    self.advance(); // consume 'map'
-                    if matches!(self.current_token().token_type, TokenType::LeftParen) {
-                        self.advance(); // consume '('
-                        let key_type = self.parse_type_name()?;
-                        self.consume(TokenType::Comma)?;
-                        let value_type = self.parse_type_name()?;
-                        self.consume(TokenType::RightParen)?;
-                        Ok(format!("map({}, {})", key_type, value_type))
-                    } else {
-                        Ok("map".to_string())
-                    }
-                }
                 _ => bail!("Expected type name"),
             }
         }
@@ -953,82 +940,6 @@ impl Parser {
                     } else {
                         bail!("Expected 'struct' after 'new('");
                     }
-                } else if matches!(self.current_token().token_type, TokenType::Map) {
-                    self.advance(); // consume 'map'
-                    self.consume(TokenType::LeftParen)?; // consume '('
-
-                    // Parse key type: expect [*]type or type
-                    let key_type =
-                        if matches!(self.current_token().token_type, TokenType::LeftBracket) {
-                            self.advance(); // consume '['
-                            self.consume(TokenType::Star)?; // consume '*'
-                            self.consume(TokenType::RightBracket)?; // consume ']'
-
-                            match &self.current_token().token_type {
-                                TokenType::Identifier(type_name) => {
-                                    let t = format!("[*]{}", type_name);
-                                    self.advance();
-                                    t
-                                }
-                                _ => bail!("Expected type name after [*]"),
-                            }
-                        } else {
-                            match &self.current_token().token_type {
-                                TokenType::Identifier(type_name) => {
-                                    let t = type_name.clone();
-                                    self.advance();
-                                    t
-                                }
-                                _ => bail!("Expected key type in map constructor"),
-                            }
-                        };
-
-                    self.consume(TokenType::Comma)?; // consume ','
-
-                    // Parse value type
-                    let value_type = match &self.current_token().token_type {
-                        TokenType::Identifier(type_name) => {
-                            let t = type_name.clone();
-                            self.advance();
-                            t
-                        }
-                        _ => bail!("Expected value type in map constructor"),
-                    };
-
-                    self.consume(TokenType::RightParen)?; // consume ')'
-                    self.consume(TokenType::LeftBrace)?; // consume '{'
-
-                    // Parse initial key-value pairs (if any)
-                    let mut initial_pairs = Vec::new();
-                    if !matches!(self.current_token().token_type, TokenType::RightBrace) {
-                        loop {
-                            let key = self.parse_expression()?;
-                            self.consume(TokenType::Colon)?; // consume ':'
-                            let value = self.parse_expression()?;
-                            initial_pairs.push((key, value));
-
-                            if matches!(self.current_token().token_type, TokenType::Comma) {
-                                self.advance();
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-
-                    self.consume(TokenType::RightBrace)?; // consume '}'
-                    let end_pos = if self.position > 0 {
-                        self.tokens[self.position - 1].position
-                    } else {
-                        start_pos
-                    };
-                    Ok(Positioned::new(
-                        Expr::MapNew {
-                            key_type,
-                            value_type,
-                            initial_pairs,
-                        },
-                        Span::new(start_pos, end_pos),
-                    ))
                 } else {
                     // Handle struct instantiation: new TypeName { .field = value, ... }
                     // Support generic types: new Container(int) { .field = value, ... }

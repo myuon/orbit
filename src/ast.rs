@@ -84,8 +84,6 @@ pub enum TokenType {
     RightBracket, // ]
     LeftBrace,    // {
     RightBrace,   // }
-    // Map keywords
-    Map,
     Fun,
     Do,
     End,
@@ -130,7 +128,6 @@ pub enum BinaryOp {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IndexContainerType {
     Vector,
-    Map,
     Pointer,
     String,
 }
@@ -168,11 +165,6 @@ pub enum Expr {
         index: Box<PositionedExpr>,
         container_type: Option<IndexContainerType>,
         container_value_type: Option<Type>,
-    },
-    MapNew {
-        key_type: String,
-        value_type: String,
-        initial_pairs: Vec<(PositionedExpr, PositionedExpr)>,
     },
     StructNew {
         type_name: Type,
@@ -311,7 +303,6 @@ pub enum Type {
     Boolean,
     String,
     Byte,
-    Map(Box<Type>, Box<Type>),
     Struct {
         name: String,
         args: Vec<Type>,
@@ -332,7 +323,6 @@ impl std::fmt::Display for Type {
             Type::Boolean => write!(f, "boolean"),
             Type::String => write!(f, "string"),
             Type::Byte => write!(f, "byte"),
-            Type::Map(key_type, value_type) => write!(f, "map({}, {})", key_type, value_type),
             Type::Struct { name, args } => {
                 if args.is_empty() {
                     write!(f, "{}", name)

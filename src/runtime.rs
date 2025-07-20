@@ -13,7 +13,6 @@ pub struct HeapIndex(pub usize);
 /// Objects stored on the heap
 #[derive(Debug, Clone, PartialEq)]
 pub enum HeapObject {
-    Map(HashMap<String, Value>),
     Struct(HashMap<String, Value>),
     Pointer(Vec<Value>), // Pointer is essentially an array of values
     RawValue(Value),     // Raw value storage for heap memory management
@@ -44,10 +43,6 @@ impl std::fmt::Display for Value {
 impl std::fmt::Display for HeapObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HeapObject::Map(m) => {
-                let entries: Vec<String> = m.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
-                write!(f, "{{{}}}", entries.join(", "))
-            }
             HeapObject::Struct(fields) => {
                 let entries: Vec<String> = fields
                     .iter()
@@ -922,135 +917,6 @@ impl VM {
                 };
             }
 
-            Instruction::MapNew => {
-                // Create a new empty map and push its heap index
-                let heap_index = self.heap.len();
-                self.heap.push(HeapObject::Map(HashMap::new()));
-                self.stack.push(Value::HeapRef(HeapIndex(heap_index)));
-            }
-
-            Instruction::MapIndex => {
-                // Stack: [map_heap_ref] [key_address]
-                if self.stack.len() < 2 {
-                    return Err("Stack underflow for MapIndex".to_string());
-                }
-                let key_value = self.stack.pop().unwrap();
-                let map_ref = self.stack.pop().unwrap();
-                match map_ref {
-                    Value::HeapRef(heap_index) => {
-                        if heap_index.0 >= self.heap.len() {
-                            return Err(format!("Invalid heap index: {}", heap_index.0));
-                        }
-
-                        // Extract key string from either Address or array(byte) structure
-                        let key = match key_value {
-                            Value::Address(key_addr) => self.address_to_string(key_addr)?,
-                            Value::HeapRef(key_heap_index) => {
-                                // Handle array(byte) structure - extract .data field
-                                if key_heap_index.0 >= self.heap.len() {
-                                    return Err(format!(
-                                        "Invalid key heap index: {}",
-                                        key_heap_index.0
-                                    ));
-                                }
-                                match &self.heap[key_heap_index.0] {
-                                    HeapObject::Struct(fields) => {
-                                        if let Some(Value::Address(data_addr)) = fields.get("data")
-                                        {
-                                            self.address_to_string(*data_addr)?
-                                        } else {
-                                            return Err("MapIndex: array key missing .data field"
-                                                .to_string());
-                                        }
-                                    }
-                                    _ => {
-                                        return Err(
-                                            "MapIndex: key heap reference must point to a struct"
-                                                .to_string(),
-                                        );
-                                    }
-                                }
-                            }
-                            _ => {
-                                return Err("MapIndex requires a key that is either a string address or array(byte) structure".to_string());
-                            }
-                        };
-
-                        match &self.heap[heap_index.0] {
-                            HeapObject::Map(map) => match map.get(&key) {
-                                Some(value) => {
-                                    self.stack.push(value.clone());
-                                }
-                                None => {
-                                    return Err(format!("Key '{}' not found in map", key));
-                                }
-                            },
-                            _ => return Err("MapIndex requires a map heap object".to_string()),
-                        }
-                    }
-                    _ => return Err("MapIndex requires a heap reference for the map".to_string()),
-                }
-            }
-
-            Instruction::MapSet => {
-                // Stack: [value] [key_address] [map_heap_ref]
-                if self.stack.len() < 3 {
-                    return Err("Stack underflow for MapSet".to_string());
-                }
-                let map_ref = self.stack.pop().unwrap();
-                let key_value = self.stack.pop().unwrap();
-                let value = self.stack.pop().unwrap();
-                match map_ref {
-                    Value::HeapRef(heap_index) => {
-                        if heap_index.0 >= self.heap.len() {
-                            return Err(format!("Invalid heap index: {}", heap_index.0));
-                        }
-
-                        // Extract key string from either Address or array(byte) structure
-                        let key = match key_value {
-                            Value::Address(key_addr) => self.address_to_string(key_addr)?,
-                            Value::HeapRef(key_heap_index) => {
-                                // Handle array(byte) structure - extract .data field
-                                if key_heap_index.0 >= self.heap.len() {
-                                    return Err(format!(
-                                        "Invalid key heap index: {}",
-                                        key_heap_index.0
-                                    ));
-                                }
-                                match &self.heap[key_heap_index.0] {
-                                    HeapObject::Struct(fields) => {
-                                        if let Some(Value::Address(data_addr)) = fields.get("data")
-                                        {
-                                            self.address_to_string(*data_addr)?
-                                        } else {
-                                            return Err(
-                                                "MapSet: array key missing .data field".to_string()
-                                            );
-                                        }
-                                    }
-                                    _ => {
-                                        return Err(
-                                            "MapSet: key heap reference must point to a struct"
-                                                .to_string(),
-                                        );
-                                    }
-                                }
-                            }
-                            _ => {
-                                return Err("MapSet requires a key that is either a string address or array(byte) structure".to_string());
-                            }
-                        };
-
-                        match &mut self.heap[heap_index.0] {
-                            HeapObject::Map(map) => {
-                                map.insert(key, value);
-                            }
-                            _ => return Err("MapSet requires a map heap object".to_string()),
-                        }
-                    }
-                    _ => return Err("MapSet requires a heap reference for the map".to_string()),
-                }
-            }
 
             Instruction::PointerIndex => {
                 // Stack: [pointer_heap_ref] [element_index]

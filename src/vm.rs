@@ -75,10 +75,6 @@ pub enum Instruction {
     // String operations
     StringNew,
 
-    // Map operations
-    MapNew,
-    MapIndex,
-    MapSet,
 
     // Pointer operations
     PointerIndex,
@@ -144,9 +140,6 @@ impl fmt::Display for Instruction {
             Instruction::HeapGetOffset => write!(f, "heap_get_offset"),
             Instruction::HeapSetOffset => write!(f, "heap_set_offset"),
             Instruction::StringNew => write!(f, "string_new"),
-            Instruction::MapNew => write!(f, "map_new"),
-            Instruction::MapIndex => write!(f, "map_index"),
-            Instruction::MapSet => write!(f, "map_set"),
             Instruction::PointerIndex => write!(f, "pointer_index"),
             Instruction::PointerSet => write!(f, "pointer_set"),
             Instruction::StringIndex => write!(f, "string_index"),
