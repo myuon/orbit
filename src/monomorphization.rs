@@ -179,26 +179,8 @@ impl Monomorphizer {
                 if !struct_decl.value.type_params.is_empty() {
                     self.register_generic_struct(struct_decl.clone());
                 }
-                // Register generic methods as potential monomorphization targets
+                // Look for generic calls in method bodies
                 for method in &struct_decl.value.methods {
-                    if !struct_decl.value.type_params.is_empty() {
-                        let struct_type = Type::from_struct_name(&struct_decl.value.name);
-                        let method_name = struct_type.mangle_method_name(&method.value.name);
-
-                        // Create a standalone function from the method for monomorphization
-                        let standalone_function = PositionedFunction {
-                            value: Function {
-                                name: method_name.clone(),
-                                type_params: struct_decl.value.type_params.clone(),
-                                params: method.value.params.clone(),
-                                body: method.value.body.clone(),
-                            },
-                            span: method.span.clone(),
-                        };
-                        self.register_generic_function(standalone_function);
-                    }
-
-                    // Look for generic calls in method bodies
                     for stmt in &method.value.body {
                         self.collect_targets_from_stmt(stmt)?;
                     }
@@ -272,15 +254,14 @@ impl Monomorphizer {
                         }
                     }
 
-                    // Only add as monomorphization target if we have type arguments
-                    // AND the function is actually registered as generic
+                    // Add as monomorphization target if we have type arguments and function is generic
                     if !type_args.is_empty() && self.generic_functions.contains_key(name) {
                         self.add_target(MonomorphizationTarget {
                             symbol: name.clone(),
                             args: type_args,
                         });
                     } else {
-                        // Check if this is a desugared method call (e.g., "Container(int)_create_default")
+                        // Check if this is a desugared method call
                         self.try_extract_monomorphization_target_from_desugared_name(name);
                     }
                 }
@@ -326,17 +307,10 @@ impl Monomorphizer {
                 container_value_type,
                 ..
             } => {
-                // Check if this is string indexing - if so, add array(byte)#_get as monomorphization target
+                // Check if this is string indexing - if so, add array(byte) struct as a target
                 if let Some(ref container_type) = container_value_type {
                     if matches!(container_type, Type::String) {
-                        // Add array(byte)#_get as a monomorphization target
-                        let target = MonomorphizationTarget {
-                            symbol: "array#_get".to_string(),
-                            args: vec![Type::Byte],
-                        };
-                        self.add_target(target);
-
-                        // Also add array(byte) struct as a target
+                        // Add array(byte) struct as a target (methods will be included automatically)
                         let struct_target = MonomorphizationTarget {
                             symbol: "array".to_string(),
                             args: vec![Type::Byte],
@@ -354,7 +328,7 @@ impl Monomorphizer {
             Expr::MethodCall {
                 object,
                 object_type,
-                method,
+                method: _,
                 args,
             } => {
                 // Check if this is a type method call (object_type is set and object is None)
@@ -364,26 +338,13 @@ impl Monomorphizer {
                         args: type_args,
                     } = obj_type
                     {
-                        // Generate the generic function name that this should call
-                        let struct_type = Type::from_struct_name(name);
-                        let generic_function_name = struct_type.mangle_method_name(method);
-
-                        // Check if this generic function exists
-                        if self.generic_functions.contains_key(&generic_function_name) {
-                            let target = MonomorphizationTarget {
-                                symbol: generic_function_name,
+                        // Add the struct itself as a target for monomorphization
+                        if self.generic_structs.contains_key(name) {
+                            let struct_target = MonomorphizationTarget {
+                                symbol: name.clone(),
                                 args: type_args.clone(),
                             };
-                            self.add_target(target);
-
-                            // Also add the struct itself as a target for monomorphization
-                            if self.generic_structs.contains_key(name) {
-                                let struct_target = MonomorphizationTarget {
-                                    symbol: name.clone(),
-                                    args: type_args.clone(),
-                                };
-                                self.add_target(struct_target);
-                            }
+                            self.add_target(struct_target);
                         }
                     }
                 }
@@ -503,12 +464,11 @@ impl Monomorphizer {
     }
 
     /// Try to extract monomorphization target from a desugared function name
-    /// e.g., "Container(int)#_create_default" -> MonomorphizationTarget { symbol: "Container#_create_default", args: [int] }
+    /// e.g., "Container(int)#_create_default" -> MonomorphizationTarget { symbol: "Container", args: [int] }
     fn try_extract_monomorphization_target_from_desugared_name(&mut self, desugared_name: &str) {
         // Look for pattern: Type(args)#method
         if let Some(separator_pos) = desugared_name.find(Type::METHOD_SEPARATOR) {
             let type_part = &desugared_name[..separator_pos];
-            let method_part = &desugared_name[separator_pos..];
 
             // Extract type and arguments from type_part (e.g., "Container(int)" -> "Container", [int])
             if let Some(paren_pos) = type_part.find('(') {
@@ -536,15 +496,10 @@ impl Monomorphizer {
                         }
                     }
 
-                    // Generate the generic function name (e.g., "Container#_create_default")
-                    let generic_function_name = format!("{}{}", base_type, method_part);
-
-                    // Check if this generic function exists and add as target
-                    if self.generic_functions.contains_key(&generic_function_name)
-                        || self.generic_structs.contains_key(base_type)
-                    {
+                    // Check if this is a struct and add as target
+                    if self.generic_structs.contains_key(base_type) {
                         let target = MonomorphizationTarget {
-                            symbol: generic_function_name,
+                            symbol: base_type.to_string(),
                             args: type_args,
                         };
                         self.add_target(target);
@@ -693,24 +648,7 @@ impl Monomorphizer {
         self.monomorphized_structs
             .insert(target.instantiated_name(), positioned_struct);
 
-        // Register all methods as standalone functions for this monomorphized struct
-        for method in &monomorphized_struct.methods {
-            // Create the proper type for the instantiated struct
-            let instantiated_type = Type::Struct {
-                name: target.symbol.clone(),
-                args: target.args.clone(),
-            };
-            let mangled_name = instantiated_type.mangle_method_name(&method.value.name);
-            let mangled_function = Function {
-                name: mangled_name.clone(),
-                type_params: Vec::new(), // Monomorphized methods have no type parameters
-                params: method.value.params.clone(),
-                body: method.value.body.clone(),
-            };
-            let positioned_mangled_function = Positioned::with_unknown_span(mangled_function);
-            self.monomorphized_functions
-                .insert(mangled_name, positioned_mangled_function);
-        }
+        // Methods are now kept as part of the struct, not converted to global functions
 
         Ok(())
     }
