@@ -495,7 +495,7 @@ impl Compiler {
                         output.push_str(&format!(
                             "{}: {}",
                             param.name,
-                            param.type_name.as_ref().unwrap_or(&"unknown".to_string())
+                            param.param_type.as_ref().map(|t| t.to_string()).unwrap_or("unknown".to_string())
                         ));
                     }
                     output.push_str(") do\n");
@@ -518,7 +518,7 @@ impl Compiler {
                     }
                     output.push_str(" = struct {\n");
                     for field in &struct_decl.value.fields {
-                        output.push_str(&format!("    {}: {},\n", field.name, field.type_name));
+                        output.push_str(&format!("    {}: {},\n", field.name, field.field_type.to_string()));
                     }
                     output.push_str("};\n\n");
                 }
@@ -559,7 +559,7 @@ impl Compiler {
                             output.push_str(&format!(
                                 "{}: {}",
                                 param.name,
-                                param.type_name.as_ref().unwrap_or(&"unknown".to_string())
+                                param.param_type.as_ref().map(|t| t.to_string()).unwrap_or("unknown".to_string())
                             ));
                         }
                         output.push_str(") do\n");
@@ -579,7 +579,7 @@ impl Compiler {
                             output.push_str(&format!(
                                 "{}: {}",
                                 param.name,
-                                param.type_name.as_ref().unwrap_or(&"unknown".to_string())
+                                param.param_type.as_ref().map(|t| t.to_string()).unwrap_or("unknown".to_string())
                             ));
                         }
                         output.push_str(") do\n");
@@ -605,7 +605,7 @@ impl Compiler {
                     }
 
                     for field in &struct_decl.value.fields {
-                        output.push_str(&format!("    {}: {}\n", field.name, field.type_name));
+                        output.push_str(&format!("    {}: {}\n", field.name, field.field_type.to_string()));
                     }
                     output.push_str("};\n\n");
                 }

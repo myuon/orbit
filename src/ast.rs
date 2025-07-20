@@ -157,7 +157,7 @@ pub enum Expr {
         args: Vec<PositionedExpr>,
     },
     VectorNew {
-        element_type: String,
+        element_type: Type,
         initial_values: Vec<PositionedExpr>,
     },
     Index {
@@ -201,7 +201,7 @@ pub enum Expr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunParam {
     pub name: String,
-    pub type_name: Option<String>,
+    pub param_type: Option<Type>,
 }
 
 // Top-level program structure
@@ -235,7 +235,7 @@ pub type PositionedStructDecl = Positioned<StructDecl>;
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDecl {
     pub name: String,
-    pub type_params: Vec<String>, // Generic type parameters
+    pub type_params: Vec<Type>, // Generic type parameters
     pub fields: Vec<StructField>,
     pub methods: Vec<PositionedFunction>,
 }
@@ -251,7 +251,7 @@ pub enum TypeExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructField {
     pub name: String,
-    pub type_name: String,
+    pub field_type: Type,
 }
 
 // Function declaration with body
@@ -260,7 +260,7 @@ pub type PositionedFunction = Positioned<Function>;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub name: String,
-    pub type_params: Vec<String>, // Generic type parameters
+    pub type_params: Vec<Type>, // Generic type parameters
     pub params: Vec<FunParam>,
     pub body: Vec<PositionedStmt>,
 }

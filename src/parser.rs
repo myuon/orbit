@@ -5,11 +5,14 @@ use crate::ast::{
     TokenType, Type,
 };
 use anyhow::{bail, Result};
+use std::collections::HashSet;
 
 pub struct Parser {
     tokens: Vec<Token>,
     position: usize,
     eof_token: Token,
+    /// Current type parameters in scope (for recognizing type parameter references)
+    type_params_in_scope: HashSet<String>,
 }
 
 impl Parser {
@@ -21,6 +24,7 @@ impl Parser {
                 token_type: TokenType::Eof,
                 position: 0,
             },
+            type_params_in_scope: HashSet::new(),
         }
     }
 
@@ -172,18 +176,20 @@ impl Parser {
                     // Check if this is a type parameter (": type")
                     if matches!(self.current_token().token_type, TokenType::Type) {
                         self.advance(); // consume 'type'
-                        type_params.push(param_name);
+                        type_params.push(Type::TypeParameter(param_name.clone()));
+                        // Add this type parameter to scope immediately so subsequent params can use it
+                        self.type_params_in_scope.insert(param_name);
                     } else {
-                        let type_name = self.parse_type_name()?;
+                        let param_type = self.parse_type()?;
                         params.push(FunParam {
                             name: param_name,
-                            type_name: Some(type_name),
+                            param_type: Some(param_type),
                         });
                     }
                 } else {
                     params.push(FunParam {
                         name: param_name,
-                        type_name: None,
+                        param_type: None,
                     });
                 }
 
@@ -200,7 +206,14 @@ impl Parser {
         // Parse optional return type annotation: : TypeName
         if matches!(self.current_token().token_type, TokenType::Colon) {
             self.advance(); // consume ':'
-            let _return_type = self.parse_type_name()?; // Parse but ignore for now
+            let _return_type = self.parse_type()?; // Parse but ignore for now
+        }
+
+        // Add type parameters to scope before parsing function body
+        for type_param in &type_params {
+            if let Type::TypeParameter(param_name) = type_param {
+                self.type_params_in_scope.insert(param_name.clone());
+            }
         }
 
         self.consume(TokenType::Do)?;
@@ -216,6 +229,13 @@ impl Parser {
         }
 
         self.consume(TokenType::End)?;
+
+        // Remove type parameters from scope after parsing function body
+        for type_param in &type_params {
+            if let Type::TypeParameter(param_name) = type_param {
+                self.type_params_in_scope.remove(param_name);
+            }
+        }
 
         let end_pos = if self.position > 0 {
             self.tokens[self.position - 1].position
@@ -272,7 +292,7 @@ impl Parser {
                 self.consume(TokenType::Colon)?;
                 self.consume(TokenType::Type)?;
 
-                params.push(param_name);
+                params.push(Type::TypeParameter(param_name));
 
                 // Handle comma or end of parameter list
                 if matches!(self.current_token().token_type, TokenType::Comma) {
@@ -287,6 +307,13 @@ impl Parser {
         } else {
             Vec::new()
         };
+
+        // Add type parameters to scope before parsing fields and methods
+        for type_param in &type_params {
+            if let Type::TypeParameter(param_name) = type_param {
+                self.type_params_in_scope.insert(param_name.clone());
+            }
+        }
 
         self.consume(TokenType::Assign)?;
         self.consume(TokenType::Struct)?;
@@ -317,11 +344,11 @@ impl Parser {
 
                 self.consume(TokenType::Colon)?;
 
-                let type_name = self.parse_type_name()?;
+                let field_type = self.parse_type()?;
 
                 fields.push(StructField {
                     name: field_name,
-                    type_name,
+                    field_type,
                 });
 
                 if matches!(self.current_token().token_type, TokenType::Comma) {
@@ -336,6 +363,13 @@ impl Parser {
 
         self.consume(TokenType::RightBrace)?;
         self.consume(TokenType::Semicolon)?;
+
+        // Remove type parameters from scope after parsing fields and methods
+        for type_param in &type_params {
+            if let Type::TypeParameter(param_name) = type_param {
+                self.type_params_in_scope.remove(param_name);
+            }
+        }
 
         let end_pos = if self.position > 0 {
             self.tokens[self.position - 1].position
@@ -509,54 +543,74 @@ impl Parser {
         }
     }
 
-    /// Parse a type name, including pointer types [*]T
-    fn parse_type_name(&mut self) -> Result<String> {
+    /// Parse a base type (primitive types or struct names without generics)
+    fn parse_base_type(&mut self) -> Result<Type> {
+        match &self.current_token().token_type {
+            TokenType::Identifier(name) => {
+                let type_name = name.clone();
+                self.advance();
+
+                match type_name.as_str() {
+                    "bool" | "boolean" => Ok(Type::Boolean),
+                    "int" | "number" => Ok(Type::Int),
+                    "string" => Ok(Type::String),
+                    "byte" => Ok(Type::Byte),
+                    _ => {
+                        // Check if this is a type parameter in scope
+                        if self.type_params_in_scope.contains(&type_name) {
+                            Ok(Type::TypeParameter(type_name))
+                        } else {
+                            Ok(Type::Struct {
+                                name: type_name,
+                                args: vec![],
+                            })
+                        }
+                    }
+                }
+            }
+            _ => bail!("Expected type name"),
+        }
+    }
+
+    /// Parse a type with optional generic arguments: BaseType(arg1, arg2, ...)
+    fn parse_type(&mut self) -> Result<Type> {
         if matches!(self.current_token().token_type, TokenType::LeftBracket) {
             self.advance(); // consume '['
             self.consume(TokenType::Star)?; // consume '*'
             self.consume(TokenType::RightBracket)?; // consume ']'
-
-            let inner_type = self.parse_type_name()?;
-            Ok(format!("[*]{}", inner_type))
+            let inner_type = self.parse_type()?;
+            Ok(Type::Pointer(Box::new(inner_type)))
         } else {
-            match &self.current_token().token_type {
-                TokenType::Identifier(name) => {
-                    let n = name.clone();
-                    self.advance();
+            let base_type = self.parse_base_type()?;
 
-                    // Check for generic instantiation: Type(arg1, arg2, ...)
-                    if matches!(self.current_token().token_type, TokenType::LeftParen) {
-                        self.advance(); // consume '('
-                        let mut args = Vec::new();
+            // Check for generic instantiation: Type(arg1, arg2, ...)
+            if matches!(self.current_token().token_type, TokenType::LeftParen) {
+                self.advance(); // consume '('
+                let mut args = Vec::new();
 
-                        while !matches!(self.current_token().token_type, TokenType::RightParen) {
-                            if matches!(self.current_token().token_type, TokenType::Eof) {
-                                bail!("Unexpected end of file in generic type arguments");
-                            }
+                while !matches!(self.current_token().token_type, TokenType::RightParen) {
+                    if matches!(self.current_token().token_type, TokenType::Eof) {
+                        bail!("Unexpected end of file in generic type arguments");
+                    }
+                    let arg_type = self.parse_type()?;
+                    args.push(arg_type);
 
-                            let arg_type = self.parse_type_name()?;
-                            args.push(arg_type);
-
-                            if matches!(self.current_token().token_type, TokenType::Comma) {
-                                self.advance(); // consume ','
-                            } else if !matches!(
-                                self.current_token().token_type,
-                                TokenType::RightParen
-                            ) {
-                                bail!("Expected ',' or ')' in generic type arguments");
-                            }
-                        }
-
-                        self.consume(TokenType::RightParen)?;
-
-                        // Format as generic type: Type(arg1, arg2)
-                        let args_str = args.join(", ");
-                        Ok(format!("{}({})", n, args_str))
-                    } else {
-                        Ok(n)
+                    if matches!(self.current_token().token_type, TokenType::Comma) {
+                        self.advance(); // consume ','
+                    } else if !matches!(self.current_token().token_type, TokenType::RightParen) {
+                        bail!("Expected ',' or ')' in generic type arguments");
                     }
                 }
-                _ => bail!("Expected type name"),
+
+                self.consume(TokenType::RightParen)?;
+
+                // Convert base_type to struct with arguments
+                match base_type {
+                    Type::Struct { name, args: _ } => Ok(Type::Struct { name, args }),
+                    _ => bail!("Only struct types can have generic arguments"),
+                }
+            } else {
+                Ok(base_type)
             }
         }
     }
@@ -662,14 +716,14 @@ impl Parser {
 
         while matches!(self.current_token().token_type, TokenType::As) {
             self.advance(); // consume 'as'
-            let target_type = self.parse_type_name()?;
+            let target_type = self.parse_type()?;
             let start_pos = expr.span.start.unwrap_or(0);
             let end_pos = expr.span.end.unwrap_or(start_pos);
 
             expr = Positioned::new(
                 Expr::Cast {
                     expr: Box::new(expr),
-                    target_type: Type::from_string(&target_type),
+                    target_type,
                 },
                 Span::new(start_pos, end_pos),
             );
@@ -895,7 +949,7 @@ impl Parser {
                         self.advance(); // consume 'struct'
                         self.consume(TokenType::RightParen)?; // consume ')'
 
-                        let type_name = Type::from_string(&self.parse_type_name()?);
+                        let type_name = self.parse_type()?;
                         self.consume(TokenType::LeftBrace)?;
 
                         let mut fields = Vec::new();
@@ -943,7 +997,7 @@ impl Parser {
                 } else {
                     // Handle struct instantiation: new TypeName { .field = value, ... }
                     // Support generic types: new Container(int) { .field = value, ... }
-                    let type_name = Type::from_string(&self.parse_type_name()?);
+                    let type_name = self.parse_type()?;
 
                     self.consume(TokenType::LeftBrace)?;
 
@@ -994,7 +1048,7 @@ impl Parser {
                 // Check if this is a type expression for associated method call
                 if matches!(self.current_token().token_type, TokenType::Type) {
                     self.advance(); // consume 'type'
-                    let type_name = Type::from_string(&self.parse_type_name()?);
+                    let type_name = self.parse_type()?;
                     self.consume(TokenType::RightParen)?;
 
                     // Now check for .method(args) after the closing paren
@@ -1059,7 +1113,7 @@ impl Parser {
             }
             TokenType::Type => {
                 self.advance(); // consume 'type'
-                let type_name = Type::from_string(&self.parse_type_name()?);
+                let type_name = self.parse_type()?;
                 let end_pos = if self.position > 0 {
                     self.tokens[self.position - 1].position
                 } else {
@@ -1075,7 +1129,7 @@ impl Parser {
                 self.consume(TokenType::LeftParen)?; // consume '('
 
                 // Parse element type
-                let element_type = Type::from_string(&self.parse_type_name()?);
+                let element_type = self.parse_type()?;
 
                 self.consume(TokenType::Comma)?; // consume ','
 
@@ -1103,8 +1157,7 @@ impl Parser {
                 self.consume(TokenType::Type)?; // consume 'type'
 
                 // Parse the type
-                let type_name_str = self.parse_type_name()?;
-                let type_name = Type::from_string(&type_name_str);
+                let type_name = self.parse_type()?;
 
                 self.consume(TokenType::RightParen)?; // consume ')'
 
@@ -1186,10 +1239,10 @@ mod tests {
                         Decl::Struct(struct_decl) => {
                             assert_eq!(struct_decl.value.name, "Container");
                             assert_eq!(struct_decl.value.type_params.len(), 1);
-                            assert_eq!(struct_decl.value.type_params[0], "T");
+                            assert_eq!(struct_decl.value.type_params[0], Type::TypeParameter("T".to_string()));
                             assert_eq!(struct_decl.value.fields.len(), 1);
                             assert_eq!(struct_decl.value.fields[0].name, "value");
-                            assert_eq!(struct_decl.value.fields[0].type_name, "T");
+                            assert_eq!(struct_decl.value.fields[0].field_type, Type::TypeParameter("T".to_string()));
                         }
                         _ => panic!("Expected struct declaration"),
                     }
@@ -1204,10 +1257,10 @@ mod tests {
                         Decl::Function(function) => {
                             assert_eq!(function.value.name, "identity");
                             assert_eq!(function.value.type_params.len(), 1);
-                            assert_eq!(function.value.type_params[0], "T");
+                            assert_eq!(function.value.type_params[0], Type::TypeParameter("T".to_string()));
                             assert_eq!(function.value.params.len(), 1);
                             assert_eq!(function.value.params[0].name, "value");
-                            assert_eq!(function.value.params[0].type_name, Some("T".to_string()));
+                            assert_eq!(function.value.params[0].param_type, Some(Type::TypeParameter("T".to_string())));
                         }
                         _ => panic!("Expected function declaration"),
                     }
@@ -1223,7 +1276,7 @@ mod tests {
                             assert_eq!(struct_decl.value.name, "Point");
                             assert_eq!(struct_decl.value.fields.len(), 1);
                             assert_eq!(struct_decl.value.fields[0].name, "container");
-                            assert_eq!(struct_decl.value.fields[0].type_name, "Container(int)");
+                            assert_eq!(struct_decl.value.fields[0].field_type, Type::Struct { name: "Container".to_string(), args: vec![Type::Int] });
                         }
                         _ => panic!("Expected struct declaration"),
                     }
@@ -1256,7 +1309,7 @@ mod tests {
                         assert_eq!(struct_decl.value.name, "Point");
                         assert_eq!(struct_decl.value.fields.len(), 1);
                         assert_eq!(struct_decl.value.fields[0].name, "data");
-                        assert_eq!(struct_decl.value.fields[0].type_name, "[*]int");
+                        assert_eq!(struct_decl.value.fields[0].field_type, Type::Pointer(Box::new(Type::Int)));
                     } else {
                         panic!("Expected struct declaration");
                     }
@@ -1542,7 +1595,11 @@ mod tests {
                 kind,
             } = expr.value
             {
-                assert_eq!(type_name, Type::from_string(test_case.expected_type));
+                let expected_type = Type::Struct {
+                    name: test_case.expected_type.to_string(),
+                    args: vec![],
+                };
+                assert_eq!(type_name, expected_type);
                 assert_eq!(fields.len(), test_case.expected_fields);
                 assert_eq!(kind, test_case.expected_kind);
                 if test_case.expected_fields > 0 {

@@ -101,7 +101,7 @@ impl DeadCodeEliminator {
 
             // Mark parameter types as reachable
             for param in &function.params {
-                if let Some(type_name) = &param.type_name {
+                if let Some(type_name) = &param.param_type {
                     self.mark_type_reachable(type_name);
                 }
             }
@@ -116,51 +116,61 @@ impl DeadCodeEliminator {
     }
 
     /// Mark a type as reachable and analyze its dependencies
-    fn mark_type_reachable(&mut self, type_name: &str) {
-        if self.reachable_types.contains(type_name) {
-            return; // Already processed
+    fn extract_type_name(typ: &Type) -> Option<String> {
+        match typ {
+            Type::Struct { name, .. } => Some(name.clone()),
+            Type::Pointer(inner) => Self::extract_type_name(inner),
+            _ => None, // Primitive types don't need tracking
         }
+    }
 
-        // Extract base type name from generic instantiations like "array(int)"
-        let base_type = if let Some(paren_pos) = type_name.find('(') {
-            &type_name[..paren_pos]
-        } else {
-            type_name
-        };
-
-        // Check if we have the exact type name first
-        if let Some(struct_decl) = self.structs.get(type_name).cloned() {
-            self.reachable_types.insert(type_name.to_string());
-
-            // Mark field types as reachable
-            for field in &struct_decl.fields {
-                self.mark_type_reachable(&field.type_name);
+    fn mark_type_reachable(&mut self, typ: &Type) {
+        if let Some(type_name) = Self::extract_type_name(typ) {
+            if self.reachable_types.contains(&type_name) {
+                return; // Already processed
             }
 
-            // Mark methods as reachable if the type is used
-            // Methods are converted to mangled function names during desugaring
-            for positioned_method in &struct_decl.methods {
-                let mangled_name = format!("{}_{}", type_name, positioned_method.value.name);
-                if self.functions.contains_key(&mangled_name) {
-                    let _ = self.mark_function_reachable(&mangled_name);
+            // Extract base type name from generic instantiations like "array(int)"
+            let base_type = if let Some(paren_pos) = type_name.find('(') {
+                &type_name[..paren_pos]
+            } else {
+                &type_name
+            };
+
+            // Check if we have the exact type name first
+            if let Some(struct_decl) = self.structs.get(&type_name).cloned() {
+                self.reachable_types.insert(type_name.clone());
+
+                // Mark field types as reachable
+                for field in &struct_decl.fields {
+                    self.mark_type_reachable(&field.field_type);
                 }
-            }
-        } else if let Some(struct_decl) = self.structs.get(base_type).cloned() {
-            // If not found, try with base type
-            self.reachable_types.insert(type_name.to_string());
-            self.reachable_types.insert(base_type.to_string());
 
-            // Mark field types as reachable
-            for field in &struct_decl.fields {
-                self.mark_type_reachable(&field.type_name);
-            }
+                // Mark methods as reachable if the type is used
+                // Methods are converted to mangled function names during desugaring
+                for positioned_method in &struct_decl.methods {
+                    let mangled_name = format!("{}_{}", type_name, positioned_method.value.name);
+                    if self.functions.contains_key(&mangled_name) {
+                        let _ = self.mark_function_reachable(&mangled_name);
+                    }
+                }
+            } else if let Some(struct_decl) = self.structs.get(base_type).cloned() {
+                // If not found, try with base type
+                self.reachable_types.insert(type_name.clone());
+                self.reachable_types.insert(base_type.to_string());
 
-            // Mark methods as reachable if the type is used
-            // Methods are converted to mangled function names during desugaring
-            for positioned_method in &struct_decl.methods {
-                let mangled_name = format!("{}_{}", type_name, positioned_method.value.name);
-                if self.functions.contains_key(&mangled_name) {
-                    let _ = self.mark_function_reachable(&mangled_name);
+                // Mark field types as reachable
+                for field in &struct_decl.fields {
+                    self.mark_type_reachable(&field.field_type);
+                }
+
+                // Mark methods as reachable if the type is used
+                // Methods are converted to mangled function names during desugaring
+                for positioned_method in &struct_decl.methods {
+                    let mangled_name = format!("{}_{}", type_name, positioned_method.value.name);
+                    if self.functions.contains_key(&mangled_name) {
+                        let _ = self.mark_function_reachable(&mangled_name);
+                    }
                 }
             }
         }
@@ -309,12 +319,12 @@ impl DeadCodeEliminator {
                 fields,
                 kind: _,
             } => {
-                let type_name_str = type_name.to_string();
-                self.mark_type_reachable(&type_name_str);
+                self.mark_type_reachable(type_name);
                 // Mark the base type as reachable as well (for generic instantiations)
                 match type_name {
                     Type::Struct { name, .. } => {
-                        self.mark_type_reachable(name);
+                        let base_type = Type::Struct { name: name.clone(), args: vec![] };
+                        self.mark_type_reachable(&base_type);
                     }
                     _ => {}
                 }
@@ -350,18 +360,18 @@ impl DeadCodeEliminator {
                 self.mark_expr_dependencies(object)?;
             }
             Expr::Alloc { element_type, size } => {
-                self.mark_type_reachable(&element_type.to_string());
+                self.mark_type_reachable(element_type);
                 self.mark_expr_dependencies(size)?;
             }
             Expr::Sizeof { type_name } => {
-                self.mark_type_reachable(&type_name.to_string());
+                self.mark_type_reachable(type_name);
             }
             Expr::Cast { expr, target_type } => {
                 self.mark_expr_dependencies(expr)?;
-                self.mark_type_reachable(&target_type.to_string());
+                self.mark_type_reachable(target_type);
             }
             Expr::TypeExpr { type_name } => {
-                self.mark_type_reachable(&type_name.to_string());
+                self.mark_type_reachable(type_name);
             }
             // Leaf expressions don't have dependencies
             Expr::Int(_)
@@ -579,7 +589,7 @@ mod tests {
                             Positioned::with_unknown_span(Stmt::Let {
                                 name: "point".to_string(),
                                 value: Positioned::with_unknown_span(Expr::StructNew {
-                                    type_name: Type::from_string("Point"),
+                                    type_name: Type::Struct { name: "Point".to_string(), args: vec![] },
                                     fields: vec![
                                         (
                                             "x".to_string(),
@@ -606,11 +616,11 @@ mod tests {
                         fields: vec![
                             crate::ast::StructField {
                                 name: "x".to_string(),
-                                type_name: "int".to_string(),
+                                field_type: Type::Int,
                             },
                             crate::ast::StructField {
                                 name: "y".to_string(),
-                                type_name: "int".to_string(),
+                                field_type: Type::Int,
                             },
                         ],
                         methods: vec![],

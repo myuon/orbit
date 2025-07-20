@@ -758,11 +758,13 @@ impl CodeGenerator {
                 fields,
                 kind: _,
             } => {
-                // Verify struct exists (special handling for built-in types)
+                // Verify struct exists (special handling for built-in types and generic instantiations)
                 let type_name_str = type_name.to_string();
-                if !self.structs.contains_key(&type_name_str)
-                    && !type_name_str.starts_with("array(")
-                {
+                let is_builtin_or_generic = type_name_str.starts_with("array(") 
+                    || type_name_str.starts_with("vec(") 
+                    || type_name_str.contains('('); // Any type with parentheses is likely a generic instantiation
+                
+                if !self.structs.contains_key(&type_name_str) && !is_builtin_or_generic {
                     panic!("Unknown struct type: {}", type_name);
                 }
 
@@ -976,11 +978,11 @@ mod tests {
             params: vec![
                 FunParam {
                     name: "x".to_string(),
-                    type_name: None,
+                    param_type: None,
                 },
                 FunParam {
                     name: "y".to_string(),
-                    type_name: None,
+                    param_type: None,
                 },
             ],
             body: vec![Positioned::with_unknown_span(Stmt::Return(
