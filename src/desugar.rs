@@ -108,19 +108,14 @@ impl Desugarer {
             })?
             .clone();
 
-        let type_params = if type_args.is_empty() {
-            "T".to_string()
-        } else {
-            type_args
-                .iter()
-                .map(|t| t.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+        let type_instance = Type::Struct {
+            name: type_name.to_string(),
+            args: type_args.to_vec(),
         };
 
         let method_call = Expr::MethodCall {
             object: Some(Box::new(container)),
-            type_name: Some(format!("{}({})", type_name, type_params)),
+            object_type: Some(type_instance),
             method: method_name,
             args,
         };
@@ -147,19 +142,14 @@ impl Desugarer {
             })?
             .clone();
 
-        let type_params = if type_args.is_empty() {
-            "T".to_string()
-        } else {
-            type_args
-                .iter()
-                .map(|t| t.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+        let type_instance = Type::Struct {
+            name: type_name.to_string(),
+            args: type_args.to_vec(),
         };
 
         let method_call = Expr::MethodCall {
             object: None,
-            type_name: Some(format!("{}({})", type_name, type_params)),
+            object_type: Some(type_instance),
             method: method_name,
             args,
         };
@@ -369,7 +359,10 @@ impl Desugarer {
                                 let desugared_index = self.desugar_expression(index)?;
                                 let method_call = Expr::MethodCall {
                                     object: Some(Box::new(desugared_container)),
-                                    type_name: Some(struct_name.clone()),
+                                    object_type: Some(Type::Struct {
+                                        name: struct_name.clone(),
+                                        args: vec![],
+                                    }),
                                     method: "_set".to_string(),
                                     args: vec![desugared_index, desugared_value],
                                 };
@@ -440,7 +433,7 @@ impl Desugarer {
             // Method call is the main target for desugaring
             Expr::MethodCall {
                 object,
-                type_name,
+                object_type,
                 method,
                 args,
             } => {
@@ -453,7 +446,7 @@ impl Desugarer {
                     }
 
                     // Use embedded type information if available, otherwise fall back to heuristic
-                    let mangled_name = if let Some(struct_type) = type_name {
+                    let mangled_name = if let Some(struct_type) = object_type {
                         format!("{}#{}", struct_type, method)
                     } else {
                         self.resolve_method_name(&desugared_object.value, method)?
@@ -469,7 +462,7 @@ impl Desugarer {
                         ))),
                         args: call_args,
                     }
-                } else if let Some(type_name_str) = type_name {
+                } else if let Some(type_name_str) = object_type {
                     // Associated method call: (type T).method(args)
                     let mut desugared_args = Vec::new();
                     for arg in args {
@@ -597,7 +590,10 @@ impl Desugarer {
                             // Convert to method call: vec(T)._new()
                             let method_call = Expr::MethodCall {
                                 object: None,
-                                type_name: Some(struct_name.clone()),
+                                object_type: Some(Type::Struct {
+                                    name: struct_name.clone(),
+                                    args: vec![],
+                                }),
                                 method: "_new".to_string(),
                                 args: vec![],
                             };
@@ -773,7 +769,7 @@ mod tests {
             object: Some(Box::new(Positioned::with_unknown_span(Expr::Identifier(
                 "p".to_string(),
             )))),
-            type_name: None,
+            object_type: None,
             method: "sum".to_string(),
             args: vec![],
         });
@@ -832,7 +828,10 @@ mod tests {
             object: Some(Box::new(Positioned::with_unknown_span(Expr::Identifier(
                 "p".to_string(),
             )))),
-            type_name: Some("Point".to_string()), // Type information embedded by type checker
+            object_type: Some(Type::Struct {
+                name: "Point".to_string(),
+                args: vec![],
+            }), // Type information embedded by type checker
             method: "sum".to_string(),
             args: vec![],
         });

@@ -808,7 +808,7 @@ impl Compiler {
             }
             crate::ast::Expr::MethodCall {
                 object,
-                type_name,
+                object_type,
                 method,
                 args,
             } => {
@@ -824,8 +824,8 @@ impl Compiler {
                         method,
                         args_str
                     )
-                } else if let Some(type_name) = type_name {
-                    format!("(type {}).{}({})", type_name, method, args_str)
+                } else if let Some(obj_type) = object_type {
+                    format!("(type {}).{}({})", obj_type, method, args_str)
                 } else {
                     format!("<unknown>.{}({})", method, args_str)
                 }

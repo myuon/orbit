@@ -183,11 +183,8 @@ impl Monomorphizer {
                 for method in &struct_decl.value.methods {
                     // Register generic methods as standalone functions with mangled names
                     if !struct_decl.value.type_params.is_empty() {
-                        let method_name = format!(
-                            "{}#{}",
-                            struct_decl.value.name,
-                            method.value.name
-                        );
+                        let method_name =
+                            format!("{}#{}", struct_decl.value.name, method.value.name);
 
                         // Create a standalone function from the method
                         let standalone_function = PositionedFunction {
@@ -324,7 +321,10 @@ impl Monomorphizer {
                 self.collect_targets_from_expr(right)?;
             }
             Expr::Index {
-                container, index, container_value_type, ..
+                container,
+                index,
+                container_value_type,
+                ..
             } => {
                 // Check if this is string indexing - if so, add array(byte)#_get as monomorphization target
                 if let Some(ref container_type) = container_value_type {
@@ -335,7 +335,7 @@ impl Monomorphizer {
                             args: vec![Type::Byte],
                         };
                         self.add_target(target);
-                        
+
                         // Also add array(byte) struct as a target
                         let struct_target = MonomorphizationTarget {
                             symbol: "array".to_string(),
@@ -344,7 +344,7 @@ impl Monomorphizer {
                         self.add_target(struct_target);
                     }
                 }
-                
+
                 self.collect_targets_from_expr(container)?;
                 self.collect_targets_from_expr(index)?;
             }
@@ -353,38 +353,35 @@ impl Monomorphizer {
             }
             Expr::MethodCall {
                 object,
-                type_name,
+                object_type,
                 method,
                 args,
             } => {
-                // Check if this is a type method call (type_name is set and object is None)
-                if let Some(type_str) = type_name {
-                    // Parse the type to extract generic information
-                    if let Some(parsed_type) = self.parse_generic_type(type_str) {
-                        if let Type::Struct {
-                            name,
-                            args: type_args,
-                        } = parsed_type
-                        {
-                            // Generate the generic function name that this should call
-                            let generic_function_name = format!("{}#{}", name, method);
+                // Check if this is a type method call (object_type is set and object is None)
+                if let Some(obj_type) = object_type {
+                    if let Type::Struct {
+                        name,
+                        args: type_args,
+                    } = obj_type
+                    {
+                        // Generate the generic function name that this should call
+                        let generic_function_name = format!("{}#{}", name, method);
 
-                            // Check if this generic function exists
-                            if self.generic_functions.contains_key(&generic_function_name) {
-                                let target = MonomorphizationTarget {
-                                    symbol: generic_function_name,
+                        // Check if this generic function exists
+                        if self.generic_functions.contains_key(&generic_function_name) {
+                            let target = MonomorphizationTarget {
+                                symbol: generic_function_name,
+                                args: type_args.clone(),
+                            };
+                            self.add_target(target);
+
+                            // Also add the struct itself as a target for monomorphization
+                            if self.generic_structs.contains_key(name) {
+                                let struct_target = MonomorphizationTarget {
+                                    symbol: name.clone(),
                                     args: type_args.clone(),
                                 };
-                                self.add_target(target);
-
-                                // Also add the struct itself as a target for monomorphization
-                                if self.generic_structs.contains_key(&name) {
-                                    let struct_target = MonomorphizationTarget {
-                                        symbol: name,
-                                        args: type_args,
-                                    };
-                                    self.add_target(struct_target);
-                                }
+                                self.add_target(struct_target);
                             }
                         }
                     }
@@ -697,11 +694,7 @@ impl Monomorphizer {
 
         // Also register methods as standalone functions with mangled names
         for method in &monomorphized_struct.methods {
-            let mangled_name = format!(
-                "{}#{}",
-                target.instantiated_name(),
-                method.value.name
-            );
+            let mangled_name = format!("{}#{}", target.instantiated_name(), method.value.name);
             let mangled_function = Function {
                 name: mangled_name.clone(),
                 type_params: method.value.type_params.clone(),
@@ -865,7 +858,7 @@ impl Monomorphizer {
             },
             Expr::MethodCall {
                 object,
-                type_name,
+                object_type,
                 method,
                 args,
             } => Expr::MethodCall {
@@ -874,7 +867,9 @@ impl Monomorphizer {
                 } else {
                     None
                 },
-                type_name: type_name.clone(),
+                object_type: object_type
+                    .as_ref()
+                    .map(|t| substitute_type(t, substitutions)),
                 method: method.clone(),
                 args: args
                     .iter()
@@ -1138,7 +1133,7 @@ impl Monomorphizer {
             },
             Expr::MethodCall {
                 object,
-                type_name,
+                object_type,
                 method,
                 args,
             } => Expr::MethodCall {
@@ -1147,7 +1142,7 @@ impl Monomorphizer {
                 } else {
                     None
                 },
-                type_name: type_name.clone(),
+                object_type: object_type.clone(),
                 method: method.clone(),
                 args: args
                     .iter()

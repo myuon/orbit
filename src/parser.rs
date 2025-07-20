@@ -907,7 +907,7 @@ impl Parser {
                                 Positioned::new(expr, Span::new(start_pos, start_pos));
                             expr = Expr::MethodCall {
                                 object: Some(Box::new(positioned_expr)),
-                                type_name: None, // Will be filled by type checker
+                                object_type: None, // Will be filled by type checker
                                 method: field_name,
                                 args,
                             };
@@ -1092,7 +1092,7 @@ impl Parser {
                         Ok(Positioned::new(
                             Expr::MethodCall {
                                 object: None, // No object for associated method calls
-                                type_name: Some(type_name.to_string()),
+                                object_type: Some(type_name),
                                 method,
                                 args,
                             },
@@ -1351,7 +1351,7 @@ mod tests {
                 validate: |expr| {
                     if let Expr::MethodCall {
                         object,
-                        type_name,
+                        object_type,
                         method,
                         args,
                     } = &expr.value
@@ -1367,7 +1367,7 @@ mod tests {
                         }
                         assert_eq!(method, "sum");
                         assert_eq!(args.len(), 0);
-                        assert_eq!(*type_name, None);
+                        assert_eq!(*object_type, None);
                     } else {
                         panic!("Expected method call, got: {:?}", expr);
                     }

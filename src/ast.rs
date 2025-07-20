@@ -132,7 +132,7 @@ pub enum Expr {
     },
     MethodCall {
         object: Option<Box<PositionedExpr>>, // None for associated calls (Type::method), Some for instance calls (obj.method)
-        type_name: Option<String>, // Type name for associated calls, filled by type checker for instance calls
+        object_type: Option<Type>, // Type for associated calls, filled by type checker for instance calls
         method: String,
         args: Vec<PositionedExpr>,
     },

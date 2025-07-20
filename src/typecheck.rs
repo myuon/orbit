@@ -1,11 +1,10 @@
 use crate::ast::{
-    BinaryOp, Decl, Expr, Function, IndexContainerType, PositionedDecl,
-    PositionedExpr, PositionedStmt, PositionedStructDecl, Program, Span, Stmt, StructNewKind, Type,
+    BinaryOp, Decl, Expr, Function, IndexContainerType, PositionedDecl, PositionedExpr,
+    PositionedStmt, PositionedStructDecl, Program, Span, Stmt, StructNewKind, Type,
 };
 use crate::bail_with_position;
 use anyhow::Result;
 use std::collections::HashMap;
-
 
 impl Type {
     /// Check if this type is numeric (int or byte)
@@ -548,7 +547,7 @@ impl TypeChecker {
             Expr::MethodCall {
                 object,
                 args,
-                type_name,
+                object_type,
                 ..
             } => {
                 if let Some(obj) = object {
@@ -557,21 +556,9 @@ impl TypeChecker {
 
                     // Set object type information based on object expression type
                     let obj_type = self.check_expression(obj)?;
-                    if let Type::Struct { name, args } = obj_type {
-                        // For generic types, include type arguments in the type name
-                        if args.is_empty() {
-                            *type_name = Some(name);
-                        } else {
-                            let type_args_str = args
-                                .iter()
-                                .map(|t| t.to_string())
-                                .collect::<Vec<_>>()
-                                .join(", ");
-                            *type_name = Some(format!("{}({})", name, type_args_str));
-                        }
-                    }
+                    *object_type = Some(obj_type.clone());
                 }
-                // For associated method calls, type_name should already be set
+                // For associated method calls, object_type should already be set
 
                 for arg in args {
                     self.infer_expression_types(arg)?;
@@ -633,7 +620,11 @@ impl TypeChecker {
 
         // Check for duplicate struct definition
         if self.structs.contains_key(&struct_decl.value.name) {
-            bail_with_position!(struct_decl.span.clone(), "Struct '{}' is already defined", struct_decl.value.name);
+            bail_with_position!(
+                struct_decl.span.clone(),
+                "Struct '{}' is already defined",
+                struct_decl.value.name
+            );
         }
         // For generic structs, we register the generic template
         // The actual instantiation will happen during monomorphization
@@ -643,7 +634,8 @@ impl TypeChecker {
                 name: struct_decl.value.name.clone(),
                 args: struct_decl.value.type_params.clone(),
             };
-            self.structs.insert(struct_decl.value.name.clone(), struct_type);
+            self.structs
+                .insert(struct_decl.value.name.clone(), struct_type);
 
             // For generic structs, we need to enter generic scope to properly resolve field types
             self.enter_generic_scope(&struct_decl.value.type_params);
@@ -653,7 +645,8 @@ impl TypeChecker {
                 name: struct_decl.value.name.clone(),
                 args: vec![],
             };
-            self.structs.insert(struct_decl.value.name.clone(), struct_type);
+            self.structs
+                .insert(struct_decl.value.name.clone(), struct_type);
         }
 
         // Store struct field information
@@ -662,7 +655,8 @@ impl TypeChecker {
             let field_type = self.resolve_type_recursive(&field.field_type);
             fields.insert(field.name.clone(), field_type);
         }
-        self.struct_fields.insert(struct_decl.value.name.clone(), fields);
+        self.struct_fields
+            .insert(struct_decl.value.name.clone(), fields);
 
         // Exit generic scope if we entered it
         if !struct_decl.value.type_params.is_empty() {
@@ -779,7 +773,11 @@ impl TypeChecker {
             } => {
                 let condition_type = self.check_expression(condition)?;
                 if !condition_type.is_compatible_with(&Type::Boolean) {
-                    bail_with_position!(condition.span.clone(), "If condition must be boolean, got {}", condition_type);
+                    bail_with_position!(
+                        condition.span.clone(),
+                        "If condition must be boolean, got {}",
+                        condition_type
+                    );
                 }
 
                 for stmt in then_branch {
@@ -797,7 +795,11 @@ impl TypeChecker {
             Stmt::While { condition, body } => {
                 let condition_type = self.check_expression(condition)?;
                 if !condition_type.is_compatible_with(&Type::Boolean) {
-                    bail_with_position!(condition.span.clone(), "While condition must be boolean, got {}", condition_type);
+                    bail_with_position!(
+                        condition.span.clone(),
+                        "While condition must be boolean, got {}",
+                        condition_type
+                    );
                 }
 
                 for stmt in body {
@@ -811,7 +813,10 @@ impl TypeChecker {
                 if let Expr::Index { container, .. } = &mut lvalue.value {
                     let container_type = self.check_expression(container)?;
                     if container_type == Type::String {
-                        bail_with_position!(lvalue.span.clone(), "Cannot assign to string index - strings are immutable");
+                        bail_with_position!(
+                            lvalue.span.clone(),
+                            "Cannot assign to string index - strings are immutable"
+                        );
                     }
                 }
 
@@ -892,16 +897,32 @@ impl TypeChecker {
                                         );
                                     }
                                 } else {
-                                    bail_with_position!(value.span.clone(), "Cannot determine element type for vec: {}", struct_name);
+                                    bail_with_position!(
+                                        value.span.clone(),
+                                        "Cannot determine element type for vec: {}",
+                                        struct_name
+                                    );
                                 }
                             } else {
-                                bail_with_position!(value.span.clone(), "vec type {} does not have a _push method", struct_name);
+                                bail_with_position!(
+                                    value.span.clone(),
+                                    "vec type {} does not have a _push method",
+                                    struct_name
+                                );
                             }
                         } else {
-                            bail_with_position!(value.span.clone(), "Cannot push to non-vector type: {}", vector_type);
+                            bail_with_position!(
+                                value.span.clone(),
+                                "Cannot push to non-vector type: {}",
+                                vector_type
+                            );
                         }
                     }
-                    _ => bail_with_position!(value.span.clone(), "Cannot push to non-vector type: {}", vector_type),
+                    _ => bail_with_position!(
+                        value.span.clone(),
+                        "Cannot push to non-vector type: {}",
+                        vector_type
+                    ),
                 }
                 Ok(())
             }
@@ -946,7 +967,11 @@ impl TypeChecker {
             Expr::Identifier(name) => {
                 let name_clone = name.clone();
                 self.lookup_variable(name).map_err(|_| {
-                    crate::anyhow_with_position!(expr.span.clone(), "Undefined variable: {}", name_clone)
+                    crate::anyhow_with_position!(
+                        expr.span.clone(),
+                        "Undefined variable: {}",
+                        name_clone
+                    )
                 })
             }
 
@@ -1030,7 +1055,10 @@ impl TypeChecker {
                     if func_name == "syscall" {
                         // syscall has variable arguments, just check that we have at least one argument
                         if args.is_empty() {
-                            bail_with_position!(callee.span.clone(), "syscall requires at least one argument (syscall number)");
+                            bail_with_position!(
+                                callee.span.clone(),
+                                "syscall requires at least one argument (syscall number)"
+                            );
                         }
                         // Check argument types
                         for arg in args {
@@ -1111,10 +1139,18 @@ impl TypeChecker {
 
                             Ok(*return_type)
                         } else {
-                            bail_with_position!(callee.span.clone(), "'{}' is not a function", func_name);
+                            bail_with_position!(
+                                callee.span.clone(),
+                                "'{}' is not a function",
+                                func_name
+                            );
                         }
                     } else {
-                        bail_with_position!(callee.span.clone(), "Undefined function: {}", func_name);
+                        bail_with_position!(
+                            callee.span.clone(),
+                            "Undefined function: {}",
+                            func_name
+                        );
                     }
                 } else {
                     // Handle complex function expressions (function pointers, etc.)
@@ -1164,34 +1200,56 @@ impl TypeChecker {
                 match &container_value_type {
                     Type::Struct { name, args } if name == "vec" => {
                         if !index_type.is_compatible_with(&Type::Int) {
-                            bail_with_position!(index.span.clone(), "vec index must be number, got {}", index_type);
+                            bail_with_position!(
+                                index.span.clone(),
+                                "vec index must be number, got {}",
+                                index_type
+                            );
                         }
                         if let Some(element_type) = args.first() {
                             Ok(element_type.clone())
                         } else {
-                            bail_with_position!(container.span.clone(), "vec type missing element type")
+                            bail_with_position!(
+                                container.span.clone(),
+                                "vec type missing element type"
+                            )
                         }
                     }
                     Type::Struct { name, args } if name == "array" => {
                         if !index_type.is_compatible_with(&Type::Int) {
-                            bail_with_position!(index.span.clone(), "array index must be number, got {}", index_type);
+                            bail_with_position!(
+                                index.span.clone(),
+                                "array index must be number, got {}",
+                                index_type
+                            );
                         }
                         if let Some(element_type) = args.first() {
                             Ok(element_type.clone())
                         } else {
-                            bail_with_position!(container.span.clone(), "array type missing element type")
+                            bail_with_position!(
+                                container.span.clone(),
+                                "array type missing element type"
+                            )
                         }
                     }
                     Type::Pointer(element_type) => {
                         if !index_type.is_compatible_with(&Type::Int) {
-                            bail_with_position!(index.span.clone(), "Pointer index must be number, got {}", index_type);
+                            bail_with_position!(
+                                index.span.clone(),
+                                "Pointer index must be number, got {}",
+                                index_type
+                            );
                         }
                         Ok(*element_type.clone())
                     }
                     Type::String => {
                         // String is [*]byte, so indexing returns a byte
                         if !index_type.is_compatible_with(&Type::Int) {
-                            bail_with_position!(index.span.clone(), "String index must be number, got {}", index_type);
+                            bail_with_position!(
+                                index.span.clone(),
+                                "String index must be number, got {}",
+                                index_type
+                            );
                         }
                         Ok(Type::Byte) // string indexing returns byte
                     }
@@ -1219,7 +1277,11 @@ impl TypeChecker {
                             };
                             if self.functions.contains_key(&get_method_name) {
                                 if !index_type.is_compatible_with(&Type::Int) {
-                                    bail_with_position!(index.span.clone(), "vec index must be number, got {}", index_type);
+                                    bail_with_position!(
+                                        index.span.clone(),
+                                        "vec index must be number, got {}",
+                                        index_type
+                                    );
                                 }
                                 // For vec(T), get the element type
                                 if let Some(element_type) = args.get(0) {
@@ -1248,10 +1310,18 @@ impl TypeChecker {
                                         Ok(element_type)
                                     }
                                 } else {
-                                    bail_with_position!(container.span.clone(), "Cannot determine element type for vec: {}", name);
+                                    bail_with_position!(
+                                        container.span.clone(),
+                                        "Cannot determine element type for vec: {}",
+                                        name
+                                    );
                                 }
                             } else {
-                                bail_with_position!(container.span.clone(), "vec type {} does not have a _get method", name);
+                                bail_with_position!(
+                                    container.span.clone(),
+                                    "vec type {} does not have a _get method",
+                                    name
+                                );
                             }
                         } else {
                             bail_with_position!(
@@ -1312,14 +1382,19 @@ impl TypeChecker {
                             {
                                 return Ok(generic_type);
                             } else {
-                                bail_with_position!(expr.span.clone(), "Unknown struct type: {}", type_name)
+                                bail_with_position!(
+                                    expr.span.clone(),
+                                    "Unknown struct type: {}",
+                                    type_name
+                                )
                             }
                         }
                     }
                 }
 
                 // Look up the struct field information, handling both generic and non-generic types
-                let struct_fields = self.resolve_struct_fields_from_type_with_span(type_name, &expr.span)?;
+                let struct_fields =
+                    self.resolve_struct_fields_from_type_with_span(type_name, &expr.span)?;
 
                 // Check that all required fields are provided
                 for (field_name, _field_type) in &struct_fields {
@@ -1336,7 +1411,12 @@ impl TypeChecker {
                 // Check that all provided fields are valid and have correct types
                 for (field_name, field_value) in fields {
                     let field_type = struct_fields.get(field_name).ok_or_else(|| {
-                        crate::anyhow_with_position!(field_value.span.clone(), "Unknown field '{}' in struct '{}'", field_name, type_name)
+                        crate::anyhow_with_position!(
+                            field_value.span.clone(),
+                            "Unknown field '{}' in struct '{}'",
+                            field_name,
+                            type_name
+                        )
                     })?;
 
                     let actual_type = self.check_expression(field_value)?;
@@ -1379,7 +1459,11 @@ impl TypeChecker {
                         {
                             Ok(generic_type)
                         } else {
-                            bail_with_position!(expr.span.clone(), "Unknown struct type: {}", type_name)
+                            bail_with_position!(
+                                expr.span.clone(),
+                                "Unknown struct type: {}",
+                                type_name
+                            )
                         }
                     }
                 }
@@ -1393,7 +1477,11 @@ impl TypeChecker {
                         if field == "length" {
                             Ok(Type::Int)
                         } else {
-                            bail_with_position!(object.span.clone(), "Field '{}' not found in string type", field)
+                            bail_with_position!(
+                                object.span.clone(),
+                                "Field '{}' not found in string type",
+                                field
+                            )
                         }
                     }
                     Type::Struct {
@@ -1407,7 +1495,11 @@ impl TypeChecker {
                             } else if field == "data" {
                                 return Ok(Type::Pointer(Box::new(Type::Byte)));
                             } else {
-                                bail_with_position!(object.span.clone(), "Field '{}' not found in array(byte) type", field);
+                                bail_with_position!(
+                                    object.span.clone(),
+                                    "Field '{}' not found in array(byte) type",
+                                    field
+                                );
                             }
                         }
                         // Handle both generic and non-generic struct types
@@ -1438,7 +1530,11 @@ impl TypeChecker {
                                     )
                                 })
                             } else {
-                                bail_with_position!(object.span.clone(), "Unknown struct type: {}", struct_name)
+                                bail_with_position!(
+                                    object.span.clone(),
+                                    "Unknown struct type: {}",
+                                    struct_name
+                                )
                             }
                         } else {
                             // Generic struct - resolve the field type using the concrete type arguments
@@ -1463,7 +1559,11 @@ impl TypeChecker {
                                     )
                                 })
                             } else {
-                                bail_with_position!(object.span.clone(), "Cannot resolve fields for generic type: {}", type_name)
+                                bail_with_position!(
+                                    object.span.clone(),
+                                    "Cannot resolve fields for generic type: {}",
+                                    type_name
+                                )
                             }
                         }
                     }
@@ -1482,7 +1582,11 @@ impl TypeChecker {
                 // Size-based allocation
                 let size_type = self.check_expression(size)?;
                 if !size_type.is_compatible_with(&Type::Int) {
-                    bail_with_position!(size.span.clone(), "Allocation size must be a number, got {}", size_type);
+                    bail_with_position!(
+                        size.span.clone(),
+                        "Allocation size must be a number, got {}",
+                        size_type
+                    );
                 }
 
                 Ok(Type::Pointer(Box::new(element_type)))
@@ -1501,7 +1605,7 @@ impl TypeChecker {
 
             Expr::MethodCall {
                 object,
-                type_name,
+                object_type,
                 method,
                 args: _,
             } => {
@@ -1514,7 +1618,11 @@ impl TypeChecker {
                             if method == "length" {
                                 return Ok(Type::Int);
                             } else {
-                                bail_with_position!(obj.span.clone(), "Method '{}' not found in string type", method);
+                                bail_with_position!(
+                                    obj.span.clone(),
+                                    "Method '{}' not found in string type",
+                                    method
+                                );
                             }
                         }
                         Type::Struct {
@@ -1525,7 +1633,11 @@ impl TypeChecker {
                             if method == "length" {
                                 return Ok(Type::Int);
                             } else {
-                                bail_with_position!(obj.span.clone(), "Method '{}' not found in array(byte) type", method);
+                                bail_with_position!(
+                                    obj.span.clone(),
+                                    "Method '{}' not found in array(byte) type",
+                                    method
+                                );
                             }
                         }
                         Type::Struct { name, args: _ } => {
@@ -1550,7 +1662,12 @@ impl TypeChecker {
                             if let Some(_) = self.functions.get(&method_name) {
                                 Ok(Type::Unknown) // Return type will be determined by function signature
                             } else {
-                                bail_with_position!(obj.span.clone(), "Method '{}' not found for struct type '{}'", method, name)
+                                bail_with_position!(
+                                    obj.span.clone(),
+                                    "Method '{}' not found for struct type '{}'",
+                                    method,
+                                    name
+                                )
                             }
                         }
                         _ => bail_with_position!(
@@ -1560,10 +1677,9 @@ impl TypeChecker {
                             object_type
                         ),
                     }
-                } else if let Some(type_name_str) = type_name {
+                } else if let Some(obj_type) = object_type {
                     // Associated method call (Type::method())
-                    let resolved_type = self.resolve_type(type_name_str);
-                    match resolved_type {
+                    match obj_type {
                         Type::Struct { name, args: _ } => {
                             // Check for method on the struct type
                             let method_name = format!("{}#{}", name, method);
@@ -1571,7 +1687,11 @@ impl TypeChecker {
                                 if let Type::Function { return_type, .. } = func_type {
                                     Ok(*return_type)
                                 } else {
-                                    bail_with_position!(expr.span.clone(), "'{}' is not a function", method_name);
+                                    bail_with_position!(
+                                        expr.span.clone(),
+                                        "'{}' is not a function",
+                                        method_name
+                                    );
                                 }
                             } else {
                                 // Try as generic type if direct method not found
@@ -1593,11 +1713,14 @@ impl TypeChecker {
                             expr.span.clone(),
                             "Cannot call associated method '{}' on non-struct type: {}",
                             method,
-                            resolved_type
+                            obj_type
                         ),
                     }
                 } else {
-                    bail_with_position!(expr.span.clone(), "MethodCall must have either object or type_name specified")
+                    bail_with_position!(
+                        expr.span.clone(),
+                        "MethodCall must have either object or object_type specified"
+                    )
                 }
             }
         }
@@ -1692,7 +1815,6 @@ impl TypeChecker {
 
         anyhow::bail!("Undefined variable: {}", name)
     }
-
 
     /// Resolve field information for a generic struct instantiation like "Container(int)"
     fn resolve_generic_struct_fields(&self, type_info: &Type) -> Option<HashMap<String, Type>> {
@@ -1839,9 +1961,12 @@ impl TypeChecker {
         None
     }
 
-
     /// Resolve struct fields from a Type with span information
-    fn resolve_struct_fields_from_type_with_span(&self, type_info: &Type, span: &Span) -> Result<HashMap<String, Type>> {
+    fn resolve_struct_fields_from_type_with_span(
+        &self,
+        type_info: &Type,
+        span: &Span,
+    ) -> Result<HashMap<String, Type>> {
         match type_info {
             Type::Struct { .. } => {
                 // Handle generic struct instantiation

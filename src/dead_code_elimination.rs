@@ -295,7 +295,7 @@ impl DeadCodeEliminator {
             }
             Expr::MethodCall {
                 object,
-                type_name,
+                object_type,
                 method,
                 args,
             } => {
@@ -307,10 +307,22 @@ impl DeadCodeEliminator {
                 }
 
                 // For method calls, try to determine the mangled function name
-                if let Some(type_name_str) = type_name {
-                    let mangled_name = format!("{}_{}", type_name_str, method);
-                    if self.functions.contains_key(&mangled_name) {
-                        self.mark_function_reachable(&mangled_name)?;
+                if let Some(obj_type) = object_type {
+                    if let Type::Struct { name, args } = obj_type {
+                        let type_name_str = if args.is_empty() {
+                            name.clone()
+                        } else {
+                            let args_str = args
+                                .iter()
+                                .map(|t| t.to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            format!("{}({})", name, args_str)
+                        };
+                        let mangled_name = format!("{}_{}", type_name_str, method);
+                        if self.functions.contains_key(&mangled_name) {
+                            self.mark_function_reachable(&mangled_name)?;
+                        }
                     }
                 }
             }
