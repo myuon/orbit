@@ -5,6 +5,10 @@ type array(T: type) = struct {
   fun _new(length: int): array(T) do
     return new(struct) array(T) { .data = alloc(T, length), .length = length };
   end
+
+  fun _get(self: array(T), index: int): T do
+    return self.data[index];
+  end
 };
 
 type vec(T: type) = struct {
@@ -46,3 +50,4 @@ type vec(T: type) = struct {
     return 0;
   end
 };
+

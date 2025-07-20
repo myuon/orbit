@@ -420,10 +420,41 @@ impl Desugarer {
                 let desugared_container = self.desugar_expression(container)?;
                 let desugared_index = self.desugar_expression(index)?;
 
-                // Check if this is a vec type that should be desugared to _get method call
+
+                // Check if this is a string type that should be converted to array(byte) indexing
                 if let Some(ref container_type) = container_value_type {
                     match container_type {
+                        Type::String => {
+                            // Convert string[index] to generic array function call: array(T)____get(container, index)
+                            let function_call = Expr::Call {
+                                callee: Box::new(Positioned::with_unknown_span(Expr::Identifier(
+                                    "array(T)____get".to_string(),
+                                ))),
+                                args: vec![desugared_container, desugared_index],
+                            };
+                            return Ok(Positioned::with_unknown_span(function_call));
+                        }
                         Type::Struct { name, args } if name == "vec" => {
+                            // Convert to method call: container._get(index)
+                            let type_params = if args.is_empty() {
+                                "T".to_string()
+                            } else {
+                                args.iter()
+                                    .map(|t| t.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            };
+                            let method_call = Expr::MethodCall {
+                                object: Some(Box::new(desugared_container)),
+                                type_name: Some(format!("{}({})", name, type_params)),
+                                method: "_get".to_string(),
+                                args: vec![desugared_index],
+                            };
+                            return Ok(self.desugar_expression(&Positioned::with_unknown_span(
+                                method_call,
+                            ))?);
+                        }
+                        Type::Struct { name, args } if name == "array" => {
                             // Convert to method call: container._get(index)
                             let type_params = if args.is_empty() {
                                 "T".to_string()
@@ -561,13 +592,29 @@ impl Desugarer {
                 }
             }
 
+            // String literals need to be converted to array(byte) structures
+            Expr::String(s) => {
+                // Convert "hello" to new(struct) array(byte) { .data = pushString("hello"), .length = 5 }
+                let string_length = s.len() as i64;
+                Expr::StructNew {
+                    type_name: Type::Struct {
+                        name: "array".to_string(),
+                        args: vec![Type::Byte],
+                    },
+                    fields: vec![
+                        ("data".to_string(), Positioned::with_unknown_span(Expr::PushString(s.clone()))),
+                        ("length".to_string(), Positioned::with_unknown_span(Expr::Int(string_length))),
+                    ],
+                    kind: StructNewKind::Regular,
+                }
+            }
             // Leaf expressions that don't need desugaring
             Expr::Int(_)
             | Expr::Boolean(_)
-            | Expr::String(_)
             | Expr::Byte(_)
             | Expr::Identifier(_)
-            | Expr::TypeExpr { .. } => expression.value.clone(),
+            | Expr::TypeExpr { .. }
+            | Expr::PushString(_) => expression.value.clone(),
         };
         Ok(Positioned::with_unknown_span(desugared_expr))
     }

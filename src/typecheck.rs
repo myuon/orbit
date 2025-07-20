@@ -105,6 +105,11 @@ impl Type {
             (Type::Boolean, Type::Boolean) => true,
             (Type::Int, Type::Int) => true,
             (Type::String, Type::String) => true,
+            // String and array(byte) are compatible
+            (Type::String, Type::Struct { name, args }) 
+                if name == "array" && args.len() == 1 && args[0] == Type::Byte => true,
+            (Type::Struct { name, args }, Type::String) 
+                if name == "array" && args.len() == 1 && args[0] == Type::Byte => true,
             (Type::Byte, Type::Byte) => true,
             (Type::Pointer(e1), Type::Pointer(e2)) => e1.is_compatible_with(e2),
             (Type::Map(k1, v1), Type::Map(k2, v2)) => {
@@ -438,6 +443,7 @@ impl TypeChecker {
             Expr::Int(_)
             | Expr::Boolean(_)
             | Expr::String(_)
+            | Expr::PushString(_)
             | Expr::Byte(_)
             | Expr::Identifier(_)
             | Expr::TypeExpr { .. } => {
@@ -490,11 +496,26 @@ impl TypeChecker {
                     Type::Struct { name, .. } if name == "vec" => {
                         *container_type = Some(IndexContainerType::Vector);
                     }
+                    Type::Struct { name, .. } if name == "array" => {
+                        *container_type = Some(IndexContainerType::Vector); // array behaves like vector for indexing
+                    }
                     Type::Map(_, _) => {
                         *container_type = Some(IndexContainerType::Map);
                     }
-                    Type::Pointer(_) => {
-                        *container_type = Some(IndexContainerType::Pointer);
+                    Type::Pointer(element_type) => {
+                        // Use StringIndex for [*]byte pointers and generic [*]T, PointerIndex for others
+                        match element_type.as_ref() {
+                            Type::Byte => {
+                                *container_type = Some(IndexContainerType::String);
+                            }
+                            Type::Struct { name, .. } if name == "T" => {
+                                // Generic T could be byte, so use StringIndex for safety
+                                *container_type = Some(IndexContainerType::String);
+                            }
+                            _ => {
+                                *container_type = Some(IndexContainerType::Pointer);
+                            }
+                        }
                     }
                     Type::String => {
                         *container_type = Some(IndexContainerType::String);
@@ -937,6 +958,7 @@ impl TypeChecker {
             Expr::Boolean(_) => Ok(Type::Boolean),
             Expr::String(_) => Ok(Type::String),
             Expr::Byte(_) => Ok(Type::Byte),
+            Expr::PushString(_) => Ok(Type::Pointer(Box::new(Type::Byte))),
 
             Expr::Identifier(name) => {
                 let name_clone = name.clone();
@@ -1160,6 +1182,16 @@ impl TypeChecker {
                             Ok(element_type.clone())
                         } else {
                             bail!("vec type missing element type")
+                        }
+                    }
+                    Type::Struct { name, args } if name == "array" => {
+                        if !index_type.is_compatible_with(&Type::Int) {
+                            bail!("array index must be number, got {}", index_type);
+                        }
+                        if let Some(element_type) = args.first() {
+                            Ok(element_type.clone())
+                        } else {
+                            bail!("array type missing element type")
                         }
                     }
                     Type::Map(key_type, value_type) => {
@@ -1407,10 +1439,28 @@ impl TypeChecker {
             Expr::FieldAccess { object, field } => {
                 let object_type = self.check_expression(object)?;
                 match object_type {
+                    Type::String => {
+                        // String type (which becomes array(byte) after desugaring) supports length field
+                        if field == "length" {
+                            Ok(Type::Int)
+                        } else {
+                            bail!("Field '{}' not found in string type", field)
+                        }
+                    }
                     Type::Struct {
                         name: struct_name,
                         args,
                     } => {
+                        // Special handling for array(byte) which represents strings
+                        if struct_name == "array" && args.len() == 1 && args[0] == Type::Byte {
+                            if field == "length" {
+                                return Ok(Type::Int);
+                            } else if field == "data" {
+                                return Ok(Type::Pointer(Box::new(Type::Byte)));
+                            } else {
+                                bail!("Field '{}' not found in array(byte) type", field);
+                            }
+                        }
                         // Handle both generic and non-generic struct types
                         if args.is_empty() {
                             // Non-generic struct - try to find the struct fields directly
@@ -1495,6 +1545,22 @@ impl TypeChecker {
                     // Instance method call (obj.method())
                     let object_type = self.check_expression(obj)?;
                     match object_type {
+                        Type::String => {
+                            // String type supports length method (as a field access)
+                            if method == "length" {
+                                return Ok(Type::Int);
+                            } else {
+                                bail!("Method '{}' not found in string type", method);
+                            }
+                        }
+                        Type::Struct { name: ref struct_name, ref args } if struct_name == "array" && args.len() == 1 && args[0] == Type::Byte => {
+                            // array(byte) supports length and data methods
+                            if method == "length" {
+                                return Ok(Type::Int);
+                            } else {
+                                bail!("Method '{}' not found in array(byte) type", method);
+                            }
+                        }
                         Type::Struct { name, args: _ } => {
                             // Handle both generic and non-generic struct types
                             if name.contains('(') && name.ends_with(')') {

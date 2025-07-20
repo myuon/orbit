@@ -144,6 +144,9 @@ impl CodeGenerator {
             Expr::String(s) => {
                 self.get_or_create_string_constant(s);
             }
+            Expr::PushString(_) => {
+                // PushString doesn't need string constants, it creates strings at runtime
+            }
             Expr::Binary { left, right, .. } => {
                 self.collect_string_constants_from_expr(left);
                 self.collect_string_constants_from_expr(right);
@@ -575,6 +578,11 @@ impl CodeGenerator {
                     .push(Instruction::PushAddress(string_addr));
             }
 
+            Expr::PushString(value) => {
+                self.instructions
+                    .push(Instruction::PushString(value.clone()));
+            }
+
             Expr::Byte(value) => {
                 self.instructions.push(Instruction::Push(*value as i64));
             }
@@ -731,9 +739,9 @@ impl CodeGenerator {
                 fields,
                 kind: _,
             } => {
-                // Verify struct exists
+                // Verify struct exists (special handling for built-in types)
                 let type_name_str = type_name.to_string();
-                if !self.structs.contains_key(&type_name_str) {
+                if !self.structs.contains_key(&type_name_str) && !type_name_str.starts_with("array(") {
                     panic!("Unknown struct type: {}", type_name);
                 }
 
@@ -824,6 +832,10 @@ fn compile_expr_recursive(expr: &PositionedExpr, instructions: &mut Vec<Instruct
         }
 
         Expr::String(value) => {
+            instructions.push(Instruction::PushString(value.clone()));
+        }
+
+        Expr::PushString(value) => {
             instructions.push(Instruction::PushString(value.clone()));
         }
 

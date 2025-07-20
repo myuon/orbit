@@ -667,6 +667,7 @@ impl Compiler {
         match expr {
             crate::ast::Expr::Int(n) => n.to_string(),
             crate::ast::Expr::String(s) => format!("\"{}\"", s),
+            crate::ast::Expr::PushString(s) => format!("pushString(\"{}\")", s),
             crate::ast::Expr::Boolean(b) => b.to_string(),
             crate::ast::Expr::Byte(b) => b.to_string(),
             crate::ast::Expr::Identifier(name) => name.clone(),

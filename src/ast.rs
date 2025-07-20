@@ -191,6 +191,7 @@ pub enum Expr {
         element_type: String,
         size: Box<PositionedExpr>,
     },
+    PushString(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
