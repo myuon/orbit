@@ -824,72 +824,66 @@ impl CodeGenerator {
                 fields,
                 kind: _,
             } => {
-                // Verify struct exists (special handling for built-in types and generic instantiations)
+                // Unified struct handling: Use HeapAlloc + low-level memory operations for all structs
                 let type_name_str = type_name.to_string();
-                let is_builtin_or_generic = type_name_str.starts_with("array(")
-                    || type_name_str.starts_with("vec(")
-                    || type_name_str.contains('('); // Any type with parentheses is likely a generic instantiation
 
-                if !self.structs.contains_key(&type_name_str) && !is_builtin_or_generic {
-                    panic!("Unknown struct type: {}", type_name);
+                if !self.structs.contains_key(&type_name_str) {
+                    // Fallback for generic types that weren't properly monomorphized
+                    // This is a temporary workaround until monomorphization is fully implemented
+                    if type_name_str.contains('(') && type_name_str.contains(')') {
+                        // Use legacy StructNew for unresolved generic types
+                        for (field_name, field_value) in fields {
+                            self.instructions
+                                .push(Instruction::PushString(field_name.clone()));
+                            self.compile_expression(field_value);
+                        }
+                        self.instructions
+                            .push(Instruction::Push(fields.len() as i64));
+                        self.instructions.push(Instruction::StructNew);
+                        return;
+                    } else {
+                        panic!("Unknown struct type: {}", type_name);
+                    }
                 }
 
-                if is_builtin_or_generic {
-                    // OLD IMPLEMENTATION: For built-in/generic types, use legacy StructNew
-                    // This ensures compatibility with existing vector and generic types
+                // 1. Allocate heap memory for the struct
+                self.instructions
+                    .push(Instruction::Push(fields.len() as i64));
+                self.instructions.push(Instruction::HeapAlloc);
+                // Stack: [struct_ptr]
 
-                    // Push field values and names onto stack
-                    for (field_name, field_value) in fields {
-                        self.instructions
-                            .push(Instruction::PushString(field_name.clone()));
-                        self.compile_expression(field_value);
-                    }
-                    // Push field count
+                // 2. Store struct_ptr in a local variable for repeated access
+                let temp_local = self.local_offset;
+                self.local_offset += 1;
+                self.instructions.push(Instruction::SetLocal(temp_local));
+                // Stack: []
+
+                // 3. Initialize each field using HeapSetOffset (low-level memory operations)
+                for (field_name, field_value) in fields {
+                    // Get field offset from struct definition
+                    let field_offset = self
+                        .get_field_offset(&type_name_str, field_name)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Unknown field '{}' in struct '{}'",
+                                field_name, type_name_str
+                            )
+                        });
+
+                    // Stack preparation: [value] [offset] [heap_ref] for HeapSetOffset
+                    self.compile_expression(field_value); // Stack: [field_value]
                     self.instructions
-                        .push(Instruction::Push(fields.len() as i64));
-                    self.instructions.push(Instruction::StructNew);
-                } else {
-                    // NEW IMPLEMENTATION: Use HeapAlloc + low-level memory operations for user-defined structs
-
-                    // 1. Allocate heap memory for the struct
-                    self.instructions
-                        .push(Instruction::Push(fields.len() as i64));
-                    self.instructions.push(Instruction::HeapAlloc);
-                    // Stack: [struct_ptr]
-
-                    // 2. Store struct_ptr in a local variable for repeated access
-                    let temp_local = self.local_offset;
-                    self.local_offset += 1;
-                    self.instructions.push(Instruction::SetLocal(temp_local));
-                    // Stack: []
-
-                    // 3. Initialize each field using HeapSetOffset (low-level memory operations)
-                    for (field_name, field_value) in fields {
-                        // Get field offset from struct definition
-                        let field_offset = self
-                            .get_field_offset(&type_name_str, field_name)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "Unknown field '{}' in struct '{}'",
-                                    field_name, type_name_str
-                                )
-                            });
-
-                        // Stack preparation: [value] [offset] [heap_ref] for HeapSetOffset
-                        self.compile_expression(field_value); // Stack: [field_value]
-                        self.instructions
-                            .push(Instruction::Push(field_offset as i64)); // Stack: [field_value, offset]
-                        self.instructions.push(Instruction::GetLocal(temp_local)); // Stack: [field_value, offset, struct_ptr]
-                        self.instructions.push(Instruction::HeapSetOffset); // Stack: []
-                    }
-
-                    // 4. Push struct_ptr back onto stack as result
-                    self.instructions.push(Instruction::GetLocal(temp_local));
-                    // Stack: [struct_ptr]
-
-                    // Clean up temporary local
-                    self.local_offset -= 1;
+                        .push(Instruction::Push(field_offset as i64)); // Stack: [field_value, offset]
+                    self.instructions.push(Instruction::GetLocal(temp_local)); // Stack: [field_value, offset, struct_ptr]
+                    self.instructions.push(Instruction::HeapSetOffset); // Stack: []
                 }
+
+                // 4. Push struct_ptr back onto stack as result
+                self.instructions.push(Instruction::GetLocal(temp_local));
+                // Stack: [struct_ptr]
+
+                // Clean up temporary local
+                self.local_offset -= 1;
             }
 
             Expr::FieldAccess {
