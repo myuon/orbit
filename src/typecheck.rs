@@ -469,12 +469,6 @@ impl TypeChecker {
                 let container_value_type_result = self.check_expression(container)?;
                 *container_value_type = Some(container_value_type_result.clone());
                 match &container_value_type_result {
-                    Type::Struct { name, .. } if name == "vec" => {
-                        *container_type = Some(IndexContainerType::Vector);
-                    }
-                    Type::Struct { name, .. } if name == "array" => {
-                        *container_type = Some(IndexContainerType::Vector); // array behaves like vector for indexing
-                    }
                     Type::Pointer(element_type) => {
                         // Use StringIndex for [*]byte pointers and generic [*]T, PointerIndex for others
                         match element_type.as_ref() {
@@ -492,21 +486,6 @@ impl TypeChecker {
                     }
                     Type::String => {
                         *container_type = Some(IndexContainerType::String);
-                    }
-                    Type::Struct {
-                        name: struct_name,
-                        args: _,
-                    } => {
-                        // Check if this is a vec type that supports indexing
-                        let base_name = if struct_name.contains('(') {
-                            struct_name.split('(').next().unwrap()
-                        } else {
-                            struct_name
-                        };
-
-                        if base_name == "vec" {
-                            *container_type = Some(IndexContainerType::Vector);
-                        }
                     }
                     _ => {}
                 }

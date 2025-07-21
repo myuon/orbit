@@ -537,9 +537,6 @@ impl CodeGenerator {
                 self.compile_expression(container);
 
                 match container_type {
-                    Some(IndexContainerType::Vector) => {
-                        panic!("Vector indexing should be handled as method calls, not VM instructions");
-                    }
                     Some(IndexContainerType::Pointer) => {
                         self.instructions.push(Instruction::PointerSet);
                     }
@@ -723,9 +720,6 @@ impl CodeGenerator {
                 self.compile_expression(index);
 
                 match container_type {
-                    Some(IndexContainerType::Vector) => {
-                        panic!("Vector indexing should be handled as method calls, not VM instructions");
-                    }
                     Some(IndexContainerType::Pointer) => {
                         self.instructions.push(Instruction::PointerIndex);
                     }

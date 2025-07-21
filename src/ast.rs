@@ -82,7 +82,6 @@ pub enum BinaryOp {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IndexContainerType {
-    Vector,
     Pointer,
     String,
 }
