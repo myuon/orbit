@@ -71,10 +71,10 @@ pub enum Instruction {
     HeapSet,       // Set value in heap object
     HeapGetOffset, // Get value from heap at base + offset
     HeapSetOffset, // Set value in heap at base + offset
-    
+
     // Low-level memory operations
-    Load,          // Load value from heap: [heap_ref] -> [value]
-    Store,         // Store value to heap: [value] [heap_ref] -> []
+    Load,  // Load value from heap: [heap_ref] -> [value]
+    Store, // Store value to heap: [value] [heap_ref] -> []
 
     // String operations
     StringNew,

@@ -920,10 +920,10 @@ impl CodeGenerator {
                             // -> field_value
                             } else {
                                 // TODO:
-                                // panic!(
-                                //     "FieldAccess without type information, {:?} at {:?}",
-                                //     field, object_type
-                                // );
+                                panic!(
+                                    "FieldAccess without type information, {:?} at {:?}",
+                                    field, object_type
+                                );
                                 // Fallback to legacy implementation for unresolved struct fields
                                 self.compile_expression(object);
                                 self.instructions

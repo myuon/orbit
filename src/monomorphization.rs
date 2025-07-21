@@ -124,6 +124,27 @@ impl Monomorphizer {
                 if !func.value.type_params.is_empty() {
                     self.register_generic_function(func.clone());
                 }
+
+                // Check if this is a method function (contains #) with generic struct types
+                if func.value.name.contains('#') {
+                    // Look for generic struct types in the parameters
+                    for param in &func.value.params {
+                        if let Some(ref param_type) = param.param_type {
+                            if let Type::Struct { name, args } = param_type {
+                                // Check if any args are type parameters and if the struct is generic
+                                if args.iter().any(|arg| matches!(arg, Type::TypeParameter(_)))
+                                    && self.generic_structs.contains_key(name)
+                                {
+                                    // Method functions don't have type_params, so register them directly
+                                    self.generic_functions
+                                        .insert(func.value.name.clone(), func.clone());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Look for generic calls in function body
                 for stmt in &func.value.body {
                     self.collect_targets_from_stmt(stmt)?;
@@ -199,22 +220,59 @@ impl Monomorphizer {
             Expr::Call { callee, args } => {
                 // Check if this is a generic function call
                 if let Expr::Identifier(name) = &callee.value {
-                    // Look for type arguments in the arguments
-                    let mut type_args = Vec::new();
-                    for arg in args {
-                        if let Expr::TypeExpr { type_name } = &arg.value {
-                            type_args.push(type_name.clone());
+                    // Check if this is a method call with instantiated type name like "Pair(int, int)#set_first"
+                    if name.contains('#') && name.contains('(') {
+                        if let Some(hash_pos) = name.find('#') {
+                            let struct_part = &name[..hash_pos];
+                            let method_part = &name[hash_pos + 1..];
+
+                            if let Some(paren_pos) = struct_part.find('(') {
+                                let base_name = &struct_part[..paren_pos];
+                                let args_part = &struct_part[paren_pos + 1..struct_part.len() - 1];
+
+                                // Parse the type arguments from the method call
+                                let type_args: Vec<Type> = if args_part.is_empty() {
+                                    Vec::new()
+                                } else {
+                                    args_part
+                                        .split(", ")
+                                        .map(|arg| match arg.trim() {
+                                            "int" => Type::Int,
+                                            "byte" => Type::Byte,
+                                            "bool" => Type::Boolean,
+                                            _ => Type::TypeParameter(arg.to_string()),
+                                        })
+                                        .collect()
+                                };
+
+                                // Look for the corresponding generic method function
+                                let generic_method_name = format!("{}#{}", base_name, method_part);
+                                if self.generic_functions.contains_key(&generic_method_name) {
+                                    self.add_target(MonomorphizationTarget {
+                                        symbol: generic_method_name,
+                                        args: type_args,
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        // Regular generic function call
+                        // Look for type arguments in the arguments
+                        let mut type_args = Vec::new();
+                        for arg in args {
+                            if let Expr::TypeExpr { type_name } = &arg.value {
+                                type_args.push(type_name.clone());
+                            }
+                        }
+
+                        // Add as monomorphization target if we have type arguments and function is generic
+                        if !type_args.is_empty() && self.generic_functions.contains_key(name) {
+                            self.add_target(MonomorphizationTarget {
+                                symbol: name.clone(),
+                                args: type_args,
+                            });
                         }
                     }
-
-                    // Add as monomorphization target if we have type arguments and function is generic
-                    if !type_args.is_empty() && self.generic_functions.contains_key(name) {
-                        self.add_target(MonomorphizationTarget {
-                            symbol: name.clone(),
-                            args: type_args,
-                        });
-                    }
-                    // Note: Removed desugared name extraction since methods are now handled via struct monomorphization
                 }
 
                 // Recursively check callee and arguments
@@ -360,18 +418,63 @@ impl Monomorphizer {
     ) -> Result<()> {
         // Create type substitution map
         let mut substitutions = HashMap::new();
-        if target.args.len() != function.value.type_params.len() {
-            bail!(
-                "Type argument mismatch for function {}: expected {}, got {}",
-                function.value.name,
-                function.value.type_params.len(),
-                target.args.len()
-            );
-        }
 
-        for (param, arg) in function.value.type_params.iter().zip(target.args.iter()) {
-            if let Type::TypeParameter(param_name) = param {
+        // Handle method functions differently from regular generic functions
+        if function.value.name.contains('#') && function.value.type_params.is_empty() {
+            // This is a method function like "Pair#set_first"
+            // The target symbol should be the same as the function name (e.g., "Pair#set_first")
+            // The target args are the struct type arguments (e.g., [Int, Int] for Pair(int, int))
+
+            // Find the struct parameter to get the original type parameters
+            let mut struct_type_params = Vec::new();
+            for param in &function.value.params {
+                if let Some(ref param_type) = param.param_type {
+                    if let Type::Struct {
+                        name: _struct_name,
+                        args,
+                    } = param_type
+                    {
+                        // Extract the type parameters from the struct
+                        for arg in args {
+                            if let Type::TypeParameter(param_name) = arg {
+                                if !struct_type_params.contains(param_name) {
+                                    struct_type_params.push(param_name.clone());
+                                }
+                            }
+                        }
+                        break; // Use the first struct parameter we find
+                    }
+                }
+            }
+
+            // Create substitutions from struct type parameters to target args
+            if target.args.len() != struct_type_params.len() {
+                bail!(
+                    "Type argument mismatch for method function {}: expected {}, got {}",
+                    function.value.name,
+                    struct_type_params.len(),
+                    target.args.len()
+                );
+            }
+
+            for (param_name, arg) in struct_type_params.iter().zip(target.args.iter()) {
                 substitutions.insert(param_name.clone(), arg.clone());
+            }
+        } else {
+            // Regular generic function
+            if target.args.len() != function.value.type_params.len() {
+                bail!(
+                    "Type argument mismatch for function {}: expected {}, got {}",
+                    function.value.name,
+                    function.value.type_params.len(),
+                    target.args.len()
+                );
+            }
+
+            for (param, arg) in function.value.type_params.iter().zip(target.args.iter()) {
+                if let Type::TypeParameter(param_name) = param {
+                    substitutions.insert(param_name.clone(), arg.clone());
+                }
             }
         }
 
@@ -607,7 +710,11 @@ impl Monomorphizer {
                     .collect::<Result<Vec<_>>>()?,
                 kind: *kind,
             },
-            Expr::FieldAccess { object, field, object_type } => Expr::FieldAccess {
+            Expr::FieldAccess {
+                object,
+                field,
+                object_type,
+            } => Expr::FieldAccess {
                 object: Box::new(self.substitute_expression(object, substitutions)?),
                 field: field.clone(),
                 object_type: object_type.as_ref().map(|t| t.substitute(substitutions)),
@@ -698,7 +805,7 @@ impl Monomorphizer {
             )));
         }
 
-        // Add all monomorphized structs
+        // Add all monomorphized structs (methods are already handled as separate functions)
         for monomorphized_struct in self.monomorphized_structs.values() {
             new_declarations.push(Positioned::with_unknown_span(Decl::Struct(
                 monomorphized_struct.clone(),
@@ -871,7 +978,11 @@ impl Monomorphizer {
                     .collect::<Result<Vec<_>>>()?,
                 kind: *kind,
             },
-            Expr::FieldAccess { object, field, object_type } => Expr::FieldAccess {
+            Expr::FieldAccess {
+                object,
+                field,
+                object_type,
+            } => Expr::FieldAccess {
                 object: Box::new(self.substitute_expression_globally(object)?),
                 field: field.clone(),
                 object_type: object_type.clone(),

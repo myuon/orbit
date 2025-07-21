@@ -1668,13 +1668,13 @@ mod tests {
             Instruction::Push(3),   // size = 3
             Instruction::HeapAlloc, // allocate 3 heap slots -> [heap_ref]
             // Store value 42 at heap_ref
-            Instruction::Push(42),      // [heap_ref, 42]
-            Instruction::GetLocal(0),   // [heap_ref, 42, heap_ref] - duplicate heap_ref
-            Instruction::Store,         // [heap_ref] - store 42 at heap_ref
+            Instruction::Push(42),    // [heap_ref, 42]
+            Instruction::GetLocal(0), // [heap_ref, 42, heap_ref] - duplicate heap_ref
+            Instruction::Store,       // [heap_ref] - store 42 at heap_ref
             // Load value from heap_ref
-            Instruction::GetLocal(0),   // [heap_ref, heap_ref] - duplicate heap_ref
-            Instruction::Load,          // [heap_ref, 42] - load value from heap_ref
-            Instruction::Nop,           // prevent program from consuming stack as return value
+            Instruction::GetLocal(0), // [heap_ref, heap_ref] - duplicate heap_ref
+            Instruction::Load,        // [heap_ref, 42] - load value from heap_ref
+            Instruction::Nop,         // prevent program from consuming stack as return value
         ]);
 
         // Execute step by step
