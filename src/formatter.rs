@@ -317,7 +317,7 @@ impl OrbitFormatter {
                     self.format_expression(&index.value)
                 )
             }
-            Expr::FieldAccess { object, field } => {
+            Expr::FieldAccess { object, field, .. } => {
                 format!("{}.{}", self.format_expression(&object.value), field)
             }
             Expr::StructNew {

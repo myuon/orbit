@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     ast::{
         BinaryOp, Decl, Expr, Function, GlobalVariable, IndexContainerType, PositionedDecl,
-        PositionedExpr, PositionedStmt, Program, Stmt, StructDecl,
+        PositionedExpr, PositionedStmt, Program, Stmt, StructDecl, Type,
     },
     vm::Instruction,
 };
@@ -38,6 +38,47 @@ impl CodeGenerator {
             global_vars: HashMap::new(),
             global_var_count: 0,
         }
+    }
+
+    // ========== Struct Memory Layout Management ==========
+    //
+    // New struct memory layout using low-level heap operations:
+    //
+    // Memory Layout:
+    //   struct Point { x: int, y: int }
+    //   Heap: [x_value][y_value]
+    //   Offsets: x=0, y=1
+    //
+    // Field Access:
+    //   struct_ptr + field_offset -> field_value
+    //   Point.x: HeapGetOffset(struct_ptr, 0)
+    //   Point.y: HeapGetOffset(struct_ptr, 1)
+    //
+    // Allocation:
+    //   HeapAlloc(field_count) -> struct_ptr
+    //   Initialize each field: HeapSetOffset(struct_ptr, offset, value)
+
+    /// Calculate the size of a struct in terms of number of fields
+    fn get_struct_size(&self, struct_name: &str) -> Option<usize> {
+        self.structs.get(struct_name).map(|s| s.fields.len())
+    }
+
+    /// Calculate the offset of a field within a struct
+    /// Fields are laid out in declaration order: field 0 at offset 0, field 1 at offset 1, etc.
+    fn get_field_offset(&self, struct_name: &str, field_name: &str) -> Option<usize> {
+        if let Some(struct_decl) = self.structs.get(struct_name) {
+            for (index, field) in struct_decl.fields.iter().enumerate() {
+                if field.name == field_name {
+                    return Some(index);
+                }
+            }
+        }
+        None
+    }
+
+    /// Verify that a struct exists and has the specified field
+    fn validate_struct_field(&self, struct_name: &str, field_name: &str) -> bool {
+        self.get_field_offset(struct_name, field_name).is_some()
     }
 
     /// Get or create a string constant, returning its heap index
@@ -516,13 +557,55 @@ impl CodeGenerator {
                 }
             }
 
-            Expr::FieldAccess { object, field } => {
+            Expr::FieldAccess { object, field, object_type } => {
                 // Field assignment: obj.field = value
-                self.compile_expression(value);
-                self.instructions
-                    .push(Instruction::PushString(field.clone()));
-                self.compile_expression(object);
-                self.instructions.push(Instruction::StructFieldSet);
+                // NEW IMPLEMENTATION: Use type information for offset-based field assignment
+                
+                if let Some(obj_type) = object_type {
+                    match obj_type {
+                        Type::Struct { name, .. } => {
+                            // Check if this is a built-in or generic type that needs special handling
+                            if name == "array" || name == "vec" || name.starts_with("array(") || name.starts_with("vec(") || 
+                               name.contains("(") {
+                                // Built-in/generic types - use legacy implementation
+                                self.compile_expression(value);
+                                self.instructions
+                                    .push(Instruction::PushString(field.clone()));
+                                self.compile_expression(object);
+                                self.instructions.push(Instruction::StructFieldSet);
+                            } else if let Some(field_offset) = self.get_field_offset(name, field) {
+                                // Type-aware field assignment for user-defined structs
+                                // Use HeapSetOffset for new struct layout
+                                self.compile_expression(value);                         // -> field_value
+                                self.instructions.push(Instruction::Push(field_offset as i64)); // -> offset
+                                self.compile_expression(object);                       // -> struct_ptr
+                                self.instructions.push(Instruction::HeapSetOffset);   // store field_value
+                            } else {
+                                // Unknown field - fall back to legacy implementation
+                                self.compile_expression(value);
+                                self.instructions
+                                    .push(Instruction::PushString(field.clone()));
+                                self.compile_expression(object);
+                                self.instructions.push(Instruction::StructFieldSet);
+                            }
+                        }
+                        _ => {
+                            // Built-in types or other special cases - use legacy implementation
+                            self.compile_expression(value);
+                            self.instructions
+                                .push(Instruction::PushString(field.clone()));
+                            self.compile_expression(object);
+                            self.instructions.push(Instruction::StructFieldSet);
+                        }
+                    }
+                } else {
+                    // No type information available - fallback to legacy implementation
+                    self.compile_expression(value);
+                    self.instructions
+                        .push(Instruction::PushString(field.clone()));
+                    self.compile_expression(object);
+                    self.instructions.push(Instruction::StructFieldSet);
+                }
             }
 
             Expr::Index {
@@ -751,23 +834,99 @@ impl CodeGenerator {
                     panic!("Unknown struct type: {}", type_name);
                 }
 
-                // Push field values and names onto stack
-                for (field_name, field_value) in fields {
+                if is_builtin_or_generic {
+                    // OLD IMPLEMENTATION: For built-in/generic types, use legacy StructNew
+                    // This ensures compatibility with existing vector and generic types
+                    
+                    // Push field values and names onto stack
+                    for (field_name, field_value) in fields {
+                        self.instructions
+                            .push(Instruction::PushString(field_name.clone()));
+                        self.compile_expression(field_value);
+                    }
+                    // Push field count
                     self.instructions
-                        .push(Instruction::PushString(field_name.clone()));
-                    self.compile_expression(field_value);
+                        .push(Instruction::Push(fields.len() as i64));
+                    self.instructions.push(Instruction::StructNew);
+                } else {
+                    // NEW IMPLEMENTATION: Use HeapAlloc + low-level memory operations for user-defined structs
+                    
+                    // 1. Allocate heap memory for the struct
+                    self.instructions.push(Instruction::Push(fields.len() as i64));
+                    self.instructions.push(Instruction::HeapAlloc);
+                    // Stack: [struct_ptr]
+
+                    // 2. Store struct_ptr in a local variable for repeated access
+                    let temp_local = self.local_offset;
+                    self.local_offset += 1;
+                    self.instructions.push(Instruction::SetLocal(temp_local));
+                    // Stack: []
+
+                    // 3. Initialize each field using HeapSetOffset (low-level memory operations)
+                    for (field_name, field_value) in fields {
+                        // Get field offset from struct definition
+                        let field_offset = self.get_field_offset(&type_name_str, field_name)
+                            .unwrap_or_else(|| panic!("Unknown field '{}' in struct '{}'", field_name, type_name_str));
+
+                        // Stack preparation: [value] [offset] [heap_ref] for HeapSetOffset
+                        self.compile_expression(field_value);                       // Stack: [field_value]
+                        self.instructions.push(Instruction::Push(field_offset as i64)); // Stack: [field_value, offset]
+                        self.instructions.push(Instruction::GetLocal(temp_local));      // Stack: [field_value, offset, struct_ptr]
+                        self.instructions.push(Instruction::HeapSetOffset);             // Stack: []
+                    }
+
+                    // 4. Push struct_ptr back onto stack as result
+                    self.instructions.push(Instruction::GetLocal(temp_local));
+                    // Stack: [struct_ptr]
+                    
+                    // Clean up temporary local
+                    self.local_offset -= 1;
                 }
-                // Push field count
-                self.instructions
-                    .push(Instruction::Push(fields.len() as i64));
-                self.instructions.push(Instruction::StructNew);
             }
 
-            Expr::FieldAccess { object, field } => {
-                self.compile_expression(object);
-                self.instructions
-                    .push(Instruction::PushString(field.clone()));
-                self.instructions.push(Instruction::StructFieldGet);
+            Expr::FieldAccess { object, field, object_type } => {
+                // NEW IMPLEMENTATION: Use type information for offset-based field access
+                
+                if let Some(obj_type) = object_type {
+                    match obj_type {
+                        Type::Struct { name, .. } => {
+                            // Check if this is a built-in or generic type that needs special handling
+                            if name == "array" || name == "vec" || name.starts_with("array(") || name.starts_with("vec(") || 
+                               name.contains("(") {
+                                // Built-in/generic types - use legacy implementation
+                                self.compile_expression(object);
+                                self.instructions
+                                    .push(Instruction::PushString(field.clone()));
+                                self.instructions.push(Instruction::StructFieldGet);
+                            } else if let Some(field_offset) = self.get_field_offset(name, field) {
+                                // Type-aware field access for user-defined structs
+                                // Use HeapGetOffset for new struct layout
+                                self.compile_expression(object);                        // -> struct_ptr
+                                self.instructions.push(Instruction::Push(field_offset as i64)); // -> offset
+                                self.instructions.push(Instruction::HeapGetOffset);    // -> field_value
+                            } else {
+                                // Unknown field - fall back to legacy implementation
+                                self.compile_expression(object);
+                                self.instructions
+                                    .push(Instruction::PushString(field.clone()));
+                                self.instructions.push(Instruction::StructFieldGet);
+                            }
+                        }
+                        _ => {
+                            // Built-in types or other special cases - use legacy implementation
+                            self.compile_expression(object);
+                            self.instructions
+                                .push(Instruction::PushString(field.clone()));
+                            self.instructions.push(Instruction::StructFieldGet);
+                        }
+                    }
+                } else {
+                    // No type information available - fallback to legacy implementation
+                    self.compile_expression(object);
+                    self.instructions
+                        .push(Instruction::PushString(field.clone()));
+                    self.instructions.push(Instruction::StructFieldGet);
+                }
             }
 
             Expr::MethodCall { .. } => {
@@ -948,6 +1107,67 @@ mod tests {
         vm.load_program(instructions);
         let result = vm.execute().unwrap();
         assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_new_struct_implementation() {
+        use crate::ast::{Decl, Function, Program, StructDecl, StructField, Type, StructNewKind};
+
+        // Create a simple struct Point { x: int, y: int }
+        let point_struct = StructDecl {
+            name: "Point".to_string(),
+            type_params: vec![],
+            fields: vec![
+                StructField { name: "x".to_string(), field_type: Type::Int },
+                StructField { name: "y".to_string(), field_type: Type::Int },
+            ],
+            methods: vec![],
+        };
+
+        // Create main function: fun main() do return new Point { x: 10, y: 20 }; end
+        let main_func = Function {
+            name: "main".to_string(),
+            type_params: vec![],
+            params: vec![],
+            body: vec![Positioned::with_unknown_span(Stmt::Return(
+                Positioned::with_unknown_span(Expr::StructNew {
+                    type_name: Type::Struct { name: "Point".to_string(), args: vec![] },
+                    fields: vec![
+                        ("x".to_string(), Positioned::with_unknown_span(Expr::Int(10))),
+                        ("y".to_string(), Positioned::with_unknown_span(Expr::Int(20))),
+                    ],
+                    kind: StructNewKind::Regular,
+                }),
+            ))],
+        };
+
+        let program = Program {
+            declarations: vec![
+                Positioned::with_unknown_span(Decl::Struct(
+                    Positioned::with_unknown_span(point_struct),
+                )),
+                Positioned::with_unknown_span(Decl::Function(
+                    Positioned::with_unknown_span(main_func),
+                )),
+            ],
+        };
+
+        // Compile and execute
+        let mut compiler = CodeGenerator::new();
+        let instructions = compiler.compile_program(&program);
+
+        // Print IR for debugging
+        println!("Generated IR for new struct implementation:");
+        println!("{}", compiler.dump_ir());
+
+        let mut vm = VM::new();
+        vm.load_program(instructions);
+        
+        // Since this returns a heap reference, we should get a HeapRef value
+        // For now, just verify it doesn't crash
+        let result = vm.execute();
+        println!("Struct creation result: {:?}", result);
+        assert!(result.is_ok());
     }
 
     #[test]

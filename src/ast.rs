@@ -124,6 +124,7 @@ pub enum Expr {
     FieldAccess {
         object: Box<PositionedExpr>,
         field: String,
+        object_type: Option<Type>, // Type of the object being accessed, filled by type checker
     },
     MethodCall {
         object: Option<Box<PositionedExpr>>, // None for associated calls (Type::method), Some for instance calls (obj.method)

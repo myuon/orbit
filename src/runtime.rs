@@ -902,6 +902,49 @@ impl VM {
                 }
             }
 
+            Instruction::Load => {
+                // Stack: [heap_ref] -> [value]
+                // Load value from heap at specified reference
+                if self.stack.is_empty() {
+                    return Err("Stack underflow for Load".to_string());
+                }
+                let heap_ref = self.stack.pop().unwrap();
+                match heap_ref {
+                    Value::HeapRef(heap_index) => {
+                        if heap_index.0 >= self.heap.len() {
+                            return Err(format!("Invalid heap index: {}", heap_index.0));
+                        }
+                        match &self.heap[heap_index.0] {
+                            HeapObject::RawValue(value) => {
+                                self.stack.push(value.clone());
+                            }
+                            _ => return Err("Load: heap object is not a raw value".to_string()),
+                        }
+                    }
+                    _ => return Err("Load requires a heap reference".to_string()),
+                }
+            }
+
+            Instruction::Store => {
+                // Stack: [value] [heap_ref] -> []
+                // Store value to heap at specified reference
+                if self.stack.len() < 2 {
+                    return Err("Stack underflow for Store".to_string());
+                }
+                let heap_ref = self.stack.pop().unwrap();
+                let value = self.stack.pop().unwrap();
+                match heap_ref {
+                    Value::HeapRef(heap_index) => {
+                        if heap_index.0 >= self.heap.len() {
+                            return Err(format!("Invalid heap index: {}", heap_index.0));
+                        }
+                        // Set the value as a RawValue in the heap
+                        self.heap[heap_index.0] = HeapObject::RawValue(value);
+                    }
+                    _ => return Err("Store requires a heap reference".to_string()),
+                }
+            }
+
             Instruction::StringNew => {
                 // Create a new string from address value
                 if self.stack.is_empty() {
@@ -1613,6 +1656,38 @@ mod tests {
             assert_eq!(*stored_value, 42);
         } else {
             panic!("Expected RawValue(Int(42))");
+        }
+    }
+
+    #[test]
+    fn test_load_store_operations() {
+        let mut vm = VM::new();
+
+        // Test Load/Store with allocated memory
+        vm.load_program(vec![
+            Instruction::Push(3),   // size = 3
+            Instruction::HeapAlloc, // allocate 3 heap slots -> [heap_ref]
+            // Store value 42 at heap_ref
+            Instruction::Push(42),      // [heap_ref, 42]
+            Instruction::GetLocal(0),   // [heap_ref, 42, heap_ref] - duplicate heap_ref
+            Instruction::Store,         // [heap_ref] - store 42 at heap_ref
+            // Load value from heap_ref
+            Instruction::GetLocal(0),   // [heap_ref, heap_ref] - duplicate heap_ref
+            Instruction::Load,          // [heap_ref, 42] - load value from heap_ref
+            Instruction::Nop,           // prevent program from consuming stack as return value
+        ]);
+
+        // Execute step by step
+        while vm.pc < vm.program.len() {
+            vm.step().unwrap();
+        }
+
+        // Check final result
+        assert_eq!(vm.stack.len(), 2); // heap_ref and loaded value
+        if let Some(Value::Int(n)) = vm.stack.last() {
+            assert_eq!(*n, 42);
+        } else {
+            panic!("Expected Int(42) on stack top");
         }
     }
 

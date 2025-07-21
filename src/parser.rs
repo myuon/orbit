@@ -918,6 +918,7 @@ impl Parser {
                             expr = Expr::FieldAccess {
                                 object: Box::new(positioned_expr),
                                 field: field_name,
+                                object_type: None, // Type will be filled in by type checker
                             };
                         }
                     }
@@ -1377,7 +1378,7 @@ mod tests {
                 name: "field access",
                 input: "self.data",
                 validate: |expr| {
-                    if let Expr::FieldAccess { object, field } = &expr.value {
+                    if let Expr::FieldAccess { object, field, .. } = &expr.value {
                         if let Expr::Identifier(obj_name) = &object.value {
                             assert_eq!(obj_name, "self");
                         } else {
@@ -1420,7 +1421,7 @@ mod tests {
                         container, index, ..
                     } = &expr.value
                     {
-                        if let Expr::FieldAccess { object, field } = &container.value {
+                        if let Expr::FieldAccess { object, field, .. } = &container.value {
                             if let Expr::Identifier(obj_name) = &object.value {
                                 assert_eq!(obj_name, "self");
                             } else {
@@ -1448,11 +1449,12 @@ mod tests {
                         container, index, ..
                     } = &expr.value
                     {
-                        if let Expr::FieldAccess { object, field } = &container.value {
+                        if let Expr::FieldAccess { object, field, .. } = &container.value {
                             assert_eq!(field, "data");
                             if let Expr::FieldAccess {
                                 object: inner_object,
                                 field: inner_field,
+                                ..
                             } = &object.value
                             {
                                 if let Expr::Identifier(obj_name) = &inner_object.value {
@@ -1485,7 +1487,7 @@ mod tests {
                         container, index, ..
                     } = &expr.value
                     {
-                        if let Expr::FieldAccess { object, field } = &container.value {
+                        if let Expr::FieldAccess { object, field, .. } = &container.value {
                             if let Expr::Identifier(obj_name) = &object.value {
                                 assert_eq!(obj_name, "self");
                             } else {
@@ -1513,7 +1515,7 @@ mod tests {
                         container, index, ..
                     } = &expr.value
                     {
-                        if let Expr::FieldAccess { object, field } = &container.value {
+                        if let Expr::FieldAccess { object, field, .. } = &container.value {
                             if let Expr::Identifier(obj_name) = &object.value {
                                 assert_eq!(obj_name, "self");
                             } else {
@@ -1644,7 +1646,7 @@ mod tests {
                 name: "simple field assignment",
                 input: "obj.field = 42;",
                 validate_lvalue: |lvalue| {
-                    if let Expr::FieldAccess { object, field } = lvalue {
+                    if let Expr::FieldAccess { object, field, .. } = lvalue {
                         if let Expr::Identifier(obj_name) = &object.value {
                             assert_eq!(obj_name, "obj");
                         } else {
@@ -1701,7 +1703,7 @@ mod tests {
                         container, index, ..
                     } = lvalue
                     {
-                        if let Expr::FieldAccess { object, field } = &container.value {
+                        if let Expr::FieldAccess { object, field, .. } = &container.value {
                             if let Expr::Identifier(obj_name) = &object.value {
                                 assert_eq!(obj_name, "self");
                             } else {
@@ -1736,7 +1738,7 @@ mod tests {
                         container, index, ..
                     } = lvalue
                     {
-                        if let Expr::FieldAccess { object, field } = &container.value {
+                        if let Expr::FieldAccess { object, field, .. } = &container.value {
                             if let Expr::Identifier(obj_name) = &object.value {
                                 assert_eq!(obj_name, "self");
                             } else {
@@ -1762,7 +1764,7 @@ mod tests {
                             container, index, ..
                         } = &left.value
                         {
-                            if let Expr::FieldAccess { object, field } = &container.value {
+                            if let Expr::FieldAccess { object, field, .. } = &container.value {
                                 if let Expr::Identifier(obj_name) = &object.value {
                                     assert_eq!(obj_name, "self");
                                 }

@@ -607,9 +607,10 @@ impl Monomorphizer {
                     .collect::<Result<Vec<_>>>()?,
                 kind: *kind,
             },
-            Expr::FieldAccess { object, field } => Expr::FieldAccess {
+            Expr::FieldAccess { object, field, object_type } => Expr::FieldAccess {
                 object: Box::new(self.substitute_expression(object, substitutions)?),
                 field: field.clone(),
+                object_type: object_type.as_ref().map(|t| t.substitute(substitutions)),
             },
             Expr::MethodCall {
                 object,
@@ -870,9 +871,10 @@ impl Monomorphizer {
                     .collect::<Result<Vec<_>>>()?,
                 kind: *kind,
             },
-            Expr::FieldAccess { object, field } => Expr::FieldAccess {
+            Expr::FieldAccess { object, field, object_type } => Expr::FieldAccess {
                 object: Box::new(self.substitute_expression_globally(object)?),
                 field: field.clone(),
+                object_type: object_type.clone(),
             },
             Expr::MethodCall {
                 object,

@@ -1405,8 +1405,11 @@ impl TypeChecker {
                 }
             }
 
-            Expr::FieldAccess { object, field } => {
+            Expr::FieldAccess { object, field, object_type: ref mut stored_object_type } => {
                 let object_type = self.check_expression(object)?;
+                
+                // Store the computed object type in the AST node for codegen
+                *stored_object_type = Some(object_type.clone());
                 match object_type {
                     Type::String => {
                         // String type (which becomes array(byte) after desugaring) supports length field

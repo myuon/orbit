@@ -71,6 +71,10 @@ pub enum Instruction {
     HeapSet,       // Set value in heap object
     HeapGetOffset, // Get value from heap at base + offset
     HeapSetOffset, // Set value in heap at base + offset
+    
+    // Low-level memory operations
+    Load,          // Load value from heap: [heap_ref] -> [value]
+    Store,         // Store value to heap: [value] [heap_ref] -> []
 
     // String operations
     StringNew,
@@ -138,6 +142,8 @@ impl fmt::Display for Instruction {
             Instruction::HeapSet => write!(f, "heap_set"),
             Instruction::HeapGetOffset => write!(f, "heap_get_offset"),
             Instruction::HeapSetOffset => write!(f, "heap_set_offset"),
+            Instruction::Load => write!(f, "load"),
+            Instruction::Store => write!(f, "store"),
             Instruction::StringNew => write!(f, "string_new"),
             Instruction::PointerIndex => write!(f, "pointer_index"),
             Instruction::PointerSet => write!(f, "pointer_set"),
