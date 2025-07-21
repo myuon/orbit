@@ -1241,44 +1241,60 @@ impl VM {
                                 self.stack.push(Value::Int(actual_length as i64));
                             }
                             Value::HeapRef(heap_index) => {
-                                // Handle array(byte) structures - extract .data field
+                                // Handle array(byte) structures stored as RawValue
                                 if heap_index.0 >= self.heap.len() {
                                     return Err(format!("Invalid heap index: {}", heap_index.0));
                                 }
 
-                                match &self.heap[heap_index.0] {
-                                    HeapObject::Struct(fields) => {
-                                        // Look for .data field in the struct
-                                        if let Some(data_value) = fields.get("data") {
-                                            match data_value {
-                                                Value::Address(addr) => {
-                                                    // Extract string from the data address
-                                                    let string_content = self.address_to_string(*addr)?;
-                                                    let actual_length = length_num.min(string_content.len());
-                                                    let output = &string_content[..actual_length];
-
-                                                    if let Some(ref mut captured) = self.captured_output {
-                                                        captured.push_str(output);
-                                                    } else {
-                                                        print!("{}", output);
-                                                        use std::io::Write;
-                                                        std::io::stdout().flush().unwrap();
-                                                    }
-
-                                                    self.stack.push(Value::Int(actual_length as i64));
-                                                }
-                                                _ => {
-                                                    return Err("Write syscall: array.data must be a string address".to_string());
-                                                }
-                                            }
-                                        } else {
-                                            return Err("Write syscall: array structure missing .data field".to_string());
-                                        }
+                                // New RawValue-based approach: read the struct fields directly from heap
+                                // For array(byte), we expect: [data_address, length, capacity] at consecutive heap locations
+                                let data_addr = match &self.heap[heap_index.0] {
+                                    HeapObject::RawValue(Value::Address(addr)) => *addr,
+                                    HeapObject::RawValue(Value::HeapRef(heap_ref)) => {
+                                        // If data is a heap reference, treat it as the start address
+                                        heap_ref.0
                                     }
                                     _ => {
-                                        return Err("Write syscall: heap reference must point to a struct".to_string());
+                                        return Err("Write syscall: array.data field must be an address or heap reference".to_string());
                                     }
+                                };
+
+                                // Extract string from the data address
+                                let string_content = if data_addr < self.heap.len() {
+                                    // Read bytes from heap starting at data_addr
+                                    let mut bytes = Vec::new();
+                                    let mut current_addr = data_addr;
+                                    
+                                    while current_addr < self.heap.len() {
+                                        match &self.heap[current_addr] {
+                                            HeapObject::RawValue(Value::Byte(byte)) => {
+                                                if *byte == 0 {
+                                                    break; // Null terminator
+                                                }
+                                                bytes.push(*byte);
+                                            }
+                                            _ => break,
+                                        }
+                                        current_addr += 1;
+                                    }
+                                    
+                                    String::from_utf8_lossy(&bytes).to_string()
+                                } else {
+                                    return Err("Write syscall: invalid data address".to_string());
+                                };
+
+                                let actual_length = length_num.min(string_content.len());
+                                let output = &string_content[..actual_length];
+
+                                if let Some(ref mut captured) = self.captured_output {
+                                    captured.push_str(output);
+                                } else {
+                                    print!("{}", output);
+                                    use std::io::Write;
+                                    std::io::stdout().flush().unwrap();
                                 }
+
+                                self.stack.push(Value::Int(actual_length as i64));
                             }
                             _ => {
                                 return Err(
