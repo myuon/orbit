@@ -9,12 +9,6 @@ use anyhow::{bail, Result};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HeapIndex(pub usize);
 
-/// Objects stored on the heap
-#[derive(Debug, Clone, PartialEq)]
-pub enum HeapObject {
-    RawValue(Value), // Raw value storage for heap memory management
-}
-
 /// Values in the Orbit runtime system
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -37,13 +31,6 @@ impl std::fmt::Display for Value {
     }
 }
 
-impl std::fmt::Display for HeapObject {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            HeapObject::RawValue(v) => write!(f, "{}", v),
-        }
-    }
-}
 
 pub enum ControlFlow {
     Exit(i64),
@@ -61,7 +48,7 @@ pub struct VM {
     pub print_stacks: bool, // whether to print stack state during execution
     pub print_heaps: bool,  // whether to print heap state during execution
     print_stacks_on_call: Option<String>, // print stacks only when calling this function
-    heap: Vec<HeapObject>,  // unified heap storage
+    heap: Vec<Value>,  // unified heap storage
     globals: Vec<Value>,    // global variables
     // Output capture for testing
     pub captured_output: Option<String>,
@@ -159,10 +146,10 @@ impl VM {
                 let start_index = self.heap.len();
                 // Store each byte as RawValue(Byte)
                 for byte in s.bytes() {
-                    self.heap.push(HeapObject::RawValue(Value::Byte(byte)));
+                    self.heap.push(Value::Byte(byte));
                 }
                 // Add null terminator
-                self.heap.push(HeapObject::RawValue(Value::Byte(0)));
+                self.heap.push(Value::Byte(0));
                 // Push address pointing to first byte
                 self.stack.push(Value::Address(start_index));
                 // Update HP to keep it in sync with heap length
@@ -766,7 +753,7 @@ impl VM {
 
                 // Extend heap to accommodate the allocation
                 for _ in 0..size {
-                    self.heap.push(HeapObject::RawValue(Value::Int(0))); // Initialize with zero
+                    self.heap.push(Value::Int(0)); // Initialize with zero
                 }
 
                 // Push heap reference to the start of allocated region
@@ -788,11 +775,8 @@ impl VM {
                         if heap_index.0 >= self.heap.len() {
                             return Err(format!("Invalid heap index: {}", heap_index.0));
                         }
-                        match &self.heap[heap_index.0] {
-                            HeapObject::RawValue(value) => {
-                                self.stack.push(value.clone());
-                            }
-                        }
+                        let value = &self.heap[heap_index.0];
+                        self.stack.push(value.clone());
                     }
                     _ => return Err("HeapGet requires a heap reference".to_string()),
                 }
@@ -812,7 +796,7 @@ impl VM {
                             return Err(format!("Invalid heap index: {}", heap_index.0));
                         }
                         // Set the value as a RawValue in the heap
-                        self.heap[heap_index.0] = HeapObject::RawValue(value);
+                        self.heap[heap_index.0] = value;
                     }
                     _ => return Err("HeapSet requires a heap reference".to_string()),
                 }
@@ -839,7 +823,7 @@ impl VM {
                             return Err(format!("Invalid heap index: {}", target_index));
                         }
                         match &self.heap[target_index] {
-                            HeapObject::RawValue(value) => {
+                            value => {
                                 self.stack.push(value.clone());
                             }
                         }
@@ -870,7 +854,7 @@ impl VM {
                             return Err(format!("Invalid heap index: {}", target_index));
                         }
                         // Set the value as a RawValue in the heap
-                        self.heap[target_index] = HeapObject::RawValue(value);
+                        self.heap[target_index] = value;
                     }
                     _ => return Err("HeapSetOffset requires a heap reference".to_string()),
                 }
@@ -888,11 +872,8 @@ impl VM {
                         if heap_index.0 >= self.heap.len() {
                             return Err(format!("Invalid heap index: {}", heap_index.0));
                         }
-                        match &self.heap[heap_index.0] {
-                            HeapObject::RawValue(value) => {
-                                self.stack.push(value.clone());
-                            }
-                        }
+                        let value = &self.heap[heap_index.0];
+                        self.stack.push(value.clone());
                     }
                     _ => return Err("Load requires a heap reference".to_string()),
                 }
@@ -912,7 +893,7 @@ impl VM {
                             return Err(format!("Invalid heap index: {}", heap_index.0));
                         }
                         // Set the value as a RawValue in the heap
-                        self.heap[heap_index.0] = HeapObject::RawValue(value);
+                        self.heap[heap_index.0] = value;
                     }
                     _ => return Err("Store requires a heap reference".to_string()),
                 }
@@ -940,13 +921,13 @@ impl VM {
                         }
 
                         match &self.heap[heap_index.0] {
-                            HeapObject::RawValue(_) => {
+                            _ => {
                                 // This is HeapAlloc-allocated memory, access directly
                                 if target_index >= self.heap.len() {
                                     return Err(format!("Heap index out of bounds: {}", target_index));
                                 }
                                 match &self.heap[target_index] {
-                                    HeapObject::RawValue(value) => {
+                                    value => {
                                         self.stack.push(value.clone());
                                     }
                                 }
@@ -981,9 +962,9 @@ impl VM {
                         }
 
                         match &mut self.heap[heap_index.0] {
-                            HeapObject::RawValue(_) => {
+                            _ => {
                                 // This is HeapAlloc-allocated memory, set directly
-                                self.heap[target_index] = HeapObject::RawValue(value);
+                                self.heap[target_index] = value;
                             }
                         }
                     }
@@ -1006,7 +987,7 @@ impl VM {
                             return Err("String index out of bounds".to_string());
                         }
                         match &self.heap[target_index] {
-                            HeapObject::RawValue(Value::Byte(byte)) => {
+                            Value::Byte(byte) => {
                                 self.stack.push(Value::Byte(*byte));
                             }
                             _ => return Err("String index out of bounds".to_string()),
@@ -1076,8 +1057,8 @@ impl VM {
                                 // New RawValue-based approach: read the struct fields directly from heap
                                 // For array(byte), we expect: [data_address, length, capacity] at consecutive heap locations
                                 let data_addr = match &self.heap[heap_index.0] {
-                                    HeapObject::RawValue(Value::Address(addr)) => *addr,
-                                    HeapObject::RawValue(Value::HeapRef(heap_ref)) => {
+                                    Value::Address(addr) => *addr,
+                                    Value::HeapRef(heap_ref) => {
                                         // If data is a heap reference, treat it as the start address
                                         heap_ref.0
                                     }
@@ -1094,7 +1075,7 @@ impl VM {
                                     
                                     while current_addr < self.heap.len() {
                                         match &self.heap[current_addr] {
-                                            HeapObject::RawValue(Value::Byte(byte)) => {
+                                            Value::Byte(byte) => {
                                                 if *byte == 0 {
                                                     break; // Null terminator
                                                 }
@@ -1239,7 +1220,7 @@ impl VM {
 
         while current_addr < self.heap.len() {
             match &self.heap[current_addr] {
-                HeapObject::RawValue(Value::Byte(byte)) => {
+                Value::Byte(byte) => {
                     if *byte == 0 {
                         return Ok(length);
                     }
@@ -1260,7 +1241,7 @@ impl VM {
 
         for i in 0..length {
             match &self.heap[start_addr + i] {
-                HeapObject::RawValue(Value::Byte(byte)) => {
+                Value::Byte(byte) => {
                     bytes.push(*byte);
                 }
                 _ => return Err("Invalid byte in string".to_string()),
@@ -1452,7 +1433,7 @@ mod tests {
         // The final result should be a heap reference as exit code
         // Check that all heap objects are initialized as RawValue(Int(0))
         for i in 0..3 {
-            if let HeapObject::RawValue(Value::Int(val)) = &vm.heap[i] {
+            if let Value::Int(val) = &vm.heap[i] {
                 assert_eq!(*val, 0);
             } else {
                 panic!("Expected RawValue(Int(0)) at heap[{}]", i);
@@ -1495,7 +1476,7 @@ mod tests {
         }
 
         // Check heap content
-        if let HeapObject::RawValue(Value::Int(stored_value)) = &vm.heap[0] {
+        if let Value::Int(stored_value) = &vm.heap[0] {
             assert_eq!(*stored_value, 42);
         } else {
             panic!("Expected RawValue(Int(42))");
@@ -1573,7 +1554,7 @@ mod tests {
         }
 
         // Check heap content at index 1
-        if let HeapObject::RawValue(Value::Int(stored_value)) = &vm.heap[1] {
+        if let Value::Int(stored_value) = &vm.heap[1] {
             assert_eq!(*stored_value, 100);
         } else {
             panic!("Expected RawValue(Int(100)) at heap[1]");
