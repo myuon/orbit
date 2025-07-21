@@ -945,20 +945,6 @@ impl VM {
                 }
             }
 
-            Instruction::StringNew => {
-                // Create a new string from address value
-                if self.stack.is_empty() {
-                    return Err("Stack underflow for StringNew".to_string());
-                }
-                let value = self.stack.pop().unwrap();
-                match value {
-                    Value::Address(addr) => {
-                        // Address-based strings are already stored as bytes, just push the address
-                        self.stack.push(Value::Address(addr));
-                    }
-                    _ => return Err("StringNew requires an address".to_string()),
-                };
-            }
 
             Instruction::PointerIndex => {
                 // Stack: [pointer_heap_ref] [element_index]
