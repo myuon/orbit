@@ -86,11 +86,6 @@ pub enum Instruction {
     // String operations
     StringIndex,
 
-    // Struct operations
-    StructNew,
-    StructFieldGet,
-    StructFieldSet,
-
     // System calls
     Syscall,
 }
@@ -148,9 +143,6 @@ impl fmt::Display for Instruction {
             Instruction::PointerIndex => write!(f, "pointer_index"),
             Instruction::PointerSet => write!(f, "pointer_set"),
             Instruction::StringIndex => write!(f, "string_index"),
-            Instruction::StructNew => write!(f, "struct_new"),
-            Instruction::StructFieldGet => write!(f, "struct_field_get"),
-            Instruction::StructFieldSet => write!(f, "struct_field_set"),
             Instruction::Syscall => write!(f, "syscall"),
         }
     }
