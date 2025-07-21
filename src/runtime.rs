@@ -4,7 +4,6 @@ use crate::profiler::InstructionTimer;
 use crate::vm::Instruction;
 use crate::{ast::Program, profiler::Profiler};
 use anyhow::{bail, Result};
-use std::collections::HashMap;
 
 /// Index into the heap for heap-allocated objects
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -13,7 +12,6 @@ pub struct HeapIndex(pub usize);
 /// Objects stored on the heap
 #[derive(Debug, Clone, PartialEq)]
 pub enum HeapObject {
-    Struct(HashMap<String, Value>),
     Pointer(Vec<Value>), // Pointer is essentially an array of values
     RawValue(Value),     // Raw value storage for heap memory management
 }
@@ -43,13 +41,6 @@ impl std::fmt::Display for Value {
 impl std::fmt::Display for HeapObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HeapObject::Struct(fields) => {
-                let entries: Vec<String> = fields
-                    .iter()
-                    .map(|(k, v)| format!("{}: {}", k, v))
-                    .collect();
-                write!(f, "{{{}}}", entries.join(", "))
-            }
             HeapObject::Pointer(v) => {
                 write!(
                     f,
@@ -990,12 +981,6 @@ impl VM {
                                     }
                                 }
                             }
-                            _ => {
-                                return Err(
-                                    "PointerIndex requires a pointer or raw value heap object"
-                                        .to_string(),
-                                )
-                            }
                         }
                     }
                     _ => {
@@ -1036,12 +1021,6 @@ impl VM {
                             HeapObject::RawValue(_) => {
                                 // This is HeapAlloc-allocated memory, set directly
                                 self.heap[target_index] = HeapObject::RawValue(value);
-                            }
-                            _ => {
-                                return Err(
-                                    "PointerSet requires a pointer or raw value heap object"
-                                        .to_string(),
-                                )
                             }
                         }
                     }
