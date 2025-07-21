@@ -553,35 +553,20 @@ impl CodeGenerator {
                 object_type,
             } => {
                 // Field assignment: obj.field = value
-                // NEW IMPLEMENTATION: Use type information for offset-based field assignment
+                // Unified field assignment: Use offset-based assignment for all structs with fallback
 
                 if let Some(obj_type) = object_type {
                     match obj_type {
                         Type::Struct { name, .. } => {
-                            // Check if this is a built-in or generic type that needs special handling
-                            if name == "array"
-                                || name == "vec"
-                                || name.starts_with("array(")
-                                || name.starts_with("vec(")
-                                || name.contains("(")
-                            {
-                                // Built-in/generic types - use legacy implementation
-                                self.compile_expression(value);
-                                self.instructions
-                                    .push(Instruction::PushString(field.clone()));
-                                self.compile_expression(object);
-                                self.instructions.push(Instruction::StructFieldSet);
-                            } else if let Some(field_offset) = self.get_field_offset(name, field) {
-                                // Type-aware field assignment for user-defined structs
-                                // Use HeapSetOffset for new struct layout
+                            if let Some(field_offset) = self.get_field_offset(name, field) {
+                                // Type-aware field assignment using HeapSetOffset
                                 self.compile_expression(value); // -> field_value
                                 self.instructions
                                     .push(Instruction::Push(field_offset as i64)); // -> offset
                                 self.compile_expression(object); // -> struct_ptr
-                                self.instructions.push(Instruction::HeapSetOffset);
-                            // store field_value
+                                self.instructions.push(Instruction::HeapSetOffset); // store field_value
                             } else {
-                                // Unknown field - fall back to legacy implementation
+                                // Fallback to legacy implementation for unresolved struct fields
                                 self.compile_expression(value);
                                 self.instructions
                                     .push(Instruction::PushString(field.clone()));
@@ -590,7 +575,7 @@ impl CodeGenerator {
                             }
                         }
                         _ => {
-                            // Built-in types or other special cases - use legacy implementation
+                            // Non-struct types - use legacy implementation
                             self.compile_expression(value);
                             self.instructions
                                 .push(Instruction::PushString(field.clone()));
@@ -891,33 +876,19 @@ impl CodeGenerator {
                 field,
                 object_type,
             } => {
-                // NEW IMPLEMENTATION: Use type information for offset-based field access
-
+                // Unified field access: Use offset-based access for all structs with fallback
+                
                 if let Some(obj_type) = object_type {
                     match obj_type {
                         Type::Struct { name, .. } => {
-                            // Check if this is a built-in or generic type that needs special handling
-                            if name == "array"
-                                || name == "vec"
-                                || name.starts_with("array(")
-                                || name.starts_with("vec(")
-                                || name.contains("(")
-                            {
-                                // Built-in/generic types - use legacy implementation
-                                self.compile_expression(object);
-                                self.instructions
-                                    .push(Instruction::PushString(field.clone()));
-                                self.instructions.push(Instruction::StructFieldGet);
-                            } else if let Some(field_offset) = self.get_field_offset(name, field) {
-                                // Type-aware field access for user-defined structs
-                                // Use HeapGetOffset for new struct layout
+                            if let Some(field_offset) = self.get_field_offset(name, field) {
+                                // Type-aware field access using HeapGetOffset
                                 self.compile_expression(object); // -> struct_ptr
                                 self.instructions
                                     .push(Instruction::Push(field_offset as i64)); // -> offset
-                                self.instructions.push(Instruction::HeapGetOffset);
-                            // -> field_value
+                                self.instructions.push(Instruction::HeapGetOffset); // -> field_value
                             } else {
-                                // Unknown field - fall back to legacy implementation
+                                // Fallback to legacy implementation for unresolved struct fields
                                 self.compile_expression(object);
                                 self.instructions
                                     .push(Instruction::PushString(field.clone()));
@@ -925,7 +896,7 @@ impl CodeGenerator {
                             }
                         }
                         _ => {
-                            // Built-in types or other special cases - use legacy implementation
+                            // Non-struct types - use legacy implementation
                             self.compile_expression(object);
                             self.instructions
                                 .push(Instruction::PushString(field.clone()));
