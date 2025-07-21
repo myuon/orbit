@@ -58,6 +58,30 @@ impl CodeGenerator {
     //   HeapAlloc(field_count) -> struct_ptr
     //   Initialize each field: HeapSetOffset(struct_ptr, offset, value)
 
+    /// Generate instantiated name from a Type (similar to MonomorphizationTarget::instantiated_name)
+    fn type_to_instantiated_name(&self, typ: &Type) -> String {
+        match typ {
+            Type::Struct { name, args } => {
+                if args.is_empty() {
+                    name.clone()
+                } else {
+                    let args_str = args
+                        .iter()
+                        .map(|t| match t {
+                            Type::Int => "int".to_string(),
+                            Type::Boolean => "bool".to_string(),
+                            Type::Byte => "byte".to_string(),
+                            _ => t.to_string(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{}({})", name, args_str)
+                }
+            }
+            _ => typ.to_string(),
+        }
+    }
+
     /// Calculate the offset of a field within a struct
     /// Fields are laid out in declaration order: field 0 at offset 0, field 1 at offset 1, etc.
     fn get_field_offset(&self, struct_name: &str, field_name: &str) -> Option<usize> {
@@ -557,15 +581,24 @@ impl CodeGenerator {
 
                 if let Some(obj_type) = object_type {
                     match obj_type {
-                        Type::Struct { name, .. } => {
-                            if let Some(field_offset) = self.get_field_offset(name, field) {
+                        Type::Struct { .. } => {
+                            let instantiated_name = self.type_to_instantiated_name(obj_type);
+                            if let Some(field_offset) =
+                                self.get_field_offset(&instantiated_name, field)
+                            {
                                 // Type-aware field assignment using HeapSetOffset
                                 self.compile_expression(value); // -> field_value
                                 self.instructions
                                     .push(Instruction::Push(field_offset as i64)); // -> offset
                                 self.compile_expression(object); // -> struct_ptr
-                                self.instructions.push(Instruction::HeapSetOffset); // store field_value
+                                self.instructions.push(Instruction::HeapSetOffset);
+                            // store field_value
                             } else {
+                                // TODO:
+                                // panic!(
+                                //     "FieldAccess without type information, {:?} at {:?}",
+                                //     field, object_type
+                                // );
                                 // Fallback to legacy implementation for unresolved struct fields
                                 self.compile_expression(value);
                                 self.instructions
@@ -575,21 +608,14 @@ impl CodeGenerator {
                             }
                         }
                         _ => {
-                            // Non-struct types - use legacy implementation
-                            self.compile_expression(value);
-                            self.instructions
-                                .push(Instruction::PushString(field.clone()));
-                            self.compile_expression(object);
-                            self.instructions.push(Instruction::StructFieldSet);
+                            panic!(
+                                "FieldAccess without type information, {:?} at {:?}",
+                                field, object_type
+                            );
                         }
                     }
                 } else {
-                    // No type information available - fallback to legacy implementation
-                    self.compile_expression(value);
-                    self.instructions
-                        .push(Instruction::PushString(field.clone()));
-                    self.compile_expression(object);
-                    self.instructions.push(Instruction::StructFieldSet);
+                    panic!("FieldAccess without type information");
                 }
             }
 
@@ -811,8 +837,9 @@ impl CodeGenerator {
             } => {
                 // Unified struct handling: Use HeapAlloc + low-level memory operations for all structs
                 let type_name_str = type_name.to_string();
+                let instantiated_name = self.type_to_instantiated_name(type_name);
 
-                if !self.structs.contains_key(&type_name_str) {
+                if !self.structs.contains_key(&instantiated_name) {
                     // Fallback for generic types that weren't properly monomorphized
                     // This is a temporary workaround until monomorphization is fully implemented
                     if type_name_str.contains('(') && type_name_str.contains(')') {
@@ -847,11 +874,11 @@ impl CodeGenerator {
                 for (field_name, field_value) in fields {
                     // Get field offset from struct definition
                     let field_offset = self
-                        .get_field_offset(&type_name_str, field_name)
+                        .get_field_offset(&instantiated_name, field_name)
                         .unwrap_or_else(|| {
                             panic!(
                                 "Unknown field '{}' in struct '{}'",
-                                field_name, type_name_str
+                                field_name, instantiated_name
                             )
                         });
 
@@ -877,17 +904,26 @@ impl CodeGenerator {
                 object_type,
             } => {
                 // Unified field access: Use offset-based access for all structs with fallback
-                
+
                 if let Some(obj_type) = object_type {
                     match obj_type {
-                        Type::Struct { name, .. } => {
-                            if let Some(field_offset) = self.get_field_offset(name, field) {
+                        Type::Struct { .. } => {
+                            let instantiated_name = self.type_to_instantiated_name(obj_type);
+                            if let Some(field_offset) =
+                                self.get_field_offset(&instantiated_name, field)
+                            {
                                 // Type-aware field access using HeapGetOffset
                                 self.compile_expression(object); // -> struct_ptr
                                 self.instructions
                                     .push(Instruction::Push(field_offset as i64)); // -> offset
-                                self.instructions.push(Instruction::HeapGetOffset); // -> field_value
+                                self.instructions.push(Instruction::HeapGetOffset);
+                            // -> field_value
                             } else {
+                                // TODO:
+                                // panic!(
+                                //     "FieldAccess without type information, {:?} at {:?}",
+                                //     field, object_type
+                                // );
                                 // Fallback to legacy implementation for unresolved struct fields
                                 self.compile_expression(object);
                                 self.instructions
@@ -896,11 +932,10 @@ impl CodeGenerator {
                             }
                         }
                         _ => {
-                            // Non-struct types - use legacy implementation
-                            self.compile_expression(object);
-                            self.instructions
-                                .push(Instruction::PushString(field.clone()));
-                            self.instructions.push(Instruction::StructFieldGet);
+                            panic!(
+                                "FieldAccess without type information, {:?} at {:?}",
+                                field, object_type
+                            );
                         }
                     }
                 } else {

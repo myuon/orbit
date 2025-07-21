@@ -604,7 +604,11 @@ impl Desugarer {
                     kind: *kind,
                 }
             }
-            Expr::FieldAccess { object, field, object_type } => {
+            Expr::FieldAccess {
+                object,
+                field,
+                object_type,
+            } => {
                 let desugared_object = self.desugar_expression(object)?;
                 Expr::FieldAccess {
                     object: Box::new(desugared_object),
@@ -697,7 +701,9 @@ impl Desugarer {
             // For struct instantiation, we can determine the type directly
             Expr::StructNew { type_name, .. } => type_name.to_string(),
             // For field access, try to infer the field type
-            Expr::FieldAccess { object: _, field, .. } => {
+            Expr::FieldAccess {
+                object: _, field, ..
+            } => {
                 // Try to find the field type in our struct definitions
                 for (_struct_name, struct_decl) in &self.structs {
                     for struct_field in &struct_decl.fields {
