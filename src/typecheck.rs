@@ -572,11 +572,8 @@ impl TypeChecker {
 
     /// Register a struct type for later type checking
     fn register_struct(&mut self, struct_decl: &PositionedStructDecl) -> Result<()> {
-        // Skip registration if this looks like a concrete instantiation of a generic type
-        // and we already have the generic version
-        if struct_decl.value.name.contains('(') && struct_decl.value.name.ends_with(')') {
-            return Ok(());
-        }
+        // Note: We no longer skip monomorphized structs (those with parentheses)
+        // because they need to be registered for field access resolution
 
         // Check for duplicate struct definition
         if self.structs.contains_key(&struct_decl.value.name) {
@@ -1372,15 +1369,12 @@ impl TypeChecker {
                     Type::Struct { name, args } => {
                         // For struct types, look up the struct type or return the concrete instantiation
                         match self.structs.get(name) {
-                            Some(struct_type) => {
-                                // Check if this is a generic struct with concrete type arguments
-                                if !args.is_empty() {
-                                    // Return the concrete instantiation instead of the generic type
-                                    Ok(type_name.clone())
-                                } else {
-                                    // Non-generic struct, return the registered type
-                                    Ok(struct_type.clone())
-                                }
+                            Some(_struct_type) => {
+                                // Return the concrete instantiation as-is
+                                Ok(Type::Struct {
+                                    name: name.clone(),
+                                    args: args.clone(),
+                                })
                             }
                             None => {
                                 // For generic types, return the concrete instantiation
@@ -1457,21 +1451,6 @@ impl TypeChecker {
                                         struct_name
                                     )
                                 })
-                            } else if let Some(generic_fields) =
-                                self.resolve_generic_struct_fields(&Type::Struct {
-                                    name: struct_name.clone(),
-                                    args: args.clone(),
-                                })
-                            {
-                                // Handle generic struct instantiation field access
-                                generic_fields.get(field).cloned().ok_or_else(|| {
-                                    crate::anyhow_with_position!(
-                                        object.span.clone(),
-                                        "Field '{}' not found in struct '{}'",
-                                        field,
-                                        struct_name
-                                    )
-                                })
                             } else {
                                 bail_with_position!(
                                     object.span.clone(),
@@ -1481,31 +1460,23 @@ impl TypeChecker {
                             }
                         } else {
                             // Generic struct - resolve the field type using the concrete type arguments
-                            let type_name = format!(
-                                "{}({})",
-                                struct_name,
-                                args.iter()
-                                    .map(|t| t.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            );
-
-                            if let Some(generic_fields) = self.resolve_generic_struct_fields(
-                                &Type::simple_type_from_string(&type_name),
-                            ) {
+                            if let Some(generic_fields) = self.resolve_generic_struct_fields(&Type::Struct {
+                                name: struct_name.clone(),
+                                args: args.clone(),
+                            }) {
                                 generic_fields.get(field).cloned().ok_or_else(|| {
                                     crate::anyhow_with_position!(
                                         object.span.clone(),
                                         "Field '{}' not found in generic struct '{}'",
                                         field,
-                                        type_name
+                                        struct_name
                                     )
                                 })
                             } else {
                                 bail_with_position!(
                                     object.span.clone(),
                                     "Cannot resolve fields for generic type: {}",
-                                    type_name
+                                    struct_name
                                 )
                             }
                         }

@@ -931,6 +931,28 @@ impl Monomorphizer {
         Ok(Positioned::with_unknown_span(substituted))
     }
 
+    /// Substitute a type globally to use monomorphized names
+    fn substitute_type_globally(&self, type_ref: &Type) -> Type {
+        match type_ref {
+            Type::Struct { name, args } => {
+                // If this is a generic type that has been monomorphized, use the instantiated name
+                if !args.is_empty() {
+                    let target = MonomorphizationTarget {
+                        symbol: name.clone(),
+                        args: args.clone(),
+                    };
+                    Type::Struct {
+                        name: target.instantiated_name(),
+                        args: vec![], // Monomorphized types have no type arguments
+                    }
+                } else {
+                    type_ref.clone()
+                }
+            }
+            _ => type_ref.clone(),
+        }
+    }
+
     /// Substitute generic type instantiations in an expression globally
     fn substitute_expression_globally(
         &self,
@@ -1046,7 +1068,7 @@ impl Monomorphizer {
             } => Expr::FieldAccess {
                 object: Box::new(self.substitute_expression_globally(object)?),
                 field: field.clone(),
-                object_type: object_type.clone(),
+                object_type: object_type.as_ref().map(|t| self.substitute_type_globally(t)),
             },
             Expr::MethodCall {
                 object,
@@ -1059,7 +1081,7 @@ impl Monomorphizer {
                 } else {
                     None
                 },
-                object_type: object_type.clone(),
+                object_type: object_type.as_ref().map(|t| self.substitute_type_globally(t)),
                 method: method.clone(),
                 args: args
                     .iter()

@@ -284,8 +284,11 @@ impl OrbitFormatter {
     fn format_expression(&self, expr: &Expr) -> String {
         match expr {
             Expr::Int(n) => n.to_string(),
-            Expr::String(s) => format!("\"{}\"", s),
-            Expr::PushString(s) => format!("pushString(\"{}\")", s),
+            Expr::String(s) => format!("\"{}\"", s.replace("\"", "\\\"").replace("\n", "\\n")),
+            Expr::PushString(s) => format!(
+                "pushString(\"{}\")",
+                s.replace("\"", "\\\"").replace("\n", "\\n")
+            ),
             Expr::Boolean(b) => b.to_string(),
             Expr::Byte(b) => b.to_string(),
             Expr::Identifier(name) => name.clone(),

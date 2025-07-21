@@ -329,18 +329,14 @@ impl DeadCodeEliminator {
             Expr::StructNew {
                 type_name,
                 fields,
-                kind,
+                kind: _,
             } => {
                 self.mark_type_reachable(type_name);
 
-                // Special handling for new(struct) pattern - ensure struct declaration is preserved
-                if matches!(kind, crate::ast::StructNewKind::Pattern) {
-                    // For new(struct) expressions, we must keep the struct declaration
-                    // Mark the exact type name as reachable to preserve the struct declaration
-                    let full_type_name = type_name.to_string();
-                    // Force mark the exact struct type name as reachable
-                    self.reachable_types.insert(full_type_name);
-                }
+                // For any StructNew expression (both Pattern and Regular kind), 
+                // mark the exact type name as reachable to preserve the struct declaration
+                let full_type_name = type_name.to_string();
+                self.reachable_types.insert(full_type_name);
 
                 // Always mark base type for generic instantiations regardless of kind
                 match type_name {
