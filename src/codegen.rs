@@ -625,7 +625,10 @@ impl CodeGenerator {
 
                 match container_type {
                     Some(IndexContainerType::Pointer) => {
-                        self.instructions.push(Instruction::PointerSet);
+                        // Stack: [value] [index] [container] -> []
+                        // We need to compute container + index address and store value there
+                        self.instructions.push(Instruction::AddressAdd);
+                        self.instructions.push(Instruction::Store);
                     }
                     Some(IndexContainerType::String) => {
                         panic!("Cannot assign to string index - strings are immutable");
@@ -808,7 +811,9 @@ impl CodeGenerator {
 
                 match container_type {
                     Some(IndexContainerType::Pointer) => {
-                        self.instructions.push(Instruction::PointerIndex);
+                        // container[index] = container + index; load
+                        self.instructions.push(Instruction::AddressAdd);
+                        self.instructions.push(Instruction::Load);
                     }
                     Some(IndexContainerType::String) => {
                         self.instructions.push(Instruction::StringIndex);

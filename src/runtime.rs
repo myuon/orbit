@@ -298,13 +298,21 @@ impl VM {
                 if self.stack.len() < 2 {
                     return Err("Stack underflow for AddressAdd".to_string());
                 }
-                let b = self.stack.pop().unwrap();
-                let a = self.stack.pop().unwrap();
-                match (a, b) {
+                let b = self.stack.pop().unwrap(); // second operand (index)
+                let a = self.stack.pop().unwrap(); // first operand (container)
+                match (&a, &b) {
                     (Value::Address(addr), Value::Int(offset)) => {
-                        self.stack.push(Value::Address(addr + offset as usize));
+                        self.stack.push(Value::Address(addr + *offset as usize));
                     }
-                    _ => return Err("AddressAdd requires Address + Number".to_string()),
+                    (Value::HeapRef(heap_ref), Value::Int(offset)) => {
+                        // HeapRef + offset = new HeapRef with adjusted index
+                        self.stack.push(Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize)));
+                    }
+                    (Value::Int(offset), Value::HeapRef(heap_ref)) => {
+                        // Handle reversed order: Int + HeapRef -> HeapRef
+                        self.stack.push(Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize)));
+                    }
+                    _ => return Err(format!("AddressAdd requires Address/HeapRef + Number, got {:?} + {:?}", a, b)),
                 }
             }
 
@@ -314,11 +322,15 @@ impl VM {
                 }
                 let b = self.stack.pop().unwrap();
                 let a = self.stack.pop().unwrap();
-                match (a, b) {
+                match (&a, &b) {
                     (Value::Address(addr), Value::Int(offset)) => {
-                        self.stack.push(Value::Address(addr - offset as usize));
+                        self.stack.push(Value::Address(addr - *offset as usize));
                     }
-                    _ => return Err("AddressSub requires Address - Number".to_string()),
+                    (Value::HeapRef(heap_ref), Value::Int(offset)) => {
+                        // HeapRef - offset = new HeapRef with adjusted index  
+                        self.stack.push(Value::HeapRef(HeapIndex(heap_ref.0 - *offset as usize)));
+                    }
+                    _ => return Err(format!("AddressSub requires Address/HeapRef - Number, got {:?} + {:?}", a, b)),
                 }
             }
 
@@ -898,80 +910,6 @@ impl VM {
                 }
             }
 
-            Instruction::PointerIndex => {
-                // Stack: [pointer_heap_ref] [element_index]
-                if self.stack.len() < 2 {
-                    return Err("Stack underflow for PointerIndex".to_string());
-                }
-                let element_index_value = self.stack.pop().unwrap();
-                let pointer_ref = self.stack.pop().unwrap();
-                match (pointer_ref, element_index_value) {
-                    (Value::HeapRef(heap_index), Value::Int(element_index)) => {
-                        let element_index = element_index as usize;
-                        if heap_index.0 >= self.heap.len() {
-                            return Err(format!("Invalid heap index: {}", heap_index.0));
-                        }
-
-                        // Calculate the target index for HeapAlloc-allocated memory
-                        let target_index = heap_index.0 + element_index;
-                        if target_index >= self.heap.len() {
-                            return Err(format!("Pointer index out of bounds: {}", target_index));
-                        }
-
-                        match &self.heap[heap_index.0] {
-                            _ => {
-                                // This is HeapAlloc-allocated memory, access directly
-                                if target_index >= self.heap.len() {
-                                    return Err(format!(
-                                        "Heap index out of bounds: {}",
-                                        target_index
-                                    ));
-                                }
-                                match &self.heap[target_index] {
-                                    value => {
-                                        self.stack.push(value.clone());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    _ => {
-                        return Err("PointerIndex requires a heap reference and number".to_string())
-                    }
-                }
-            }
-
-            Instruction::PointerSet => {
-                // Stack: [value] [element_index] [pointer_heap_ref]
-                if self.stack.len() < 3 {
-                    return Err("Stack underflow for PointerSet".to_string());
-                }
-                let pointer_ref = self.stack.pop().unwrap();
-                let element_index_value = self.stack.pop().unwrap();
-                let value = self.stack.pop().unwrap();
-                match (pointer_ref, element_index_value) {
-                    (Value::HeapRef(heap_index), Value::Int(element_index)) => {
-                        let element_index = element_index as usize;
-                        if heap_index.0 >= self.heap.len() {
-                            return Err(format!("Invalid heap index: {}", heap_index.0));
-                        }
-
-                        // Calculate the target index for HeapAlloc-allocated memory
-                        let target_index = heap_index.0 + element_index;
-                        if target_index >= self.heap.len() {
-                            return Err(format!("Pointer index out of bounds: {}", target_index));
-                        }
-
-                        match &mut self.heap[heap_index.0] {
-                            _ => {
-                                // This is HeapAlloc-allocated memory, set directly
-                                self.heap[target_index] = value;
-                            }
-                        }
-                    }
-                    _ => return Err("PointerSet requires a heap reference and number".to_string()),
-                }
-            }
 
             Instruction::StringIndex => {
                 // Stack: [string_address] [element_index]

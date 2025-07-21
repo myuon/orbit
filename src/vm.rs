@@ -76,9 +76,7 @@ pub enum Instruction {
     Load,  // Load value from heap: [heap_ref] -> [value]
     Store, // Store value to heap: [value] [heap_ref] -> []
 
-    // Pointer operations
-    PointerIndex,
-    PointerSet,
+    // (Pointer operations removed - now handled via AddressAdd + Load/Store)
 
     // String operations
     StringIndex,
@@ -136,8 +134,6 @@ impl fmt::Display for Instruction {
             Instruction::HeapSetOffset => write!(f, "heap_set_offset"),
             Instruction::Load => write!(f, "load"),
             Instruction::Store => write!(f, "store"),
-            Instruction::PointerIndex => write!(f, "pointer_index"),
-            Instruction::PointerSet => write!(f, "pointer_set"),
             Instruction::StringIndex => write!(f, "string_index"),
             Instruction::Syscall => write!(f, "syscall"),
         }
