@@ -12,8 +12,7 @@ pub struct HeapIndex(pub usize);
 /// Objects stored on the heap
 #[derive(Debug, Clone, PartialEq)]
 pub enum HeapObject {
-    Pointer(Vec<Value>), // Pointer is essentially an array of values
-    RawValue(Value),     // Raw value storage for heap memory management
+    RawValue(Value), // Raw value storage for heap memory management
 }
 
 /// Values in the Orbit runtime system
@@ -41,16 +40,6 @@ impl std::fmt::Display for Value {
 impl std::fmt::Display for HeapObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HeapObject::Pointer(v) => {
-                write!(
-                    f,
-                    "[*]{{{}}}",
-                    v.iter()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            }
             HeapObject::RawValue(v) => write!(f, "{}", v),
         }
     }
@@ -803,7 +792,6 @@ impl VM {
                             HeapObject::RawValue(value) => {
                                 self.stack.push(value.clone());
                             }
-                            _ => return Err("HeapGet: heap object is not a raw value".to_string()),
                         }
                     }
                     _ => return Err("HeapGet requires a heap reference".to_string()),
@@ -853,11 +841,6 @@ impl VM {
                         match &self.heap[target_index] {
                             HeapObject::RawValue(value) => {
                                 self.stack.push(value.clone());
-                            }
-                            _ => {
-                                return Err(
-                                    "HeapGetOffset: heap object is not a raw value".to_string()
-                                )
                             }
                         }
                     }
@@ -909,7 +892,6 @@ impl VM {
                             HeapObject::RawValue(value) => {
                                 self.stack.push(value.clone());
                             }
-                            _ => return Err("Load: heap object is not a raw value".to_string()),
                         }
                     }
                     _ => return Err("Load requires a heap reference".to_string()),
@@ -958,26 +940,14 @@ impl VM {
                         }
 
                         match &self.heap[heap_index.0] {
-                            HeapObject::Pointer(arr) => {
-                                if element_index >= arr.len() {
-                                    return Err(format!(
-                                        "Pointer index out of bounds: {} >= {}",
-                                        element_index,
-                                        arr.len()
-                                    ));
-                                }
-                                self.stack.push(arr[element_index].clone());
-                            }
                             HeapObject::RawValue(_) => {
                                 // This is HeapAlloc-allocated memory, access directly
+                                if target_index >= self.heap.len() {
+                                    return Err(format!("Heap index out of bounds: {}", target_index));
+                                }
                                 match &self.heap[target_index] {
                                     HeapObject::RawValue(value) => {
                                         self.stack.push(value.clone());
-                                    }
-                                    _ => {
-                                        return Err(
-                                            "Invalid heap object at pointer index".to_string()
-                                        )
                                     }
                                 }
                             }
@@ -1011,13 +981,6 @@ impl VM {
                         }
 
                         match &mut self.heap[heap_index.0] {
-                            HeapObject::Pointer(arr) => {
-                                if element_index >= arr.len() {
-                                    // Extend the array if needed
-                                    arr.resize(element_index + 1, Value::Int(0));
-                                }
-                                arr[element_index] = value;
-                            }
                             HeapObject::RawValue(_) => {
                                 // This is HeapAlloc-allocated memory, set directly
                                 self.heap[target_index] = HeapObject::RawValue(value);
