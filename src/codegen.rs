@@ -594,17 +594,10 @@ impl CodeGenerator {
                                 self.instructions.push(Instruction::HeapSetOffset);
                             // store field_value
                             } else {
-                                // TODO:
-                                // panic!(
-                                //     "FieldAccess without type information, {:?} at {:?}",
-                                //     field, object_type
-                                // );
-                                // Fallback to legacy implementation for unresolved struct fields
-                                self.compile_expression(value);
-                                self.instructions
-                                    .push(Instruction::PushString(field.clone()));
-                                self.compile_expression(object);
-                                self.instructions.push(Instruction::StructFieldSet);
+                                panic!(
+                                    "FieldAccess without type information, {:?} at {:?}",
+                                    field, object_type
+                                );
                             }
                         }
                         _ => {
@@ -836,27 +829,7 @@ impl CodeGenerator {
                 kind: _,
             } => {
                 // Unified struct handling: Use HeapAlloc + low-level memory operations for all structs
-                let type_name_str = type_name.to_string();
                 let instantiated_name = self.type_to_instantiated_name(type_name);
-
-                if !self.structs.contains_key(&instantiated_name) {
-                    // Fallback for generic types that weren't properly monomorphized
-                    // This is a temporary workaround until monomorphization is fully implemented
-                    if type_name_str.contains('(') && type_name_str.contains(')') {
-                        // Use legacy StructNew for unresolved generic types
-                        for (field_name, field_value) in fields {
-                            self.instructions
-                                .push(Instruction::PushString(field_name.clone()));
-                            self.compile_expression(field_value);
-                        }
-                        self.instructions
-                            .push(Instruction::Push(fields.len() as i64));
-                        self.instructions.push(Instruction::StructNew);
-                        return;
-                    } else {
-                        panic!("Unknown struct type: {}", type_name);
-                    }
-                }
 
                 // 1. Allocate heap memory for the struct
                 self.instructions
@@ -919,16 +892,10 @@ impl CodeGenerator {
                                 self.instructions.push(Instruction::HeapGetOffset);
                             // -> field_value
                             } else {
-                                // TODO:
                                 panic!(
                                     "FieldAccess without type information, {:?} at {:?}",
                                     field, object_type
                                 );
-                                // Fallback to legacy implementation for unresolved struct fields
-                                self.compile_expression(object);
-                                self.instructions
-                                    .push(Instruction::PushString(field.clone()));
-                                self.instructions.push(Instruction::StructFieldGet);
                             }
                         }
                         _ => {
@@ -939,11 +906,7 @@ impl CodeGenerator {
                         }
                     }
                 } else {
-                    // No type information available - fallback to legacy implementation
-                    self.compile_expression(object);
-                    self.instructions
-                        .push(Instruction::PushString(field.clone()));
-                    self.instructions.push(Instruction::StructFieldGet);
+                    panic!("FieldAccess without type information");
                 }
             }
 
