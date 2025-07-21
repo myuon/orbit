@@ -886,7 +886,14 @@ impl VM {
                         let value = &self.heap[heap_index.0];
                         self.stack.push(value.clone());
                     }
-                    _ => return Err("Load requires a heap reference".to_string()),
+                    Value::Address(addr) => {
+                        if addr >= self.heap.len() {
+                            return Err(format!("Invalid address: {}", addr));
+                        }
+                        let value = &self.heap[addr];
+                        self.stack.push(value.clone());
+                    }
+                    _ => return Err("Load requires a heap reference or address".to_string()),
                 }
             }
 
@@ -906,35 +913,17 @@ impl VM {
                         // Set the value as a RawValue in the heap
                         self.heap[heap_index.0] = value;
                     }
-                    _ => return Err("Store requires a heap reference".to_string()),
-                }
-            }
-
-
-            Instruction::StringIndex => {
-                // Stack: [string_address] [element_index]
-                if self.stack.len() < 2 {
-                    return Err("Stack underflow for StringIndex".to_string());
-                }
-                let element_index_value = self.stack.pop().unwrap();
-                let string_addr = self.stack.pop().unwrap();
-                match (string_addr, element_index_value) {
-                    (Value::Address(addr), Value::Int(element_index)) => {
-                        let element_index = element_index as usize;
-                        let target_index = addr + element_index;
-                        if target_index >= self.heap.len() {
-                            return Err("String index out of bounds".to_string());
+                    Value::Address(addr) => {
+                        if addr >= self.heap.len() {
+                            return Err(format!("Invalid address: {}", addr));
                         }
-                        match &self.heap[target_index] {
-                            Value::Byte(byte) => {
-                                self.stack.push(Value::Byte(*byte));
-                            }
-                            _ => return Err("String index out of bounds".to_string()),
-                        }
+                        self.heap[addr] = value;
                     }
-                    _ => return Err("StringIndex requires an address and number".to_string()),
+                    _ => return Err("Store requires a heap reference or address".to_string()),
                 }
             }
+
+
 
             Instruction::Syscall => {
                 // Stack: [return_placeholder] [syscall_number] [fd] [buffer] [length] (pushed left-to-right)

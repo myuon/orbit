@@ -816,7 +816,9 @@ impl CodeGenerator {
                         self.instructions.push(Instruction::Load);
                     }
                     Some(IndexContainerType::String) => {
-                        self.instructions.push(Instruction::StringIndex);
+                        // str[index] = str + index; load
+                        self.instructions.push(Instruction::AddressAdd);
+                        self.instructions.push(Instruction::Load);
                     }
                     None => {
                         // Type checking should have resolved this
