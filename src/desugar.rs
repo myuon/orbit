@@ -598,20 +598,24 @@ impl Desugarer {
                 if let Type::Struct { name, args: _ } = type_name {
                     if name == "array" && *kind == StructNewKind::Regular && fields.len() == 2 {
                         // Check if fields are "data" and "length"
-                        let has_data_field = fields.iter().any(|(field_name, _)| field_name == "data");
-                        let has_length_field = fields.iter().any(|(field_name, _)| field_name == "length");
-                        
+                        let has_data_field =
+                            fields.iter().any(|(field_name, _)| field_name == "data");
+                        let has_length_field =
+                            fields.iter().any(|(field_name, _)| field_name == "length");
+
                         if has_data_field && has_length_field {
                             // Extract data and length field values
-                            let data_expr = fields.iter()
+                            let data_expr = fields
+                                .iter()
                                 .find(|(field_name, _)| field_name == "data")
                                 .map(|(_, expr)| expr.clone())
                                 .unwrap();
-                            let length_expr = fields.iter()
+                            let length_expr = fields
+                                .iter()
                                 .find(|(field_name, _)| field_name == "length")
                                 .map(|(_, expr)| expr.clone())
                                 .unwrap();
-                                
+
                             // Convert to method call: array(T)._new_from_data(data, length)
                             let method_call = Expr::MethodCall {
                                 object: None,
@@ -619,8 +623,9 @@ impl Desugarer {
                                 method: "_new_from_data".to_string(),
                                 args: vec![data_expr, length_expr],
                             };
-                            
-                            return self.desugar_expression(&Positioned::with_unknown_span(method_call));
+
+                            return self
+                                .desugar_expression(&Positioned::with_unknown_span(method_call));
                         }
                     }
                 }
@@ -694,7 +699,7 @@ impl Desugarer {
                     ],
                     kind: StructNewKind::Regular,
                 };
-                
+
                 // Recursively desugar the StructNew
                 return self.desugar_expression(&Positioned::with_unknown_span(struct_new));
             }

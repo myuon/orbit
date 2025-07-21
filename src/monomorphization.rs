@@ -1068,7 +1068,9 @@ impl Monomorphizer {
             } => Expr::FieldAccess {
                 object: Box::new(self.substitute_expression_globally(object)?),
                 field: field.clone(),
-                object_type: object_type.as_ref().map(|t| self.substitute_type_globally(t)),
+                object_type: object_type
+                    .as_ref()
+                    .map(|t| self.substitute_type_globally(t)),
             },
             Expr::MethodCall {
                 object,
@@ -1081,7 +1083,9 @@ impl Monomorphizer {
                 } else {
                     None
                 },
-                object_type: object_type.as_ref().map(|t| self.substitute_type_globally(t)),
+                object_type: object_type
+                    .as_ref()
+                    .map(|t| self.substitute_type_globally(t)),
                 method: method.clone(),
                 args: args
                     .iter()

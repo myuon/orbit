@@ -1460,10 +1460,12 @@ impl TypeChecker {
                             }
                         } else {
                             // Generic struct - resolve the field type using the concrete type arguments
-                            if let Some(generic_fields) = self.resolve_generic_struct_fields(&Type::Struct {
-                                name: struct_name.clone(),
-                                args: args.clone(),
-                            }) {
+                            if let Some(generic_fields) =
+                                self.resolve_generic_struct_fields(&Type::Struct {
+                                    name: struct_name.clone(),
+                                    args: args.clone(),
+                                })
+                            {
                                 generic_fields.get(field).cloned().ok_or_else(|| {
                                     crate::anyhow_with_position!(
                                         object.span.clone(),

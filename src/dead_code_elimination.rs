@@ -333,7 +333,7 @@ impl DeadCodeEliminator {
             } => {
                 self.mark_type_reachable(type_name);
 
-                // For any StructNew expression (both Pattern and Regular kind), 
+                // For any StructNew expression (both Pattern and Regular kind),
                 // mark the exact type name as reachable to preserve the struct declaration
                 let full_type_name = type_name.to_string();
                 self.reachable_types.insert(full_type_name);

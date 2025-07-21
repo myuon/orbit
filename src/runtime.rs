@@ -31,7 +31,6 @@ impl std::fmt::Display for Value {
     }
 }
 
-
 pub enum ControlFlow {
     Exit(i64),
     Continue,
@@ -48,7 +47,7 @@ pub struct VM {
     pub print_stacks: bool, // whether to print stack state during execution
     pub print_heaps: bool,  // whether to print heap state during execution
     print_stacks_on_call: Option<String>, // print stacks only when calling this function
-    heap: Vec<Value>,  // unified heap storage
+    heap: Vec<Value>,       // unified heap storage
     globals: Vec<Value>,    // global variables
     // Output capture for testing
     pub captured_output: Option<String>,
@@ -899,7 +898,6 @@ impl VM {
                 }
             }
 
-
             Instruction::PointerIndex => {
                 // Stack: [pointer_heap_ref] [element_index]
                 if self.stack.len() < 2 {
@@ -924,7 +922,10 @@ impl VM {
                             _ => {
                                 // This is HeapAlloc-allocated memory, access directly
                                 if target_index >= self.heap.len() {
-                                    return Err(format!("Heap index out of bounds: {}", target_index));
+                                    return Err(format!(
+                                        "Heap index out of bounds: {}",
+                                        target_index
+                                    ));
                                 }
                                 match &self.heap[target_index] {
                                     value => {
@@ -1072,7 +1073,7 @@ impl VM {
                                     // Read bytes from heap starting at data_addr
                                     let mut bytes = Vec::new();
                                     let mut current_addr = data_addr;
-                                    
+
                                     while current_addr < self.heap.len() {
                                         match &self.heap[current_addr] {
                                             Value::Byte(byte) => {
@@ -1085,7 +1086,7 @@ impl VM {
                                         }
                                         current_addr += 1;
                                     }
-                                    
+
                                     String::from_utf8_lossy(&bytes).to_string()
                                 } else {
                                     return Err("Write syscall: invalid data address".to_string());
