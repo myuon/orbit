@@ -306,13 +306,20 @@ impl VM {
                     }
                     (Value::HeapRef(heap_ref), Value::Int(offset)) => {
                         // HeapRef + offset = new HeapRef with adjusted index
-                        self.stack.push(Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize)));
+                        self.stack
+                            .push(Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize)));
                     }
                     (Value::Int(offset), Value::HeapRef(heap_ref)) => {
                         // Handle reversed order: Int + HeapRef -> HeapRef
-                        self.stack.push(Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize)));
+                        self.stack
+                            .push(Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize)));
                     }
-                    _ => return Err(format!("AddressAdd requires Address/HeapRef + Number, got {:?} + {:?}", a, b)),
+                    _ => {
+                        return Err(format!(
+                            "AddressAdd requires Address/HeapRef + Number, got {:?} + {:?}",
+                            a, b
+                        ))
+                    }
                 }
             }
 
@@ -327,10 +334,16 @@ impl VM {
                         self.stack.push(Value::Address(addr - *offset as usize));
                     }
                     (Value::HeapRef(heap_ref), Value::Int(offset)) => {
-                        // HeapRef - offset = new HeapRef with adjusted index  
-                        self.stack.push(Value::HeapRef(HeapIndex(heap_ref.0 - *offset as usize)));
+                        // HeapRef - offset = new HeapRef with adjusted index
+                        self.stack
+                            .push(Value::HeapRef(HeapIndex(heap_ref.0 - *offset as usize)));
                     }
-                    _ => return Err(format!("AddressSub requires Address/HeapRef - Number, got {:?} + {:?}", a, b)),
+                    _ => {
+                        return Err(format!(
+                            "AddressSub requires Address/HeapRef - Number, got {:?} + {:?}",
+                            a, b
+                        ))
+                    }
                 }
             }
 
@@ -922,8 +935,6 @@ impl VM {
                     _ => return Err("Store requires a heap reference or address".to_string()),
                 }
             }
-
-
 
             Instruction::Syscall => {
                 // Stack: [return_placeholder] [syscall_number] [fd] [buffer] [length] (pushed left-to-right)
