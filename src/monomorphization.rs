@@ -5,7 +5,6 @@ use crate::ast::{
 use anyhow::{bail, Result};
 use std::collections::{HashMap, HashSet};
 
-
 /// Target for monomorphization - represents a generic symbol that needs to be instantiated
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MonomorphizationTarget {
@@ -331,7 +330,6 @@ impl Monomorphizer {
         Ok(())
     }
 
-
     /// Process all targets and generate monomorphized code
     pub fn monomorphize(&mut self) -> Result<()> {
         while let Some(target) = self.targets.pop() {
@@ -624,9 +622,7 @@ impl Monomorphizer {
                 } else {
                     None
                 },
-                object_type: object_type
-                    .as_ref()
-                    .map(|t| t.substitute(substitutions)),
+                object_type: object_type.as_ref().map(|t| t.substitute(substitutions)),
                 method: method.clone(),
                 args: args
                     .iter()

@@ -456,7 +456,6 @@ impl TypeChecker {
                 Ok(())
             }
 
-
             Expr::Index {
                 container,
                 index,
@@ -1144,7 +1143,6 @@ impl TypeChecker {
                     Ok(Type::Unknown) // For now, return unknown for complex function calls
                 }
             }
-
 
             Expr::Index {
                 container,

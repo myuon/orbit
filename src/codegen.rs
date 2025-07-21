@@ -685,7 +685,6 @@ impl CodeGenerator {
                 }
             }
 
-
             Expr::Alloc { element_type, size } => {
                 // Size-based alloc: compile the size expression
                 self.compile_expression(size);
