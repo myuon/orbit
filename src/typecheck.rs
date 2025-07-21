@@ -1695,7 +1695,8 @@ impl TypeChecker {
                 match &expr.value {
                     Expr::StructNew { type_name, .. } => {
                         // If returning a struct creation, return that struct type
-                        self.structs.get(&type_name.to_string()).cloned()
+                        // For struct types like array(byte), we need to resolve the concrete type
+                        Some(type_name.clone())
                     }
                     Expr::Int(_) => Some(Type::Int),
                     Expr::Boolean(_) => Some(Type::Boolean),

@@ -6,6 +6,10 @@ type array(T: type) = struct {
     return new(struct) array(T) { .data = alloc(T, length), .length = length };
   end
 
+  fun _new_from_data(data: [*]T, length: int): array(T) do
+    return new(struct) array(T) { .data = data, .length = length };
+  end
+
   fun _get(self: array(T), index: int): T do
     return self.data[index];
   end

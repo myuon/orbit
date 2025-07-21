@@ -214,8 +214,81 @@ impl Monomorphizer {
         Ok(())
     }
 
+    /// Check for string usage and ensure array(byte) is available for monomorphization
+    fn check_string_usage_and_add_array_byte(&mut self, expr: &PositionedExpr) {
+        match &expr.value {
+            // String literal
+            Expr::String(_) | Expr::PushString(_) => {
+                self.add_array_byte_target();
+            }
+            // Index access with string container
+            Expr::Index {
+                container_value_type,
+                ..
+            } => {
+                if let Some(container_type) = container_value_type {
+                    if matches!(container_type, Type::String) {
+                        self.add_array_byte_target();
+                    }
+                }
+            }
+            // Binary operations that might involve strings
+            Expr::Binary { left, right, .. } => {
+                self.check_string_usage_and_add_array_byte(left);
+                self.check_string_usage_and_add_array_byte(right);
+            }
+            // Function calls that might return strings or take string parameters
+            Expr::Call { args, .. } => {
+                for arg in args {
+                    self.check_string_usage_and_add_array_byte(arg);
+                }
+            }
+            // Field access on string-typed objects
+            Expr::FieldAccess { object, .. } => {
+                self.check_string_usage_and_add_array_byte(object);
+            }
+            // Method calls on string-typed objects
+            Expr::MethodCall { object, args, .. } => {
+                if let Some(obj) = object {
+                    self.check_string_usage_and_add_array_byte(obj);
+                }
+                for arg in args {
+                    self.check_string_usage_and_add_array_byte(arg);
+                }
+            }
+            // Struct creation with string fields
+            Expr::StructNew { fields, .. } => {
+                for (_, field_expr) in fields {
+                    self.check_string_usage_and_add_array_byte(field_expr);
+                }
+            }
+            // Cast operations involving strings
+            Expr::Cast { expr, .. } => {
+                self.check_string_usage_and_add_array_byte(expr);
+            }
+            // Alloc expressions
+            Expr::Alloc { size, .. } => {
+                self.check_string_usage_and_add_array_byte(size);
+            }
+            // Other expressions that don't directly involve strings
+            _ => {}
+        }
+    }
+
+    /// Add array(byte) as a monomorphization target
+    fn add_array_byte_target(&mut self) {
+        let struct_target = MonomorphizationTarget {
+            symbol: "array".to_string(),
+            args: vec![Type::Byte],
+        };
+        self.add_target(struct_target);
+    }
+
     /// Collect targets from an expression
     fn collect_targets_from_expr(&mut self, expr: &PositionedExpr) -> Result<()> {
+        // Check if we encounter any string usage and ensure array(byte) is available
+        self.check_string_usage_and_add_array_byte(expr);
+
         match &expr.value {
             Expr::Call { callee, args } => {
                 // Check if this is a generic function call
@@ -309,21 +382,9 @@ impl Monomorphizer {
             Expr::Index {
                 container,
                 index,
-                container_value_type,
+                container_value_type: _,
                 ..
             } => {
-                // Check if this is string indexing - if so, add array(byte) struct as a target
-                if let Some(ref container_type) = container_value_type {
-                    if matches!(container_type, Type::String) {
-                        // Add array(byte) struct as a target (methods will be included automatically)
-                        let struct_target = MonomorphizationTarget {
-                            symbol: "array".to_string(),
-                            args: vec![Type::Byte],
-                        };
-                        self.add_target(struct_target);
-                    }
-                }
-
                 self.collect_targets_from_expr(container)?;
                 self.collect_targets_from_expr(index)?;
             }

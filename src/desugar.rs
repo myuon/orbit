@@ -64,7 +64,8 @@ impl Desugarer {
         // Configure array type operations
         let array_config = TypeDesugarConfig::new()
             .with_operation(DesugarOperation::Index, "_get")
-            .with_operation(DesugarOperation::Assign, "_set");
+            .with_operation(DesugarOperation::Assign, "_set")
+            .with_operation(DesugarOperation::New, "_new");
         type_operations.insert("array".to_string(), array_config);
 
         Self {
@@ -593,6 +594,37 @@ impl Desugarer {
                     }
                 }
 
+                // Check if this is an array struct with data/length fields that should use _new_from_data
+                if let Type::Struct { name, args: _ } = type_name {
+                    if name == "array" && *kind == StructNewKind::Regular && fields.len() == 2 {
+                        // Check if fields are "data" and "length"
+                        let has_data_field = fields.iter().any(|(field_name, _)| field_name == "data");
+                        let has_length_field = fields.iter().any(|(field_name, _)| field_name == "length");
+                        
+                        if has_data_field && has_length_field {
+                            // Extract data and length field values
+                            let data_expr = fields.iter()
+                                .find(|(field_name, _)| field_name == "data")
+                                .map(|(_, expr)| expr.clone())
+                                .unwrap();
+                            let length_expr = fields.iter()
+                                .find(|(field_name, _)| field_name == "length")
+                                .map(|(_, expr)| expr.clone())
+                                .unwrap();
+                                
+                            // Convert to method call: array(T)._new_from_data(data, length)
+                            let method_call = Expr::MethodCall {
+                                object: None,
+                                object_type: Some(type_name.clone()),
+                                method: "_new_from_data".to_string(),
+                                args: vec![data_expr, length_expr],
+                            };
+                            
+                            return self.desugar_expression(&Positioned::with_unknown_span(method_call));
+                        }
+                    }
+                }
+
                 let mut desugared_fields = Vec::new();
                 for (field_name, field_value) in fields {
                     let desugared_value = self.desugar_expression(field_value)?;
@@ -643,8 +675,9 @@ impl Desugarer {
             // String literals need to be converted to array(byte) structures
             Expr::String(s) => {
                 // Convert "hello" to new(struct) array(byte) { .data = pushString("hello"), .length = 5 }
+                // Then recursively desugar the StructNew to convert it to method call
                 let string_length = s.len() as i64;
-                Expr::StructNew {
+                let struct_new = Expr::StructNew {
                     type_name: Type::Struct {
                         name: "array".to_string(),
                         args: vec![Type::Byte],
@@ -660,7 +693,10 @@ impl Desugarer {
                         ),
                     ],
                     kind: StructNewKind::Regular,
-                }
+                };
+                
+                // Recursively desugar the StructNew
+                return self.desugar_expression(&Positioned::with_unknown_span(struct_new));
             }
             // Leaf expressions that don't need desugaring
             Expr::Int(_)
