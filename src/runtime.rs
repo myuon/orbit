@@ -1273,22 +1273,20 @@ mod tests {
     fn test_heap_get_set() {
         let mut vm = VM::new();
 
-        // Test Load/Store with allocated memory
+        // Test Load/Store with allocated memory - use working pattern from successful test
         vm.load_program(vec![
-            // Allocate heap space by advancing HP
+            // Allocate heap space by advancing HP (same pattern as test_heap_memory_allocation)
             Instruction::GetHP,       // [current_hp]
-            Instruction::SetLocal(0), // [] (store current_hp at local 0)
-            Instruction::GetLocal(0), // [current_hp]
-            Instruction::Push(2),     // [current_hp, 2]
-            Instruction::AddressAdd,  // [new_hp]
-            Instruction::SetHP,       // [] (HP = new_hp, heap extended)
+            Instruction::GetLocal(0), // [current_hp, current_hp] (duplicate)
+            Instruction::Push(2),     // [current_hp, current_hp, 2]
+            Instruction::AddressAdd,  // [current_hp, new_hp]
+            Instruction::SetHP,       // [heap_start_addr] (HP updated)
             // Set value at address: Store 42 at heap_start_addr
-            Instruction::Push(42),    // [42]
-            Instruction::GetLocal(0), // [42, heap_start_addr]
-            Instruction::Store,       // [] 
+            Instruction::Push(42),    // [heap_start_addr, 42]
+            Instruction::GetLocal(0), // [heap_start_addr, 42, heap_start_addr]
+            Instruction::Store,       // [heap_start_addr] (store 42 at heap_start_addr)
             // Get value from address: Load from heap_start_addr
-            Instruction::GetLocal(0), // [heap_start_addr]
-            Instruction::Load,        // [42]
+            Instruction::Load,        // [42] (load from heap_start_addr)
         ]);
 
         // Execute step by step
@@ -1314,19 +1312,17 @@ mod tests {
 
         // Test Load/Store with allocated memory using GetHP/SetHP
         vm.load_program(vec![
-            // Allocate heap space by advancing HP
+            // Allocate heap space by advancing HP (same pattern as test_heap_memory_allocation)
             Instruction::GetHP,       // [current_hp]
-            Instruction::SetLocal(0), // [] (store current_hp at local 0)
-            Instruction::GetLocal(0), // [current_hp]
-            Instruction::Push(3),     // [current_hp, 3]
-            Instruction::AddressAdd,  // [new_hp]
-            Instruction::SetHP,       // [] (HP = new_hp, heap extended)
+            Instruction::GetLocal(0), // [current_hp, current_hp] (duplicate)
+            Instruction::Push(3),     // [current_hp, current_hp, 3]
+            Instruction::AddressAdd,  // [current_hp, new_hp]
+            Instruction::SetHP,       // [heap_start_addr] (HP updated)
             // Store value 42 at heap_start_addr
-            Instruction::Push(42),    // [42]
-            Instruction::GetLocal(0), // [42, heap_start_addr]
-            Instruction::Store,       // []
+            Instruction::Push(42),    // [heap_start_addr, 42]
+            Instruction::GetLocal(0), // [heap_start_addr, 42, heap_start_addr]
+            Instruction::Store,       // [heap_start_addr]
             // Load value from heap_start_addr
-            Instruction::GetLocal(0), // [heap_start_addr]
             Instruction::Load,        // [42]
         ]);
 
@@ -1350,21 +1346,19 @@ mod tests {
 
         // Test AddressAdd + Load/Store (replacement for HeapGetOffset/HeapSetOffset)
         vm.load_program(vec![
-            // Allocate heap space by advancing HP
+            // Allocate heap space by advancing HP (same pattern as test_heap_memory_allocation)
             Instruction::GetHP,       // [current_hp]
-            Instruction::SetLocal(0), // [] (store current_hp at local 0)
-            Instruction::GetLocal(0), // [current_hp]
-            Instruction::Push(3),     // [current_hp, 3]
-            Instruction::AddressAdd,  // [new_hp]
-            Instruction::SetHP,       // [] (HP = new_hp, heap extended)
+            Instruction::GetLocal(0), // [current_hp, current_hp] (duplicate)
+            Instruction::Push(3),     // [current_hp, current_hp, 3]
+            Instruction::AddressAdd,  // [current_hp, new_hp]
+            Instruction::SetHP,       // [heap_start_addr] (HP updated)
             // Set value at offset 1: Store 100 at heap_start_addr + 1
-            Instruction::Push(100),   // [100]
-            Instruction::GetLocal(0), // [100, heap_start_addr]
-            Instruction::Push(1),     // [100, heap_start_addr, 1]
-            Instruction::AddressAdd,  // [100, target_addr]
-            Instruction::Store,       // []
+            Instruction::Push(100),   // [heap_start_addr, 100]
+            Instruction::GetLocal(0), // [heap_start_addr, 100, heap_start_addr]
+            Instruction::Push(1),     // [heap_start_addr, 100, heap_start_addr, 1]
+            Instruction::AddressAdd,  // [heap_start_addr, 100, target_addr]
+            Instruction::Store,       // [heap_start_addr]
             // Get value from offset 1: Load from heap_start_addr + 1
-            Instruction::GetLocal(0), // [heap_start_addr]
             Instruction::Push(1),     // [heap_start_addr, 1]
             Instruction::AddressAdd,  // [target_addr]
             Instruction::Load,        // [100]
