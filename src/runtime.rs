@@ -725,15 +725,18 @@ impl VM {
                     return Err("Stack underflow for SetHP".to_string());
                 }
                 let value = self.stack.pop().unwrap();
-                match value {
-                    Value::Address(addr) => {
-                        self.hp = addr;
-                    }
-                    Value::Int(n) => {
-                        self.hp = n as usize;
-                    }
+                let new_hp = match value {
+                    Value::Address(addr) => addr,
+                    Value::Int(n) => n as usize,
                     _ => return Err("SetHP requires an address or number".to_string()),
+                };
+                
+                // Extend heap if HP is advanced beyond current heap size
+                while self.heap.len() < new_hp {
+                    self.heap.push(Value::Int(0)); // Initialize new heap slots with zero
                 }
+                
+                self.hp = new_hp;
             }
 
             Instruction::GetPC => {
@@ -760,129 +763,15 @@ impl VM {
                 // Do nothing
             }
 
-            Instruction::HeapAlloc => {
-                // Stack: [size] - allocate size values on heap
-                if self.stack.is_empty() {
-                    return Err("Stack underflow for HeapAlloc".to_string());
-                }
-                let size_value = self.stack.pop().unwrap();
-                let size = match size_value {
-                    Value::Int(n) => n as usize,
-                    _ => return Err("HeapAlloc requires a size (number)".to_string()),
-                };
+            // (HeapAlloc removed - now handled via GetHP/SetHP)
 
-                // Allocate space on heap starting at current heap end
-                // This ensures we don't overwrite existing heap objects like strings
-                let heap_start_index = self.heap.len();
+            // (HeapGet removed - now handled via Load)
 
-                // Extend heap to accommodate the allocation
-                for _ in 0..size {
-                    self.heap.push(Value::Int(0)); // Initialize with zero
-                }
+            // (HeapSet removed - now handled via Store)
 
-                // Push heap reference to the start of allocated region
-                self.stack.push(Value::HeapRef(HeapIndex(heap_start_index)));
+            // (HeapGetOffset removed - now handled via AddressAdd + Load)
 
-                // Update HP to point after allocated region
-                self.hp = self.heap.len();
-            }
-
-            Instruction::HeapGet => {
-                // Stack: [heap_ref] -> [value]
-                // Get value from heap at specified index
-                if self.stack.is_empty() {
-                    return Err("Stack underflow for HeapGet".to_string());
-                }
-                let heap_ref = self.stack.pop().unwrap();
-                match heap_ref {
-                    Value::HeapRef(heap_index) => {
-                        if heap_index.0 >= self.heap.len() {
-                            return Err(format!("Invalid heap index: {}", heap_index.0));
-                        }
-                        let value = &self.heap[heap_index.0];
-                        self.stack.push(value.clone());
-                    }
-                    _ => return Err("HeapGet requires a heap reference".to_string()),
-                }
-            }
-
-            Instruction::HeapSet => {
-                // Stack: [value] [heap_ref] -> []
-                // Set value in heap at specified index
-                if self.stack.len() < 2 {
-                    return Err("Stack underflow for HeapSet".to_string());
-                }
-                let heap_ref = self.stack.pop().unwrap();
-                let value = self.stack.pop().unwrap();
-                match heap_ref {
-                    Value::HeapRef(heap_index) => {
-                        if heap_index.0 >= self.heap.len() {
-                            return Err(format!("Invalid heap index: {}", heap_index.0));
-                        }
-                        // Set the value as a RawValue in the heap
-                        self.heap[heap_index.0] = value;
-                    }
-                    _ => return Err("HeapSet requires a heap reference".to_string()),
-                }
-            }
-
-            Instruction::HeapGetOffset => {
-                // Stack: [offset] [heap_ref] -> [value]
-                // Get value from heap at base + offset
-                if self.stack.len() < 2 {
-                    return Err("Stack underflow for HeapGetOffset".to_string());
-                }
-                let offset_value = self.stack.pop().unwrap();
-                let heap_ref = self.stack.pop().unwrap();
-
-                let offset = match offset_value {
-                    Value::Int(n) => n as usize,
-                    _ => return Err("HeapGetOffset requires an offset (number)".to_string()),
-                };
-
-                match heap_ref {
-                    Value::HeapRef(heap_index) => {
-                        let target_index = heap_index.0 + offset;
-                        if target_index >= self.heap.len() {
-                            return Err(format!("Invalid heap index: {}", target_index));
-                        }
-                        match &self.heap[target_index] {
-                            value => {
-                                self.stack.push(value.clone());
-                            }
-                        }
-                    }
-                    _ => return Err("HeapGetOffset requires a heap reference".to_string()),
-                }
-            }
-
-            Instruction::HeapSetOffset => {
-                // Stack: [value] [offset] [heap_ref] -> []
-                // Set value in heap at base + offset
-                if self.stack.len() < 3 {
-                    return Err("Stack underflow for HeapSetOffset".to_string());
-                }
-                let heap_ref = self.stack.pop().unwrap();
-                let offset_value = self.stack.pop().unwrap();
-                let value = self.stack.pop().unwrap();
-
-                let offset = match offset_value {
-                    Value::Int(n) => n as usize,
-                    _ => return Err("HeapSetOffset requires an offset (number)".to_string()),
-                };
-
-                match heap_ref {
-                    Value::HeapRef(heap_index) => {
-                        let target_index = heap_index.0 + offset;
-                        if target_index >= self.heap.len() {
-                            return Err(format!("Invalid heap index: {}", target_index));
-                        }
-                        // Set the value as a RawValue in the heap
-                        self.heap[target_index] = value;
-                    }
-                    _ => return Err("HeapSetOffset requires a heap reference".to_string()),
-                }
-            }
+            // (HeapSetOffset removed - now handled via AddressAdd + Store)
 
             Instruction::Load => {
                 // Stack: [heap_ref] -> [value]
@@ -1354,10 +1243,14 @@ mod tests {
     fn test_heap_memory_allocation() {
         let mut vm = VM::new();
 
-        // Test HeapAlloc: allocate 3 values on heap
+        // Test GetHP/SetHP: allocate 3 values on heap
         vm.load_program(vec![
-            Instruction::Push(3),   // size = 3
-            Instruction::HeapAlloc, // allocate 3 heap slots, pushes heap_ref
+            // Simple allocation: get current HP, then advance it
+            Instruction::GetHP,       // [current_hp]
+            Instruction::GetLocal(0), // [current_hp, current_hp] (duplicate)
+            Instruction::Push(3),     // [current_hp, current_hp, 3]
+            Instruction::AddressAdd,  // [current_hp, new_hp]
+            Instruction::SetHP,       // [current_hp] (HP = new_hp, heap extended)
         ]);
 
         // Execute step by step to check intermediate state
@@ -1366,17 +1259,13 @@ mod tests {
         }
 
         // Check that heap has been allocated
-        assert_eq!(vm.heap.len(), 3);
         assert_eq!(vm.hp, 3);
-
-        // The final result should be a heap reference as exit code
-        // Check that all heap objects are initialized as RawValue(Int(0))
-        for i in 0..3 {
-            if let Value::Int(val) = &vm.heap[i] {
-                assert_eq!(*val, 0);
-            } else {
-                panic!("Expected RawValue(Int(0)) at heap[{}]", i);
-            }
+        // Stack should contain heap start address
+        assert_eq!(vm.stack.len(), 1);
+        if let Value::Address(addr) = vm.stack[0] {
+            assert_eq!(addr, 0); // First allocation should start at 0
+        } else {
+            panic!("Expected Address on stack");
         }
     }
 
@@ -1384,18 +1273,22 @@ mod tests {
     fn test_heap_get_set() {
         let mut vm = VM::new();
 
-        // Test HeapGet/HeapSet with allocated memory
+        // Test Load/Store with allocated memory
         vm.load_program(vec![
-            Instruction::Push(2),   // size = 2
-            Instruction::HeapAlloc, // allocate 2 heap slots -> [heap_ref]
-            // Set value at index 0: duplicate heap_ref, then set
-            Instruction::Push(42),    // [heap_ref, 42]
-            Instruction::GetLocal(0), // [heap_ref, 42, heap_ref] - duplicate heap_ref
-            Instruction::HeapSet,     // [heap_ref] - set heap[0] = 42
-            // Get value from index 0
-            Instruction::GetLocal(0), // [heap_ref, heap_ref] - duplicate heap_ref
-            Instruction::HeapGet,     // [heap_ref, 42] - get value from heap[0]
-            Instruction::Nop,         // prevent program from consuming stack as return value
+            // Allocate heap space by advancing HP
+            Instruction::GetHP,       // [current_hp]
+            Instruction::SetLocal(0), // [] (store current_hp at local 0)
+            Instruction::GetLocal(0), // [current_hp]
+            Instruction::Push(2),     // [current_hp, 2]
+            Instruction::AddressAdd,  // [new_hp]
+            Instruction::SetHP,       // [] (HP = new_hp, heap extended)
+            // Set value at address: Store 42 at heap_start_addr
+            Instruction::Push(42),    // [42]
+            Instruction::GetLocal(0), // [42, heap_start_addr]
+            Instruction::Store,       // [] 
+            // Get value from address: Load from heap_start_addr
+            Instruction::GetLocal(0), // [heap_start_addr]
+            Instruction::Load,        // [42]
         ]);
 
         // Execute step by step
@@ -1404,21 +1297,14 @@ mod tests {
         }
 
         let stack = vm.get_stack();
-        // Stack should contain: [heap_ref, retrieved_value]
-        assert_eq!(stack.len(), 2);
+        // Stack should contain: [retrieved_value]
+        assert_eq!(stack.len(), 1);
 
         // Check that we got the value back
-        if let Value::Int(value) = &stack[1] {
+        if let Value::Int(value) = &stack[0] {
             assert_eq!(*value, 42);
         } else {
-            panic!("Expected Int(42), got {:?}", stack[1]);
-        }
-
-        // Check heap content
-        if let Value::Int(stored_value) = &vm.heap[0] {
-            assert_eq!(*stored_value, 42);
-        } else {
-            panic!("Expected RawValue(Int(42))");
+            panic!("Expected Int(42), got {:?}", stack[0]);
         }
     }
 
@@ -1426,18 +1312,22 @@ mod tests {
     fn test_load_store_operations() {
         let mut vm = VM::new();
 
-        // Test Load/Store with allocated memory
+        // Test Load/Store with allocated memory using GetHP/SetHP
         vm.load_program(vec![
-            Instruction::Push(3),   // size = 3
-            Instruction::HeapAlloc, // allocate 3 heap slots -> [heap_ref]
-            // Store value 42 at heap_ref
-            Instruction::Push(42),    // [heap_ref, 42]
-            Instruction::GetLocal(0), // [heap_ref, 42, heap_ref] - duplicate heap_ref
-            Instruction::Store,       // [heap_ref] - store 42 at heap_ref
-            // Load value from heap_ref
-            Instruction::GetLocal(0), // [heap_ref, heap_ref] - duplicate heap_ref
-            Instruction::Load,        // [heap_ref, 42] - load value from heap_ref
-            Instruction::Nop,         // prevent program from consuming stack as return value
+            // Allocate heap space by advancing HP
+            Instruction::GetHP,       // [current_hp]
+            Instruction::SetLocal(0), // [] (store current_hp at local 0)
+            Instruction::GetLocal(0), // [current_hp]
+            Instruction::Push(3),     // [current_hp, 3]
+            Instruction::AddressAdd,  // [new_hp]
+            Instruction::SetHP,       // [] (HP = new_hp, heap extended)
+            // Store value 42 at heap_start_addr
+            Instruction::Push(42),    // [42]
+            Instruction::GetLocal(0), // [42, heap_start_addr]
+            Instruction::Store,       // []
+            // Load value from heap_start_addr
+            Instruction::GetLocal(0), // [heap_start_addr]
+            Instruction::Load,        // [42]
         ]);
 
         // Execute step by step
@@ -1446,7 +1336,7 @@ mod tests {
         }
 
         // Check final result
-        assert_eq!(vm.stack.len(), 2); // heap_ref and loaded value
+        assert_eq!(vm.stack.len(), 1); // loaded value only
         if let Some(Value::Int(n)) = vm.stack.last() {
             assert_eq!(*n, 42);
         } else {
@@ -1458,22 +1348,26 @@ mod tests {
     fn test_heap_offset_operations() {
         let mut vm = VM::new();
 
-        // Test HeapGetOffset/HeapSetOffset
+        // Test AddressAdd + Load/Store (replacement for HeapGetOffset/HeapSetOffset)
         vm.load_program(vec![
-            Instruction::Push(3),   // size = 3
-            Instruction::HeapAlloc, // allocate 3 heap slots -> [heap_ref]
-            // Set value at offset 1 (heap[1] = 100)
-            // Stack order for HeapSetOffset: [value] [offset] [heap_ref]
-            Instruction::Push(100),     // [heap_ref, 100]
-            Instruction::Push(1),       // [heap_ref, 100, 1]
-            Instruction::GetLocal(0),   // [heap_ref, 100, 1, heap_ref]
-            Instruction::HeapSetOffset, // [heap_ref] - set heap[base + 1] = 100
-            // Get value from offset 1
-            // Stack order for HeapGetOffset: [heap_ref] [offset] (offset at top)
-            Instruction::GetLocal(0),   // [heap_ref, heap_ref]
-            Instruction::Push(1),       // [heap_ref, heap_ref, 1]
-            Instruction::HeapGetOffset, // [heap_ref, 100] - get value from heap[base + 1]
-            Instruction::Nop,           // prevent program from consuming stack as return value
+            // Allocate heap space by advancing HP
+            Instruction::GetHP,       // [current_hp]
+            Instruction::SetLocal(0), // [] (store current_hp at local 0)
+            Instruction::GetLocal(0), // [current_hp]
+            Instruction::Push(3),     // [current_hp, 3]
+            Instruction::AddressAdd,  // [new_hp]
+            Instruction::SetHP,       // [] (HP = new_hp, heap extended)
+            // Set value at offset 1: Store 100 at heap_start_addr + 1
+            Instruction::Push(100),   // [100]
+            Instruction::GetLocal(0), // [100, heap_start_addr]
+            Instruction::Push(1),     // [100, heap_start_addr, 1]
+            Instruction::AddressAdd,  // [100, target_addr]
+            Instruction::Store,       // []
+            // Get value from offset 1: Load from heap_start_addr + 1
+            Instruction::GetLocal(0), // [heap_start_addr]
+            Instruction::Push(1),     // [heap_start_addr, 1]
+            Instruction::AddressAdd,  // [target_addr]
+            Instruction::Load,        // [100]
         ]);
 
         // Execute step by step
@@ -1482,21 +1376,14 @@ mod tests {
         }
 
         let stack = vm.get_stack();
-        // Stack should contain: [heap_ref, retrieved_value]
-        assert_eq!(stack.len(), 2);
+        // Stack should contain: [retrieved_value]
+        assert_eq!(stack.len(), 1);
 
         // Check that we got the value back
-        if let Value::Int(value) = &stack[1] {
+        if let Value::Int(value) = &stack[0] {
             assert_eq!(*value, 100);
         } else {
-            panic!("Expected Int(100), got {:?}", stack[1]);
-        }
-
-        // Check heap content at index 1
-        if let Value::Int(stored_value) = &vm.heap[1] {
-            assert_eq!(*stored_value, 100);
-        } else {
-            panic!("Expected RawValue(Int(100)) at heap[1]");
+            panic!("Expected Int(100), got {:?}", stack[0]);
         }
     }
 }

@@ -586,12 +586,13 @@ impl CodeGenerator {
                             if let Some(field_offset) =
                                 self.get_field_offset(&instantiated_name, field)
                             {
-                                // Type-aware field assignment using HeapSetOffset
+                                // Type-aware field assignment using AddressAdd + Store
                                 self.compile_expression(value); // -> field_value
+                                self.compile_expression(object); // -> field_value, struct_ptr
                                 self.instructions
-                                    .push(Instruction::Push(field_offset as i64)); // -> offset
-                                self.compile_expression(object); // -> struct_ptr
-                                self.instructions.push(Instruction::HeapSetOffset);
+                                    .push(Instruction::Push(field_offset as i64)); // -> field_value, struct_ptr, offset
+                                self.instructions.push(Instruction::AddressAdd); // -> field_value, target_addr
+                                self.instructions.push(Instruction::Store); // store field_value at target_addr
                             // store field_value
                             } else {
                                 panic!(
@@ -781,8 +782,19 @@ impl CodeGenerator {
                     .push(Instruction::Push(element_size as i64));
                 // Multiply size by element size to get total size
                 self.instructions.push(Instruction::Mul);
-                // Allocate heap space with total size
-                self.instructions.push(Instruction::HeapAlloc);
+                // Allocate heap space by advancing HP
+                // Stack: [total_size] -> [heap_start_addr]
+                // Use the exact working pattern from tests
+                // Store total_size in a temporary local
+                self.instructions.push(Instruction::SetLocal(self.local_offset)); // [] (store total_size)
+                let temp_size_local = self.local_offset;
+                self.local_offset += 1;
+                self.instructions.push(Instruction::GetHP); // [current_hp]
+                self.instructions.push(Instruction::GetLocal(0)); // [current_hp, current_hp] (duplicate)
+                self.instructions.push(Instruction::GetLocal(temp_size_local)); // [current_hp, current_hp, total_size]
+                self.instructions.push(Instruction::AddressAdd); // [current_hp, new_hp]
+                self.instructions.push(Instruction::SetHP); // [heap_start_addr] (HP updated)
+                self.local_offset -= 1;
             }
 
             Expr::Sizeof { type_name } => {
@@ -835,13 +847,20 @@ impl CodeGenerator {
                 fields,
                 kind: _,
             } => {
-                // Unified struct handling: Use HeapAlloc + low-level memory operations for all structs
+                // Unified struct handling: Use GetHP/SetHP + low-level memory operations for all structs
                 let instantiated_name = self.type_to_instantiated_name(type_name);
 
                 // 1. Allocate heap memory for the struct
-                self.instructions
-                    .push(Instruction::Push(fields.len() as i64));
-                self.instructions.push(Instruction::HeapAlloc);
+                let struct_size = fields.len() as i64;
+                self.instructions.push(Instruction::Push(struct_size));
+                // Stack: [struct_size] -> [heap_start_addr]
+                // Use the exact working pattern from tests
+                self.instructions.push(Instruction::Pop); // [] (remove struct_size from stack)
+                self.instructions.push(Instruction::GetHP); // [current_hp]
+                self.instructions.push(Instruction::GetLocal(0)); // [current_hp, current_hp] (duplicate)
+                self.instructions.push(Instruction::Push(struct_size)); // [current_hp, current_hp, struct_size]
+                self.instructions.push(Instruction::AddressAdd); // [current_hp, new_hp]
+                self.instructions.push(Instruction::SetHP); // [struct_ptr] (HP updated)
                 // Stack: [struct_ptr]
 
                 // 2. Store struct_ptr in a local variable for repeated access
@@ -862,12 +881,13 @@ impl CodeGenerator {
                             )
                         });
 
-                    // Stack preparation: [value] [offset] [heap_ref] for HeapSetOffset
+                    // Stack preparation: [value] [target_addr] for Store
                     self.compile_expression(field_value); // Stack: [field_value]
+                    self.instructions.push(Instruction::GetLocal(temp_local)); // Stack: [field_value, struct_ptr]
                     self.instructions
-                        .push(Instruction::Push(field_offset as i64)); // Stack: [field_value, offset]
-                    self.instructions.push(Instruction::GetLocal(temp_local)); // Stack: [field_value, offset, struct_ptr]
-                    self.instructions.push(Instruction::HeapSetOffset); // Stack: []
+                        .push(Instruction::Push(field_offset as i64)); // Stack: [field_value, struct_ptr, offset]
+                    self.instructions.push(Instruction::AddressAdd); // Stack: [field_value, target_addr]
+                    self.instructions.push(Instruction::Store); // Stack: []
                 }
 
                 // 4. Push struct_ptr back onto stack as result
@@ -892,11 +912,12 @@ impl CodeGenerator {
                             if let Some(field_offset) =
                                 self.get_field_offset(&instantiated_name, field)
                             {
-                                // Type-aware field access using HeapGetOffset
+                                // Type-aware field access using AddressAdd + Load
                                 self.compile_expression(object); // -> struct_ptr
                                 self.instructions
-                                    .push(Instruction::Push(field_offset as i64)); // -> offset
-                                self.instructions.push(Instruction::HeapGetOffset);
+                                    .push(Instruction::Push(field_offset as i64)); // -> struct_ptr, offset
+                                self.instructions.push(Instruction::AddressAdd); // -> target_addr
+                                self.instructions.push(Instruction::Load); // -> field_value
                             // -> field_value
                             } else {
                                 panic!(

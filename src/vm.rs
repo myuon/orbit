@@ -65,12 +65,7 @@ pub enum Instruction {
     // No operation
     Nop,
 
-    // Heap operations
-    HeapAlloc,     // Allocate new heap object
-    HeapGet,       // Get value from heap object
-    HeapSet,       // Set value in heap object
-    HeapGetOffset, // Get value from heap at base + offset
-    HeapSetOffset, // Set value in heap at base + offset
+    // (Heap operations removed - now handled via GetHP/SetHP + Load/Store)
 
     // Low-level memory operations
     Load,  // Load value from heap: [heap_ref] -> [value]
@@ -125,11 +120,7 @@ impl fmt::Display for Instruction {
             Instruction::SetPC => write!(f, "set_pc"),
             Instruction::Label(name) => write!(f, "{}:", name),
             Instruction::Nop => write!(f, "nop"),
-            Instruction::HeapAlloc => write!(f, "heap_alloc"),
-            Instruction::HeapGet => write!(f, "heap_get"),
-            Instruction::HeapSet => write!(f, "heap_set"),
-            Instruction::HeapGetOffset => write!(f, "heap_get_offset"),
-            Instruction::HeapSetOffset => write!(f, "heap_set_offset"),
+            // (Heap operation Display removed)
             Instruction::Load => write!(f, "load"),
             Instruction::Store => write!(f, "store"),
             Instruction::Syscall => write!(f, "syscall"),
