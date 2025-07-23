@@ -289,6 +289,11 @@ impl CodeGenerator {
         Ok(())
     }
 
+    /// Load pre-compiled instructions for IR dumping
+    pub fn load_instructions(&mut self, instructions: Vec<Instruction>) {
+        self.instructions = instructions;
+    }
+
     /// Compile a complete program to VM bytecode
     pub fn compile_program(&mut self, program: &Program) -> Vec<Instruction> {
         // 0. First pass: register all struct types, collect methods, and collect string constants
@@ -593,7 +598,7 @@ impl CodeGenerator {
                                     .push(Instruction::Push(field_offset as i64)); // -> field_value, struct_ptr, offset
                                 self.instructions.push(Instruction::AddressAdd); // -> field_value, target_addr
                                 self.instructions.push(Instruction::Store); // store field_value at target_addr
-                            // store field_value
+                                                                            // store field_value
                             } else {
                                 panic!(
                                     "FieldAccess without type information, {:?} at {:?}",
@@ -620,16 +625,16 @@ impl CodeGenerator {
                 ..
             } => {
                 // Index assignment: container[index] = value
-                self.compile_expression(value);     // Stack: [value]
+                self.compile_expression(value); // Stack: [value]
                 self.compile_expression(container); // Stack: [value, container]
-                self.compile_expression(index);     // Stack: [value, container, index]
+                self.compile_expression(index); // Stack: [value, container, index]
 
                 match container_type {
                     Some(IndexContainerType::Pointer) => {
                         // Stack: [value] [container] [index] -> []
                         // Compute container + index address and store value there
                         self.instructions.push(Instruction::AddressAdd); // [value, target_address]
-                        self.instructions.push(Instruction::Store);      // []
+                        self.instructions.push(Instruction::Store); // []
                     }
                     Some(IndexContainerType::String) => {
                         panic!("Cannot assign to string index - strings are immutable");
@@ -786,12 +791,14 @@ impl CodeGenerator {
                 // Stack: [total_size] -> [heap_start_addr]
                 // Use the exact working pattern from tests
                 // Store total_size in a temporary local
-                self.instructions.push(Instruction::SetLocal(self.local_offset)); // [] (store total_size)
+                self.instructions
+                    .push(Instruction::SetLocal(self.local_offset)); // [] (store total_size)
                 let temp_size_local = self.local_offset;
                 self.local_offset += 1;
                 self.instructions.push(Instruction::GetHP); // [current_hp]
                 self.instructions.push(Instruction::GetHP); // [current_hp, current_hp] (duplicate)
-                self.instructions.push(Instruction::GetLocal(temp_size_local)); // [current_hp, current_hp, total_size]
+                self.instructions
+                    .push(Instruction::GetLocal(temp_size_local)); // [current_hp, current_hp, total_size]
                 self.instructions.push(Instruction::AddressAdd); // [current_hp, new_hp]
                 self.instructions.push(Instruction::SetHP); // [heap_start_addr] (HP updated)
                 self.local_offset -= 1;
@@ -861,7 +868,7 @@ impl CodeGenerator {
                 self.instructions.push(Instruction::Push(struct_size)); // [current_hp, current_hp, struct_size]
                 self.instructions.push(Instruction::AddressAdd); // [current_hp, new_hp]
                 self.instructions.push(Instruction::SetHP); // [struct_ptr] (HP updated)
-                // Stack: [struct_ptr]
+                                                            // Stack: [struct_ptr]
 
                 // 2. Store struct_ptr in a local variable for repeated access
                 let temp_local = self.local_offset;
@@ -918,7 +925,7 @@ impl CodeGenerator {
                                     .push(Instruction::Push(field_offset as i64)); // -> struct_ptr, offset
                                 self.instructions.push(Instruction::AddressAdd); // -> target_addr
                                 self.instructions.push(Instruction::Load); // -> field_value
-                            // -> field_value
+                                                                           // -> field_value
                             } else {
                                 panic!(
                                     "FieldAccess without type information, {:?} at {:?}",

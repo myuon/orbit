@@ -16,10 +16,14 @@ use std::io::Write;
 /// Compiler configuration options
 #[derive(Debug, Clone)]
 pub struct CompilerOptions {
-    /// Enable IR dumping
+    /// Enable IR dumping (before label resolution)
     pub dump_ir: bool,
     /// Output file for IR dump
     pub dump_ir_output: Option<String>,
+    /// Enable IR dumping after label resolution
+    pub dump_ir_nolabel: bool,
+    /// Output file for IR dump after label resolution
+    pub dump_ir_nolabel_output: Option<String>,
     /// Enable stack printing during execution
     pub print_stacks: bool,
     /// Enable heap visualization during execution
@@ -53,6 +57,8 @@ impl Default for CompilerOptions {
         CompilerOptions {
             dump_ir: false,
             dump_ir_output: None,
+            dump_ir_nolabel: false,
+            dump_ir_nolabel_output: None,
             print_stacks: false,
             print_heaps: false,
             print_stacks_on_call: None,
@@ -331,38 +337,65 @@ impl Compiler {
             .infer_types(&mut final_program)
             .with_context(|| "Final type checking phase: Failed to infer types")?;
 
-        // 6. Handle IR dumping if requested
-        if self.options.dump_ir {
-            let mut vm_compiler = CodeGenerator::new();
-            let _instructions = vm_compiler.compile_program(&final_program);
+        // 6. Code generation phase: compile to VM bytecode
+        let mut vm_compiler = CodeGenerator::new();
+        let instructions = vm_compiler.compile_program(&final_program);
 
+        // Handle IR dumping before label resolution if requested
+        if self.options.dump_ir {
             if let Some(dump_ir_output) = &self.options.dump_ir_output {
                 vm_compiler
                     .dump_ir_to_file(dump_ir_output)
                     .map_err(|e| anyhow::anyhow!("Failed to write IR dump: {}", e))?;
             } else {
                 // Default behavior: dump to stdout
+                println!("=== IR Before Label Resolution ===");
                 println!("{}", vm_compiler.dump_ir());
             }
         }
 
-        // 7. Enable profiling if requested
+        // 7. Label resolution phase: resolve jump labels to actual addresses
+        let mut label_resolver = LabelResolver::new();
+        let resolved_instructions = label_resolver.resolve_labels(instructions);
+
+        // Handle IR dumping after label resolution if requested
+        if self.options.dump_ir_nolabel {
+            if let Some(dump_ir_nolabel_output) = &self.options.dump_ir_nolabel_output {
+                // Create a temporary CodeGenerator to dump resolved instructions
+                let mut temp_vm_compiler = CodeGenerator::new();
+                temp_vm_compiler.load_instructions(resolved_instructions.clone());
+                temp_vm_compiler
+                    .dump_ir_to_file(dump_ir_nolabel_output)
+                    .map_err(|e| anyhow::anyhow!("Failed to write IR dump (no label): {}", e))?;
+            } else {
+                // Default behavior: dump to stdout
+                println!("=== IR After Label Resolution ===");
+                let mut temp_vm_compiler = CodeGenerator::new();
+                temp_vm_compiler.load_instructions(resolved_instructions.clone());
+                println!("{}", temp_vm_compiler.dump_ir());
+            }
+        }
+
+        // 8. Enable profiling if requested
         if self.options.enable_profiling {
             self.runtime.enable_profiling();
         }
 
-        // 8. Execute the program
+        // 9. Execute the program using resolved instructions
         let result = if self.options.print_stacks || self.options.print_stacks_on_call.is_some() {
             self.runtime
-                .execute_program_with_options(&final_program, self.options.print_stacks)
+                .execute_instructions_with_options(
+                    &resolved_instructions,
+                    self.options.print_stacks,
+                )
                 .with_context(|| "Execution phase: Failed to execute program with debug options")
         } else {
             self.runtime
-                .execute_program(&final_program)
+                .execute_instructions(&resolved_instructions)
                 .with_context(|| "Execution phase: Failed to execute program")
         };
 
-        // 9. Handle profiling output
+        // 10. Handle profiling output
         if self.options.enable_profiling {
             if let Some(output_file) = &self.options.profile_output {
                 self.runtime

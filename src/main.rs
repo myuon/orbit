@@ -17,6 +17,14 @@ struct Config {
     #[arg(long, value_name = "FILE")]
     dump_ir_output: Option<String>,
 
+    /// Enable IR dumping after label resolution
+    #[arg(long)]
+    dump_ir_nolabel: bool,
+
+    /// Dump IR after label resolution to specified file
+    #[arg(long, value_name = "FILE")]
+    dump_ir_nolabel_output: Option<String>,
+
     /// Print stack traces during execution
     #[arg(long)]
     print_stacks: bool,
@@ -76,6 +84,8 @@ impl Config {
         orbit::CompilerOptions {
             dump_ir: self.dump_ir || self.dump_ir_output.is_some(),
             dump_ir_output: self.dump_ir_output.clone(),
+            dump_ir_nolabel: self.dump_ir_nolabel || self.dump_ir_nolabel_output.is_some(),
+            dump_ir_nolabel_output: self.dump_ir_nolabel_output.clone(),
             print_stacks: self.print_stacks,
             print_heaps: self.print_heaps,
             print_stacks_on_call: self.print_stacks_on_call.clone(),

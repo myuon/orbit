@@ -730,12 +730,12 @@ impl VM {
                     Value::Int(n) => n as usize,
                     _ => return Err("SetHP requires an address or number".to_string()),
                 };
-                
+
                 // Extend heap if HP is advanced beyond current heap size
                 while self.heap.len() < new_hp {
                     self.heap.push(Value::Int(0)); // Initialize new heap slots with zero
                 }
-                
+
                 self.hp = new_hp;
             }
 
@@ -772,7 +772,6 @@ impl VM {
             // (HeapGetOffset removed - now handled via AddressAdd + Load)
 
             // (HeapSetOffset removed - now handled via AddressAdd + Store)
-
             Instruction::Load => {
                 // Stack: [heap_ref] -> [value]
                 // Load value from heap at specified reference
@@ -1202,6 +1201,35 @@ impl Runtime {
         }
     }
 
+    /// Execute pre-resolved instructions directly
+    pub fn execute_instructions(&mut self, instructions: &[Instruction]) -> Result<Option<Value>> {
+        // Execute on VM
+        self.vm.reset();
+        self.vm.load_program(instructions.to_vec());
+
+        match self.vm.execute() {
+            Ok(result) => Ok(Some(Value::Int(result))),
+            Err(err) => bail!("VM execution error: {}", err),
+        }
+    }
+
+    /// Execute pre-resolved instructions with options (like stack printing)
+    pub fn execute_instructions_with_options(
+        &mut self,
+        instructions: &[Instruction],
+        print_stacks: bool,
+    ) -> Result<Option<Value>> {
+        // Execute on VM with stack printing option
+        self.vm.print_stacks = print_stacks;
+        self.vm.reset();
+        self.vm.load_program(instructions.to_vec());
+
+        match self.vm.execute() {
+            Ok(result) => Ok(Some(Value::Int(result))),
+            Err(err) => bail!("VM execution error: {}", err),
+        }
+    }
+
     /// Enable profiling in the VM
     pub fn enable_profiling(&mut self) {
         self.vm.profiler.enable();
@@ -1285,7 +1313,7 @@ mod tests {
             Instruction::GetLocal(0), // [heap_start_addr, 42, heap_start_addr]
             Instruction::Store,       // [heap_start_addr] (store 42 at heap_start_addr)
             // Get value from address: Load from heap_start_addr
-            Instruction::Load,        // [42] (load from heap_start_addr)
+            Instruction::Load, // [42] (load from heap_start_addr)
         ]);
 
         // Execute step by step
@@ -1322,7 +1350,7 @@ mod tests {
             Instruction::GetLocal(0), // [heap_start_addr, 42, heap_start_addr]
             Instruction::Store,       // [heap_start_addr]
             // Load value from heap_start_addr
-            Instruction::Load,        // [42]
+            Instruction::Load, // [42]
         ]);
 
         // Execute step by step
@@ -1358,9 +1386,9 @@ mod tests {
             Instruction::AddressAdd,  // [heap_start_addr, 100, target_addr]
             Instruction::Store,       // [heap_start_addr]
             // Get value from offset 1: Load from heap_start_addr + 1
-            Instruction::Push(1),     // [heap_start_addr, 1]
-            Instruction::AddressAdd,  // [target_addr]
-            Instruction::Load,        // [100]
+            Instruction::Push(1),    // [heap_start_addr, 1]
+            Instruction::AddressAdd, // [target_addr]
+            Instruction::Load,       // [100]
         ]);
 
         // Execute step by step
