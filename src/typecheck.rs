@@ -1410,9 +1410,11 @@ impl TypeChecker {
                 *stored_object_type = Some(object_type.clone());
                 match object_type {
                     Type::String => {
-                        // String type (which becomes array(byte) after desugaring) supports length field
+                        // String type (which becomes array(byte) after desugaring) supports data and length fields
                         if field == "length" {
                             Ok(Type::Int)
+                        } else if field == "data" {
+                            Ok(Type::Pointer(Box::new(Type::Byte)))
                         } else {
                             bail_with_position!(
                                 object.span.clone(),

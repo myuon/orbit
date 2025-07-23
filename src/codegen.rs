@@ -620,16 +620,16 @@ impl CodeGenerator {
                 ..
             } => {
                 // Index assignment: container[index] = value
-                self.compile_expression(value);
-                self.compile_expression(index);
-                self.compile_expression(container);
+                self.compile_expression(value);     // Stack: [value]
+                self.compile_expression(container); // Stack: [value, container]
+                self.compile_expression(index);     // Stack: [value, container, index]
 
                 match container_type {
                     Some(IndexContainerType::Pointer) => {
-                        // Stack: [value] [index] [container] -> []
-                        // We need to compute container + index address and store value there
-                        self.instructions.push(Instruction::AddressAdd);
-                        self.instructions.push(Instruction::Store);
+                        // Stack: [value] [container] [index] -> []
+                        // Compute container + index address and store value there
+                        self.instructions.push(Instruction::AddressAdd); // [value, target_address]
+                        self.instructions.push(Instruction::Store);      // []
                     }
                     Some(IndexContainerType::String) => {
                         panic!("Cannot assign to string index - strings are immutable");
@@ -790,7 +790,7 @@ impl CodeGenerator {
                 let temp_size_local = self.local_offset;
                 self.local_offset += 1;
                 self.instructions.push(Instruction::GetHP); // [current_hp]
-                self.instructions.push(Instruction::GetLocal(0)); // [current_hp, current_hp] (duplicate)
+                self.instructions.push(Instruction::GetHP); // [current_hp, current_hp] (duplicate)
                 self.instructions.push(Instruction::GetLocal(temp_size_local)); // [current_hp, current_hp, total_size]
                 self.instructions.push(Instruction::AddressAdd); // [current_hp, new_hp]
                 self.instructions.push(Instruction::SetHP); // [heap_start_addr] (HP updated)
@@ -857,7 +857,7 @@ impl CodeGenerator {
                 // Use the exact working pattern from tests
                 self.instructions.push(Instruction::Pop); // [] (remove struct_size from stack)
                 self.instructions.push(Instruction::GetHP); // [current_hp]
-                self.instructions.push(Instruction::GetLocal(0)); // [current_hp, current_hp] (duplicate)
+                self.instructions.push(Instruction::GetHP); // [current_hp, current_hp] (duplicate)
                 self.instructions.push(Instruction::Push(struct_size)); // [current_hp, current_hp, struct_size]
                 self.instructions.push(Instruction::AddressAdd); // [current_hp, new_hp]
                 self.instructions.push(Instruction::SetHP); // [struct_ptr] (HP updated)

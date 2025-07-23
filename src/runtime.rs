@@ -856,12 +856,11 @@ impl VM {
                             _ => return Err("Write syscall: length must be a number".to_string()),
                         };
 
-                        // Get buffer content
+                        // Get buffer content - now expecting [*]byte (pointer) directly
                         match buffer_ref {
-                            Value::Address(addr) => {
-                                // Convert address-based string to Rust string
-                                let string_content = self.address_to_string(addr)?;
-                                // Use the specified length or the string length, whichever is smaller
+                            Value::Address(data_addr) => {
+                                // data_addr points directly to byte data (from s.data)
+                                let string_content = self.address_to_string(data_addr)?;
                                 let actual_length = length_num.min(string_content.len());
                                 let output = &string_content[..actual_length];
 

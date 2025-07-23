@@ -1,8 +1,0 @@
-let sys_write = 1;
-let fd_stdout = 1;
-
-fun main() do
-  syscall(sys_write, fd_stdout, "Hello, World!\n", 14);
-  syscall(sys_write, fd_stdout, "42\n", 3);
-  return 0;
-end

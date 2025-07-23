@@ -1,6 +1,6 @@
 use crate::ast::{
-    Decl, Expr, Function, Positioned, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl,
-    StructNewKind, Type,
+    Decl, Expr, Function, FunParam, Positioned, PositionedExpr, PositionedStmt, Program, Stmt, 
+    StructDecl, StructField, StructNewKind, Type,
 };
 use anyhow::{bail, Result};
 use std::collections::HashMap;
@@ -183,11 +183,20 @@ impl Desugarer {
                     desugared_declarations.push(decl);
                 }
                 Decl::Struct(struct_decl) => {
-                    // Add the original struct declaration (without methods)
+                    // Add the original struct declaration (without methods), with transformed field types
+                    let transformed_fields = struct_decl.value.fields.iter()
+                        .map(|field| StructField {
+                            name: field.name.clone(),
+                            field_type: self.transform_type(field.field_type.clone()),
+                        })
+                        .collect();
+                    let transformed_type_params = struct_decl.value.type_params.iter()
+                        .map(|t| self.transform_type(t.clone()))
+                        .collect();
                     let desugared_struct = StructDecl {
                         name: struct_decl.value.name.clone(),
-                        type_params: struct_decl.value.type_params.clone(),
-                        fields: struct_decl.value.fields.clone(),
+                        type_params: transformed_type_params,
+                        fields: transformed_fields,
                         methods: Vec::new(), // Remove methods after desugaring
                     };
                     desugared_declarations.push(Positioned::with_unknown_span(Decl::Struct(
@@ -214,6 +223,19 @@ impl Desugarer {
     /// Desugar a function by transforming method calls in its body
     fn desugar_function(&mut self, function: &Function) -> Result<Function> {
         let mut desugared_body = self.desugar_statements(&function.body)?;
+        
+        // Transform function parameter types
+        let transformed_params = function.params.iter()
+            .map(|param| FunParam {
+                name: param.name.clone(),
+                param_type: param.param_type.as_ref().map(|t| self.transform_type(t.clone())),
+            })
+            .collect();
+            
+        // Transform type parameters  
+        let transformed_type_params = function.type_params.iter()
+            .map(|t| self.transform_type(t.clone()))
+            .collect();
 
         // Add return 0; if the last statement is not a return
         if !desugared_body.is_empty() {
@@ -233,8 +255,8 @@ impl Desugarer {
 
         Ok(Function {
             name: function.name.clone(),
-            type_params: function.type_params.clone(),
-            params: function.params.clone(),
+            type_params: transformed_type_params,
+            params: transformed_params,
             body: desugared_body,
         })
     }
@@ -711,7 +733,104 @@ impl Desugarer {
             | Expr::TypeExpr { .. }
             | Expr::PushString(_) => expression.value.clone(),
         };
-        Ok(Positioned::with_unknown_span(desugared_expr))
+        
+        // Apply type transformations to the desugared expression
+        let type_transformed_expr = self.transform_types_in_expr(desugared_expr);
+        Ok(Positioned::with_unknown_span(type_transformed_expr))
+    }
+
+    /// Transform types in expressions, converting Type::String to Type::Struct{array(byte)}
+    fn transform_types_in_expr(&self, expr: Expr) -> Expr {
+        match expr {
+            Expr::FieldAccess { object, field, object_type } => {
+                let transformed_object_type = object_type.map(|t| self.transform_type(t));
+                Expr::FieldAccess {
+                    object: Box::new(Positioned::with_unknown_span(
+                        self.transform_types_in_expr(object.value.clone())
+                    )),
+                    field,
+                    object_type: transformed_object_type,
+                }
+            }
+            Expr::MethodCall { object, object_type, method, args } => {
+                let transformed_object_type = object_type.map(|t| self.transform_type(t));
+                let transformed_object = object.map(|obj| 
+                    Box::new(Positioned::with_unknown_span(
+                        self.transform_types_in_expr(obj.value.clone())
+                    ))
+                );
+                let transformed_args = args.into_iter()
+                    .map(|arg| Positioned::with_unknown_span(
+                        self.transform_types_in_expr(arg.value)
+                    ))
+                    .collect();
+                Expr::MethodCall {
+                    object: transformed_object,
+                    object_type: transformed_object_type,
+                    method,
+                    args: transformed_args,
+                }
+            }
+            Expr::Index { container, index, container_type, container_value_type } => {
+                let transformed_container_value_type = container_value_type.map(|t| self.transform_type(t));
+                Expr::Index {
+                    container: Box::new(Positioned::with_unknown_span(
+                        self.transform_types_in_expr(container.value.clone())
+                    )),
+                    index: Box::new(Positioned::with_unknown_span(
+                        self.transform_types_in_expr(index.value.clone())
+                    )),
+                    container_type,
+                    container_value_type: transformed_container_value_type,
+                }
+            }
+            Expr::Call { callee, args } => {
+                Expr::Call {
+                    callee: Box::new(Positioned::with_unknown_span(
+                        self.transform_types_in_expr(callee.value.clone())
+                    )),
+                    args: args.into_iter()
+                        .map(|arg| Positioned::with_unknown_span(
+                            self.transform_types_in_expr(arg.value)
+                        ))
+                        .collect(),
+                }
+            }
+            Expr::Binary { left, op, right } => {
+                Expr::Binary {
+                    left: Box::new(Positioned::with_unknown_span(
+                        self.transform_types_in_expr(left.value.clone())
+                    )),
+                    op,
+                    right: Box::new(Positioned::with_unknown_span(
+                        self.transform_types_in_expr(right.value.clone())
+                    )),
+                }
+            }
+            // For other expressions, no type transformation needed
+            _ => expr,
+        }
+    }
+
+    /// Transform a type, converting Type::String to Type::Struct{array(byte)}
+    fn transform_type(&self, type_expr: Type) -> Type {
+        match type_expr {
+            Type::String => Type::Struct {
+                name: "array".to_string(),
+                args: vec![Type::Byte],
+            },
+            Type::Struct { name, args } => Type::Struct {
+                name,
+                args: args.into_iter().map(|arg| self.transform_type(arg)).collect(),
+            },
+            Type::Pointer(inner) => Type::Pointer(Box::new(self.transform_type(*inner))),
+            Type::Function { params, return_type } => Type::Function {
+                params: params.into_iter().map(|param| self.transform_type(param)).collect(),
+                return_type: Box::new(self.transform_type(*return_type)),
+            },
+            // Other types remain unchanged
+            t => t,
+        }
     }
 
     /// Resolve method name to mangled function name

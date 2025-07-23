@@ -126,3 +126,10 @@ type map(K: type, V: type) = struct {
     return 0 as V;
   end
 };
+
+let sys_write_number = 1;
+let fd_stdout = 1;
+
+fun syscall_write(fd: int, str: string) do
+  syscall(sys_write_number, fd, str.data, str.length);
+end
