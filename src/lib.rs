@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod ast_visitor;
 pub mod codegen;
 pub mod compiler;
 pub mod dead_code_elimination;
