@@ -1164,7 +1164,8 @@ impl Runtime {
 
         // Apply label resolution
         let mut label_resolver = LabelResolver::new();
-        let resolved_instructions = label_resolver.resolve_labels(instructions)
+        let resolved_instructions = label_resolver
+            .resolve_labels(instructions)
             .map_err(|e| anyhow::anyhow!("Label resolution error: {}", e))?;
 
         // Execute on VM
@@ -1189,7 +1190,8 @@ impl Runtime {
 
         // Apply label resolution
         let mut label_resolver = LabelResolver::new();
-        let resolved_instructions = label_resolver.resolve_labels(instructions)
+        let resolved_instructions = label_resolver
+            .resolve_labels(instructions)
             .map_err(|e| anyhow::anyhow!("Label resolution error: {}", e))?;
 
         // Execute on VM with stack printing option

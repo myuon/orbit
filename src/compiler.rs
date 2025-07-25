@@ -356,7 +356,8 @@ impl Compiler {
 
         // 7. Label resolution phase: resolve jump labels to actual addresses
         let mut label_resolver = LabelResolver::new();
-        let resolved_instructions = label_resolver.resolve_labels(instructions)
+        let resolved_instructions = label_resolver
+            .resolve_labels(instructions)
             .map_err(|e| anyhow::anyhow!("Label resolution error: {}", e))?;
 
         // Handle IR dumping after label resolution if requested
@@ -569,7 +570,8 @@ impl Compiler {
 
         // 7. Label resolution phase
         let mut label_resolver = LabelResolver::new();
-        let resolved_instructions = label_resolver.resolve_labels(instructions)
+        let resolved_instructions = label_resolver
+            .resolve_labels(instructions)
             .map_err(|e| anyhow::anyhow!("Label resolution error: {}", e))?;
 
         Ok(resolved_instructions)

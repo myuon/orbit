@@ -66,7 +66,8 @@ pub trait VisitorMut {
 pub fn walk_expr<V: Visitor + ?Sized>(visitor: &mut V, expr: &PositionedExpr) {
     let expr = &expr.value;
     match expr {
-        Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Byte(_) | Expr::Identifier(_) => {}
+        Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Byte(_) | Expr::Identifier(_) => {
+        }
         Expr::Binary { left, right, .. } => {
             visitor.visit_expr(left);
             visitor.visit_expr(right);
@@ -77,7 +78,9 @@ pub fn walk_expr<V: Visitor + ?Sized>(visitor: &mut V, expr: &PositionedExpr) {
                 visitor.visit_expr(arg);
             }
         }
-        Expr::Index { container, index, .. } => {
+        Expr::Index {
+            container, index, ..
+        } => {
             visitor.visit_expr(container);
             visitor.visit_expr(index);
         }
@@ -121,7 +124,11 @@ pub fn walk_stmt<V: Visitor + ?Sized>(visitor: &mut V, stmt: &PositionedStmt) {
         Stmt::Return(expr) => {
             visitor.visit_expr(expr);
         }
-        Stmt::If { condition, then_branch, else_branch } => {
+        Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
             visitor.visit_expr(condition);
             for stmt in then_branch {
                 visitor.visit_stmt(stmt);
@@ -183,7 +190,10 @@ pub fn walk_struct_decl<V: Visitor + ?Sized>(visitor: &mut V, struct_decl: &Posi
     }
 }
 
-pub fn walk_global_variable<V: Visitor + ?Sized>(visitor: &mut V, global_var: &PositionedGlobalVariable) {
+pub fn walk_global_variable<V: Visitor + ?Sized>(
+    visitor: &mut V,
+    global_var: &PositionedGlobalVariable,
+) {
     let global_var = &global_var.value;
     if let Some(value) = &global_var.value {
         visitor.visit_expr(value);
@@ -194,7 +204,8 @@ pub fn walk_global_variable<V: Visitor + ?Sized>(visitor: &mut V, global_var: &P
 pub fn walk_expr_mut<V: VisitorMut + ?Sized>(visitor: &mut V, expr: &mut PositionedExpr) {
     let expr = &mut expr.value;
     match expr {
-        Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Byte(_) | Expr::Identifier(_) => {}
+        Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Byte(_) | Expr::Identifier(_) => {
+        }
         Expr::Binary { left, right, .. } => {
             visitor.visit_expr(left);
             visitor.visit_expr(right);
@@ -205,7 +216,9 @@ pub fn walk_expr_mut<V: VisitorMut + ?Sized>(visitor: &mut V, expr: &mut Positio
                 visitor.visit_expr(arg);
             }
         }
-        Expr::Index { container, index, .. } => {
+        Expr::Index {
+            container, index, ..
+        } => {
             visitor.visit_expr(container);
             visitor.visit_expr(index);
         }
@@ -249,7 +262,11 @@ pub fn walk_stmt_mut<V: VisitorMut + ?Sized>(visitor: &mut V, stmt: &mut Positio
         Stmt::Return(expr) => {
             visitor.visit_expr(expr);
         }
-        Stmt::If { condition, then_branch, else_branch } => {
+        Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
             visitor.visit_expr(condition);
             for stmt in then_branch {
                 visitor.visit_stmt(stmt);
@@ -304,17 +321,22 @@ pub fn walk_function_mut<V: VisitorMut + ?Sized>(visitor: &mut V, func: &mut Pos
     }
 }
 
-pub fn walk_struct_decl_mut<V: VisitorMut + ?Sized>(visitor: &mut V, struct_decl: &mut PositionedStructDecl) {
+pub fn walk_struct_decl_mut<V: VisitorMut + ?Sized>(
+    visitor: &mut V,
+    struct_decl: &mut PositionedStructDecl,
+) {
     let struct_decl = &mut struct_decl.value;
     for method in &mut struct_decl.methods {
         visitor.visit_function(method);
     }
 }
 
-pub fn walk_global_variable_mut<V: VisitorMut + ?Sized>(visitor: &mut V, global_var: &mut PositionedGlobalVariable) {
+pub fn walk_global_variable_mut<V: VisitorMut + ?Sized>(
+    visitor: &mut V,
+    global_var: &mut PositionedGlobalVariable,
+) {
     let global_var = &mut global_var.value;
     if let Some(value) = &mut global_var.value {
         visitor.visit_expr(value);
     }
 }
-
