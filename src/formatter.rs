@@ -16,7 +16,6 @@ impl<'a, W: Write> FormatterVisitor<'a, W> {
         }
     }
 
-
     fn indent(&self) -> String {
         "    ".repeat(self.indent_level)
     }
@@ -45,7 +44,6 @@ impl<'a, W: Write> FormatterVisitor<'a, W> {
             BinaryOp::GreaterEqual => ">=",
         }
     }
-
 }
 
 impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
@@ -55,7 +53,10 @@ impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
                 let _ = self.write(&n.to_string());
             }
             Expr::String(s) => {
-                let _ = self.write(&format!("\"{}\"", s.replace("\"", "\\\"").replace("\n", "\\n")));
+                let _ = self.write(&format!(
+                    "\"{}\"",
+                    s.replace("\"", "\\\"").replace("\n", "\\n")
+                ));
             }
             Expr::PushString(s) => {
                 let _ = self.write(&format!(
@@ -90,7 +91,9 @@ impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
                 }
                 let _ = self.write(")");
             }
-            Expr::Index { container, index, .. } => {
+            Expr::Index {
+                container, index, ..
+            } => {
                 self.visit_expr(container);
                 let _ = self.write("[");
                 self.visit_expr(index);
@@ -101,7 +104,11 @@ impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
                 let _ = self.write(".");
                 let _ = self.write(field);
             }
-            Expr::StructNew { type_name, fields, kind } => {
+            Expr::StructNew {
+                type_name,
+                fields,
+                kind,
+            } => {
                 if kind == &StructNewKind::Pattern {
                     let _ = self.write(&format!("new(struct) {} {{ ", type_name));
                 } else {
@@ -121,7 +128,12 @@ impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
                 self.visit_expr(size);
                 let _ = self.write(")");
             }
-            Expr::MethodCall { object, object_type, method, args } => {
+            Expr::MethodCall {
+                object,
+                object_type,
+                method,
+                args,
+            } => {
                 if let Some(obj) = object {
                     self.visit_expr(obj);
                     let _ = self.write(&format!(".{}(", method));
@@ -276,7 +288,7 @@ impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
 
     fn visit_stmt(&mut self, stmt: &crate::ast::PositionedStmt) {
         let indent = self.indent();
-        
+
         match &stmt.value {
             Stmt::Let { name, value } => {
                 let _ = self.write(&format!("{}let {} = ", indent, name));
@@ -408,7 +420,6 @@ impl OrbitFormatter {
 
         Ok(())
     }
-
 }
 
 impl Default for OrbitFormatter {

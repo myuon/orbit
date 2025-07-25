@@ -3,7 +3,7 @@ use crate::{
         Decl, Expr, FunParam, Function, Positioned, PositionedDecl, PositionedExpr, PositionedStmt,
         Program, Stmt, StructDecl, StructField, StructNewKind, Type,
     },
-    ast_visitor::{walk_expr_mut, walk_stmt_mut, VisitorMut},
+    ast_visitor::{walk_expr_mut, walk_stmt_mut, walk_type_mut, VisitorMut},
 };
 use anyhow::Result;
 use std::collections::HashMap;
@@ -67,6 +67,7 @@ impl VisitorMut for StructCollector {
     }
 }
 
+
 /// Visitor for transforming expressions and statements using visitor pattern
 struct DesugarTransformer {
     structs: HashMap<String, StructDecl>,
@@ -98,6 +99,7 @@ impl DesugarTransformer {
     }
 
     fn transform_type(&self, type_expr: Type) -> Type {
+        // Transform Type::String to array(byte) and recursively transform nested types
         match type_expr {
             Type::String => Type::Struct {
                 name: "array".to_string(),
@@ -434,6 +436,23 @@ impl VisitorMut for DesugarTransformer {
                 // For other statements, use default walking
                 walk_stmt_mut(self, stmt);
             }
+        }
+    }
+
+    fn visit_type(&mut self, type_: &mut Type) {
+        // First visit children
+        walk_type_mut(self, type_);
+        
+        // Then transform this type
+        match type_ {
+            Type::String => {
+                *type_ = Type::Struct {
+                    name: "array".to_string(),
+                    args: vec![Type::Byte],
+                };
+            }
+            // Other types are transformed by the recursive visit
+            _ => {}
         }
     }
 }

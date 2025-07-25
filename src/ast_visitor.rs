@@ -29,6 +29,10 @@ pub trait Visitor {
     fn visit_global_variable(&mut self, g: &PositionedGlobalVariable) {
         walk_global_variable(self, g);
     }
+
+    fn visit_type(&mut self, t: &Type) {
+        walk_type(self, t);
+    }
 }
 
 /// Mutable visitor trait for traversing and modifying the AST
@@ -59,6 +63,10 @@ pub trait VisitorMut {
 
     fn visit_global_variable(&mut self, g: &mut PositionedGlobalVariable) {
         walk_global_variable_mut(self, g);
+    }
+
+    fn visit_type(&mut self, t: &mut Type) {
+        walk_type_mut(self, t);
     }
 }
 
@@ -100,13 +108,19 @@ pub fn walk_expr<V: Visitor + ?Sized>(visitor: &mut V, expr: &PositionedExpr) {
                 visitor.visit_expr(arg);
             }
         }
-        Expr::TypeExpr { .. } => {}
-        Expr::Alloc { size, .. } => {
+        Expr::TypeExpr { type_name } => {
+            visitor.visit_type(type_name);
+        }
+        Expr::Alloc { element_type, size } => {
+            visitor.visit_type(element_type);
             visitor.visit_expr(size);
         }
-        Expr::Sizeof { .. } => {}
-        Expr::Cast { expr, .. } => {
+        Expr::Sizeof { type_name } => {
+            visitor.visit_type(type_name);
+        }
+        Expr::Cast { expr, target_type } => {
             visitor.visit_expr(expr);
+            visitor.visit_type(target_type);
         }
         Expr::PushString(_) => {}
     }
@@ -178,6 +192,17 @@ pub fn walk_program<V: Visitor + ?Sized>(visitor: &mut V, program: &Program) {
 
 pub fn walk_function<V: Visitor + ?Sized>(visitor: &mut V, func: &PositionedFunction) {
     let func = &func.value;
+    // Visit type parameters
+    for type_param in &func.type_params {
+        visitor.visit_type(type_param);
+    }
+    // Visit parameter types
+    for param in &func.params {
+        if let Some(param_type) = &param.param_type {
+            visitor.visit_type(param_type);
+        }
+    }
+    // Visit function body
     for stmt in &func.body {
         visitor.visit_stmt(stmt);
     }
@@ -185,6 +210,15 @@ pub fn walk_function<V: Visitor + ?Sized>(visitor: &mut V, func: &PositionedFunc
 
 pub fn walk_struct_decl<V: Visitor + ?Sized>(visitor: &mut V, struct_decl: &PositionedStructDecl) {
     let struct_decl = &struct_decl.value;
+    // Visit type parameters
+    for type_param in &struct_decl.type_params {
+        visitor.visit_type(type_param);
+    }
+    // Visit field types
+    for field in &struct_decl.fields {
+        visitor.visit_type(&field.field_type);
+    }
+    // Visit methods
     for method in &struct_decl.methods {
         visitor.visit_function(method);
     }
@@ -197,6 +231,36 @@ pub fn walk_global_variable<V: Visitor + ?Sized>(
     let global_var = &global_var.value;
     if let Some(value) = &global_var.value {
         visitor.visit_expr(value);
+    }
+}
+
+pub fn walk_type<V: Visitor + ?Sized>(visitor: &mut V, type_: &Type) {
+    match type_ {
+        Type::Unknown
+        | Type::Int
+        | Type::Boolean
+        | Type::String
+        | Type::Byte
+        | Type::TypeParameter(_) => {
+            // No nested types to visit
+        }
+        Type::Struct { args, .. } => {
+            for arg in args {
+                visitor.visit_type(arg);
+            }
+        }
+        Type::Pointer(inner_type) => {
+            visitor.visit_type(inner_type);
+        }
+        Type::Function {
+            params,
+            return_type,
+        } => {
+            for param in params {
+                visitor.visit_type(param);
+            }
+            visitor.visit_type(return_type);
+        }
     }
 }
 
@@ -238,13 +302,19 @@ pub fn walk_expr_mut<V: VisitorMut + ?Sized>(visitor: &mut V, expr: &mut Positio
                 visitor.visit_expr(arg);
             }
         }
-        Expr::TypeExpr { .. } => {}
-        Expr::Alloc { size, .. } => {
+        Expr::TypeExpr { type_name } => {
+            visitor.visit_type(type_name);
+        }
+        Expr::Alloc { element_type, size } => {
+            visitor.visit_type(element_type);
             visitor.visit_expr(size);
         }
-        Expr::Sizeof { .. } => {}
-        Expr::Cast { expr, .. } => {
+        Expr::Sizeof { type_name } => {
+            visitor.visit_type(type_name);
+        }
+        Expr::Cast { expr, target_type } => {
             visitor.visit_expr(expr);
+            visitor.visit_type(target_type);
         }
         Expr::PushString(_) => {}
     }
@@ -316,6 +386,17 @@ pub fn walk_program_mut<V: VisitorMut + ?Sized>(visitor: &mut V, program: &mut P
 
 pub fn walk_function_mut<V: VisitorMut + ?Sized>(visitor: &mut V, func: &mut PositionedFunction) {
     let func = &mut func.value;
+    // Visit type parameters
+    for type_param in &mut func.type_params {
+        visitor.visit_type(type_param);
+    }
+    // Visit parameter types
+    for param in &mut func.params {
+        if let Some(param_type) = &mut param.param_type {
+            visitor.visit_type(param_type);
+        }
+    }
+    // Visit function body
     for stmt in &mut func.body {
         visitor.visit_stmt(stmt);
     }
@@ -326,6 +407,15 @@ pub fn walk_struct_decl_mut<V: VisitorMut + ?Sized>(
     struct_decl: &mut PositionedStructDecl,
 ) {
     let struct_decl = &mut struct_decl.value;
+    // Visit type parameters
+    for type_param in &mut struct_decl.type_params {
+        visitor.visit_type(type_param);
+    }
+    // Visit field types
+    for field in &mut struct_decl.fields {
+        visitor.visit_type(&mut field.field_type);
+    }
+    // Visit methods
     for method in &mut struct_decl.methods {
         visitor.visit_function(method);
     }
@@ -338,5 +428,35 @@ pub fn walk_global_variable_mut<V: VisitorMut + ?Sized>(
     let global_var = &mut global_var.value;
     if let Some(value) = &mut global_var.value {
         visitor.visit_expr(value);
+    }
+}
+
+pub fn walk_type_mut<V: VisitorMut + ?Sized>(visitor: &mut V, type_: &mut Type) {
+    match type_ {
+        Type::Unknown
+        | Type::Int
+        | Type::Boolean
+        | Type::String
+        | Type::Byte
+        | Type::TypeParameter(_) => {
+            // No nested types to visit
+        }
+        Type::Struct { args, .. } => {
+            for arg in args {
+                visitor.visit_type(arg);
+            }
+        }
+        Type::Pointer(inner_type) => {
+            visitor.visit_type(inner_type);
+        }
+        Type::Function {
+            params,
+            return_type,
+        } => {
+            for param in params {
+                visitor.visit_type(param);
+            }
+            visitor.visit_type(return_type);
+        }
     }
 }
