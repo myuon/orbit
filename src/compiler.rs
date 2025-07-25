@@ -57,6 +57,8 @@ pub struct CompilerOptions {
     pub print_timings: bool,
     /// Functions to force JIT compilation for
     pub jit_compile_functions: Vec<String>,
+    /// Print JIT compiled ARM64 assembly as hexdump
+    pub print_jit_asm: bool,
 }
 
 impl Default for CompilerOptions {
@@ -81,6 +83,7 @@ impl Default for CompilerOptions {
             no_dead_code_elimination: false,
             print_timings: false,
             jit_compile_functions: Vec::new(),
+            print_jit_asm: false,
         }
     }
 }
@@ -514,6 +517,9 @@ impl Compiler {
 
         // Set JIT function positions before execution
         self.runtime.set_jit_compile_functions(jit_function_positions);
+
+        // Set JIT assembly printing option
+        self.runtime.set_print_jit_asm(self.options.print_jit_asm);
 
         let result = if self.options.print_stacks || self.options.print_stacks_on_call.is_some() {
             self.runtime

@@ -84,6 +84,10 @@ struct Config {
     /// Force JIT compilation for specific function(s)
     #[arg(long, value_name = "FUNCTION")]
     jit_compile: Vec<String>,
+
+    /// Print JIT compiled ARM64 assembly as hexdump
+    #[arg(long)]
+    print_jit_asm: bool,
 }
 
 impl Config {
@@ -111,6 +115,7 @@ impl Config {
             no_dead_code_elimination: self.no_dead_code_elimination,
             print_timings: self.print_timings,
             jit_compile_functions: self.jit_compile.clone(),
+            print_jit_asm: self.print_jit_asm,
         }
     }
 }

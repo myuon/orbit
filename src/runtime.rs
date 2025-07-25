@@ -64,6 +64,8 @@ pub struct VM {
     jit_compile_functions: HashMap<String, usize>,
     // Reverse mapping for JIT functions (label_address -> function_name)
     jit_function_addresses: HashMap<usize, String>,
+    // Print JIT compiled assembly as hexdump
+    print_jit_asm: bool,
 }
 
 impl VM {
@@ -98,6 +100,7 @@ impl VM {
             function_call_counts: HashMap::new(),
             jit_compile_functions: HashMap::new(),
             jit_function_addresses: HashMap::new(),
+            print_jit_asm: false,
         }
     }
 
@@ -125,6 +128,7 @@ impl VM {
             function_call_counts: HashMap::new(),
             jit_compile_functions: HashMap::new(),
             jit_function_addresses: HashMap::new(),
+            print_jit_asm: false,
         }
     }
 
@@ -141,6 +145,10 @@ impl VM {
             self.jit_function_addresses.insert(*addr, func_name.clone());
         }
         self.jit_compile_functions = jit_functions;
+    }
+
+    pub fn set_print_jit_asm(&mut self, print_jit_asm: bool) {
+        self.print_jit_asm = print_jit_asm;
     }
 
     /// Get the raw encoded stack for JIT operations
@@ -698,7 +706,11 @@ impl VM {
                         let count = *self.function_call_counts.get(&addr).unwrap(); // We know this exists
 
                         if let Some(ref mut jit_compiler) = self.jit_compiler {
-                            match jit_compiler.compile_function(addr, &function_instructions) {
+                            match jit_compiler.compile_function(
+                                addr,
+                                &function_instructions,
+                                self.print_jit_asm,
+                            ) {
                                 Ok(()) => {
                                     jit_compilation_successful = true;
                                     if self.jit_compile_functions.contains_key(func_name) {
@@ -835,12 +847,22 @@ impl VM {
 
                 // If we should compile, do it now
                 if should_jit_compile {
-                    let function_instructions = self.extract_function_instructions(new_pc);
+                    // let function_instructions = self.extract_function_instructions(new_pc);
+                    let function_instructions = vec![Instruction::Push(15), Instruction::Ret];
                     let count = *self.function_call_counts.get(&new_pc).unwrap(); // We know this exists
 
                     if let Some(ref mut jit_compiler) = self.jit_compiler {
-                        match jit_compiler.compile_function(new_pc, &function_instructions) {
+                        match jit_compiler.compile_function(
+                            new_pc,
+                            &function_instructions,
+                            self.print_jit_asm,
+                        ) {
                             Ok(()) => {
+                                eprintln!(
+                                    "JIT: Compiling function at address {} (after {} calls)\n{:?}",
+                                    new_pc, count, function_instructions
+                                );
+
                                 jit_compilation_successful = true;
                                 // Try to get function name for better logging
                                 let func_name = self
@@ -1630,6 +1652,11 @@ impl Runtime {
     /// Get function call TOP5 ranking for --print-timings
     pub fn get_function_call_top5(&self) -> String {
         self.vm.get_function_call_top5()
+    }
+
+    /// Set JIT assembly printing option
+    pub fn set_print_jit_asm(&mut self, print_jit_asm: bool) {
+        self.vm.set_print_jit_asm(print_jit_asm);
     }
 }
 

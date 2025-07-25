@@ -5,23 +5,53 @@ use anyhow::Result;
 use memmap2::MmapMut;
 use std::collections::HashMap;
 
+/// Format binary data as hexdump
+fn format_hexdump(data: &[u8], start_addr: usize) -> String {
+    let mut result = String::new();
+
+    for (i, chunk) in data.chunks(16).enumerate() {
+        let addr = start_addr + i * 16;
+        // result.push_str(&format!("{:08x}: ", addr));
+
+        // Hex bytes
+        for (j, byte) in chunk.iter().enumerate() {
+            if j == 8 {
+                result.push(' ');
+            }
+            result.push_str(&format!("{:02x} ", byte));
+        }
+
+        // Pad with spaces if less than 16 bytes
+        for j in chunk.len()..16 {
+            if j == 8 {
+                result.push(' ');
+            }
+            result.push_str("   ");
+        }
+
+        result.push_str("\n");
+    }
+
+    result
+}
+
 /// JIT compiled function signature
 /// Arguments:
 /// - stack: mutable pointer to encoded stack values
 /// - pc: mutable reference to program counter
-/// - bp: mutable reference to base pointer 
+/// - bp: mutable reference to base pointer
 /// - sp: mutable reference to stack pointer (also serves as stack length)
 /// - hp: mutable reference to heap pointer
 /// - heap: mutable reference to heap storage
 /// - globals: mutable reference to global variables
 pub type JITFunction = extern "C" fn(
-    stack: *mut u64,
-    pc: *mut usize,
-    bp: *mut usize,
-    sp: *mut usize,
-    hp: *mut usize,
-    heap: *mut Vec<Value>,
-    globals: *mut Vec<Value>,
+    stack: *mut u64,          // .x0
+    pc: *mut usize,           // .x1
+    bp: *mut usize,           // .x2
+    sp: *mut usize,           // .x3
+    hp: *mut usize,           // .x4
+    heap: *mut Vec<Value>,    // .x5
+    globals: *mut Vec<Value>, // .x6
 );
 
 /// Executable memory region for JIT compiled code
@@ -155,6 +185,7 @@ impl ARM64JITCompiler {
         &mut self,
         start_addr: usize,
         instructions: &[Instruction],
+        print_asm: bool,
     ) -> Result<()> {
         // Generate actual ARM64 code for the VM instructions
         let machine_code = if instructions.is_empty() {
@@ -165,6 +196,16 @@ impl ARM64JITCompiler {
 
         let offset = self.executable_memory.write_bytes(&machine_code)?;
         self.executable_memory.make_executable()?;
+
+        // Print JIT assembly hexdump if requested
+        if print_asm {
+            eprintln!(
+                "JIT: Compiled function at address {} ({} bytes):",
+                start_addr,
+                machine_code.len()
+            );
+            eprint!("{}", format_hexdump(&machine_code, offset));
+        }
 
         let function_ptr = self.executable_memory.get_function_ptr(offset);
 
@@ -192,13 +233,13 @@ impl ARM64JITCompiler {
         gen.function_prologue();
 
         // JIT context register assignments (matching Zig implementation):
-        // x0 = c_stack pointer (*mut Vec<u64>)
-        // x1 = c_sp pointer (*mut usize)
-        // x2 = c_bp pointer (*mut usize)
-
         const REG_C_STACK: Register = Register::X0;
-        const REG_C_SP: Register = Register::X1;
+        const REG_C_PC: Register = Register::X1;
         const REG_C_BP: Register = Register::X2;
+        const REG_C_SP: Register = Register::X3;
+        const REG_C_HP: Register = Register::X4;
+        const REG_C_HEAP: Register = Register::X5;
+        const REG_C_GLOBALS: Register = Register::X6;
 
         // Working registers
         const REG_TEMP1: Register = Register::X9;
@@ -407,8 +448,10 @@ impl ARM64JITCompiler {
                 }
 
                 Instruction::Ret => {
-                    // For now, just return (function will handle cleanup)
-                    break;
+                    // Function epilogue
+                    gen.function_epilogue();
+
+                    gen.ret();
                 }
 
                 Instruction::Nop => {
@@ -425,9 +468,6 @@ impl ARM64JITCompiler {
                 }
             }
         }
-
-        // Function epilogue
-        gen.function_epilogue();
 
         Ok(gen.finalize())
     }
@@ -521,7 +561,7 @@ mod tests {
         ];
 
         // Should successfully compile without errors
-        let result = compiler.compile_function(0x100, &instructions);
+        let result = compiler.compile_function(0x100, &instructions, false);
         assert!(
             result.is_ok(),
             "Failed to compile basic instructions: {:?}",
@@ -544,7 +584,7 @@ mod tests {
             Instruction::Syscall, // This should be unsupported
         ];
 
-        let result = compiler.compile_function(0x200, &instructions);
+        let result = compiler.compile_function(0x200, &instructions, false);
         assert!(result.is_err(), "Should fail for unsupported instructions");
 
         // Should not have a compiled function
