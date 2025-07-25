@@ -1,27 +1,28 @@
+use crate::arm64::{ARM64CodeGen, Condition, Register};
 use crate::runtime::Value;
 use crate::vm::Instruction;
 use anyhow::Result;
 use memmap2::MmapMut;
 use std::collections::HashMap;
 
-/// Runtime context passed to JIT compiled functions
-#[repr(C)]
-pub struct JITContext {
-    /// Mutable reference to VM encoded stack (via ValueStack)
-    pub stack: *mut Vec<u64>,
-    /// Mutable reference to program counter
-    pub pc: *mut usize,
-    /// Mutable reference to base pointer
-    pub bp: *mut usize,
-    /// Mutable reference to stack pointer
-    pub sp: *mut usize,
-    /// Mutable reference to heap pointer
-    pub hp: *mut usize,
-    /// Mutable reference to heap storage
-    pub heap: *mut Vec<Value>,
-    /// Mutable reference to global variables
-    pub globals: *mut Vec<Value>,
-}
+/// JIT compiled function signature
+/// Arguments:
+/// - stack: mutable pointer to encoded stack values
+/// - pc: mutable reference to program counter
+/// - bp: mutable reference to base pointer 
+/// - sp: mutable reference to stack pointer (also serves as stack length)
+/// - hp: mutable reference to heap pointer
+/// - heap: mutable reference to heap storage
+/// - globals: mutable reference to global variables
+pub type JITFunction = extern "C" fn(
+    stack: *mut u64,
+    pc: *mut usize,
+    bp: *mut usize,
+    sp: *mut usize,
+    hp: *mut usize,
+    heap: *mut Vec<Value>,
+    globals: *mut Vec<Value>,
+);
 
 /// Executable memory region for JIT compiled code
 pub struct ExecutableMemory {
@@ -29,6 +30,15 @@ pub struct ExecutableMemory {
     mmap: MmapMut,
     /// Current write position in the memory
     offset: usize,
+}
+
+impl std::fmt::Debug for ExecutableMemory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExecutableMemory")
+            .field("size", &self.mmap.len())
+            .field("offset", &self.offset)
+            .finish()
+    }
 }
 
 impl ExecutableMemory {
@@ -76,7 +86,7 @@ impl ExecutableMemory {
     }
 
     /// Get a function pointer to the compiled code at given offset
-    pub fn get_function_ptr(&self, offset: usize) -> fn(*mut JITContext) -> i64 {
+    pub fn get_function_ptr(&self, offset: usize) -> JITFunction {
         unsafe {
             let ptr = self.mmap.as_ptr().add(offset);
             std::mem::transmute(ptr)
@@ -90,24 +100,36 @@ impl ExecutableMemory {
 }
 
 /// JIT function information
-#[derive(Debug, Clone)]
-pub struct JITFunction {
+#[derive(Clone)]
+pub struct JITCompiledFunction {
     /// Starting address in VM bytecode
     pub start_addr: usize,
     /// Function pointer to compiled code
-    pub function_ptr: fn(*mut JITContext) -> i64,
+    pub function_ptr: JITFunction,
     /// Number of times this function has been called
     pub call_count: u64,
     /// Size of compiled code in bytes
     pub code_size: usize,
 }
 
+impl std::fmt::Debug for JITCompiledFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JITCompiledFunction")
+            .field("start_addr", &self.start_addr)
+            .field("function_ptr", &"<function pointer>")
+            .field("call_count", &self.call_count)
+            .field("code_size", &self.code_size)
+            .finish()
+    }
+}
+
 /// ARM64 JIT Compiler
+#[derive(Debug)]
 pub struct ARM64JITCompiler {
     /// Executable memory region
     executable_memory: ExecutableMemory,
     /// Map from VM address to JIT function
-    compiled_functions: HashMap<usize, JITFunction>,
+    compiled_functions: HashMap<usize, JITCompiledFunction>,
     /// Call count threshold for JIT compilation
     jit_threshold: u64,
 }
@@ -132,18 +154,21 @@ impl ARM64JITCompiler {
     pub fn compile_function(
         &mut self,
         start_addr: usize,
-        _instructions: &[Instruction],
+        instructions: &[Instruction],
     ) -> Result<()> {
-        // For now, generate a simple stub that returns 42
-        // This will be expanded to generate actual ARM64 code
-        let machine_code = self.generate_arm64_stub()?;
+        // Generate actual ARM64 code for the VM instructions
+        let machine_code = if instructions.is_empty() {
+            self.generate_arm64_stub()?
+        } else {
+            self.generate_arm64_code(instructions)?
+        };
 
         let offset = self.executable_memory.write_bytes(&machine_code)?;
         self.executable_memory.make_executable()?;
 
         let function_ptr = self.executable_memory.get_function_ptr(offset);
 
-        let jit_function = JITFunction {
+        let jit_function = JITCompiledFunction {
             start_addr,
             function_ptr,
             call_count: 0,
@@ -155,19 +180,265 @@ impl ARM64JITCompiler {
     }
 
     /// Get compiled function if available
-    pub fn get_compiled_function(&self, addr: usize) -> Option<&JITFunction> {
+    pub fn get_compiled_function(&self, addr: usize) -> Option<&JITCompiledFunction> {
         self.compiled_functions.get(&addr)
+    }
+
+    /// Generate ARM64 machine code for VM instructions
+    fn generate_arm64_code(&self, instructions: &[Instruction]) -> Result<Vec<u8>> {
+        let mut gen = ARM64CodeGen::new();
+
+        // Function prologue
+        gen.function_prologue();
+
+        // JIT context register assignments (matching Zig implementation):
+        // x0 = c_stack pointer (*mut Vec<u64>)
+        // x1 = c_sp pointer (*mut usize)
+        // x2 = c_bp pointer (*mut usize)
+
+        const REG_C_STACK: Register = Register::X0;
+        const REG_C_SP: Register = Register::X1;
+        const REG_C_BP: Register = Register::X2;
+
+        // Working registers
+        const REG_TEMP1: Register = Register::X9;
+        const REG_TEMP2: Register = Register::X10;
+        const REG_TEMP3: Register = Register::X11;
+
+        // Helper closures for common operations
+        let push_to_stack = |gen: &mut ARM64CodeGen, src_reg: Register| -> Result<()> {
+            // Load current SP: *REG_C_SP
+            gen.ldr(REG_C_SP, 0, REG_TEMP2);
+
+            // Calculate stack address: REG_C_STACK + (SP * 8)
+            gen.mov_imm(REG_TEMP3, 8);
+            gen.mul(REG_TEMP2, REG_TEMP3, REG_TEMP3);
+            gen.add_reg(REG_C_STACK, REG_TEMP3, REG_TEMP3);
+
+            // Store value to stack: [REG_C_STACK + (SP * 8)] = src_reg
+            gen.str(src_reg, REG_TEMP3, 0);
+
+            // Increment SP: *REG_C_SP += 1
+            gen.add_imm(REG_TEMP2, 1, REG_TEMP2);
+            gen.str(REG_TEMP2, REG_C_SP, 0);
+
+            Ok(())
+        };
+
+        let pop_from_stack = |gen: &mut ARM64CodeGen, dst_reg: Register| -> Result<()> {
+            // Load current SP: *REG_C_SP
+            gen.ldr(REG_C_SP, 0, REG_TEMP2);
+
+            // Decrement SP: *REG_C_SP -= 1
+            gen.sub_imm(REG_TEMP2, 1, REG_TEMP2);
+            gen.str(REG_TEMP2, REG_C_SP, 0);
+
+            // Calculate stack address: REG_C_STACK + (SP * 8)
+            gen.mov_imm(REG_TEMP3, 8);
+            gen.mul(REG_TEMP2, REG_TEMP3, REG_TEMP3);
+            gen.add_reg(REG_C_STACK, REG_TEMP3, REG_TEMP3);
+
+            // Load value from stack: dst_reg = [REG_C_STACK + (SP * 8)]
+            gen.ldr(REG_TEMP3, 0, dst_reg);
+
+            Ok(())
+        };
+
+        // Process each instruction
+        for instruction in instructions {
+            match instruction {
+                Instruction::Push(value) => {
+                    if *value >= 0 {
+                        gen.mov_imm(REG_TEMP1, *value as u16);
+                    } else {
+                        // For negative values, use MOVN with (abs(value) - 1)
+                        gen.movn_imm(REG_TEMP1, (value.abs() - 1) as u16);
+                    }
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::Pop => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::Add => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
+                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.add_reg(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a + b
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::Sub => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
+                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.sub_reg(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a - b
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::Mul => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
+                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.mul(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a * b
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::Div => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
+                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.sdiv(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a / b
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::Mod => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
+                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.sdiv(REG_TEMP2, REG_TEMP1, REG_TEMP3); // a / b
+                    gen.msub(REG_TEMP3, REG_TEMP1, REG_TEMP2, REG_TEMP1); // a - (a/b) * b
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::Eq => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
+                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.subs(REG_TEMP2, REG_TEMP1, REG_TEMP3); // a - b, set flags
+                    gen.cset(REG_TEMP1, Condition::EQ); // REG_TEMP1 = (a == b) ? 1 : 0
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::Lt => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
+                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.cmp(REG_TEMP2, REG_TEMP1); // compare a, b
+                    gen.cset(REG_TEMP1, Condition::LT); // REG_TEMP1 = (a < b) ? 1 : 0
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::Lte => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
+                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.cmp(REG_TEMP2, REG_TEMP1); // compare a, b
+                    gen.cset(REG_TEMP1, Condition::LE); // REG_TEMP1 = (a <= b) ? 1 : 0
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::Gt => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
+                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.cmp(REG_TEMP2, REG_TEMP1); // compare a, b
+                    gen.cset(REG_TEMP1, Condition::GT); // REG_TEMP1 = (a > b) ? 1 : 0
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::Gte => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
+                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.cmp(REG_TEMP2, REG_TEMP1); // compare a, b
+                    gen.cset(REG_TEMP1, Condition::GE); // REG_TEMP1 = (a >= b) ? 1 : 0
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::GetSP => {
+                    gen.ldr(REG_C_SP, 0, REG_TEMP1); // Load *REG_C_SP
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::SetSP => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?;
+                    gen.str(REG_TEMP1, REG_C_SP, 0); // Store to *REG_C_SP
+                }
+
+                Instruction::GetBP => {
+                    gen.ldr(REG_C_BP, 0, REG_TEMP1); // Load *REG_C_BP
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::SetBP => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?;
+                    gen.str(REG_TEMP1, REG_C_BP, 0); // Store to *REG_C_BP
+                }
+
+                Instruction::GetLocal(offset) => {
+                    // Load BP: *REG_C_BP
+                    gen.ldr(REG_C_BP, 0, REG_TEMP2);
+
+                    if *offset >= 0 {
+                        // Positive offset: BP + offset
+                        gen.mov_imm(REG_TEMP3, *offset as u16);
+                        gen.add_reg(REG_TEMP2, REG_TEMP3, REG_TEMP2);
+                    } else {
+                        // Negative offset: BP - abs(offset)
+                        gen.mov_imm(REG_TEMP3, offset.abs() as u16);
+                        gen.sub_reg(REG_TEMP2, REG_TEMP3, REG_TEMP2);
+                    }
+
+                    // Calculate stack address: REG_C_STACK + (index * 8)
+                    gen.mov_imm(REG_TEMP3, 8);
+                    gen.mul(REG_TEMP2, REG_TEMP3, REG_TEMP3);
+                    gen.add_reg(REG_C_STACK, REG_TEMP3, REG_TEMP3);
+
+                    // Load value from calculated address
+                    gen.ldr(REG_TEMP3, 0, REG_TEMP1);
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::SetLocal(offset) => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // value to store
+
+                    // Load BP: *REG_C_BP
+                    gen.ldr(REG_C_BP, 0, REG_TEMP2);
+
+                    if *offset >= 0 {
+                        // Positive offset: BP + offset
+                        gen.mov_imm(REG_TEMP3, *offset as u16);
+                        gen.add_reg(REG_TEMP2, REG_TEMP3, REG_TEMP2);
+                    } else {
+                        // Negative offset: BP - abs(offset)
+                        gen.mov_imm(REG_TEMP3, offset.abs() as u16);
+                        gen.sub_reg(REG_TEMP2, REG_TEMP3, REG_TEMP2);
+                    }
+
+                    // Calculate stack address: REG_C_STACK + (index * 8)
+                    gen.mov_imm(REG_TEMP3, 8);
+                    gen.mul(REG_TEMP2, REG_TEMP3, REG_TEMP3);
+                    gen.add_reg(REG_C_STACK, REG_TEMP3, REG_TEMP3);
+
+                    // Store value to calculated address
+                    gen.str(REG_TEMP1, REG_TEMP3, 0);
+                }
+
+                Instruction::Ret => {
+                    // For now, just return (function will handle cleanup)
+                    break;
+                }
+
+                Instruction::Nop => {
+                    // No operation - just continue
+                    continue;
+                }
+
+                // Unsupported instructions (these will cause fallback to interpreter)
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "Unsupported instruction for JIT: {:?}",
+                        instruction
+                    ));
+                }
+            }
+        }
+
+        // Function epilogue
+        gen.function_epilogue();
+
+        Ok(gen.finalize())
     }
 
     /// Generate ARM64 machine code stub (placeholder implementation)
     fn generate_arm64_stub(&self) -> Result<Vec<u8>> {
-        // ARM64 assembly for a simple function that returns 42:
-        // mov x0, #42
-        // ret
-        Ok(vec![
-            0x40, 0x05, 0x80, 0xd2, // mov x0, #42
-            0xc0, 0x03, 0x5f, 0xd6, // ret
-        ])
+        // Simple stub that returns 42
+        let mut gen = ARM64CodeGen::new();
+        gen.mov_imm(Register::X0, 42);
+        gen.ret();
+        Ok(gen.finalize())
     }
 
     /// Set JIT compilation threshold
@@ -233,5 +504,50 @@ mod tests {
         compiler.set_jit_threshold(20);
         assert!(!compiler.should_jit_compile(200, 15));
         assert!(compiler.should_jit_compile(200, 20));
+    }
+
+    #[test]
+    fn test_arm64_code_generation() {
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test simple arithmetic sequence
+        let instructions = vec![
+            Instruction::Push(10),
+            Instruction::Push(20),
+            Instruction::Add,
+            Instruction::Ret,
+        ];
+
+        // Should successfully compile without errors
+        let result = compiler.compile_function(0x100, &instructions);
+        assert!(
+            result.is_ok(),
+            "Failed to compile basic instructions: {:?}",
+            result.err()
+        );
+
+        // Should have a compiled function
+        assert!(compiler.get_compiled_function(0x100).is_some());
+    }
+
+    #[test]
+    fn test_unsupported_instruction_handling() {
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test unsupported instruction (should fail gracefully)
+        let instructions = vec![
+            Instruction::Push(10),
+            Instruction::Syscall, // This should be unsupported
+        ];
+
+        let result = compiler.compile_function(0x200, &instructions);
+        assert!(result.is_err(), "Should fail for unsupported instructions");
+
+        // Should not have a compiled function
+        assert!(compiler.get_compiled_function(0x200).is_none());
     }
 }

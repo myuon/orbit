@@ -10,7 +10,9 @@ use crate::monomorphization::Monomorphizer;
 use crate::parser::Parser;
 use crate::runtime::{Runtime, Value};
 use crate::typecheck::TypeChecker;
+use crate::vm::Instruction;
 use anyhow::{Context, Result};
+use std::collections::HashMap;
 use std::io::Write;
 use std::time::Instant;
 
@@ -53,6 +55,8 @@ pub struct CompilerOptions {
     pub no_dead_code_elimination: bool,
     /// Print timing information for each compiler phase
     pub print_timings: bool,
+    /// Functions to force JIT compilation for
+    pub jit_compile_functions: Vec<String>,
 }
 
 impl Default for CompilerOptions {
@@ -76,6 +80,7 @@ impl Default for CompilerOptions {
             dump_dce_code_output: None,
             no_dead_code_elimination: false,
             print_timings: false,
+            jit_compile_functions: Vec::new(),
         }
     }
 }
@@ -454,6 +459,20 @@ impl Compiler {
             None
         };
 
+        // Record function positions for JIT compilation before label resolution
+        let mut jit_function_positions = HashMap::new();
+        if !self.options.jit_compile_functions.is_empty() {
+            for (index, instruction) in instructions.iter().enumerate() {
+                if let Instruction::Label(label_name) = instruction {
+                    // Check if this function should be JIT compiled
+                    if self.options.jit_compile_functions.contains(label_name) {
+                        jit_function_positions.insert(label_name.clone(), index);
+                        eprintln!("JIT: Marked function '{}' for compilation at address {}", label_name, index);
+                    }
+                }
+            }
+        }
+
         let mut label_resolver = LabelResolver::new();
         let resolved_instructions = label_resolver
             .resolve_labels(instructions)
@@ -492,6 +511,9 @@ impl Compiler {
         } else {
             None
         };
+
+        // Set JIT function positions before execution
+        self.runtime.set_jit_compile_functions(jit_function_positions);
 
         let result = if self.options.print_stacks || self.options.print_stacks_on_call.is_some() {
             self.runtime

@@ -1,10 +1,12 @@
 use crate::codegen::CodeGenerator;
+use crate::jit::ARM64JITCompiler;
 use crate::label_resolution::LabelResolver;
 use crate::profiler::InstructionTimer;
 use crate::value_stack::ValueStack;
 use crate::vm::Instruction;
 use crate::{ast::Program, profiler::Profiler};
 use anyhow::{bail, Result};
+use std::collections::HashMap;
 
 /// Index into the heap for heap-allocated objects
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -54,6 +56,14 @@ pub struct VM {
     pub captured_output: Option<String>,
     // Profiling
     pub profiler: Profiler,
+    // JIT compilation
+    jit_compiler: Option<ARM64JITCompiler>,
+    // Function call counts for JIT compilation decision
+    function_call_counts: HashMap<usize, u64>,
+    // Functions marked for JIT compilation (function_name -> label_address)
+    jit_compile_functions: HashMap<String, usize>,
+    // Reverse mapping for JIT functions (label_address -> function_name)
+    jit_function_addresses: HashMap<usize, String>,
 }
 
 impl VM {
@@ -84,6 +94,10 @@ impl VM {
             globals: Vec::new(),
             captured_output: None,
             profiler: Profiler::new_with_enabled(enable_profiling),
+            jit_compiler: ARM64JITCompiler::new().ok(),
+            function_call_counts: HashMap::new(),
+            jit_compile_functions: HashMap::new(),
+            jit_function_addresses: HashMap::new(),
         }
     }
 
@@ -107,12 +121,26 @@ impl VM {
             globals: Vec::new(),
             captured_output: None,
             profiler: Profiler::new_with_enabled(enable_profiling),
+            jit_compiler: ARM64JITCompiler::new().ok(),
+            function_call_counts: HashMap::new(),
+            jit_compile_functions: HashMap::new(),
+            jit_function_addresses: HashMap::new(),
         }
     }
 
     pub fn load_program(&mut self, program: Vec<Instruction>) {
         self.program = program;
         self.pc = 0;
+    }
+
+    /// Set JIT compile functions for forced compilation
+    pub fn set_jit_compile_functions(&mut self, jit_functions: HashMap<String, usize>) {
+        // Create reverse mapping for CallRel instructions
+        self.jit_function_addresses.clear();
+        for (func_name, addr) in &jit_functions {
+            self.jit_function_addresses.insert(*addr, func_name.clone());
+        }
+        self.jit_compile_functions = jit_functions;
     }
 
     /// Get the raw encoded stack for JIT operations
@@ -627,8 +655,7 @@ impl VM {
                     }
                 }
 
-                // Call instruction now only performs jump to function
-                // All other operations (PC/BP setup) are handled by compiler-generated instructions
+                // Find the target address
                 let mut target_addr = None;
                 for (i, inst) in self.program.iter().enumerate() {
                     if let Instruction::Label(label_name) = inst {
@@ -640,6 +667,130 @@ impl VM {
                 }
 
                 if let Some(addr) = target_addr {
+                    // Handle JIT compilation - first increment call count and check if we should compile
+                    let should_jit_compile = if self.jit_compiler.is_some() {
+                        let count = self.function_call_counts.entry(addr).or_insert(0);
+                        *count += 1;
+
+                        // Check if we should JIT compile:
+                        // 1. If function is marked for forced JIT compilation, or
+                        // 2. If it meets the normal threshold (10+ calls)
+                        if self.jit_compile_functions.contains_key(func_name) {
+                            // For forced JIT compilation, always compile
+                            true
+                        } else {
+                            // For threshold-based compilation
+                            self.jit_compiler
+                                .as_ref()
+                                .unwrap()
+                                .should_jit_compile(addr, *count)
+                        }
+                    } else {
+                        false
+                    };
+
+                    // Track if JIT compilation was successful for immediate execution
+                    let mut jit_compilation_successful = false;
+
+                    // If we should compile, do it now
+                    if should_jit_compile {
+                        let function_instructions = self.extract_function_instructions(addr);
+                        let count = *self.function_call_counts.get(&addr).unwrap(); // We know this exists
+
+                        if let Some(ref mut jit_compiler) = self.jit_compiler {
+                            match jit_compiler.compile_function(addr, &function_instructions) {
+                                Ok(()) => {
+                                    jit_compilation_successful = true;
+                                    if self.jit_compile_functions.contains_key(func_name) {
+                                        eprintln!("JIT: Successfully compiled function '{}' at address {} (forced compilation)", 
+                                                 func_name, addr);
+                                    } else {
+                                        eprintln!("JIT: Successfully compiled function '{}' at address {} (after {} calls)", 
+                                                 func_name, addr, count);
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "JIT: Failed to compile function '{}' at address {}: {}",
+                                        func_name, addr, e
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    // Check if we have a JIT compiled version to execute
+                    // Either just compiled successfully, or already exists
+                    let should_execute_jit = jit_compilation_successful
+                        || self
+                            .jit_compiler
+                            .as_ref()
+                            .and_then(|jit| jit.get_compiled_function(addr))
+                            .is_some();
+
+                    if should_execute_jit {
+                        // Execute JIT compiled function
+                        if let Some(ref jit_compiler) = self.jit_compiler {
+                            if let Some(jit_function) = jit_compiler.get_compiled_function(addr) {
+                                eprintln!(
+                                    "JIT: Executing compiled function '{}' at address {}",
+                                    func_name, addr
+                                );
+
+                                // Execute the JIT compiled function with error handling
+                                // Get mutable pointers to VM state
+                                let stack_ptr = self.stack.as_encoded_vec_mut().as_mut_ptr();
+                                let pc_ptr = &mut self.pc as *mut usize;
+                                let bp_ptr = &mut self.bp as *mut usize;
+                                let sp_ptr = &mut self.sp as *mut usize;
+                                let hp_ptr = &mut self.hp as *mut usize;
+                                let heap_ptr = &mut self.heap as *mut Vec<Value>;
+                                let globals_ptr = &mut self.globals as *mut Vec<Value>;
+                                let func_ptr = jit_function.function_ptr;
+
+                                let jit_result =
+                                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                        func_ptr(
+                                            stack_ptr,
+                                            pc_ptr,
+                                            bp_ptr,
+                                            sp_ptr,
+                                            hp_ptr,
+                                            heap_ptr,
+                                            globals_ptr,
+                                        );
+                                    }));
+
+                                match jit_result {
+                                    Ok(()) => {
+                                        eprintln!(
+                                            "JIT: Successfully executed compiled function '{}'",
+                                            func_name
+                                        );
+                                    }
+                                    Err(_) => {
+                                        eprintln!("JIT: Execution failed for function '{}', falling back to interpreter", func_name);
+                                        // Fall through to interpreter execution
+                                        self.pc = addr;
+                                        self.print_debug_visualization(
+                                            pc_before_execution,
+                                            instruction,
+                                        );
+                                        return Ok(ControlFlow::Continue);
+                                    }
+                                }
+
+                                // Print debug visualization (heap and/or stack) if enabled
+                                self.print_debug_visualization(pc_before_execution, instruction);
+
+                                // JIT execution completed, return immediately
+                                return Ok(ControlFlow::Continue);
+                            }
+                        }
+                        eprintln!("JIT: Failed to get compiled function for '{}' at address {} (fallback to interpreter)", func_name, addr);
+                    }
+
+                    // Fallback to interpreter execution
                     self.pc = addr;
 
                     // Print debug visualization (heap and/or stack) if enabled
@@ -658,6 +809,151 @@ impl VM {
                 let call_name = format!("func_addr_{}", new_pc);
                 self.profiler.record_function_call(call_name);
 
+                // Handle JIT compilation - first increment call count and check if we should compile
+                let should_jit_compile = if self.jit_compiler.is_some() {
+                    let count = self.function_call_counts.entry(new_pc).or_insert(0);
+                    *count += 1;
+
+                    // Check if we should JIT compile:
+                    // 1. If function is marked for forced JIT compilation (check label address), or
+                    // 2. If it meets the normal threshold (10+ calls)
+                    if self.jit_function_addresses.contains_key(&new_pc) {
+                        // new_pc is the label address for forced JIT functions
+                        true
+                    } else {
+                        self.jit_compiler
+                            .as_ref()
+                            .unwrap()
+                            .should_jit_compile(new_pc, *count)
+                    }
+                } else {
+                    false
+                };
+
+                // Track if JIT compilation was successful for immediate execution
+                let mut jit_compilation_successful = false;
+
+                // If we should compile, do it now
+                if should_jit_compile {
+                    let function_instructions = self.extract_function_instructions(new_pc);
+                    let count = *self.function_call_counts.get(&new_pc).unwrap(); // We know this exists
+
+                    if let Some(ref mut jit_compiler) = self.jit_compiler {
+                        match jit_compiler.compile_function(new_pc, &function_instructions) {
+                            Ok(()) => {
+                                jit_compilation_successful = true;
+                                // Try to get function name for better logging
+                                let func_name = self
+                                    .jit_function_addresses
+                                    .get(&new_pc)
+                                    .map(|s| s.as_str())
+                                    .unwrap_or("unknown");
+
+                                if self.jit_function_addresses.contains_key(&new_pc) {
+                                    eprintln!("JIT: Successfully compiled function '{}' at address {} (forced compilation)", 
+                                             func_name, new_pc);
+                                } else {
+                                    eprintln!("JIT: Successfully compiled function at address {} (after {} calls)", 
+                                             new_pc, count);
+                                }
+                            }
+                            Err(e) => {
+                                let func_name = self
+                                    .jit_function_addresses
+                                    .get(&new_pc)
+                                    .map(|s| s.as_str())
+                                    .unwrap_or("unknown");
+                                eprintln!(
+                                    "JIT: Failed to compile function '{}' at address {}: {}",
+                                    func_name, new_pc, e
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Check if we have a JIT compiled version to execute
+                // Either just compiled successfully, or already exists
+                let should_execute_jit = jit_compilation_successful
+                    || self
+                        .jit_compiler
+                        .as_ref()
+                        .and_then(|jit| jit.get_compiled_function(new_pc))
+                        .is_some();
+
+                if should_execute_jit {
+                    // Execute JIT compiled function
+                    if let Some(ref jit_compiler) = self.jit_compiler {
+                        if let Some(jit_function) = jit_compiler.get_compiled_function(new_pc) {
+                            let func_name = self
+                                .jit_function_addresses
+                                .get(&new_pc)
+                                .map(|s| s.as_str())
+                                .unwrap_or("unknown");
+                            eprintln!(
+                                "JIT: Executing compiled function '{}' at address {}",
+                                func_name, new_pc
+                            );
+
+                            // Execute the JIT compiled function with error handling
+                            // Get mutable pointers to VM state
+                            let stack_ptr = self.stack.as_encoded_vec_mut().as_mut_ptr();
+                            let pc_ptr = &mut self.pc as *mut usize;
+                            let bp_ptr = &mut self.bp as *mut usize;
+                            let sp_ptr = &mut self.sp as *mut usize;
+                            let hp_ptr = &mut self.hp as *mut usize;
+                            let heap_ptr = &mut self.heap as *mut Vec<Value>;
+                            let globals_ptr = &mut self.globals as *mut Vec<Value>;
+                            let func_ptr = jit_function.function_ptr;
+
+                            let jit_result =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    func_ptr(
+                                        stack_ptr,
+                                        pc_ptr,
+                                        bp_ptr,
+                                        sp_ptr,
+                                        hp_ptr,
+                                        heap_ptr,
+                                        globals_ptr,
+                                    )
+                                }));
+
+                            match jit_result {
+                                Ok(()) => {
+                                    eprintln!(
+                                        "JIT: Successfully executed compiled function '{}'",
+                                        func_name
+                                    );
+                                }
+                                Err(_) => {
+                                    eprintln!("JIT: Execution failed for function '{}', falling back to interpreter", func_name);
+                                    // Fall through to interpreter execution
+                                    self.pc = new_pc;
+                                    self.print_debug_visualization(
+                                        pc_before_execution,
+                                        instruction,
+                                    );
+                                    return Ok(ControlFlow::Continue);
+                                }
+                            }
+
+                            // Print debug visualization (heap and/or stack) if enabled
+                            self.print_debug_visualization(pc_before_execution, instruction);
+
+                            // JIT execution completed, return immediately
+                            return Ok(ControlFlow::Continue);
+                        }
+                    }
+                    let func_name = self
+                        .jit_function_addresses
+                        .get(&new_pc)
+                        .map(|s| s.as_str())
+                        .unwrap_or("unknown");
+                    eprintln!("JIT: Failed to get compiled function for '{}' at address {} (fallback to interpreter)", func_name, new_pc);
+                }
+
+                // Fallback to interpreter execution
                 self.pc = new_pc;
 
                 // Print debug visualization (heap and/or stack) if enabled
@@ -1081,6 +1377,26 @@ impl VM {
         self.stack.iter().collect()
     }
 
+    /// Extract function instructions starting from the given address until Ret
+    fn extract_function_instructions(&self, start_addr: usize) -> Vec<Instruction> {
+        let mut instructions = Vec::new();
+        let mut current_addr = start_addr;
+
+        while current_addr < self.program.len() {
+            let instruction = &self.program[current_addr];
+            instructions.push(instruction.clone());
+
+            // Stop at Ret instruction
+            if matches!(instruction, Instruction::Ret) {
+                break;
+            }
+
+            current_addr += 1;
+        }
+
+        instructions
+    }
+
     /// Calculate the length of a null-terminated string starting at the given address
     fn string_length(&self, start_addr: usize) -> Result<usize, String> {
         let mut length = 0;
@@ -1279,6 +1595,11 @@ impl Runtime {
     /// Enable profiling in the VM
     pub fn enable_profiling(&mut self) {
         self.vm.profiler.enable();
+    }
+
+    /// Set JIT compile functions for forced compilation
+    pub fn set_jit_compile_functions(&mut self, jit_functions: HashMap<String, usize>) {
+        self.vm.set_jit_compile_functions(jit_functions);
     }
 
     /// Disable profiling in the VM

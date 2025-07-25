@@ -80,6 +80,10 @@ struct Config {
     /// Print timing information for each compiler phase
     #[arg(long)]
     print_timings: bool,
+
+    /// Force JIT compilation for specific function(s)
+    #[arg(long, value_name = "FUNCTION")]
+    jit_compile: Vec<String>,
 }
 
 impl Config {
@@ -106,6 +110,7 @@ impl Config {
             dump_dce_code_output: self.dump_dce_code_output.clone(),
             no_dead_code_elimination: self.no_dead_code_elimination,
             print_timings: self.print_timings,
+            jit_compile_functions: self.jit_compile.clone(),
         }
     }
 }
