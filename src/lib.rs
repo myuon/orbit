@@ -15,6 +15,7 @@ pub mod profiler;
 pub mod runtime;
 pub mod typecheck;
 pub mod utils;
+pub mod value_encoding;
 pub mod vm;
 
 // Re-export commonly used items
