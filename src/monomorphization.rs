@@ -437,7 +437,7 @@ impl<'a> VisitorMut for GlobalTypeSubstitutionVisitor<'a> {
                             break;
                         }
                     }
-                    
+
                     // If we found type arguments, this might be a generic call
                     if !type_args.is_empty() {
                         let type_args_len = type_args.len();
@@ -448,7 +448,10 @@ impl<'a> VisitorMut for GlobalTypeSubstitutionVisitor<'a> {
                         let monomorphized_name = target.instantiated_name();
 
                         // Check if a monomorphized version exists
-                        if self.monomorphized_functions.contains_key(&monomorphized_name) {
+                        if self
+                            .monomorphized_functions
+                            .contains_key(&monomorphized_name)
+                        {
                             callee.value = Expr::Identifier(monomorphized_name);
                             // Keep only the non-type arguments
                             for arg in args.iter().skip(type_args_len) {
@@ -742,15 +745,13 @@ impl Monomorphizer {
     ) -> Result<Vec<PositionedStmt>> {
         let mut cloned_statements: Vec<PositionedStmt> = statements.to_vec();
         let mut visitor = TypeSubstitutionVisitor::new(substitutions);
-        
+
         for stmt in &mut cloned_statements {
             visitor.visit_stmt(stmt)?;
         }
-        
+
         Ok(cloned_statements)
     }
-
-
 
     /// Get all monomorphized functions
     pub fn get_monomorphized_functions(&self) -> &HashMap<String, PositionedFunction> {
@@ -838,14 +839,13 @@ impl Monomorphizer {
             &self.monomorphized_functions,
             &self.monomorphized_structs,
         );
-        
+
         for stmt in &mut cloned_statements {
             visitor.visit_stmt(stmt)?;
         }
-        
+
         Ok(cloned_statements)
     }
-
 
     /// Substitute generic type instantiations in an expression globally using visitor
     fn substitute_expression_globally(
@@ -857,7 +857,7 @@ impl Monomorphizer {
             &self.monomorphized_functions,
             &self.monomorphized_structs,
         );
-        
+
         visitor.visit_expr(&mut cloned_expression)?;
         Ok(cloned_expression)
     }

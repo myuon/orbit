@@ -224,7 +224,9 @@ impl<'a> TypeInferenceVisitor<'a> {
                     self.infer_expression_types(value_expr)?;
                     // Register the global variable's type using TypeChecker's method
                     let var_type = self.checker.check_expression(value_expr)?;
-                    self.checker.globals.insert(global_var.value.name.clone(), var_type);
+                    self.checker
+                        .globals
+                        .insert(global_var.value.name.clone(), var_type);
                 }
                 Ok(())
             }
@@ -464,7 +466,9 @@ impl<'a> VisitorMut for TypeCheckVisitor<'a> {
                     // For uninitialized globals, use int as default type (like a null pointer)
                     Type::Int
                 };
-                self.checker.globals.insert(global_var.value.name.clone(), var_type);
+                self.checker
+                    .globals
+                    .insert(global_var.value.name.clone(), var_type);
             }
         }
 
@@ -499,7 +503,8 @@ impl<'a> VisitorMut for TypeCheckVisitor<'a> {
     fn visit_function(&mut self, function: &mut crate::ast::PositionedFunction) -> Result<()> {
         // Enter generic scope if this function has type parameters
         if !function.value.type_params.is_empty() {
-            self.checker.enter_generic_scope(&function.value.type_params);
+            self.checker
+                .enter_generic_scope(&function.value.type_params);
         }
 
         // Create new scope for function
@@ -929,7 +934,6 @@ impl TypeChecker {
         visitor.infer_types(program)
     }
 
-
     /// Register a function signature for later type checking
     fn register_function(&mut self, function: &Function) -> Result<()> {
         // Store generic functions separately
@@ -1032,7 +1036,6 @@ impl TypeChecker {
 
         Ok(())
     }
-
 
     /// Extract element type from vec type string (e.g., "vec(int)" -> Type::Int)
     fn extract_vec_element_type(&self, struct_name: &str) -> Option<Type> {
