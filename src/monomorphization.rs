@@ -1,7 +1,8 @@
 use crate::ast::{
     Decl, Expr, Function, Positioned, PositionedDecl, PositionedExpr, PositionedFunction,
-    PositionedStmt, PositionedStructDecl, Program, Stmt, StructDecl, Type,
+    PositionedStmt, PositionedStructDecl, Program, StructDecl, Type,
 };
+use crate::ast_visitor::{Visitor, VisitorMut};
 use anyhow::{bail, Result};
 use std::collections::{HashMap, HashSet};
 
@@ -60,67 +61,113 @@ impl MonomorphizationTarget {
     }
 }
 
-/// The monomorphization engine
-pub struct Monomorphizer {
-    /// Queue of targets that need to be monomorphized
-    targets: Vec<MonomorphizationTarget>,
-    /// Set of targets that have already been processed
-    visited: HashSet<MonomorphizationTarget>,
-    /// Map from original generic symbols to their declarations
-    generic_functions: HashMap<String, PositionedFunction>,
-    generic_structs: HashMap<String, PositionedStructDecl>,
-    /// Map from mangled names to monomorphized declarations
-    monomorphized_functions: HashMap<String, PositionedFunction>,
-    monomorphized_structs: HashMap<String, PositionedStructDecl>,
+/// AST visitor that collects monomorphization targets
+pub struct MonomorphizationTargetCollector<'a> {
+    targets: &'a mut Vec<MonomorphizationTarget>,
+    visited: &'a mut HashSet<MonomorphizationTarget>,
+    generic_functions: &'a mut HashMap<String, PositionedFunction>,
+    generic_structs: &'a mut HashMap<String, PositionedStructDecl>,
 }
 
-impl Monomorphizer {
-    pub fn new() -> Self {
-        Monomorphizer {
-            targets: Vec::new(),
-            visited: HashSet::new(),
-            generic_functions: HashMap::new(),
-            generic_structs: HashMap::new(),
-            monomorphized_functions: HashMap::new(),
-            monomorphized_structs: HashMap::new(),
+impl<'a> MonomorphizationTargetCollector<'a> {
+    pub fn new(
+        targets: &'a mut Vec<MonomorphizationTarget>,
+        visited: &'a mut HashSet<MonomorphizationTarget>,
+        generic_functions: &'a mut HashMap<String, PositionedFunction>,
+        generic_structs: &'a mut HashMap<String, PositionedStructDecl>,
+    ) -> Self {
+        Self {
+            targets,
+            visited,
+            generic_functions,
+            generic_structs,
         }
     }
 
-    /// Register a generic function for later monomorphization
-    pub fn register_generic_function(&mut self, function: PositionedFunction) {
+    fn register_generic_function(&mut self, function: PositionedFunction) {
         if !function.value.type_params.is_empty() {
             self.generic_functions
                 .insert(function.value.name.clone(), function);
         }
     }
 
-    /// Register a generic struct for later monomorphization
-    pub fn register_generic_struct(&mut self, struct_decl: PositionedStructDecl) {
+    fn register_generic_struct(&mut self, struct_decl: PositionedStructDecl) {
         if !struct_decl.value.type_params.is_empty() {
             self.generic_structs
                 .insert(struct_decl.value.name.clone(), struct_decl);
         }
     }
 
-    /// Add a target for monomorphization
-    pub fn add_target(&mut self, target: MonomorphizationTarget) {
+    fn add_target(&mut self, target: MonomorphizationTarget) {
         if !self.visited.contains(&target) {
             self.targets.push(target);
         }
     }
 
-    /// Collect all monomorphization targets from a program
-    pub fn collect_targets(&mut self, program: &Program) -> Result<()> {
-        for decl in &program.declarations {
-            self.collect_targets_from_decl(decl)?;
+    fn check_string_usage_and_add_array_byte(&mut self, expr: &PositionedExpr) {
+        match &expr.value {
+            Expr::String(_) | Expr::PushString(_) => {
+                self.add_array_byte_target();
+            }
+            Expr::Index {
+                container_value_type,
+                ..
+            } => {
+                if let Some(container_type) = container_value_type {
+                    if matches!(container_type, Type::String) {
+                        self.add_array_byte_target();
+                    }
+                }
+            }
+            Expr::Binary { left, right, .. } => {
+                self.check_string_usage_and_add_array_byte(left);
+                self.check_string_usage_and_add_array_byte(right);
+            }
+            Expr::Call { args, .. } => {
+                for arg in args {
+                    self.check_string_usage_and_add_array_byte(arg);
+                }
+            }
+            Expr::FieldAccess { object, .. } => {
+                self.check_string_usage_and_add_array_byte(object);
+            }
+            Expr::MethodCall { object, args, .. } => {
+                if let Some(obj) = object {
+                    self.check_string_usage_and_add_array_byte(obj);
+                }
+                for arg in args {
+                    self.check_string_usage_and_add_array_byte(arg);
+                }
+            }
+            Expr::StructNew { fields, .. } => {
+                for (_, field_expr) in fields {
+                    self.check_string_usage_and_add_array_byte(field_expr);
+                }
+            }
+            Expr::Cast { expr, .. } => {
+                self.check_string_usage_and_add_array_byte(expr);
+            }
+            Expr::Alloc { size, .. } => {
+                self.check_string_usage_and_add_array_byte(size);
+            }
+            _ => {}
         }
-        Ok(())
     }
 
-    /// Collect targets from a declaration
-    fn collect_targets_from_decl(&mut self, decl: &PositionedDecl) -> Result<()> {
+    fn add_array_byte_target(&mut self) {
+        let struct_target = MonomorphizationTarget {
+            symbol: "array".to_string(),
+            args: vec![Type::Byte],
+        };
+        self.add_target(struct_target);
+    }
+}
+
+impl<'a> Visitor for MonomorphizationTargetCollector<'a> {
+    fn visit_decl(&mut self, decl: &PositionedDecl) -> Result<()> {
         match &decl.value {
             Decl::Function(func) => {
+                // Register generic functions
                 if !func.value.type_params.is_empty() {
                     self.register_generic_function(func.clone());
                 }
@@ -144,148 +191,21 @@ impl Monomorphizer {
                         }
                     }
                 }
-
-                // Look for generic calls in function body
-                for stmt in &func.value.body {
-                    self.collect_targets_from_stmt(stmt)?;
-                }
             }
             Decl::Struct(struct_decl) => {
+                // Register generic structs
                 if !struct_decl.value.type_params.is_empty() {
                     self.register_generic_struct(struct_decl.clone());
                 }
-                // Look for generic calls in method bodies
-                for method in &struct_decl.value.methods {
-                    for stmt in &method.value.body {
-                        self.collect_targets_from_stmt(stmt)?;
-                    }
-                }
             }
-            Decl::GlobalVariable(var) => {
-                if let Some(ref value_expr) = var.value.value {
-                    self.collect_targets_from_expr(value_expr)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Collect targets from a statement
-    fn collect_targets_from_stmt(&mut self, stmt: &PositionedStmt) -> Result<()> {
-        match &stmt.value {
-            Stmt::Let { value, .. } => {
-                self.collect_targets_from_expr(value)?;
-            }
-            Stmt::Expression(expr) => {
-                self.collect_targets_from_expr(expr)?;
-            }
-            Stmt::Return(expr) => {
-                self.collect_targets_from_expr(expr)?;
-            }
-            Stmt::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                self.collect_targets_from_expr(condition)?;
-                for stmt in then_branch {
-                    self.collect_targets_from_stmt(stmt)?;
-                }
-                if let Some(else_stmts) = else_branch {
-                    for stmt in else_stmts {
-                        self.collect_targets_from_stmt(stmt)?;
-                    }
-                }
-            }
-            Stmt::While { condition, body } => {
-                self.collect_targets_from_expr(condition)?;
-                for stmt in body {
-                    self.collect_targets_from_stmt(stmt)?;
-                }
-            }
-            Stmt::Assign { lvalue, value } => {
-                self.collect_targets_from_expr(lvalue)?;
-                self.collect_targets_from_expr(value)?;
-            }
-            Stmt::VectorPush { value, .. } => {
-                self.collect_targets_from_expr(value)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Check for string usage and ensure array(byte) is available for monomorphization
-    fn check_string_usage_and_add_array_byte(&mut self, expr: &PositionedExpr) {
-        match &expr.value {
-            // String literal
-            Expr::String(_) | Expr::PushString(_) => {
-                self.add_array_byte_target();
-            }
-            // Index access with string container
-            Expr::Index {
-                container_value_type,
-                ..
-            } => {
-                if let Some(container_type) = container_value_type {
-                    if matches!(container_type, Type::String) {
-                        self.add_array_byte_target();
-                    }
-                }
-            }
-            // Binary operations that might involve strings
-            Expr::Binary { left, right, .. } => {
-                self.check_string_usage_and_add_array_byte(left);
-                self.check_string_usage_and_add_array_byte(right);
-            }
-            // Function calls that might return strings or take string parameters
-            Expr::Call { args, .. } => {
-                for arg in args {
-                    self.check_string_usage_and_add_array_byte(arg);
-                }
-            }
-            // Field access on string-typed objects
-            Expr::FieldAccess { object, .. } => {
-                self.check_string_usage_and_add_array_byte(object);
-            }
-            // Method calls on string-typed objects
-            Expr::MethodCall { object, args, .. } => {
-                if let Some(obj) = object {
-                    self.check_string_usage_and_add_array_byte(obj);
-                }
-                for arg in args {
-                    self.check_string_usage_and_add_array_byte(arg);
-                }
-            }
-            // Struct creation with string fields
-            Expr::StructNew { fields, .. } => {
-                for (_, field_expr) in fields {
-                    self.check_string_usage_and_add_array_byte(field_expr);
-                }
-            }
-            // Cast operations involving strings
-            Expr::Cast { expr, .. } => {
-                self.check_string_usage_and_add_array_byte(expr);
-            }
-            // Alloc expressions
-            Expr::Alloc { size, .. } => {
-                self.check_string_usage_and_add_array_byte(size);
-            }
-            // Other expressions that don't directly involve strings
             _ => {}
         }
+
+        // Continue with default traversal
+        crate::ast_visitor::walk_decl(self, decl)
     }
 
-    /// Add array(byte) as a monomorphization target
-    fn add_array_byte_target(&mut self) {
-        let struct_target = MonomorphizationTarget {
-            symbol: "array".to_string(),
-            args: vec![Type::Byte],
-        };
-        self.add_target(struct_target);
-    }
-
-    /// Collect targets from an expression
-    fn collect_targets_from_expr(&mut self, expr: &PositionedExpr) -> Result<()> {
+    fn visit_expr(&mut self, expr: &PositionedExpr) -> Result<()> {
         // Check if we encounter any string usage and ensure array(byte) is available
         self.check_string_usage_and_add_array_byte(expr);
 
@@ -347,18 +267,8 @@ impl Monomorphizer {
                         }
                     }
                 }
-
-                // Recursively check callee and arguments
-                self.collect_targets_from_expr(callee)?;
-                for arg in args {
-                    self.collect_targets_from_expr(arg)?;
-                }
             }
-            Expr::StructNew {
-                type_name,
-                fields,
-                kind: _,
-            } => {
+            Expr::StructNew { type_name, .. } => {
                 // Check if this is a generic struct instantiation
                 if let Type::Struct { name, args } = type_name {
                     // Only add as target if the struct is actually registered as generic
@@ -369,34 +279,8 @@ impl Monomorphizer {
                         });
                     }
                 }
-
-                // Recursively check field expressions
-                for (_, field_expr) in fields {
-                    self.collect_targets_from_expr(field_expr)?;
-                }
             }
-            Expr::Binary { left, right, .. } => {
-                self.collect_targets_from_expr(left)?;
-                self.collect_targets_from_expr(right)?;
-            }
-            Expr::Index {
-                container,
-                index,
-                container_value_type: _,
-                ..
-            } => {
-                self.collect_targets_from_expr(container)?;
-                self.collect_targets_from_expr(index)?;
-            }
-            Expr::FieldAccess { object, .. } => {
-                self.collect_targets_from_expr(object)?;
-            }
-            Expr::MethodCall {
-                object,
-                object_type,
-                method: _,
-                args,
-            } => {
+            Expr::MethodCall { object_type, .. } => {
                 // Check if this is a type method call (object_type is set and object is None)
                 if let Some(obj_type) = object_type {
                     if let Type::Struct {
@@ -414,38 +298,250 @@ impl Monomorphizer {
                         }
                     }
                 }
-
-                if let Some(obj) = object {
-                    self.collect_targets_from_expr(obj)?;
-                }
-                for arg in args {
-                    self.collect_targets_from_expr(arg)?;
-                }
             }
-            Expr::Alloc {
-                element_type: _,
-                size,
-            } => {
-                self.collect_targets_from_expr(size)?;
-            }
-            Expr::Sizeof { .. } => {
-                // sizeof expressions don't need recursive processing
-            }
-            Expr::Cast {
-                expr,
-                target_type: _,
-            } => {
-                self.collect_targets_from_expr(expr)?;
-            }
-            // Simple expressions don't need recursive processing
-            Expr::Int(_)
-            | Expr::Boolean(_)
-            | Expr::String(_)
-            | Expr::PushString(_)
-            | Expr::Byte(_)
-            | Expr::Identifier(_)
-            | Expr::TypeExpr { .. } => {}
+            _ => {}
         }
+
+        // Continue with default traversal
+        crate::ast_visitor::walk_expr(self, expr)
+    }
+}
+
+/// AST visitor that performs type substitutions using a substitution map
+pub struct TypeSubstitutionVisitor<'a> {
+    substitutions: &'a HashMap<String, Type>,
+}
+
+impl<'a> TypeSubstitutionVisitor<'a> {
+    pub fn new(substitutions: &'a HashMap<String, Type>) -> Self {
+        Self { substitutions }
+    }
+
+    fn substitute_type(&self, type_ref: &Type) -> Type {
+        type_ref.substitute(self.substitutions)
+    }
+}
+
+impl<'a> VisitorMut for TypeSubstitutionVisitor<'a> {
+    fn visit_expr(&mut self, expr: &mut PositionedExpr) -> Result<()> {
+        match &mut expr.value {
+            Expr::TypeExpr { type_name } => {
+                *type_name = self.substitute_type(type_name);
+            }
+            Expr::Alloc { element_type, .. } => {
+                *element_type = self.substitute_type(element_type);
+            }
+            Expr::Sizeof { type_name } => {
+                *type_name = self.substitute_type(type_name);
+            }
+            Expr::Cast { target_type, .. } => {
+                *target_type = self.substitute_type(target_type);
+            }
+            Expr::StructNew { type_name, .. } => {
+                *type_name = self.substitute_type(type_name);
+            }
+            Expr::FieldAccess { object_type, .. } => {
+                if let Some(obj_type) = object_type {
+                    *obj_type = self.substitute_type(obj_type);
+                }
+            }
+            Expr::MethodCall { object_type, .. } => {
+                if let Some(obj_type) = object_type {
+                    *obj_type = self.substitute_type(obj_type);
+                }
+            }
+            _ => {}
+        }
+
+        // Continue with default traversal
+        crate::ast_visitor::walk_expr_mut(self, expr)
+    }
+
+    fn visit_function(&mut self, func: &mut PositionedFunction) -> Result<()> {
+        // Visit parameter types
+        for param in &mut func.value.params {
+            if let Some(param_type) = &mut param.param_type {
+                *param_type = self.substitute_type(param_type);
+            }
+        }
+
+        // Visit function body
+        for stmt in &mut func.value.body {
+            self.visit_stmt(stmt)?;
+        }
+
+        Ok(())
+    }
+
+    fn visit_type(&mut self, type_ref: &mut Type) -> Result<()> {
+        *type_ref = self.substitute_type(type_ref);
+        Ok(())
+    }
+}
+
+/// AST visitor that performs global type substitutions (replaces generic instantiations with monomorphized names)
+pub struct GlobalTypeSubstitutionVisitor<'a> {
+    monomorphized_functions: &'a HashMap<String, PositionedFunction>,
+    monomorphized_structs: &'a HashMap<String, PositionedStructDecl>,
+}
+
+impl<'a> GlobalTypeSubstitutionVisitor<'a> {
+    pub fn new(
+        monomorphized_functions: &'a HashMap<String, PositionedFunction>,
+        monomorphized_structs: &'a HashMap<String, PositionedStructDecl>,
+    ) -> Self {
+        Self {
+            monomorphized_functions,
+            monomorphized_structs,
+        }
+    }
+
+    fn substitute_type_globally(&self, type_ref: &Type) -> Type {
+        match type_ref {
+            Type::Struct { name, args } => {
+                // If this is a generic type that has been monomorphized, use the instantiated name
+                if !args.is_empty() {
+                    let target = MonomorphizationTarget {
+                        symbol: name.clone(),
+                        args: args.clone(),
+                    };
+                    Type::Struct {
+                        name: target.instantiated_name(),
+                        args: vec![], // Monomorphized types have no type arguments
+                    }
+                } else {
+                    type_ref.clone()
+                }
+            }
+            _ => type_ref.clone(),
+        }
+    }
+}
+
+impl<'a> VisitorMut for GlobalTypeSubstitutionVisitor<'a> {
+    fn visit_expr(&mut self, expr: &mut PositionedExpr) -> Result<()> {
+        match &mut expr.value {
+            Expr::Call { callee, args } => {
+                // Check if this is a generic function call that needs to be replaced
+                if let Expr::Identifier(func_name) = &callee.value {
+                    // Look for generic functions that may need monomorphization
+                    // We need to check if this is a call to a function that has type arguments
+                    let mut type_args = Vec::new();
+                    let mut remaining_args = Vec::new();
+
+                    // Extract type arguments from the beginning of args
+                    for arg in args.iter() {
+                        if let Expr::TypeExpr { type_name } = &arg.value {
+                            type_args.push(type_name.clone());
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    // If we found type arguments, this might be a generic call
+                    if !type_args.is_empty() {
+                        let type_args_len = type_args.len();
+                        let target = MonomorphizationTarget {
+                            symbol: func_name.clone(),
+                            args: type_args,
+                        };
+                        let monomorphized_name = target.instantiated_name();
+
+                        // Check if a monomorphized version exists
+                        if self.monomorphized_functions.contains_key(&monomorphized_name) {
+                            callee.value = Expr::Identifier(monomorphized_name);
+                            // Keep only the non-type arguments
+                            for arg in args.iter().skip(type_args_len) {
+                                remaining_args.push(arg.clone());
+                            }
+                            *args = remaining_args;
+                        }
+                    }
+                }
+            }
+            Expr::FieldAccess { object_type, .. } => {
+                if let Some(obj_type) = object_type {
+                    *obj_type = self.substitute_type_globally(obj_type);
+                }
+            }
+            Expr::MethodCall { object_type, .. } => {
+                if let Some(obj_type) = object_type {
+                    *obj_type = self.substitute_type_globally(obj_type);
+                }
+            }
+            _ => {}
+        }
+
+        // Continue with default traversal
+        crate::ast_visitor::walk_expr_mut(self, expr)
+    }
+
+    fn visit_type(&mut self, type_ref: &mut Type) -> Result<()> {
+        *type_ref = self.substitute_type_globally(type_ref);
+        Ok(())
+    }
+}
+
+/// The monomorphization engine
+pub struct Monomorphizer {
+    /// Queue of targets that need to be monomorphized
+    targets: Vec<MonomorphizationTarget>,
+    /// Set of targets that have already been processed
+    visited: HashSet<MonomorphizationTarget>,
+    /// Map from original generic symbols to their declarations
+    generic_functions: HashMap<String, PositionedFunction>,
+    generic_structs: HashMap<String, PositionedStructDecl>,
+    /// Map from mangled names to monomorphized declarations
+    monomorphized_functions: HashMap<String, PositionedFunction>,
+    monomorphized_structs: HashMap<String, PositionedStructDecl>,
+}
+
+impl Monomorphizer {
+    pub fn new() -> Self {
+        Monomorphizer {
+            targets: Vec::new(),
+            visited: HashSet::new(),
+            generic_functions: HashMap::new(),
+            generic_structs: HashMap::new(),
+            monomorphized_functions: HashMap::new(),
+            monomorphized_structs: HashMap::new(),
+        }
+    }
+
+    /// Register a generic function for later monomorphization
+    pub fn register_generic_function(&mut self, function: PositionedFunction) {
+        if !function.value.type_params.is_empty() {
+            self.generic_functions
+                .insert(function.value.name.clone(), function);
+        }
+    }
+
+    /// Register a generic struct for later monomorphization
+    pub fn register_generic_struct(&mut self, struct_decl: PositionedStructDecl) {
+        if !struct_decl.value.type_params.is_empty() {
+            self.generic_structs
+                .insert(struct_decl.value.name.clone(), struct_decl);
+        }
+    }
+
+    /// Add a target for monomorphization
+    pub fn add_target(&mut self, target: MonomorphizationTarget) {
+        if !self.visited.contains(&target) {
+            self.targets.push(target);
+        }
+    }
+
+    /// Collect all monomorphization targets from a program using the AST visitor
+    pub fn collect_targets(&mut self, program: &Program) -> Result<()> {
+        // Use the visitor to register generic functions/structs and collect targets
+        let mut collector = MonomorphizationTargetCollector::new(
+            &mut self.targets,
+            &mut self.visited,
+            &mut self.generic_functions,
+            &mut self.generic_structs,
+        );
+        collector.visit_program(program)?;
+
         Ok(())
     }
 
@@ -638,169 +734,23 @@ impl Monomorphizer {
         Ok(())
     }
 
-    /// Substitute type parameters in statement list
+    /// Substitute type parameters in statement list using visitor
     fn substitute_statements(
         &mut self,
         statements: &[PositionedStmt],
         substitutions: &HashMap<String, Type>,
     ) -> Result<Vec<PositionedStmt>> {
-        statements
-            .iter()
-            .map(|stmt| self.substitute_statement(stmt, substitutions))
-            .collect()
+        let mut cloned_statements: Vec<PositionedStmt> = statements.to_vec();
+        let mut visitor = TypeSubstitutionVisitor::new(substitutions);
+        
+        for stmt in &mut cloned_statements {
+            visitor.visit_stmt(stmt)?;
+        }
+        
+        Ok(cloned_statements)
     }
 
-    /// Substitute type parameters in a single statement
-    fn substitute_statement(
-        &mut self,
-        statement: &PositionedStmt,
-        substitutions: &HashMap<String, Type>,
-    ) -> Result<PositionedStmt> {
-        let substituted = match &statement.value {
-            Stmt::Let { name, value } => Stmt::Let {
-                name: name.clone(),
-                value: self.substitute_expression(value, substitutions)?,
-            },
-            Stmt::Expression(expr) => {
-                Stmt::Expression(self.substitute_expression(expr, substitutions)?)
-            }
-            Stmt::Return(expr) => Stmt::Return(self.substitute_expression(expr, substitutions)?),
-            Stmt::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => Stmt::If {
-                condition: self.substitute_expression(condition, substitutions)?,
-                then_branch: self.substitute_statements(then_branch, substitutions)?,
-                else_branch: else_branch
-                    .as_ref()
-                    .map(|branch| self.substitute_statements(branch, substitutions))
-                    .transpose()?,
-            },
-            Stmt::While { condition, body } => Stmt::While {
-                condition: self.substitute_expression(condition, substitutions)?,
-                body: self.substitute_statements(body, substitutions)?,
-            },
-            Stmt::Assign { lvalue, value } => Stmt::Assign {
-                lvalue: self.substitute_expression(lvalue, substitutions)?,
-                value: self.substitute_expression(value, substitutions)?,
-            },
-            Stmt::VectorPush {
-                vector,
-                value,
-                vector_type,
-            } => Stmt::VectorPush {
-                vector: vector.clone(),
-                value: self.substitute_expression(value, substitutions)?,
-                vector_type: vector_type.clone(),
-            },
-        };
-        Ok(Positioned::with_unknown_span(substituted))
-    }
 
-    /// Substitute type parameters in an expression
-    fn substitute_expression(
-        &mut self,
-        expression: &PositionedExpr,
-        substitutions: &HashMap<String, Type>,
-    ) -> Result<PositionedExpr> {
-        let substituted = match &expression.value {
-            // Simple expressions that don't need substitution
-            Expr::Int(n) => Expr::Int(*n),
-            Expr::Boolean(b) => Expr::Boolean(*b),
-            Expr::String(s) => Expr::String(s.clone()),
-            Expr::PushString(s) => Expr::PushString(s.clone()),
-            Expr::Byte(b) => Expr::Byte(*b),
-            Expr::Identifier(name) => Expr::Identifier(name.clone()),
-            Expr::TypeExpr { type_name } => Expr::TypeExpr {
-                type_name: type_name.substitute(substitutions),
-            },
-            Expr::Alloc { element_type, size } => Expr::Alloc {
-                element_type: element_type.substitute(substitutions),
-                size: Box::new(self.substitute_expression(size, substitutions)?),
-            },
-            Expr::Sizeof { type_name } => Expr::Sizeof {
-                type_name: type_name.substitute(substitutions),
-            },
-            Expr::Cast { expr, target_type } => Expr::Cast {
-                expr: Box::new(self.substitute_expression(expr, substitutions)?),
-                target_type: target_type.substitute(substitutions),
-            },
-
-            // Complex expressions that may contain type information
-            Expr::Binary { left, op, right } => Expr::Binary {
-                left: Box::new(self.substitute_expression(left, substitutions)?),
-                op: *op,
-                right: Box::new(self.substitute_expression(right, substitutions)?),
-            },
-            Expr::Call { callee, args } => {
-                // This is where we might discover new monomorphization targets
-                Expr::Call {
-                    callee: Box::new(self.substitute_expression(callee, substitutions)?),
-                    args: args
-                        .iter()
-                        .map(|arg| self.substitute_expression(arg, substitutions))
-                        .collect::<Result<Vec<_>>>()?,
-                }
-            }
-            Expr::Index {
-                container,
-                index,
-                container_type,
-                container_value_type,
-            } => Expr::Index {
-                container: Box::new(self.substitute_expression(container, substitutions)?),
-                index: Box::new(self.substitute_expression(index, substitutions)?),
-                container_type: *container_type,
-                container_value_type: container_value_type.clone(),
-            },
-            Expr::StructNew {
-                type_name,
-                fields,
-                kind,
-            } => Expr::StructNew {
-                type_name: type_name.substitute(substitutions),
-                fields: fields
-                    .iter()
-                    .map(|(name, expr)| {
-                        Ok((
-                            name.clone(),
-                            self.substitute_expression(expr, substitutions)?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>>>()?,
-                kind: *kind,
-            },
-            Expr::FieldAccess {
-                object,
-                field,
-                object_type,
-            } => Expr::FieldAccess {
-                object: Box::new(self.substitute_expression(object, substitutions)?),
-                field: field.clone(),
-                object_type: object_type.as_ref().map(|t| t.substitute(substitutions)),
-            },
-            Expr::MethodCall {
-                object,
-                object_type,
-                method,
-                args,
-            } => Expr::MethodCall {
-                object: if let Some(obj) = object {
-                    Some(Box::new(self.substitute_expression(obj, substitutions)?))
-                } else {
-                    None
-                },
-                object_type: object_type.as_ref().map(|t| t.substitute(substitutions)),
-                method: method.clone(),
-                args: args
-                    .iter()
-                    .map(|arg| self.substitute_expression(arg, substitutions))
-                    .collect::<Result<Vec<_>>>()?,
-            },
-        };
-        Ok(Positioned::with_unknown_span(substituted))
-    }
 
     /// Get all monomorphized functions
     pub fn get_monomorphized_functions(&self) -> &HashMap<String, PositionedFunction> {
@@ -878,222 +828,38 @@ impl Monomorphizer {
         })
     }
 
-    /// Substitute generic type instantiations globally (without type parameter substitutions)
+    /// Substitute generic type instantiations globally using visitor
     fn substitute_statements_globally(
         &self,
         statements: &[PositionedStmt],
     ) -> Result<Vec<PositionedStmt>> {
-        statements
-            .iter()
-            .map(|stmt| self.substitute_statement_globally(stmt))
-            .collect()
-    }
-
-    /// Substitute generic type instantiations in a single statement globally
-    fn substitute_statement_globally(&self, statement: &PositionedStmt) -> Result<PositionedStmt> {
-        let substituted = match &statement.value {
-            Stmt::Let { name, value } => Stmt::Let {
-                name: name.clone(),
-                value: self.substitute_expression_globally(value)?,
-            },
-            Stmt::Expression(expr) => Stmt::Expression(self.substitute_expression_globally(expr)?),
-            Stmt::Return(expr) => Stmt::Return(self.substitute_expression_globally(expr)?),
-            Stmt::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => Stmt::If {
-                condition: self.substitute_expression_globally(condition)?,
-                then_branch: self.substitute_statements_globally(then_branch)?,
-                else_branch: else_branch
-                    .as_ref()
-                    .map(|branch| self.substitute_statements_globally(branch))
-                    .transpose()?,
-            },
-            Stmt::While { condition, body } => Stmt::While {
-                condition: self.substitute_expression_globally(condition)?,
-                body: self.substitute_statements_globally(body)?,
-            },
-            Stmt::Assign { lvalue, value } => Stmt::Assign {
-                lvalue: self.substitute_expression_globally(lvalue)?,
-                value: self.substitute_expression_globally(value)?,
-            },
-            Stmt::VectorPush {
-                vector,
-                value,
-                vector_type,
-            } => Stmt::VectorPush {
-                vector: vector.clone(),
-                value: self.substitute_expression_globally(value)?,
-                vector_type: vector_type.clone(),
-            },
-        };
-        Ok(Positioned::with_unknown_span(substituted))
-    }
-
-    /// Substitute a type globally to use monomorphized names
-    fn substitute_type_globally(&self, type_ref: &Type) -> Type {
-        match type_ref {
-            Type::Struct { name, args } => {
-                // If this is a generic type that has been monomorphized, use the instantiated name
-                if !args.is_empty() {
-                    let target = MonomorphizationTarget {
-                        symbol: name.clone(),
-                        args: args.clone(),
-                    };
-                    Type::Struct {
-                        name: target.instantiated_name(),
-                        args: vec![], // Monomorphized types have no type arguments
-                    }
-                } else {
-                    type_ref.clone()
-                }
-            }
-            _ => type_ref.clone(),
+        let mut cloned_statements: Vec<PositionedStmt> = statements.to_vec();
+        let mut visitor = GlobalTypeSubstitutionVisitor::new(
+            &self.monomorphized_functions,
+            &self.monomorphized_structs,
+        );
+        
+        for stmt in &mut cloned_statements {
+            visitor.visit_stmt(stmt)?;
         }
+        
+        Ok(cloned_statements)
     }
 
-    /// Substitute generic type instantiations in an expression globally
+
+    /// Substitute generic type instantiations in an expression globally using visitor
     fn substitute_expression_globally(
         &self,
         expression: &PositionedExpr,
     ) -> Result<PositionedExpr> {
-        let substituted = match &expression.value {
-            // Simple expressions that don't need substitution
-            Expr::Int(n) => Expr::Int(*n),
-            Expr::Boolean(b) => Expr::Boolean(*b),
-            Expr::String(s) => Expr::String(s.clone()),
-            Expr::PushString(s) => Expr::PushString(s.clone()),
-            Expr::Byte(b) => Expr::Byte(*b),
-            Expr::Identifier(name) => Expr::Identifier(name.clone()),
-            Expr::TypeExpr { type_name } => Expr::TypeExpr {
-                type_name: type_name.clone(),
-            },
-            Expr::Alloc { element_type, size } => Expr::Alloc {
-                element_type: element_type.clone(), // No global substitution needed for types
-                size: Box::new(self.substitute_expression_globally(size)?),
-            },
-            Expr::Sizeof { type_name } => Expr::Sizeof {
-                type_name: type_name.clone(), // No global substitution needed for types
-            },
-            Expr::Cast { expr, target_type } => Expr::Cast {
-                expr: Box::new(self.substitute_expression_globally(expr)?),
-                target_type: target_type.clone(), // No global substitution needed for types
-            },
-
-            // Complex expressions
-            Expr::Binary { left, op, right } => Expr::Binary {
-                left: Box::new(self.substitute_expression_globally(left)?),
-                op: *op,
-                right: Box::new(self.substitute_expression_globally(right)?),
-            },
-            Expr::Call { callee, args } => {
-                // Check if this is a generic function call
-                if let Expr::Identifier(func_name) = &callee.value {
-                    if self.generic_functions.contains_key(func_name) {
-                        // Extract type arguments from the beginning of args
-                        let mut type_args = Vec::new();
-                        let mut remaining_args = Vec::new();
-
-                        let generic_func = &self.generic_functions[func_name];
-                        let num_type_params = generic_func.value.type_params.len();
-
-                        // First n arguments should be type expressions
-                        for (i, arg) in args.iter().enumerate() {
-                            if i < num_type_params {
-                                if let Expr::TypeExpr { type_name } = &arg.value {
-                                    type_args.push(type_name.clone());
-                                }
-                            } else {
-                                remaining_args.push(self.substitute_expression_globally(arg)?);
-                            }
-                        }
-
-                        // Generate the monomorphized function name
-                        if !type_args.is_empty() {
-                            let target = MonomorphizationTarget {
-                                symbol: func_name.clone(),
-                                args: type_args,
-                            };
-                            let monomorphized_name = target.instantiated_name();
-
-                            return Ok(Positioned::with_unknown_span(Expr::Call {
-                                callee: Box::new(Positioned::with_unknown_span(Expr::Identifier(
-                                    monomorphized_name,
-                                ))),
-                                args: remaining_args,
-                            }));
-                        }
-                    }
-                }
-
-                // Default case: not a generic function call
-                Expr::Call {
-                    callee: Box::new(self.substitute_expression_globally(callee)?),
-                    args: args
-                        .iter()
-                        .map(|arg| self.substitute_expression_globally(arg))
-                        .collect::<Result<Vec<_>>>()?,
-                }
-            }
-            Expr::Index {
-                container,
-                index,
-                container_type,
-                container_value_type,
-            } => Expr::Index {
-                container: Box::new(self.substitute_expression_globally(container)?),
-                index: Box::new(self.substitute_expression_globally(index)?),
-                container_type: *container_type,
-                container_value_type: container_value_type.clone(),
-            },
-            Expr::StructNew {
-                type_name,
-                fields,
-                kind,
-            } => Expr::StructNew {
-                type_name: type_name.clone(), // No global substitution needed for types
-                fields: fields
-                    .iter()
-                    .map(|(name, expr)| {
-                        Ok((name.clone(), self.substitute_expression_globally(expr)?))
-                    })
-                    .collect::<Result<Vec<_>>>()?,
-                kind: *kind,
-            },
-            Expr::FieldAccess {
-                object,
-                field,
-                object_type,
-            } => Expr::FieldAccess {
-                object: Box::new(self.substitute_expression_globally(object)?),
-                field: field.clone(),
-                object_type: object_type
-                    .as_ref()
-                    .map(|t| self.substitute_type_globally(t)),
-            },
-            Expr::MethodCall {
-                object,
-                object_type,
-                method,
-                args,
-            } => Expr::MethodCall {
-                object: if let Some(obj) = object {
-                    Some(Box::new(self.substitute_expression_globally(obj)?))
-                } else {
-                    None
-                },
-                object_type: object_type
-                    .as_ref()
-                    .map(|t| self.substitute_type_globally(t)),
-                method: method.clone(),
-                args: args
-                    .iter()
-                    .map(|arg| self.substitute_expression_globally(arg))
-                    .collect::<Result<Vec<_>>>()?,
-            },
-        };
-        Ok(Positioned::with_unknown_span(substituted))
+        let mut cloned_expression = expression.clone();
+        let mut visitor = GlobalTypeSubstitutionVisitor::new(
+            &self.monomorphized_functions,
+            &self.monomorphized_structs,
+        );
+        
+        visitor.visit_expr(&mut cloned_expression)?;
+        Ok(cloned_expression)
     }
 }
 
