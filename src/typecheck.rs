@@ -2,6 +2,7 @@ use crate::ast::{
     BinaryOp, Decl, Expr, Function, IndexContainerType, PositionedDecl, PositionedExpr,
     PositionedStmt, PositionedStructDecl, Program, Span, Stmt, StructNewKind, Type,
 };
+use crate::ast_visitor::VisitorMut;
 use crate::bail_with_position;
 use anyhow::Result;
 use std::collections::HashMap;
@@ -183,6 +184,666 @@ pub struct TypeChecker {
     generic_functions: HashMap<String, Function>,
 }
 
+/// Visitor for type checking AST nodes
+pub struct TypeCheckVisitor<'a> {
+    pub checker: &'a mut TypeChecker,
+}
+
+/// Visitor for type inference AST nodes
+pub struct TypeInferenceVisitor<'a> {
+    pub checker: &'a mut TypeChecker,
+}
+
+impl<'a> TypeCheckVisitor<'a> {
+    pub fn new(checker: &'a mut TypeChecker) -> Self {
+        Self { checker }
+    }
+}
+
+impl<'a> TypeInferenceVisitor<'a> {
+    pub fn new(checker: &'a mut TypeChecker) -> Self {
+        Self { checker }
+    }
+
+    /// Run type inference on the entire program
+    pub fn infer_types(&mut self, program: &mut Program) -> Result<()> {
+        for decl in &mut program.declarations {
+            self.infer_declaration_types(&mut decl.value)?;
+        }
+        Ok(())
+    }
+
+    /// Infer types for a declaration
+    fn infer_declaration_types(&mut self, decl: &mut Decl) -> Result<()> {
+        match decl {
+            Decl::Function(function) => self.infer_function_types(&mut function.value),
+            Decl::Struct(_) => Ok(()), // Struct types are already resolved during registration
+            Decl::GlobalVariable(global_var) => {
+                // Type check the global variable's value if it exists
+                if let Some(ref mut value_expr) = global_var.value.value {
+                    self.infer_expression_types(value_expr)?;
+                    // Register the global variable's type using TypeChecker's method
+                    let var_type = self.checker.check_expression(value_expr)?;
+                    self.checker.globals.insert(global_var.value.name.clone(), var_type);
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Infer types for a function
+    fn infer_function_types(&mut self, function: &mut Function) -> Result<()> {
+        // Create new scope for function
+        let mut local_scope = HashMap::new();
+
+        // Add parameters to scope
+        for param in &function.params {
+            let param_type = if let Some(param_type) = &param.param_type {
+                self.checker.resolve_type_recursive(param_type)
+            } else {
+                Type::Unknown // Type inference could be added later
+            };
+            local_scope.insert(param.name.clone(), param_type);
+        }
+
+        self.checker.call_stack.push(local_scope);
+
+        // Infer types in function body
+        for stmt in &mut function.body {
+            self.infer_statement_types(stmt)?;
+        }
+
+        self.checker.call_stack.pop();
+        Ok(())
+    }
+
+    /// Infer types for a statement
+    fn infer_statement_types(&mut self, stmt: &mut PositionedStmt) -> Result<()> {
+        match &mut stmt.value {
+            Stmt::Let { name, value } => {
+                self.infer_expression_types(value)?;
+                let value_type = self.checker.check_expression(value)?;
+
+                // Add to current scope
+                if let Some(locals) = self.checker.call_stack.last_mut() {
+                    locals.insert(name.clone(), value_type);
+                } else {
+                    self.checker.variables.insert(name.clone(), value_type);
+                }
+                Ok(())
+            }
+
+            Stmt::Expression(expr) => {
+                self.infer_expression_types(expr)?;
+                Ok(())
+            }
+
+            Stmt::Return(expr) => {
+                self.infer_expression_types(expr)?;
+                Ok(())
+            }
+
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.infer_expression_types(condition)?;
+
+                for stmt in then_branch {
+                    self.infer_statement_types(stmt)?;
+                }
+
+                if let Some(else_stmts) = else_branch {
+                    for stmt in else_stmts {
+                        self.infer_statement_types(stmt)?;
+                    }
+                }
+                Ok(())
+            }
+
+            Stmt::While { condition, body } => {
+                self.infer_expression_types(condition)?;
+
+                for stmt in body {
+                    self.infer_statement_types(stmt)?;
+                }
+                Ok(())
+            }
+
+            Stmt::Assign { lvalue, value } => {
+                self.infer_expression_types(lvalue)?;
+                self.infer_expression_types(value)?;
+                Ok(())
+            }
+
+            Stmt::VectorPush {
+                vector: _,
+                value,
+                vector_type: _,
+            } => {
+                self.infer_expression_types(value)?;
+                Ok(())
+            }
+        }
+    }
+
+    /// Infer types for an expression
+    fn infer_expression_types(&mut self, expr: &mut PositionedExpr) -> Result<()> {
+        match &mut expr.value {
+            Expr::Int(_)
+            | Expr::Boolean(_)
+            | Expr::String(_)
+            | Expr::PushString(_)
+            | Expr::Byte(_)
+            | Expr::Identifier(_)
+            | Expr::TypeExpr { .. }
+            | Expr::Sizeof { .. } => {
+                // No inference needed for literals, identifiers, and type expressions
+                Ok(())
+            }
+
+            Expr::Cast {
+                expr,
+                target_type: _,
+            } => {
+                self.infer_expression_types(expr)?;
+                Ok(())
+            }
+
+            Expr::Alloc {
+                element_type: _,
+                size,
+            } => {
+                self.infer_expression_types(size)?;
+                Ok(())
+            }
+
+            Expr::Binary { left, right, .. } => {
+                self.infer_expression_types(left)?;
+                self.infer_expression_types(right)?;
+                Ok(())
+            }
+
+            Expr::Call { callee, args } => {
+                self.infer_expression_types(callee)?;
+                for arg in args {
+                    self.infer_expression_types(arg)?;
+                }
+                Ok(())
+            }
+
+            Expr::Index {
+                container,
+                index,
+                container_type,
+                container_value_type,
+            } => {
+                self.infer_expression_types(container)?;
+                self.infer_expression_types(index)?;
+
+                // Infer container type based on container expression type
+                let container_value_type_result = self.checker.check_expression(container)?;
+                *container_value_type = Some(container_value_type_result.clone());
+                match &container_value_type_result {
+                    Type::Pointer(element_type) => {
+                        // Use StringIndex for [*]byte pointers and generic [*]T, PointerIndex for others
+                        match element_type.as_ref() {
+                            Type::Byte => {
+                                *container_type = Some(IndexContainerType::String);
+                            }
+                            Type::Struct { name, .. } if name == "T" => {
+                                // Generic T could be byte, so use StringIndex for safety
+                                *container_type = Some(IndexContainerType::String);
+                            }
+                            _ => {
+                                *container_type = Some(IndexContainerType::Pointer);
+                            }
+                        }
+                    }
+                    Type::String => {
+                        *container_type = Some(IndexContainerType::String);
+                    }
+                    _ => {}
+                }
+                Ok(())
+            }
+
+            Expr::StructNew { fields, .. } => {
+                for (_, value) in fields {
+                    self.infer_expression_types(value)?;
+                }
+                Ok(())
+            }
+
+            Expr::FieldAccess { object, .. } => {
+                self.infer_expression_types(object)?;
+                Ok(())
+            }
+
+            Expr::MethodCall {
+                object,
+                args,
+                object_type,
+                ..
+            } => {
+                if let Some(obj) = object {
+                    // Instance method call (obj.method())
+                    self.infer_expression_types(obj)?;
+
+                    // Set object type information based on object expression type
+                    let obj_type = self.checker.check_expression(obj)?;
+                    *object_type = Some(obj_type.clone());
+                }
+                // For associated method calls, object_type should already be set
+
+                for arg in args {
+                    self.infer_expression_types(arg)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl<'a> VisitorMut for TypeCheckVisitor<'a> {
+    fn visit_program(&mut self, program: &mut Program) -> Result<()> {
+        // First pass: register all struct types
+        for decl in &program.declarations {
+            if let Decl::Struct(struct_decl) = &decl.value {
+                self.checker.register_struct(struct_decl)?;
+            }
+        }
+
+        // Second pass: register global variables (now that structs are available)
+        for decl in &mut program.declarations {
+            if let Decl::GlobalVariable(global_var) = &mut decl.value {
+                let var_type = if let Some(ref mut value_expr) = global_var.value.value {
+                    self.check_expr_type(value_expr)?
+                } else {
+                    // For uninitialized globals, use int as default type (like a null pointer)
+                    Type::Int
+                };
+                self.checker.globals.insert(global_var.value.name.clone(), var_type);
+            }
+        }
+
+        // Third pass: register all function signatures (now that structs and globals are available)
+        for decl in &program.declarations {
+            if let Decl::Function(function) = &decl.value {
+                self.checker.register_function(&function.value)?;
+            }
+        }
+
+        // Fourth pass: check function bodies
+        for decl in &mut program.declarations {
+            self.visit_decl(decl)?;
+        }
+        Ok(())
+    }
+
+    fn visit_decl(&mut self, decl: &mut PositionedDecl) -> Result<()> {
+        match &mut decl.value {
+            Decl::Function(function) => self.visit_function(function),
+            Decl::Struct(_) => Ok(()), // Struct declarations are checked during registration
+            Decl::GlobalVariable(global_var) => {
+                // Type check the global variable's value if it exists
+                if let Some(ref mut value_expr) = global_var.value.value {
+                    self.visit_expr(value_expr)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn visit_function(&mut self, function: &mut crate::ast::PositionedFunction) -> Result<()> {
+        // Enter generic scope if this function has type parameters
+        if !function.value.type_params.is_empty() {
+            self.checker.enter_generic_scope(&function.value.type_params);
+        }
+
+        // Create new scope for function
+        let mut local_scope = HashMap::new();
+
+        // Add parameters to scope
+        for param in &function.value.params {
+            let param_type = if let Some(param_type) = &param.param_type {
+                self.checker.resolve_type_recursive(param_type)
+            } else {
+                Type::Unknown // Type inference could be added later
+            };
+            local_scope.insert(param.name.clone(), param_type);
+        }
+
+        self.checker.call_stack.push(local_scope);
+
+        // Set return type context
+        self.checker.current_return_type = Some(Type::Unknown); // Could be inferred
+
+        // Check function body
+        for stmt in &mut function.value.body {
+            self.visit_stmt(stmt)?;
+        }
+
+        self.checker.call_stack.pop();
+        self.checker.current_return_type = None;
+
+        // Exit generic scope if this function has type parameters
+        if !function.value.type_params.is_empty() {
+            self.checker.exit_generic_scope();
+        }
+
+        Ok(())
+    }
+
+    fn visit_stmt(&mut self, stmt: &mut PositionedStmt) -> Result<()> {
+        match &mut stmt.value {
+            Stmt::Let { name, value } => {
+                let value_type = self.check_expr_type(value)?;
+
+                // Add to current scope
+                if let Some(locals) = self.checker.call_stack.last_mut() {
+                    locals.insert(name.clone(), value_type);
+                } else {
+                    self.checker.variables.insert(name.clone(), value_type);
+                }
+                Ok(())
+            }
+
+            Stmt::Expression(expr) => {
+                self.visit_expr(expr)?;
+                Ok(())
+            }
+
+            Stmt::Return(expr) => {
+                let expr_type = self.check_expr_type(expr)?;
+
+                // Check against expected return type if available
+                if let Some(expected_return_type) = &self.checker.current_return_type {
+                    if !expr_type.is_compatible_with(expected_return_type) {
+                        bail_with_position!(
+                            expr.span.clone(),
+                            "Return type mismatch: expected {}, got {}",
+                            expected_return_type,
+                            expr_type
+                        );
+                    }
+                }
+                Ok(())
+            }
+
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let condition_type = self.check_expr_type(condition)?;
+                if !condition_type.is_compatible_with(&Type::Boolean) {
+                    bail_with_position!(
+                        condition.span.clone(),
+                        "If condition must be boolean, got {}",
+                        condition_type
+                    );
+                }
+
+                for stmt in then_branch {
+                    self.visit_stmt(stmt)?;
+                }
+
+                if let Some(else_stmts) = else_branch {
+                    for stmt in else_stmts {
+                        self.visit_stmt(stmt)?;
+                    }
+                }
+                Ok(())
+            }
+
+            Stmt::While { condition, body } => {
+                let condition_type = self.check_expr_type(condition)?;
+                if !condition_type.is_compatible_with(&Type::Boolean) {
+                    bail_with_position!(
+                        condition.span.clone(),
+                        "While condition must be boolean, got {}",
+                        condition_type
+                    );
+                }
+
+                for stmt in body {
+                    self.visit_stmt(stmt)?;
+                }
+                Ok(())
+            }
+
+            Stmt::Assign { lvalue, value } => {
+                // Check for immutable string assignments in complex expressions
+                if let Expr::Index { container, .. } = &mut lvalue.value {
+                    let container_type = self.check_expr_type(container)?;
+                    if container_type == Type::String {
+                        bail_with_position!(
+                            lvalue.span.clone(),
+                            "Cannot assign to string index - strings are immutable"
+                        );
+                    }
+                }
+
+                let lvalue_type = self.checker.check_lvalue_expression(lvalue)?;
+                let value_type = self.check_expr_type(value)?;
+
+                if !value_type.is_compatible_with(&lvalue_type) {
+                    bail_with_position!(
+                        value.span.clone(),
+                        "Assignment type mismatch: left-hand side has type {}, assigned {}",
+                        lvalue_type,
+                        value_type
+                    );
+                }
+                Ok(())
+            }
+
+            Stmt::VectorPush {
+                vector,
+                value,
+                vector_type: ref mut vtype,
+            } => {
+                let value_type = self.check_expr_type(value)?;
+                let vector_type = self.checker.lookup_variable(vector)?;
+                *vtype = Some(vector_type.clone());
+
+                match &vector_type {
+                    Type::Struct { name, args } if name == "vec" => {
+                        if let Some(element_type) = args.first() {
+                            if !value_type.is_compatible_with(element_type) {
+                                bail_with_position!(
+                                    value.span.clone(),
+                                    "Vector push type mismatch: vector element type is {}, pushed {}",
+                                    element_type,
+                                    value_type
+                                );
+                            }
+                        }
+                    }
+                    Type::Struct {
+                        name: struct_name,
+                        args,
+                    } => {
+                        // Check if this is a vec type that supports push
+                        let base_name = if struct_name.contains('(') {
+                            struct_name.split('(').next().unwrap()
+                        } else {
+                            struct_name
+                        };
+
+                        if base_name == "vec" || struct_name == "vec" {
+                            // Check if _push method exists
+                            let push_method_name = if base_name == "vec" {
+                                format!(
+                                    "{}({})#_push",
+                                    base_name,
+                                    args.iter()
+                                        .map(|t| t.to_string())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                )
+                            } else {
+                                format!("{}#_push", struct_name)
+                            };
+                            if self.checker.functions.contains_key(&push_method_name) {
+                                // For vec(T), extract T and check compatibility
+                                if let Some(element_type) = if !args.is_empty() {
+                                    args.get(0).cloned()
+                                } else {
+                                    self.checker.extract_vec_element_type(struct_name)
+                                } {
+                                    if !value_type.is_compatible_with(&element_type) {
+                                        bail_with_position!(
+                                            value.span.clone(),
+                                            "Vector push type mismatch: vector element type is {}, pushed {}",
+                                            element_type,
+                                            value_type
+                                        );
+                                    }
+                                } else {
+                                    bail_with_position!(
+                                        value.span.clone(),
+                                        "Cannot determine element type for vec: {}",
+                                        struct_name
+                                    );
+                                }
+                            } else {
+                                bail_with_position!(
+                                    value.span.clone(),
+                                    "vec type {} does not have a _push method",
+                                    struct_name
+                                );
+                            }
+                        } else {
+                            bail_with_position!(
+                                value.span.clone(),
+                                "Cannot push to non-vector type: {}",
+                                vector_type
+                            );
+                        }
+                    }
+                    _ => bail_with_position!(
+                        value.span.clone(),
+                        "Cannot push to non-vector type: {}",
+                        vector_type
+                    ),
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &mut PositionedExpr) -> Result<()> {
+        self.check_expr_type(expr)?;
+        Ok(())
+    }
+}
+
+impl<'a> TypeCheckVisitor<'a> {
+    /// Check expression type and return the type (moved from TypeChecker::check_expression)
+    fn check_expr_type(&mut self, expr: &mut PositionedExpr) -> Result<Type> {
+        match &mut expr.value {
+            Expr::Int(_) => Ok(Type::Int),
+            Expr::Boolean(_) => Ok(Type::Boolean),
+            Expr::String(_) => Ok(Type::String),
+            Expr::Byte(_) => Ok(Type::Byte),
+            Expr::PushString(_) => Ok(Type::Pointer(Box::new(Type::Byte))),
+
+            Expr::Identifier(name) => {
+                let name_clone = name.clone();
+                self.checker.lookup_variable(name).map_err(|_| {
+                    crate::anyhow_with_position!(
+                        expr.span.clone(),
+                        "Undefined variable: {}",
+                        name_clone
+                    )
+                })
+            }
+
+            Expr::TypeExpr { type_name: _ } => {
+                // Type expressions represent types themselves
+                // For now, we'll treat them as a special unknown type
+                // In a full implementation, this would be a proper Type type
+                Ok(Type::Unknown)
+            }
+
+            Expr::Binary { left, op, right } => {
+                let left_type = self.check_expr_type(left)?;
+                let right_type = self.check_expr_type(right)?;
+
+                match op {
+                    BinaryOp::Add => {
+                        // For string concatenation
+                        if left_type.is_compatible_with(&Type::String)
+                            && right_type.is_compatible_with(&Type::String)
+                        {
+                            Ok(Type::String)
+                        } else if left_type.is_numeric_or_unknown()
+                            && right_type.is_numeric_or_unknown()
+                        {
+                            Ok(Type::Int) // arithmetic with bytes always promotes to int
+                        } else {
+                            bail_with_position!(expr.span.clone(), "Addition operation type mismatch: {} + {} (can only add numbers/bytes or concatenate strings)", left_type, right_type);
+                        }
+                    }
+                    BinaryOp::Subtract
+                    | BinaryOp::Multiply
+                    | BinaryOp::Divide
+                    | BinaryOp::Modulo => {
+                        if left_type.is_numeric_or_unknown() && right_type.is_numeric_or_unknown() {
+                            Ok(Type::Int) // arithmetic with bytes always promotes to int
+                        } else {
+                            bail_with_position!(
+                                expr.span.clone(),
+                                "Arithmetic operation type mismatch: {} {} {} (requires numbers or bytes)",
+                                left_type,
+                                op_to_string(op),
+                                right_type
+                            );
+                        }
+                    }
+                    BinaryOp::Equal | BinaryOp::NotEqual => {
+                        if left_type.is_compatible_with(&right_type) {
+                            Ok(Type::Boolean)
+                        } else {
+                            bail_with_position!(
+                                expr.span.clone(),
+                                "Comparison type mismatch: {} and {} are not comparable",
+                                left_type,
+                                right_type
+                            );
+                        }
+                    }
+                    BinaryOp::Less
+                    | BinaryOp::Greater
+                    | BinaryOp::LessEqual
+                    | BinaryOp::GreaterEqual => {
+                        if left_type.is_numeric_or_unknown() && right_type.is_numeric_or_unknown() {
+                            Ok(Type::Boolean)
+                        } else {
+                            bail_with_position!(
+                                expr.span.clone(),
+                                "Comparison operation requires numbers or bytes: {} {} {}",
+                                left_type,
+                                op_to_string(op),
+                                right_type
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Continue with remaining expressions...
+            _ => {
+                // For now, delegate to the old method for complex expressions
+                self.checker.check_expression(expr)
+            }
+        }
+    }
+}
+
 impl TypeChecker {
     pub fn new() -> Self {
         TypeChecker {
@@ -258,275 +919,16 @@ impl TypeChecker {
 
     /// Type check a complete program
     pub fn check_program(&mut self, program: &mut Program) -> Result<()> {
-        // First pass: register all struct types
-        for decl in &program.declarations {
-            if let Decl::Struct(struct_decl) = &decl.value {
-                self.register_struct(struct_decl)?;
-            }
-        }
-
-        // Second pass: register global variables (now that structs are available)
-        for decl in &mut program.declarations {
-            if let Decl::GlobalVariable(global_var) = &mut decl.value {
-                let var_type = if let Some(ref mut value_expr) = global_var.value.value {
-                    self.check_expression(value_expr)?
-                } else {
-                    // For uninitialized globals, use int as default type (like a null pointer)
-                    Type::Int
-                };
-                self.globals.insert(global_var.value.name.clone(), var_type);
-            }
-        }
-
-        // Third pass: register all function signatures (now that structs and globals are available)
-        for decl in &program.declarations {
-            if let Decl::Function(function) = &decl.value {
-                self.register_function(&function.value)?;
-            }
-        }
-
-        // Fourth pass: check function bodies
-        for decl in &mut program.declarations {
-            self.check_declaration(decl)?;
-        }
-        Ok(())
+        let mut visitor = TypeCheckVisitor::new(self);
+        visitor.visit_program(program)
     }
 
     /// Perform type inference and fill in container types
     pub fn infer_types(&mut self, program: &mut Program) -> Result<()> {
-        for decl in &mut program.declarations {
-            self.infer_declaration_types(&mut decl.value)?;
-        }
-        Ok(())
+        let mut visitor = TypeInferenceVisitor::new(self);
+        visitor.infer_types(program)
     }
 
-    fn infer_declaration_types(&mut self, decl: &mut Decl) -> Result<()> {
-        match decl {
-            Decl::Function(function) => self.infer_function_types(&mut function.value),
-            Decl::Struct(_) => Ok(()), // Struct types are already resolved during registration
-            Decl::GlobalVariable(global_var) => {
-                // Type check the global variable's value if it exists
-                if let Some(ref mut value_expr) = global_var.value.value {
-                    self.infer_expression_types(value_expr)?;
-                    // Register the global variable's type
-                    let var_type = self.check_expression(value_expr)?;
-                    self.globals.insert(global_var.value.name.clone(), var_type);
-                }
-                Ok(())
-            }
-        }
-    }
-
-    fn infer_function_types(&mut self, function: &mut Function) -> Result<()> {
-        // Create new scope for function
-        let mut local_scope = HashMap::new();
-
-        // Add parameters to scope
-        for param in &function.params {
-            let param_type = if let Some(param_type) = &param.param_type {
-                self.resolve_type_recursive(param_type)
-            } else {
-                Type::Unknown // Type inference could be added later
-            };
-            local_scope.insert(param.name.clone(), param_type);
-        }
-
-        self.call_stack.push(local_scope);
-
-        // Infer types in function body
-        for stmt in &mut function.body {
-            self.infer_statement_types(stmt)?;
-        }
-
-        self.call_stack.pop();
-        Ok(())
-    }
-
-    fn infer_statement_types(&mut self, stmt: &mut PositionedStmt) -> Result<()> {
-        match &mut stmt.value {
-            Stmt::Let { name, value } => {
-                self.infer_expression_types(value)?;
-                let value_type = self.check_expression(value)?;
-
-                // Add to current scope
-                if let Some(locals) = self.call_stack.last_mut() {
-                    locals.insert(name.clone(), value_type);
-                } else {
-                    self.variables.insert(name.clone(), value_type);
-                }
-                Ok(())
-            }
-
-            Stmt::Expression(expr) => {
-                self.infer_expression_types(expr)?;
-                Ok(())
-            }
-
-            Stmt::Return(expr) => {
-                self.infer_expression_types(expr)?;
-                Ok(())
-            }
-
-            Stmt::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                self.infer_expression_types(condition)?;
-
-                for stmt in then_branch {
-                    self.infer_statement_types(stmt)?;
-                }
-
-                if let Some(else_stmts) = else_branch {
-                    for stmt in else_stmts {
-                        self.infer_statement_types(stmt)?;
-                    }
-                }
-                Ok(())
-            }
-
-            Stmt::While { condition, body } => {
-                self.infer_expression_types(condition)?;
-
-                for stmt in body {
-                    self.infer_statement_types(stmt)?;
-                }
-                Ok(())
-            }
-
-            Stmt::Assign { lvalue, value } => {
-                self.infer_expression_types(lvalue)?;
-                self.infer_expression_types(value)?;
-                Ok(())
-            }
-
-            Stmt::VectorPush {
-                vector: _,
-                value,
-                vector_type: _,
-            } => {
-                self.infer_expression_types(value)?;
-                Ok(())
-            }
-        }
-    }
-
-    fn infer_expression_types(&mut self, expr: &mut PositionedExpr) -> Result<()> {
-        match &mut expr.value {
-            Expr::Int(_)
-            | Expr::Boolean(_)
-            | Expr::String(_)
-            | Expr::PushString(_)
-            | Expr::Byte(_)
-            | Expr::Identifier(_)
-            | Expr::TypeExpr { .. }
-            | Expr::Sizeof { .. } => {
-                // No inference needed for literals, identifiers, and type expressions
-                Ok(())
-            }
-
-            Expr::Cast {
-                expr,
-                target_type: _,
-            } => {
-                self.infer_expression_types(expr)?;
-                Ok(())
-            }
-
-            Expr::Alloc {
-                element_type: _,
-                size,
-            } => {
-                self.infer_expression_types(size)?;
-                Ok(())
-            }
-
-            Expr::Binary { left, right, .. } => {
-                self.infer_expression_types(left)?;
-                self.infer_expression_types(right)?;
-                Ok(())
-            }
-
-            Expr::Call { callee, args } => {
-                self.infer_expression_types(callee)?;
-                for arg in args {
-                    self.infer_expression_types(arg)?;
-                }
-                Ok(())
-            }
-
-            Expr::Index {
-                container,
-                index,
-                container_type,
-                container_value_type,
-            } => {
-                self.infer_expression_types(container)?;
-                self.infer_expression_types(index)?;
-
-                // Infer container type based on container expression type
-                let container_value_type_result = self.check_expression(container)?;
-                *container_value_type = Some(container_value_type_result.clone());
-                match &container_value_type_result {
-                    Type::Pointer(element_type) => {
-                        // Use StringIndex for [*]byte pointers and generic [*]T, PointerIndex for others
-                        match element_type.as_ref() {
-                            Type::Byte => {
-                                *container_type = Some(IndexContainerType::String);
-                            }
-                            Type::Struct { name, .. } if name == "T" => {
-                                // Generic T could be byte, so use StringIndex for safety
-                                *container_type = Some(IndexContainerType::String);
-                            }
-                            _ => {
-                                *container_type = Some(IndexContainerType::Pointer);
-                            }
-                        }
-                    }
-                    Type::String => {
-                        *container_type = Some(IndexContainerType::String);
-                    }
-                    _ => {}
-                }
-                Ok(())
-            }
-
-            Expr::StructNew { fields, .. } => {
-                for (_, value) in fields {
-                    self.infer_expression_types(value)?;
-                }
-                Ok(())
-            }
-
-            Expr::FieldAccess { object, .. } => {
-                self.infer_expression_types(object)?;
-                Ok(())
-            }
-
-            Expr::MethodCall {
-                object,
-                args,
-                object_type,
-                ..
-            } => {
-                if let Some(obj) = object {
-                    // Instance method call (obj.method())
-                    self.infer_expression_types(obj)?;
-
-                    // Set object type information based on object expression type
-                    let obj_type = self.check_expression(obj)?;
-                    *object_type = Some(obj_type.clone());
-                }
-                // For associated method calls, object_type should already be set
-
-                for arg in args {
-                    self.infer_expression_types(arg)?;
-                }
-                Ok(())
-            }
-        }
-    }
 
     /// Register a function signature for later type checking
     fn register_function(&mut self, function: &Function) -> Result<()> {
@@ -631,261 +1033,6 @@ impl TypeChecker {
         Ok(())
     }
 
-    /// Type check a declaration
-    fn check_declaration(&mut self, decl: &mut PositionedDecl) -> Result<()> {
-        match &mut decl.value {
-            Decl::Function(function) => self.check_function(&mut function.value),
-            Decl::Struct(_) => Ok(()), // Struct declarations are checked during registration
-            Decl::GlobalVariable(global_var) => {
-                // Type check the global variable's value if it exists
-                if let Some(ref mut value_expr) = global_var.value.value {
-                    self.check_expression(value_expr)?;
-                }
-                Ok(())
-            }
-        }
-    }
-
-    /// Type check a function
-    fn check_function(&mut self, function: &mut Function) -> Result<()> {
-        // Enter generic scope if this function has type parameters
-        if !function.type_params.is_empty() {
-            self.enter_generic_scope(&function.type_params);
-        }
-
-        // Create new scope for function
-        let mut local_scope = HashMap::new();
-
-        // Add parameters to scope
-        for param in &function.params {
-            let param_type = if let Some(param_type) = &param.param_type {
-                self.resolve_type_recursive(param_type)
-            } else {
-                Type::Unknown // Type inference could be added later
-            };
-            local_scope.insert(param.name.clone(), param_type);
-        }
-
-        self.call_stack.push(local_scope);
-
-        // Set return type context
-        self.current_return_type = Some(Type::Unknown); // Could be inferred
-
-        // Check function body
-        for stmt in &mut function.body {
-            self.check_statement(stmt)?;
-        }
-
-        self.call_stack.pop();
-        self.current_return_type = None;
-
-        // Exit generic scope if this function has type parameters
-        if !function.type_params.is_empty() {
-            self.exit_generic_scope();
-        }
-
-        Ok(())
-    }
-
-    /// Type check a statement
-    fn check_statement(&mut self, stmt: &mut PositionedStmt) -> Result<()> {
-        match &mut stmt.value {
-            Stmt::Let { name, value } => {
-                let value_type = self.check_expression(value)?;
-
-                // Add to current scope
-                if let Some(locals) = self.call_stack.last_mut() {
-                    locals.insert(name.clone(), value_type);
-                } else {
-                    self.variables.insert(name.clone(), value_type);
-                }
-                Ok(())
-            }
-
-            Stmt::Expression(expr) => {
-                self.check_expression(expr)?;
-                Ok(())
-            }
-
-            Stmt::Return(expr) => {
-                let expr_type = self.check_expression(expr)?;
-
-                // Check against expected return type if available
-                if let Some(expected_return_type) = &self.current_return_type {
-                    if !expr_type.is_compatible_with(expected_return_type) {
-                        bail_with_position!(
-                            expr.span.clone(),
-                            "Return type mismatch: expected {}, got {}",
-                            expected_return_type,
-                            expr_type
-                        );
-                    }
-                }
-                Ok(())
-            }
-
-            Stmt::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                let condition_type = self.check_expression(condition)?;
-                if !condition_type.is_compatible_with(&Type::Boolean) {
-                    bail_with_position!(
-                        condition.span.clone(),
-                        "If condition must be boolean, got {}",
-                        condition_type
-                    );
-                }
-
-                for stmt in then_branch {
-                    self.check_statement(stmt)?;
-                }
-
-                if let Some(else_stmts) = else_branch {
-                    for stmt in else_stmts {
-                        self.check_statement(stmt)?;
-                    }
-                }
-                Ok(())
-            }
-
-            Stmt::While { condition, body } => {
-                let condition_type = self.check_expression(condition)?;
-                if !condition_type.is_compatible_with(&Type::Boolean) {
-                    bail_with_position!(
-                        condition.span.clone(),
-                        "While condition must be boolean, got {}",
-                        condition_type
-                    );
-                }
-
-                for stmt in body {
-                    self.check_statement(stmt)?;
-                }
-                Ok(())
-            }
-
-            Stmt::Assign { lvalue, value } => {
-                // Check for immutable string assignments in complex expressions
-                if let Expr::Index { container, .. } = &mut lvalue.value {
-                    let container_type = self.check_expression(container)?;
-                    if container_type == Type::String {
-                        bail_with_position!(
-                            lvalue.span.clone(),
-                            "Cannot assign to string index - strings are immutable"
-                        );
-                    }
-                }
-
-                let lvalue_type = self.check_lvalue_expression(lvalue)?;
-                let value_type = self.check_expression(value)?;
-
-                if !value_type.is_compatible_with(&lvalue_type) {
-                    bail_with_position!(
-                        value.span.clone(),
-                        "Assignment type mismatch: left-hand side has type {}, assigned {}",
-                        lvalue_type,
-                        value_type
-                    );
-                }
-                Ok(())
-            }
-
-            Stmt::VectorPush {
-                vector,
-                value,
-                vector_type: ref mut vtype,
-            } => {
-                let value_type = self.check_expression(value)?;
-                let vector_type = self.lookup_variable(vector)?;
-                *vtype = Some(vector_type.clone());
-
-                match &vector_type {
-                    Type::Struct { name, args } if name == "vec" => {
-                        if let Some(element_type) = args.first() {
-                            if !value_type.is_compatible_with(element_type) {
-                                bail_with_position!(
-                                    value.span.clone(),
-                                    "Vector push type mismatch: vector element type is {}, pushed {}",
-                                    element_type,
-                                    value_type
-                                );
-                            }
-                        }
-                    }
-                    Type::Struct {
-                        name: struct_name,
-                        args,
-                    } => {
-                        // Check if this is a vec type that supports push
-                        let base_name = if struct_name.contains('(') {
-                            struct_name.split('(').next().unwrap()
-                        } else {
-                            struct_name
-                        };
-
-                        if base_name == "vec" || struct_name == "vec" {
-                            // Check if _push method exists
-                            let push_method_name = if base_name == "vec" {
-                                format!(
-                                    "{}({})#_push",
-                                    base_name,
-                                    args.iter()
-                                        .map(|t| t.to_string())
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
-                                )
-                            } else {
-                                format!("{}#_push", struct_name)
-                            };
-                            if self.functions.contains_key(&push_method_name) {
-                                // For vec(T), extract T and check compatibility
-                                if let Some(element_type) = if !args.is_empty() {
-                                    args.get(0).cloned()
-                                } else {
-                                    self.extract_vec_element_type(struct_name)
-                                } {
-                                    if !value_type.is_compatible_with(&element_type) {
-                                        bail_with_position!(
-                                            value.span.clone(),
-                                            "Vector push type mismatch: vector element type is {}, pushed {}",
-                                            element_type,
-                                            value_type
-                                        );
-                                    }
-                                } else {
-                                    bail_with_position!(
-                                        value.span.clone(),
-                                        "Cannot determine element type for vec: {}",
-                                        struct_name
-                                    );
-                                }
-                            } else {
-                                bail_with_position!(
-                                    value.span.clone(),
-                                    "vec type {} does not have a _push method",
-                                    struct_name
-                                );
-                            }
-                        } else {
-                            bail_with_position!(
-                                value.span.clone(),
-                                "Cannot push to non-vector type: {}",
-                                vector_type
-                            );
-                        }
-                    }
-                    _ => bail_with_position!(
-                        value.span.clone(),
-                        "Cannot push to non-vector type: {}",
-                        vector_type
-                    ),
-                }
-                Ok(())
-            }
-        }
-    }
 
     /// Extract element type from vec type string (e.g., "vec(int)" -> Type::Int)
     fn extract_vec_element_type(&self, struct_name: &str) -> Option<Type> {
