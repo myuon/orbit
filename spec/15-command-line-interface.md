@@ -46,6 +46,8 @@ The compiler takes a single Orbit source file (`.ob` extension) as input and exe
 
 - `--profile-output=<file>` - Enable profiling and save the results to the specified file instead of printing to stdout.
 
+- `--print-timings` - Print timing information for each compiler pipeline phase to stderr. Shows the time taken (in milliseconds) for each compilation phase including lexing, parsing, type checking, monomorphization, desugaring, dead code elimination, code generation, label resolution, execution, and total time.
+
 #### Execution Control
 
 - `--timeout=<time>` - Set execution timeout to prevent infinite loops or runaway programs. Time can be specified in seconds (`10s`), minutes (`5m`), or as a plain number (defaults to seconds). Program execution will be forcibly terminated after the specified duration.
@@ -136,6 +138,20 @@ orbit benchmark.ob --profile-output=results.prof
 
 Execute with profiling and save results to a file.
 
+### Performance Analysis
+
+```bash
+orbit fibonacci.ob --print-timings
+```
+
+Execute the program and display timing information for each compiler phase, showing how long each stage of compilation and execution takes.
+
+```bash
+orbit complex_program.ob --print-timings --profile
+```
+
+Combine timing analysis with profiling to get both compiler phase timing and runtime execution statistics.
+
 ### Execution Control
 
 ```bash
@@ -159,10 +175,10 @@ Use a 30-second timeout (time unit defaults to seconds when not specified).
 ### Combined Options
 
 ```bash
-orbit complex_program.ob --dump-ir-output=debug.ir --print-stacks-on-call=main --profile --timeout=60s
+orbit complex_program.ob --dump-ir-output=debug.ir --print-stacks-on-call=main --profile --print-timings --timeout=60s
 ```
 
-Combine multiple debugging and analysis options for comprehensive program analysis with a 60-second timeout.
+Combine multiple debugging and analysis options for comprehensive program analysis with compiler timing information and a 60-second timeout.
 
 ```bash
 orbit debug_program.ob --timeout=10s --print-stacks --dump-ir-output=crash.ir
@@ -285,6 +301,7 @@ struct Config {
     print_stacks_on_call: Option<String>,
     profile: bool,
     profile_output: Option<String>,
+    print_timings: bool,
     timeout: Option<u64>, // timeout in seconds
 }
 ```
@@ -383,6 +400,40 @@ Profiling results include:
 - Function call statistics
 - Total execution time
 - Memory usage statistics (future enhancement)
+
+#### Timing Output Format
+
+When `--print-timings` is enabled, timing information is printed to stderr in the following format:
+
+```
+Lexing: 0ms
+Parsing: 0ms
+Type checking: 1ms
+Monomorphization: 0ms
+Desugaring: 0ms
+Dead code elimination: 0ms
+Final type checking: 0ms
+Code generation: 0ms
+Label resolution: 0ms
+Execution: 2409ms
+Total: 2410ms
+```
+
+The timing output includes:
+
+- **Lexing**: Time spent tokenizing source code
+- **Parsing**: Time spent building the abstract syntax tree
+- **Type checking**: Time spent on initial type analysis and inference
+- **Monomorphization**: Time spent instantiating generic types with concrete types
+- **Desugaring**: Time spent transforming syntactic sugar into basic constructs
+- **Dead code elimination**: Time spent removing unused functions and types
+- **Final type checking**: Time spent on final type validation after transformations
+- **Code generation**: Time spent compiling to VM bytecode
+- **Label resolution**: Time spent resolving jump labels to addresses
+- **Execution**: Time spent executing the program in the virtual machine
+- **Total**: Total time for compilation and execution
+
+Times are displayed in milliseconds. For very fast operations, the time may show as 0ms due to measurement precision. The timing output stops at the phase where compilation errors occur, providing insight into which phase failed.
 
 #### Timeout Implementation
 

@@ -12,6 +12,7 @@ use crate::runtime::{Runtime, Value};
 use crate::typecheck::TypeChecker;
 use anyhow::{Context, Result};
 use std::io::Write;
+use std::time::Instant;
 
 /// Compiler configuration options
 #[derive(Debug, Clone)]
@@ -50,6 +51,8 @@ pub struct CompilerOptions {
     pub dump_dce_code_output: Option<String>,
     /// Disable dead code elimination for debugging
     pub no_dead_code_elimination: bool,
+    /// Print timing information for each compiler phase
+    pub print_timings: bool,
 }
 
 impl Default for CompilerOptions {
@@ -72,6 +75,7 @@ impl Default for CompilerOptions {
             dump_dce_code: false,
             dump_dce_code_output: None,
             no_dead_code_elimination: false,
+            print_timings: false,
         }
     }
 }
@@ -134,8 +138,26 @@ impl Compiler {
             std_lib_content,
         ));
 
+        let phase_start = if self.options.print_timings {
+            Some(Instant::now())
+        } else {
+            None
+        };
         let tokens = self.tokenize(&processed_code)?;
+        if let Some(phase_start) = phase_start {
+            eprintln!("Lexing: {}ms", phase_start.elapsed().as_millis());
+        }
+
+        let phase_start = if self.options.print_timings {
+            Some(Instant::now())
+        } else {
+            None
+        };
         let program = self.parse(tokens)?;
+        if let Some(phase_start) = phase_start {
+            eprintln!("Parsing: {}ms", phase_start.elapsed().as_millis());
+        }
+
         self.execute_program(program)
     }
 
@@ -171,7 +193,18 @@ impl Compiler {
 
     /// Execute a parsed program with all configured options
     fn execute_program(&mut self, program: Program) -> Result<Option<Value>> {
+        let start_time = if self.options.print_timings {
+            Some(Instant::now())
+        } else {
+            None
+        };
         // 1. Type inference phase: analyze types and set type_name information
+        let phase_start = if self.options.print_timings {
+            Some(Instant::now())
+        } else {
+            None
+        };
+
         let mut type_checker = TypeChecker::new();
         let mut program_with_type_info = program;
 
@@ -190,7 +223,17 @@ impl Compiler {
                 anyhow::anyhow!("Type checking phase: {}", formatted_error)
             })?;
 
+        if let Some(phase_start) = phase_start {
+            eprintln!("Type checking: {}ms", phase_start.elapsed().as_millis());
+        }
+
         // 2. Monomorphization phase: collect and instantiate generic types
+        let phase_start = if self.options.print_timings {
+            Some(Instant::now())
+        } else {
+            None
+        };
+
         let mut monomorphizer = Monomorphizer::new();
         monomorphizer
             .collect_targets(&program_with_type_info)
@@ -203,6 +246,10 @@ impl Compiler {
         let monomorphized_program = monomorphizer
             .generate_monomorphized_program(&program_with_type_info)
             .with_context(|| "Monomorphization phase: Failed to generate monomorphized program")?;
+
+        if let Some(phase_start) = phase_start {
+            eprintln!("Monomorphization: {}ms", phase_start.elapsed().as_millis());
+        }
 
         // Handle monomorphized code dumping if requested (early, before potential errors)
         if self.options.dump_monomorphized_code {
@@ -229,10 +276,20 @@ impl Compiler {
         }
 
         // 3. Desugar phase: transform method calls to function calls using type info
+        let phase_start = if self.options.print_timings {
+            Some(Instant::now())
+        } else {
+            None
+        };
+
         let mut desugarer = Desugarer::new();
         let desugared_program = desugarer
             .desugar_program(monomorphized_program)
             .with_context(|| "Desugar phase: Failed to desugar program")?;
+
+        if let Some(phase_start) = phase_start {
+            eprintln!("Desugaring: {}ms", phase_start.elapsed().as_millis());
+        }
 
         // Handle desugared code dumping if requested
         if self.options.dump_desugared_code {
@@ -257,6 +314,12 @@ impl Compiler {
         }
 
         // 4. Dead code elimination phase: remove unused functions and types
+        let phase_start = if self.options.print_timings {
+            Some(Instant::now())
+        } else {
+            None
+        };
+
         let mut final_program = if self.options.no_dead_code_elimination {
             desugared_program
         } else {
@@ -327,7 +390,20 @@ impl Compiler {
             dce_program
         };
 
+        if let Some(phase_start) = phase_start {
+            eprintln!(
+                "Dead code elimination: {}ms",
+                phase_start.elapsed().as_millis()
+            );
+        }
+
         // 5. Final type checking on final program
+        let phase_start = if self.options.print_timings {
+            Some(Instant::now())
+        } else {
+            None
+        };
+
         // Create a fresh type checker to avoid duplicate struct definitions
         let mut final_type_checker = TypeChecker::new();
         final_type_checker
@@ -337,9 +413,26 @@ impl Compiler {
             .infer_types(&mut final_program)
             .with_context(|| "Final type checking phase: Failed to infer types")?;
 
+        if let Some(phase_start) = phase_start {
+            eprintln!(
+                "Final type checking: {}ms",
+                phase_start.elapsed().as_millis()
+            );
+        }
+
         // 6. Code generation phase: compile to VM bytecode
+        let phase_start = if self.options.print_timings {
+            Some(Instant::now())
+        } else {
+            None
+        };
+
         let mut vm_compiler = CodeGenerator::new();
         let instructions = vm_compiler.compile_program(&final_program);
+
+        if let Some(phase_start) = phase_start {
+            eprintln!("Code generation: {}ms", phase_start.elapsed().as_millis());
+        }
 
         // Handle IR dumping before label resolution if requested
         if self.options.dump_ir {
@@ -355,10 +448,20 @@ impl Compiler {
         }
 
         // 7. Label resolution phase: resolve jump labels to actual addresses
+        let phase_start = if self.options.print_timings {
+            Some(Instant::now())
+        } else {
+            None
+        };
+
         let mut label_resolver = LabelResolver::new();
         let resolved_instructions = label_resolver
             .resolve_labels(instructions)
             .map_err(|e| anyhow::anyhow!("Label resolution error: {}", e))?;
+
+        if let Some(phase_start) = phase_start {
+            eprintln!("Label resolution: {}ms", phase_start.elapsed().as_millis());
+        }
 
         // Handle IR dumping after label resolution if requested
         if self.options.dump_ir_nolabel {
@@ -384,6 +487,12 @@ impl Compiler {
         }
 
         // 9. Execute the program using resolved instructions
+        let phase_start = if self.options.print_timings {
+            Some(Instant::now())
+        } else {
+            None
+        };
+
         let result = if self.options.print_stacks || self.options.print_stacks_on_call.is_some() {
             self.runtime
                 .execute_instructions_with_options(
@@ -397,6 +506,10 @@ impl Compiler {
                 .with_context(|| "Execution phase: Failed to execute program")
         };
 
+        if let Some(phase_start) = phase_start {
+            eprintln!("Execution: {}ms", phase_start.elapsed().as_millis());
+        }
+
         // 10. Handle profiling output
         if self.options.enable_profiling {
             if let Some(output_file) = &self.options.profile_output {
@@ -406,6 +519,11 @@ impl Compiler {
             } else {
                 println!("{}", self.runtime.get_profile());
             }
+        }
+
+        // Print total compilation time if requested
+        if let Some(start_time) = start_time {
+            eprintln!("Total: {}ms", start_time.elapsed().as_millis());
         }
 
         result

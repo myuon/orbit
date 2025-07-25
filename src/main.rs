@@ -76,6 +76,10 @@ struct Config {
     /// Disable dead code elimination for debugging
     #[arg(long)]
     no_dead_code_elimination: bool,
+
+    /// Print timing information for each compiler phase
+    #[arg(long)]
+    print_timings: bool,
 }
 
 impl Config {
@@ -101,6 +105,7 @@ impl Config {
             dump_dce_code: self.dump_dce_code || self.dump_dce_code_output.is_some(),
             dump_dce_code_output: self.dump_dce_code_output.clone(),
             no_dead_code_elimination: self.no_dead_code_elimination,
+            print_timings: self.print_timings,
         }
     }
 }
