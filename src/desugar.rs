@@ -186,7 +186,10 @@ impl VisitorMut for DesugarTransformer {
                             if self.supports_operation(name, &DesugarOperation::New) =>
                         {
                             // Convert to method call: vec(T)._new()
-                            let method_name = self.get_method_name(name, &DesugarOperation::New).unwrap().clone();
+                            let method_name = self
+                                .get_method_name(name, &DesugarOperation::New)
+                                .unwrap()
+                                .clone();
                             expr.value = Expr::MethodCall {
                                 object: None,
                                 object_type: Some(type_name.clone()),
@@ -279,7 +282,10 @@ impl VisitorMut for DesugarTransformer {
                             if self.supports_operation(name, &DesugarOperation::Index) =>
                         {
                             // Convert to method call: container._get(index)
-                            let method_name = self.get_method_name(name, &DesugarOperation::Index).unwrap().clone();
+                            let method_name = self
+                                .get_method_name(name, &DesugarOperation::Index)
+                                .unwrap()
+                                .clone();
                             expr.value = Expr::MethodCall {
                                 object: Some(Box::new((**container).clone())),
                                 object_type: Some(container_type.clone()),
@@ -328,7 +334,7 @@ impl VisitorMut for DesugarTransformer {
             Stmt::Assign { lvalue, value } => {
                 // First visit the value expression
                 self.visit_expr(value);
-                
+
                 // Check if lvalue is an Index expression with vec type
                 if let Expr::Index {
                     container,
@@ -343,14 +349,18 @@ impl VisitorMut for DesugarTransformer {
                                 if self.supports_operation(name, &DesugarOperation::Assign) =>
                             {
                                 // Convert to method call: container._set(index, value)
-                                let method_name = self.get_method_name(name, &DesugarOperation::Assign).unwrap().clone();
+                                let method_name = self
+                                    .get_method_name(name, &DesugarOperation::Assign)
+                                    .unwrap()
+                                    .clone();
                                 let method_call = Expr::MethodCall {
                                     object: Some(Box::new(container.as_ref().clone())),
                                     object_type: Some(container_type.clone()),
                                     method: method_name,
                                     args: vec![index.as_ref().clone(), value.clone()],
                                 };
-                                stmt.value = Stmt::Expression(Positioned::with_unknown_span(method_call));
+                                stmt.value =
+                                    Stmt::Expression(Positioned::with_unknown_span(method_call));
                                 // Visit the new method call
                                 if let Stmt::Expression(expr) = &mut stmt.value {
                                     self.visit_expr(expr);
@@ -368,7 +378,8 @@ impl VisitorMut for DesugarTransformer {
                                     method: "_set".to_string(),
                                     args: vec![index.as_ref().clone(), value.clone()],
                                 };
-                                stmt.value = Stmt::Expression(Positioned::with_unknown_span(method_call));
+                                stmt.value =
+                                    Stmt::Expression(Positioned::with_unknown_span(method_call));
                                 // Visit the new method call
                                 if let Stmt::Expression(expr) = &mut stmt.value {
                                     self.visit_expr(expr);
@@ -379,7 +390,7 @@ impl VisitorMut for DesugarTransformer {
                         }
                     }
                 }
-                
+
                 // Default case: visit lvalue
                 self.visit_expr(lvalue);
             }
@@ -457,11 +468,16 @@ impl DesugarTransformer {
                     for struct_field in &struct_decl.fields {
                         if struct_field.name == *field {
                             // Check if this field type has the method we're looking for
-                            if let Type::Struct { name: field_type_name, .. } = &struct_field.field_type {
+                            if let Type::Struct {
+                                name: field_type_name,
+                                ..
+                            } = &struct_field.field_type
+                            {
                                 if let Some(field_struct) = self.structs.get(field_type_name) {
                                     for field_method in &field_struct.methods {
                                         if field_method.value.name == method {
-                                            let field_struct_type = Type::from_struct_name(field_type_name);
+                                            let field_struct_type =
+                                                Type::from_struct_name(field_type_name);
                                             return Ok(field_struct_type.mangle_method_name(method));
                                         }
                                     }
@@ -545,8 +561,6 @@ impl Desugarer {
             type_operations,
         }
     }
-
-
 
     /// Desugar a complete program using visitor pattern
     pub fn desugar_program(&mut self, mut program: Program) -> Result<Program> {
@@ -721,8 +735,6 @@ impl Desugarer {
             body: method.body.clone(),
         })
     }
-
-
 }
 
 #[cfg(test)]
@@ -1004,5 +1016,4 @@ mod tests {
             }
         }
     }
-
 }
