@@ -203,7 +203,6 @@ fn print_benchmark_report(results: &[BenchmarkResult], timestamp: &str, commit_h
             }
         }
     }
-
 }
 
 fn create_temp_orbit_file(template_path: &str, bench_size: i64) -> Result<String, String> {

@@ -626,7 +626,7 @@ impl VM {
 
             Instruction::CallRel(offset) => {
                 let new_pc = (self.pc as i32 + offset) as usize;
-                
+
                 // Record function call for profiling using the target address
                 let call_name = format!("func_addr_{}", new_pc);
                 self.profiler.record_function_call(call_name);

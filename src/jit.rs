@@ -57,14 +57,14 @@ impl ExecutableMemory {
             use std::ffi::c_void;
             let ptr = self.mmap.as_ptr() as *mut c_void;
             let len = self.mmap.len();
-            
+
             #[cfg(target_os = "macos")]
             {
                 if libc::mprotect(ptr, len, libc::PROT_READ | libc::PROT_EXEC) != 0 {
                     return Err(anyhow::anyhow!("Failed to make memory executable"));
                 }
             }
-            
+
             #[cfg(target_os = "linux")]
             {
                 if libc::mprotect(ptr, len, libc::PROT_READ | libc::PROT_EXEC) != 0 {
@@ -137,19 +137,19 @@ impl ARM64JITCompiler {
         // For now, generate a simple stub that returns 42
         // This will be expanded to generate actual ARM64 code
         let machine_code = self.generate_arm64_stub()?;
-        
+
         let offset = self.executable_memory.write_bytes(&machine_code)?;
         self.executable_memory.make_executable()?;
-        
+
         let function_ptr = self.executable_memory.get_function_ptr(offset);
-        
+
         let jit_function = JITFunction {
             start_addr,
             function_ptr,
             call_count: 0,
             code_size: machine_code.len(),
         };
-        
+
         self.compiled_functions.insert(start_addr, jit_function);
         Ok(())
     }
@@ -179,9 +179,7 @@ impl ARM64JITCompiler {
     pub fn get_stats(&self) -> JITStats {
         JITStats {
             compiled_functions: self.compiled_functions.len(),
-            total_code_size: self.compiled_functions.values()
-                .map(|f| f.code_size)
-                .sum(),
+            total_code_size: self.compiled_functions.values().map(|f| f.code_size).sum(),
             jit_threshold: self.jit_threshold,
         }
     }
@@ -224,13 +222,13 @@ mod tests {
     #[test]
     fn test_jit_threshold() {
         let mut compiler = ARM64JITCompiler::new().unwrap();
-        
+
         // Should not compile initially
         assert!(!compiler.should_jit_compile(100, 5));
-        
+
         // Should compile after threshold
         assert!(compiler.should_jit_compile(100, 10));
-        
+
         // Change threshold
         compiler.set_jit_threshold(20);
         assert!(!compiler.should_jit_compile(200, 15));

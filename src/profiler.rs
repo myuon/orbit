@@ -156,7 +156,7 @@ impl Profiler {
 
         let mut output = String::new();
         output.push_str("Function Call Count TOP5:\n");
-        
+
         for (i, (func_name, count)) in func_sorted.iter().take(5).enumerate() {
             output.push_str(&format!("{}. {} ({})\n", i + 1, func_name, count));
         }

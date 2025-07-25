@@ -524,7 +524,7 @@ impl Compiler {
         // Print total compilation time if requested
         if let Some(start_time) = start_time {
             eprintln!("Total: {}ms", start_time.elapsed().as_millis());
-            
+
             // Display function call TOP5 ranking if print_timings is enabled
             let top5 = self.runtime.get_function_call_top5();
             if !top5.is_empty() {

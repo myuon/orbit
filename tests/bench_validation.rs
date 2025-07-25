@@ -1,13 +1,12 @@
 use std::fs;
 use std::process::Command;
 
-
 #[test]
 fn test_benchmark_files_exist() {
     // Simple test to verify benchmark files exist
     let benchmark_files = vec![
         "benches/programs/heavy_arithmetic.ob",
-        "benches/programs/fibonacci_recursive.ob", 
+        "benches/programs/fibonacci_recursive.ob",
         "benches/programs/ackermann_function.ob",
         "benches/programs/vector_heavy_ops.ob",
         "benches/programs/vector_push_intensive.ob",
