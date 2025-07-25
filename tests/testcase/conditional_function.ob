@@ -1,0 +1,11 @@
+fun max(a, b) do
+  if (a > b) do
+    return a;
+  else do
+    return b;
+  end
+end
+
+fun main() do
+  return max(50, 30);
+end

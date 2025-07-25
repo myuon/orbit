@@ -1,0 +1,509 @@
+# 15. Command Line Interface (CLI) Specification
+
+## Overview
+
+The Orbit compiler provides a command-line interface for compiling and executing Orbit source files. The CLI supports various options for debugging, profiling, and development workflow.
+
+## Basic Usage
+
+```bash
+orbit [OPTIONS] <file.ob>
+```
+
+The compiler takes a single Orbit source file (`.ob` extension) as input and executes it directly through the virtual machine.
+
+## Command Line Options
+
+### Required Arguments
+
+- `<file.ob>` - Path to the Orbit source file to compile and execute. The file must have a `.ob` extension and contain valid Orbit code.
+
+### Optional Flags
+
+#### Debugging Options
+
+- `--print-stacks` - Enable stack trace printing during execution. Shows the complete stack state after each VM instruction, useful for debugging program flow and identifying issues.
+
+- `--print-stacks-on-call=<function_name>` - Enable stack trace printing only when calling a specific function. This reduces output volume while still providing detailed debugging information for the function of interest.
+
+#### IR and Compilation Options
+
+- `--dump-ir` - Enable dumping of compiled intermediate representation (IR) to stdout.
+
+- `--dump-ir-output=<file>` - Dump the compiled intermediate representation (IR) to the specified file. The IR shows the VM bytecode instructions generated from the source code, useful for understanding compilation output and debugging compiler issues.
+
+- `--dump-desugared-code` - Enable dumping of desugared code to stdout. Shows how syntactic sugar and complex constructs are simplified into basic forms.
+
+- `--dump-desugared-code-output=<file>` - Dump the desugared code to the specified file. Useful for understanding how high-level constructs are transformed and debugging the desugaring process.
+
+- `--dump-monomorphized-code` - Enable dumping of monomorphized code to stdout. Shows how generic types and functions are instantiated with concrete types.
+
+- `--dump-monomorphized-code-output=<file>` - Dump the monomorphized code to the specified file. Useful for debugging generics and understanding the monomorphization process.
+
+#### Profiling Options
+
+- `--profile` - Enable execution profiling and print performance results to stdout. Collects timing information for instructions and function calls.
+
+- `--profile-output=<file>` - Enable profiling and save the results to the specified file instead of printing to stdout.
+
+- `--print-timings` - Print timing information for each compiler pipeline phase to stderr. Shows the time taken (in milliseconds) for each compilation phase including lexing, parsing, type checking, monomorphization, desugaring, dead code elimination, code generation, label resolution, execution, and total time.
+
+#### Execution Control
+
+- `--timeout=<time>` - Set execution timeout to prevent infinite loops or runaway programs. Time can be specified in seconds (`10s`), minutes (`5m`), or as a plain number (defaults to seconds). Program execution will be forcibly terminated after the specified duration.
+
+#### Help
+
+- `-h, --help` - Display help information and usage instructions.
+
+## Examples
+
+### Basic Execution
+
+```bash
+orbit hello_world.ob
+```
+
+Execute a simple Orbit program and display the result.
+
+### Debugging with Stack Traces
+
+```bash
+orbit fibonacci.ob --print-stacks
+```
+
+Execute the program with full stack tracing enabled, showing the stack state after each instruction.
+
+### Function-Specific Debugging
+
+```bash
+orbit fibonacci.ob --print-stacks-on-call=fibonacci
+```
+
+Show stack traces only when the `fibonacci` function is called, reducing output noise.
+
+### IR Dump
+
+```bash
+orbit program.ob --dump-ir-output=program.ir
+```
+
+Compile the program and save the generated VM bytecode to `program.ir` for inspection.
+
+```bash
+orbit program.ob --dump-ir
+```
+
+Compile the program and display the generated VM bytecode to stdout.
+
+### Desugared Code Dump
+
+```bash
+orbit program.ob --dump-desugared-code
+```
+
+Execute the program and display the desugared code showing how syntactic sugar is simplified.
+
+```bash
+orbit program.ob --dump-desugared-code-output=desugared.ob
+```
+
+Save the desugared code to a file for detailed analysis of how complex constructs are transformed.
+
+### Monomorphized Code Dump
+
+```bash
+orbit generic_program.ob --dump-monomorphized-code
+```
+
+Execute a program with generics and display the monomorphized code showing concrete type instantiations.
+
+```bash
+orbit generic_program.ob --dump-monomorphized-code-output=monomorphized.ob
+```
+
+Save the monomorphized code to a file for detailed analysis of how generics are instantiated.
+
+### Profiling
+
+```bash
+orbit benchmark.ob --profile
+```
+
+Execute the program with profiling enabled and display performance metrics.
+
+```bash
+orbit benchmark.ob --profile-output=results.prof
+```
+
+Execute with profiling and save results to a file.
+
+### Performance Analysis
+
+```bash
+orbit fibonacci.ob --print-timings
+```
+
+Execute the program and display timing information for each compiler phase, showing how long each stage of compilation and execution takes.
+
+```bash
+orbit complex_program.ob --print-timings --profile
+```
+
+Combine timing analysis with profiling to get both compiler phase timing and runtime execution statistics.
+
+### Execution Control
+
+```bash
+orbit recursive_program.ob --timeout=10s
+```
+
+Execute the program with a 10-second timeout to prevent infinite recursion.
+
+```bash
+orbit long_running.ob --timeout=5m
+```
+
+Set a 5-minute timeout for programs that may take a long time to complete.
+
+```bash
+orbit fibonacci.ob --timeout=30
+```
+
+Use a 30-second timeout (time unit defaults to seconds when not specified).
+
+### Combined Options
+
+```bash
+orbit complex_program.ob --dump-ir-output=debug.ir --print-stacks-on-call=main --profile --print-timings --timeout=60s
+```
+
+Combine multiple debugging and analysis options for comprehensive program analysis with compiler timing information and a 60-second timeout.
+
+```bash
+orbit debug_program.ob --timeout=10s --print-stacks --dump-ir-output=crash.ir
+```
+
+Debug a problematic program with timeout protection, full stack traces, and IR output for analysis.
+
+```bash
+orbit generic_program.ob --dump-monomorphized-code-output=mono.ob --dump-ir-output=debug.ir --profile
+```
+
+Analyze a generic program by dumping both the monomorphized source code and the generated IR, with profiling enabled.
+
+```bash
+orbit complex_program.ob --dump-desugared-code-output=desugared.ob --dump-monomorphized-code-output=mono.ob --dump-ir-output=debug.ir
+```
+
+Full compilation pipeline analysis: dump the desugared code, monomorphized code, and final IR for comprehensive debugging.
+
+## Exit Codes
+
+- `0` - Successful execution
+- `1` - Compilation error, runtime error, or invalid command line arguments
+
+## Error Handling
+
+### Command Line Errors
+
+- **Missing file argument**: `Error: No input file specified`
+- **Unknown option**: `Error: Unknown option: --invalid-flag`
+- **Invalid option format**: `Error: --dump-ir option requires a filename`
+- **Invalid timeout format**: `Error: Invalid timeout value: abc`
+
+### File Errors
+
+- **File not found**: `Error: No such file or directory`
+- **Invalid file extension**: Files must have `.ob` extension
+- **Permission errors**: Standard file system permission error messages
+
+### Compilation Errors
+
+- **Syntax errors**: Line and column information with error description
+- **Type errors**: Type mismatch information with context
+- **Semantic errors**: Variable not found, function not defined, etc.
+
+### Runtime Errors
+
+- **Stack overflow**: `Error: Stack overflow`
+- **Division by zero**: `Error: Division by zero`
+- **Array out of bounds**: `Error: Index out of bounds`
+- **Execution timeout**: `Error: Execution timed out after 10 seconds`
+
+## Integration with Development Workflow
+
+### Testing
+
+The CLI is designed to work well with testing frameworks and build systems:
+
+```bash
+# Run test and check exit code
+orbit test_program.ob && echo "Test passed" || echo "Test failed"
+
+# Compare output with expected results
+orbit test_program.ob > actual_output.txt
+diff expected_output.txt actual_output.txt
+```
+
+### Build Systems
+
+Example integration with a Makefile:
+
+```makefile
+ORBIT = orbit
+SOURCES = $(wildcard *.ob)
+IR_FILES = $(SOURCES:.ob=.ir)
+
+# Execute all programs
+test: $(SOURCES)
+	@for file in $(SOURCES); do \
+		echo "Testing $$file"; \
+		$(ORBIT) $$file; \
+	done
+
+# Generate IR for all sources
+ir: $(IR_FILES)
+
+%.ir: %.ob
+	$(ORBIT) --dump-ir=$@ $<
+
+# Profile specific program
+profile:
+	$(ORBIT) benchmark.ob --profile-output=benchmark.prof
+
+.PHONY: test ir profile
+```
+
+### IDE Integration
+
+The CLI output format is designed to be parseable by IDEs and editors:
+
+- Error messages include file names, line numbers, and column information
+- Stack traces show instruction addresses and function names
+- Profiling output uses structured format for tool integration
+
+## Implementation Notes
+
+### Configuration
+
+The CLI parser is implemented in `src/main.rs` with the following structure:
+
+```rust
+struct Config {
+    filename: String,
+    dump_ir: Option<String>,
+    dump_desugared_code: bool,
+    dump_desugared_code_output: Option<String>,
+    dump_monomorphized_code: bool,
+    dump_monomorphized_code_output: Option<String>,
+    print_stacks: bool,
+    print_stacks_on_call: Option<String>,
+    profile: bool,
+    profile_output: Option<String>,
+    print_timings: bool,
+    timeout: Option<u64>, // timeout in seconds
+}
+```
+
+### Option Processing
+
+- Options are processed in order from left to right
+- Boolean flags can appear multiple times (last occurrence wins)
+- File path options validate the provided path format
+- Help flag short-circuits other processing
+
+### Output Formats
+
+#### Standard Output
+
+Program return values are printed to stdout in their natural representation:
+
+- Numbers: decimal format (e.g., `42`, `3.14`)
+- Booleans: `true` or `false`
+- Strings: quoted format (e.g., `"hello world"`)
+
+#### Error Output
+
+All error messages and debugging information go to stderr, keeping stdout clean for program output.
+
+#### IR Output Format
+
+The intermediate representation dump includes:
+
+- Header with compilation metadata
+- Numbered instruction listing
+- Function labels and boundaries
+- Comments explaining instruction purpose
+
+#### Desugared Code Output Format
+
+The desugared code dump shows the program after syntactic sugar removal and construct simplification:
+
+- Comments indicating transformation stages
+- Simplified control flow structures (e.g., while loops instead of for loops)
+- Expanded method calls into function calls with explicit self parameters
+- Converted syntactic sugar into basic language constructs
+- Clear mapping from original syntax to desugared form
+
+Example output:
+```
+// Original: for-loop syntax (if supported)
+// for i in 1..10 do ... end
+
+// Desugared: while-loop equivalent
+let i = 1;
+while i < 10 do
+    // ... body ...
+    i = i + 1;
+end
+
+// Original: method call syntax
+// myVector.push(42)
+
+// Desugared: function call
+push(myVector, 42)
+```
+
+#### Monomorphized Code Output Format
+
+The monomorphized code dump shows the program after generic instantiation:
+
+- Comments indicating whether functions/structs are generic or monomorphized
+- Concrete type instantiations for generic types
+- Expanded function signatures with type parameters resolved
+- Clear mapping from original generic code to instantiated versions
+
+Example output:
+```
+// Generic struct: Container
+type Container(T: type) = struct {
+    value: T
+};
+
+// Monomorphized struct: Container(int)
+type Container(int) = struct {
+    value: int
+};
+
+// Monomorphized function: main
+fun main() do
+    // ... body ...
+end
+```
+
+#### Profiling Output Format
+
+Profiling results include:
+
+- Instruction execution counts and timings
+- Function call statistics
+- Total execution time
+- Memory usage statistics (future enhancement)
+
+#### Timing Output Format
+
+When `--print-timings` is enabled, timing information is printed to stderr in the following format:
+
+```
+Lexing: 0ms
+Parsing: 0ms
+Type checking: 1ms
+Monomorphization: 0ms
+Desugaring: 0ms
+Dead code elimination: 0ms
+Final type checking: 0ms
+Code generation: 0ms
+Label resolution: 0ms
+Execution: 2409ms
+Total: 2410ms
+```
+
+The timing output includes:
+
+- **Lexing**: Time spent tokenizing source code
+- **Parsing**: Time spent building the abstract syntax tree
+- **Type checking**: Time spent on initial type analysis and inference
+- **Monomorphization**: Time spent instantiating generic types with concrete types
+- **Desugaring**: Time spent transforming syntactic sugar into basic constructs
+- **Dead code elimination**: Time spent removing unused functions and types
+- **Final type checking**: Time spent on final type validation after transformations
+- **Code generation**: Time spent compiling to VM bytecode
+- **Label resolution**: Time spent resolving jump labels to addresses
+- **Execution**: Time spent executing the program in the virtual machine
+- **Total**: Total time for compilation and execution
+
+Times are displayed in milliseconds. For very fast operations, the time may show as 0ms due to measurement precision. The timing output stops at the phase where compilation errors occur, providing insight into which phase failed.
+
+#### Timeout Implementation
+
+The timeout functionality is implemented using:
+
+- **Tokio Runtime**: Async runtime for timeout management
+- **Spawn Blocking**: Execution in a separate thread to allow cancellation
+- **Duration Parsing**: Support for multiple time units (seconds, minutes)
+- **Graceful Termination**: Clean process exit when timeout occurs
+
+Timeout formats supported:
+- `10s` - 10 seconds
+- `5m` - 5 minutes  
+- `30` - 30 seconds (default unit)
+
+The implementation ensures that:
+- Normal program execution is not affected by timeout overhead
+- Programs that complete within the timeout run normally
+- Infinite loops and runaway recursion are safely terminated
+- Clear error messages indicate when timeout occurs
+
+## Future Enhancements
+
+### Planned Features
+
+- `--verbose` flag for detailed compilation progress
+- `--optimize` flag for enabling optimizations
+- `--target` flag for specifying output format (bytecode, native)
+- `--watch` flag for development mode with file watching
+- `--check` flag for syntax checking without execution
+- `--memory-limit` flag for setting memory usage limits
+- `--instruction-limit` flag for limiting instruction execution count
+- `--dump-monomorphization-stats` flag for detailed monomorphization statistics
+- `--no-monomorphize` flag to disable monomorphization for debugging
+- `--no-desugar` flag to disable desugaring for debugging
+- `--dump-desugar-stats` flag for detailed desugaring transformation statistics
+
+### Configuration Files
+
+Future versions may support configuration files for default options:
+
+```toml
+# orbit.toml
+[debug]
+print_stacks = false
+default_dump_ir = "debug/"
+dump_desugared_code = false
+desugared_code_output_dir = "desugared/"
+dump_monomorphized_code = false
+monomorphized_code_output_dir = "monomorphized/"
+
+[profile]
+enabled = false
+output_dir = "profiling/"
+
+[execution]
+default_timeout = "60s"
+max_timeout = "300s"
+
+[compilation]
+enable_monomorphization = true
+dump_monomorphization_stats = false
+```
+
+## Standards Compliance
+
+The CLI follows standard Unix conventions:
+
+- Options use double-dash prefix (`--option`)
+- Short options use single-dash prefix (`-h`)
+- Help is available via `-h` and `--help`
+- Exit codes follow standard conventions (0 for success, 1 for error)
+- Error messages go to stderr, output goes to stdout

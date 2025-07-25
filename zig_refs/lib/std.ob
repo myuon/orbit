@@ -1,0 +1,156 @@
+let hp;
+
+fun allocate_memory(size: int): [*]byte do
+  let p = hp;
+  hp = hp + size + 8; // +8 for size field
+
+  let s = p as [*]int;
+  s[0] = size;
+
+  let b = p + 8;
+
+  return b as [*]byte;
+end
+
+type slice(T: type) = struct {
+  ptr: [*]T,
+  len: int,
+
+  fun _get(self: slice(T), index: int): T do
+    return self.ptr[index];
+  end
+
+  fun _set(self: slice(T), index: int, value: T) do
+    self.ptr[index] = value;
+    return 0;
+  end
+
+  fun _new(len: int) do
+    let pair = new struct { ptr: [*]T, len: int } { .ptr = allocate_memory(sizeof T * len) as [*]T, .len = len };
+    return pair as slice(T);
+  end
+} extends {
+  .key = int,
+  .value = T,
+};
+
+type vec(T: type) = struct {
+  ptr: [*]T,
+  len: int,
+  capacity: int,
+
+  fun _get(self: vec(T), index: int): T do
+    return self.ptr[index];
+  end
+
+  fun _set(self: vec(T), index: int, value: T) do
+    self.ptr[index] = value;
+    return 0;
+  end
+
+  fun new_with_capacity(capacity: int): vec(T) do
+    let pair = new struct { ptr: [*]T, len: int, capacity: int } { .ptr = allocate_memory(sizeof T * capacity) as [*]T, .len = 0, .capacity = 128 };
+    return pair as vec(T);
+  end
+
+  fun _new() do
+    return (type vec(T)).new_with_capacity(128) as vec(T);
+  end
+
+  fun _push(self: vec(T), value: T): int do
+    if (self.len + 1 < self.capacity) do
+      let ptr = self.ptr;
+      ptr[self.len] = value;
+      self.len = self.len + 1;
+    else
+      let new_data = (type vec(T)).new_with_capacity(self.capacity * 2);
+      new_data.len = self.len;
+  
+      let i = 0;
+      while (i < self.len) do
+        new_data[i] = self[i];
+        i = i + 1;
+      end
+
+      new_data._push(value);
+  
+      self.ptr = new_data.ptr;
+      self.len = new_data.len;
+      self.capacity = new_data.capacity;
+    end
+  
+    return 0;
+  end
+};
+
+type map(K: type, V: type) = struct {
+  data: [*]int,
+  capacity: int,
+
+  fun _new(): map(K, V) do
+    let capacity = 128;
+    let data = allocate_memory(sizeof int * capacity * 3) as [*]int;
+    
+    let i = 0;
+    while (i < capacity * 3) do
+      data[i] = 0;
+      i = i + 1;
+    end
+    
+    let result = new struct { data: [*]int, capacity: int } { 
+      .data = data, 
+      .capacity = capacity
+    };
+    return result as map(K, V);
+  end
+
+  fun _set(self: map(K, V), key: K, value: V): int do
+    let hash = (key as int) % self.capacity;
+    let index = hash * 3;
+    
+    let i = 0;
+    while (i < self.capacity) do
+      let current_index = ((hash + i) % self.capacity) * 3;
+      
+      if (self.data[current_index + 2] == 0) do
+        self.data[current_index] = key as int;
+        self.data[current_index + 1] = value as int;
+        self.data[current_index + 2] = 1;
+        return 0;
+      end
+      
+      if (self.data[current_index] == (key as int)) do
+        self.data[current_index + 1] = value as int;
+        return 0;
+      end
+      
+      i = i + 1;
+    end
+    
+    return 0;
+  end
+
+  fun _get(self: map(K, V), key: K): V do
+    let hash = (key as int) % self.capacity;
+    
+    let i = 0;
+    while (i < self.capacity) do
+      let current_index = ((hash + i) % self.capacity) * 3;
+      
+      if (self.data[current_index + 2] == 0) do
+        return 0 as V;
+      end
+      
+      if (self.data[current_index] == (key as int)) do
+        return self.data[current_index + 1] as V;
+      end
+      
+      i = i + 1;
+    end
+    
+    return 0 as V;
+  end
+} extends {
+  .key = K,
+  .value = V,
+};

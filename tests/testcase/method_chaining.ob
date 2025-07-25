@@ -1,0 +1,32 @@
+type Vector2D = struct {
+  x: int,
+  y: int,
+
+  fun add(self: Vector2D, other: Vector2D) do
+    self.x = self.x + other.x;
+    self.y = self.y + other.y;
+  end
+
+  fun magnitude_squared(self: Vector2D) do
+    return self.x * self.x + self.y * self.y;
+  end
+
+  fun get_x(self: Vector2D) do
+    return self.x;
+  end
+
+  fun get_y(self: Vector2D) do
+    return self.y;
+  end
+};
+
+fun main() do
+  let v1 = new Vector2D { .x = 3, .y = 4 };
+  let v2 = new Vector2D { .x = 1, .y = 2 };
+  
+  v1.add(v2);
+  let x = v1.get_x();
+  let y = v1.get_y();
+  
+  return x + y;
+end

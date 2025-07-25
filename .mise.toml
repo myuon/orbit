@@ -1,0 +1,23 @@
+[tasks.fmt]
+description = "Format code and commit changes"
+run = ["cargo fmt", "git add .", "git commit -m 'style: cargo format'"]
+
+[tasks.bench]
+description = "Run benchmark and save report with timestamp and commit hash"
+run = '''
+#!/bin/bash
+set -e
+
+# Create logs directory if it doesn't exist
+mkdir -p ./logs
+
+# Get current timestamp and commit hash
+TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+COMMIT_HASH=$(git rev-parse --short HEAD)
+
+# Run benchmark and save to file
+OUTPUT_FILE="./logs/bench_report_${TIMESTAMP}_${COMMIT_HASH}.md"
+cargo bench --bench orbit_bench > "$OUTPUT_FILE"
+
+echo "Benchmark report saved to: $OUTPUT_FILE"
+'''

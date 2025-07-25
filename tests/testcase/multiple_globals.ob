@@ -1,0 +1,14 @@
+let globalA = 10;
+let globalB = 20;
+let globalC = 30;
+
+fun multiply_globals() do
+  globalA = globalA * 2;
+  globalB = globalB * 3;
+  return globalA + globalB;
+end
+
+fun main() do
+  let result = multiply_globals();
+  return result + globalC;
+end

@@ -1,0 +1,7 @@
+fun main() do
+  return foo();
+end
+
+fun foo() do
+  return 42;
+end

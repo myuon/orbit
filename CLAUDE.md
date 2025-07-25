@@ -1,71 +1,78 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with the Orbit compiler project.
 
 ## Overview
 
-Orbit is a statically typed programming language with JIT compilation for AArch64. The compiler is built in Zig and implements a complete toolchain from lexing to native code generation.
+Orbit is a statically typed programming language with JIT compilation for AArch64. Currently migrating from Zig (`zig_refs/`) to Rust (`src/`).
 
-## Build Commands
+**Language Specification**: Complete language specification is in `spec/` directory. All language features and behaviors are documented there. Implementation must follow the specification.
 
-- `zig build` - Build the project (creates both library and executable)
-- `zig build run` - Build and run the orbit executable
-- `zig build test` - Run unit tests for both library and executable (ALWAYS run after making changes)
-- `zig build run -- <args>` - Run with arguments (e.g., `zig build run -- hello_world.ob`)
+## Commands
 
-## Project Architecture
+- `cargo check --message-format=short` - Check compilation errors
+- `cargo test --message-format=short` - Run all tests (ALWAYS run after changes)
+- `cargo test test_program_files --message-format=short` - Run integration tests
+- `cargo fmt` - Format code before commits
+- `cargo fix` - Auto-fix warnings
 
-### Core Compiler Pipeline
+## Architecture
 
-The compiler follows a traditional multi-stage pipeline:
+### Compiler Pipeline
 
-1. **Lexing** (`lexer.zig`) - Tokenizes source code
-2. **Parsing** (`parser.zig`) - Builds AST from tokens
-3. **Type Checking** (`typecheck.zig`) - Validates types and semantics
-4. **Desugaring** (`desugar.zig`) - Simplifies complex constructs
-5. **Monomorphization** (`monomorphization.zig`) - Instantiates generic types
-6. **Compilation** (`compiler.zig`) - Orchestrates the pipeline and generates IR
-7. **Execution** - Either VM execution (`vm.zig`) or JIT compilation (`jit.zig`)
+1. **Lexing** (`lexer.rs`)
+2. **Parsing** (`parser.rs`)
+3. **Type Checking** (`typecheck.rs`)
+4. **Desugaring** (`desugar.rs`)
+5. **Monomorphization** (`monomorphization.rs`)
+6. **Dead Code Elimination** (`dead_code_elimination.rs`) - Removes unused functions and types
+7. **Code Generation** (`codegen.rs`)
+8. **Execution** (`vm.rs` or `jit.rs`)
 
-### Key Files
+### Key Modules
 
-- `src/main.zig` - Entry point with TUI and debugging features
-- `src/compiler.zig` - Main compiler orchestration with compilation stages
-- `src/ast.zig` - AST definitions and instruction set
-- `src/runtime.zig` - Runtime system for built-in functions
-- `src/jit.zig` - JIT compiler for AArch64 native code generation
-- `src/vm.zig` - Stack-based virtual machine for interpretation
+- **Core**: `ast.rs`, `lexer.rs`, `parser.rs` - Language definition and parsing
+- **Analysis**: `typecheck.rs`, `desugar.rs`, `monomorphization.rs`, `dead_code_elimination.rs` - Static analysis
+- **Execution**: `codegen.rs`, `vm.rs`, `runtime.rs` - Code generation and runtime
+- **Interface**: `lib.rs`, `main.rs`, `compiler.rs` - Entry points and orchestration
 
 ### Language Features
 
-The language supports:
+- Static typing with inference, generics, structs with methods
+- Built-in data structures (vectors, maps, slices), global variables
+- Control flow (if/else, while loops), JIT compilation
 
-- Static typing with type inference
-- Generic types and functions
-- Structs with methods
-- Built-in data structures (vectors, maps, slices)
-- Global variables
-- Control flow (if/else, while loops)
-- JIT compilation to native code
+## Testing
 
-### Testing
-
-Test files are in `test/` directory with `.ob` extension for Orbit source files and `.stdout` files for expected output. Heavy performance tests are in `test/heavy/`.
-
-### VS Code Extension
-
-The `orbit-mode/` directory contains a VS Code extension with syntax highlighting and language support for Orbit files.
-
-## Development Notes
-
-- The compiler can dump intermediate representations using command-line flags
-- JIT compilation can be enabled/disabled via compiler flags
-- The project uses an arena allocator for memory management during compilation
-- Profiling support is available via the profiler.zig dependency
+- **Unit Tests**: `cargo test` - Tests embedded in each module
+- **Integration Tests**: `cargo test test_orbit_files` - End-to-end tests with `.ob` files
+- **Reference**: Original tests in `zig_refs/test/` with `.ob` and `.stdout` files
 
 ## Development Guidelines
 
-- **Testing**: Always run `zig build test` after making changes to ensure all tests pass
-- **Comments**: Add comments to explain "why" something is done, not "what" is being done, especially for non-standard implementations
-- **Git Commits**: Use Conventional Commit format (e.g., `feat: add new feature`, `fix(parser): resolve parsing issue`)
-- **Language**: All source code, comments, and commit messages should be in English
+- **Testing**: Always run `cargo test` after changes; use table-driven testing
+- **Code Quality**: Run `cargo fmt` before commits; use `similarity-rs src/` for duplication detection
+- **Migration**: Use `zig_refs/` as reference
+- **Commits**: Use Conventional Commit format (e.g., `feat:`, `fix:`)
+- **Debug**: Create temp files in `./tmp/`, not project root
+- **Specifications**: New language features MUST be documented in `spec/` before implementation. When implementation differs from spec, fix implementation to match spec.
+
+## Debugging
+
+Useful debugging options for development:
+
+- `--dump-ir` / `--dump-ir-output=<file>` - Dump VM bytecode instructions
+- `--dump-desugared-code` / `--dump-desugared-code-output=<file>` - Show simplified code after desugaring
+- `--dump-monomorphized-code` / `--dump-monomorphized-code-output=<file>` - Show code after generic instantiation
+- `--dump-dce-code` / `--dump-dce-code-output=<file>` - Show code after dead code elimination
+- `--no-dead-code-elimination` - Disable dead code elimination for debugging
+- `--print-stacks` - Show stack state after each VM instruction
+- `--print-stacks-on-call=<function>` - Show stack traces for specific function
+- `--profile` / `--profile-output=<file>` - Enable execution profiling
+
+## Migration Phases
+
+1. **Phase 1**: AST, lexer, parser
+2. **Phase 2**: Type checker, desugaring, monomorphization
+3. **Phase 3**: VM, runtime, JIT compiler
+4. **Phase 4**: TUI debugger, test migration

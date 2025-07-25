@@ -1,0 +1,5 @@
+fun main() do
+  let x = 5;
+  let y = "hello";
+  return x + y;
+end

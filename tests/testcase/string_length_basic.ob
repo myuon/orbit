@@ -1,0 +1,4 @@
+fun main() do
+  let str = "Hello, World";
+  return str.length;
+end

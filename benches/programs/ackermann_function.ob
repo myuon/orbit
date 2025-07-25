@@ -1,0 +1,17 @@
+// Ackermann function benchmark
+// Very computationally intensive recursive function
+fun ackermann(m, n) do
+  if (m == 0) do
+    return n + 1;
+  else do
+    if (n == 0) do
+      return ackermann(m - 1, 1);
+    else do
+      return ackermann(m - 1, ackermann(m, n - 1));
+    end
+  end
+end
+
+fun main() do
+  return ackermann(3, {{BENCH_SIZE}});
+end

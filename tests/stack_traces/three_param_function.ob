@@ -1,0 +1,7 @@
+fun f(a, b, c) do
+    return c;
+end
+
+fun main() do
+    return f(10, 20, 30);
+end

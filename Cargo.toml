@@ -1,0 +1,24 @@
+[package]
+name = "orbit"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "orbit"
+path = "src/lib.rs"
+
+[[bin]]
+name = "orbit"
+path = "src/main.rs"
+
+[[bench]]
+name = "orbit_bench"
+harness = false
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5.40", features = ["derive"] }
+tokio = { version = "1.0", features = ["rt-multi-thread", "time", "macros"] }
+serde_json = "1.0"
+memmap2 = "0.9"
+libc = "0.2"
