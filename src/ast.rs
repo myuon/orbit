@@ -98,6 +98,7 @@ pub type PositionedExpr = Positioned<Expr>;
 pub enum Expr {
     Int(i64),
     Boolean(bool),
+    // Erased in desugar phase
     String(String),
     Byte(u8),
     Identifier(String),
@@ -126,6 +127,7 @@ pub enum Expr {
         field: String,
         object_type: Option<Type>, // Type of the object being accessed, filled by type checker
     },
+    // Erased in desugar phase
     MethodCall {
         object: Option<Box<PositionedExpr>>, // None for associated calls (Type::method), Some for instance calls (obj.method)
         object_type: Option<Type>, // Type for associated calls, filled by type checker for instance calls
@@ -239,6 +241,7 @@ pub enum Stmt {
         lvalue: PositionedExpr,
         value: PositionedExpr,
     },
+    // Erased in desugar phase
     VectorPush {
         vector: String,
         value: PositionedExpr,

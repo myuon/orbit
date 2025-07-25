@@ -1,6 +1,9 @@
-use crate::ast::{
-    Decl, Expr, FunParam, Function, Positioned, PositionedExpr, PositionedStmt, Program, Stmt,
-    StructDecl, StructField, StructNewKind, Type,
+use crate::{
+    ast::{
+        Decl, Expr, FunParam, Function, Positioned, PositionedExpr, PositionedStmt, Program, Stmt,
+        StructDecl, StructField, StructNewKind, Type,
+    },
+    bail_with_position,
 };
 use anyhow::{bail, Result};
 use std::collections::HashMap;
@@ -453,12 +456,10 @@ impl Desugarer {
                     }
                 }
 
-                // Default case: regular vector push
-                Stmt::VectorPush {
-                    vector: vector.clone(),
-                    value: desugared_value,
-                    vector_type: vector_type.clone(),
-                }
+                bail_with_position!(
+                    statement.span.clone(),
+                    "VectorPush is not supported for this type"
+                );
             }
         };
         Ok(Positioned::with_unknown_span(desugared_stmt))

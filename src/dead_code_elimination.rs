@@ -1,6 +1,5 @@
-use crate::ast::{
-    Decl, Expr, Function, PositionedExpr, PositionedStmt, Program, Stmt, StructDecl, Type,
-};
+use crate::ast::{Decl, Expr, Function, PositionedExpr, Program, StructDecl, Type};
+use crate::ast_visitor::{walk_decl, walk_expr, Visitor};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
@@ -47,28 +46,8 @@ impl DeadCodeEliminator {
 
     /// Collect all declarations for dependency analysis
     fn collect_declarations(&mut self, program: &Program) -> Result<()> {
-        for positioned_decl in &program.declarations {
-            match &positioned_decl.value {
-                Decl::Function(positioned_func) => {
-                    self.functions.insert(
-                        positioned_func.value.name.clone(),
-                        positioned_func.value.clone(),
-                    );
-                }
-                Decl::Struct(positioned_struct) => {
-                    self.structs.insert(
-                        positioned_struct.value.name.clone(),
-                        positioned_struct.value.clone(),
-                    );
-                }
-                Decl::GlobalVariable(positioned_global) => {
-                    self.globals.insert(
-                        positioned_global.value.name.clone(),
-                        positioned_global.value.clone(),
-                    );
-                }
-            }
-        }
+        let mut collector = DeclarationCollector::new(self);
+        collector.visit_program(program);
         Ok(())
     }
 
@@ -83,7 +62,8 @@ impl DeadCodeEliminator {
         for (global_name, global_var) in &self.globals.clone() {
             self.mark_global_reachable(global_name);
             if let Some(ref value_expr) = global_var.value {
-                self.mark_expr_dependencies(value_expr)?;
+                let mut dependency_marker = DependencyMarker::new(self);
+                dependency_marker.visit_expr(value_expr);
             }
         }
 
@@ -106,9 +86,10 @@ impl DeadCodeEliminator {
                 }
             }
 
-            // Analyze function body for dependencies
+            // Analyze function body for dependencies using visitor
             for stmt in &function.body {
-                self.mark_stmt_dependencies(stmt)?;
+                let mut dependency_marker = DependencyMarker::new(self);
+                dependency_marker.visit_stmt(stmt);
             }
         }
 
@@ -180,132 +161,77 @@ impl DeadCodeEliminator {
     fn mark_global_reachable(&mut self, global_name: &str) {
         self.reachable_globals.insert(global_name.to_string());
     }
+}
 
-    /// Analyze statement dependencies
-    fn mark_stmt_dependencies(&mut self, positioned_stmt: &PositionedStmt) -> Result<()> {
-        let stmt = &positioned_stmt.value;
-        match stmt {
-            Stmt::Let { value, .. } => {
-                self.mark_expr_dependencies(value)?;
-            }
-            Stmt::Expression(expr) => {
-                self.mark_expr_dependencies(expr)?;
-            }
-            Stmt::Return(expr) => {
-                self.mark_expr_dependencies(expr)?;
-            }
-            Stmt::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                self.mark_expr_dependencies(condition)?;
-                for stmt in then_branch {
-                    self.mark_stmt_dependencies(stmt)?;
-                }
-                if let Some(else_stmts) = else_branch {
-                    for stmt in else_stmts {
-                        self.mark_stmt_dependencies(stmt)?;
-                    }
-                }
-            }
-            Stmt::While { condition, body } => {
-                self.mark_expr_dependencies(condition)?;
-                for stmt in body {
-                    self.mark_stmt_dependencies(stmt)?;
-                }
-            }
-            Stmt::Assign { lvalue, value } => {
-                // Check if lvalue is an Index expression with vec type
-                if let Expr::Index { container, .. } = &lvalue.value {
-                    // We need to determine the type of the container
-                    // For now, assume it's a vec and mark _set method
-                    // TODO: This is a simplified approach - ideally we'd have type information
-                    self.mark_expr_dependencies(container)?;
+/// Visitor for collecting all declarations in Phase 1
+struct DeclarationCollector<'a> {
+    eliminator: &'a mut DeadCodeEliminator,
+}
 
-                    // Mark _set method for vec types
-                    let method_name = "vec(int)#_set".to_string();
-                    let _ = self.mark_function_reachable(&method_name);
-                }
+impl<'a> DeclarationCollector<'a> {
+    fn new(eliminator: &'a mut DeadCodeEliminator) -> Self {
+        Self { eliminator }
+    }
+}
 
-                self.mark_expr_dependencies(lvalue)?;
-                self.mark_expr_dependencies(value)?;
+impl<'a> Visitor for DeclarationCollector<'a> {
+    fn visit_decl(&mut self, positioned_decl: &crate::ast::PositionedDecl) {
+        match &positioned_decl.value {
+            Decl::Function(positioned_func) => {
+                self.eliminator.functions.insert(
+                    positioned_func.value.name.clone(),
+                    positioned_func.value.clone(),
+                );
             }
-            Stmt::VectorPush {
-                vector,
-                value,
-                vector_type,
-            } => {
-                self.mark_global_reachable(vector);
-                self.mark_expr_dependencies(value)?;
-
-                // If this is a vec type, mark the _push method as used
-                if let Some(ref vtype) = vector_type {
-                    match vtype {
-                        Type::Struct { name, args } if name == "vec" => {
-                            let type_params = if args.is_empty() {
-                                "T".to_string()
-                            } else {
-                                args.iter()
-                                    .map(|t| t.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            };
-                            let method_name = format!("{}({})#_push", name, type_params);
-                            let _ = self.mark_function_reachable(&method_name);
-                        }
-                        Type::Struct {
-                            name: struct_name, ..
-                        } if struct_name.contains("vec") => {
-                            let base_name = if struct_name.contains('(') {
-                                struct_name.split('(').next().unwrap()
-                            } else {
-                                struct_name
-                            };
-                            let method_name = format!("{}#_push", base_name);
-                            let _ = self.mark_function_reachable(&method_name);
-                        }
-                        _ => {}
-                    }
-                }
+            Decl::Struct(positioned_struct) => {
+                self.eliminator.structs.insert(
+                    positioned_struct.value.name.clone(),
+                    positioned_struct.value.clone(),
+                );
+            }
+            Decl::GlobalVariable(positioned_global) => {
+                self.eliminator.globals.insert(
+                    positioned_global.value.name.clone(),
+                    positioned_global.value.clone(),
+                );
             }
         }
-        Ok(())
+        walk_decl(self, positioned_decl);
     }
+}
 
-    /// Analyze expression dependencies
-    fn mark_expr_dependencies(&mut self, positioned_expr: &PositionedExpr) -> Result<()> {
+/// Visitor for marking dependencies in Phase 2
+struct DependencyMarker<'a> {
+    eliminator: &'a mut DeadCodeEliminator,
+}
+
+impl<'a> DependencyMarker<'a> {
+    fn new(eliminator: &'a mut DeadCodeEliminator) -> Self {
+        Self { eliminator }
+    }
+}
+
+impl<'a> Visitor for DependencyMarker<'a> {
+    fn visit_expr(&mut self, positioned_expr: &PositionedExpr) {
         let expr = &positioned_expr.value;
         match expr {
-            Expr::Call { callee, args } => {
+            Expr::Call { callee, .. } => {
                 // Mark function call as reachable
                 if let Expr::Identifier(func_name) = &callee.value {
-                    self.mark_function_reachable(func_name)?;
-                }
-                self.mark_expr_dependencies(callee)?;
-                for positioned_arg in args {
-                    self.mark_expr_dependencies(positioned_arg)?;
+                    let _ = self.eliminator.mark_function_reachable(func_name);
                 }
             }
             Expr::Identifier(name) => {
                 // This could be a global variable reference
-                if self.globals.contains_key(name) {
-                    self.mark_global_reachable(name);
+                if self.eliminator.globals.contains_key(name) {
+                    self.eliminator.mark_global_reachable(name);
                 }
             }
             Expr::MethodCall {
-                object,
                 object_type,
                 method,
-                args,
+                ..
             } => {
-                if let Some(positioned_obj) = object {
-                    self.mark_expr_dependencies(positioned_obj)?;
-                }
-                for positioned_arg in args {
-                    self.mark_expr_dependencies(positioned_arg)?;
-                }
-
                 // For method calls, try to determine the mangled function name
                 if let Some(obj_type) = object_type {
                     if let Type::Struct { name, args } = obj_type {
@@ -320,23 +246,19 @@ impl DeadCodeEliminator {
                             format!("{}({})", name, args_str)
                         };
                         let mangled_name = format!("{}_{}", type_name_str, method);
-                        if self.functions.contains_key(&mangled_name) {
-                            self.mark_function_reachable(&mangled_name)?;
+                        if self.eliminator.functions.contains_key(&mangled_name) {
+                            let _ = self.eliminator.mark_function_reachable(&mangled_name);
                         }
                     }
                 }
             }
-            Expr::StructNew {
-                type_name,
-                fields,
-                kind: _,
-            } => {
-                self.mark_type_reachable(type_name);
+            Expr::StructNew { type_name, .. } => {
+                self.eliminator.mark_type_reachable(type_name);
 
                 // For any StructNew expression (both Pattern and Regular kind),
                 // mark the exact type name as reachable to preserve the struct declaration
                 let full_type_name = type_name.to_string();
-                self.reachable_types.insert(full_type_name);
+                self.eliminator.reachable_types.insert(full_type_name);
 
                 // Always mark base type for generic instantiations regardless of kind
                 match type_name {
@@ -345,57 +267,30 @@ impl DeadCodeEliminator {
                             name: name.clone(),
                             args: vec![],
                         };
-                        self.mark_type_reachable(&base_type);
+                        self.eliminator.mark_type_reachable(&base_type);
                     }
                     _ => {}
                 }
-
-                for (_, positioned_field_expr) in fields {
-                    self.mark_expr_dependencies(positioned_field_expr)?;
-                }
             }
-            Expr::Binary { left, right, .. } => {
-                self.mark_expr_dependencies(left)?;
-                self.mark_expr_dependencies(right)?;
-            }
-            Expr::Index {
-                container, index, ..
-            } => {
-                self.mark_expr_dependencies(container)?;
-                self.mark_expr_dependencies(index)?;
-
-                // Mark _get method for vec types
-                // TODO: This is a simplified approach - ideally we'd have type information
-                let method_name = "vec(int)#_get".to_string();
-                let _ = self.mark_function_reachable(&method_name);
-            }
-            Expr::FieldAccess { object, .. } => {
-                self.mark_expr_dependencies(object)?;
-            }
-            Expr::Alloc { element_type, size } => {
-                self.mark_type_reachable(element_type);
-                self.mark_expr_dependencies(size)?;
+            Expr::Alloc { element_type, .. } => {
+                self.eliminator.mark_type_reachable(element_type);
             }
             Expr::Sizeof { type_name } => {
-                self.mark_type_reachable(type_name);
+                self.eliminator.mark_type_reachable(type_name);
             }
-            Expr::Cast { expr, target_type } => {
-                self.mark_expr_dependencies(expr)?;
-                self.mark_type_reachable(target_type);
+            Expr::Cast { target_type, .. } => {
+                self.eliminator.mark_type_reachable(target_type);
             }
             Expr::TypeExpr { type_name } => {
-                self.mark_type_reachable(type_name);
+                self.eliminator.mark_type_reachable(type_name);
             }
-            // Leaf expressions don't have dependencies
-            Expr::Int(_)
-            | Expr::Boolean(_)
-            | Expr::String(_)
-            | Expr::PushString(_)
-            | Expr::Byte(_) => {}
+            _ => {}
         }
-        Ok(())
+        walk_expr(self, positioned_expr);
     }
+}
 
+impl DeadCodeEliminator {
     /// Remove unused declarations from the program
     fn sweep_unused_code(&self, program: Program) -> Result<Program> {
         let mut new_declarations = Vec::new();
@@ -472,7 +367,7 @@ impl DeadCodeStats {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{Positioned, StructNewKind};
+    use crate::ast::{Positioned, Stmt, StructNewKind};
 
     use super::*;
 
