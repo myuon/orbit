@@ -1,5 +1,5 @@
 fun main() do
-  let n = 200000;
+  let n = {{BENCH_SIZE}};
   let sum = 0;
   let i = 1;
   

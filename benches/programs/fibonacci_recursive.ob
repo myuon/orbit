@@ -9,5 +9,5 @@ fun fibonacci(n) do
 end
 
 fun main() do
-  return fibonacci(29);
+  return fibonacci({{BENCH_SIZE}});
 end

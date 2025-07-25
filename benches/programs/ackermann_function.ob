@@ -13,5 +13,5 @@ fun ackermann(m, n) do
 end
 
 fun main() do
-  return ackermann(3, 4);
+  return ackermann(3, {{BENCH_SIZE}});
 end
