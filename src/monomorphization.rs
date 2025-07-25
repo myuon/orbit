@@ -405,9 +405,16 @@ impl<'a> GlobalTypeSubstitutionVisitor<'a> {
                         symbol: name.clone(),
                         args: args.clone(),
                     };
-                    Type::Struct {
-                        name: target.instantiated_name(),
-                        args: vec![], // Monomorphized types have no type arguments
+                    let monomorphized_name = target.instantiated_name();
+
+                    // Check if a monomorphized version exists
+                    if self.monomorphized_structs.contains_key(&monomorphized_name) {
+                        Type::Struct {
+                            name: monomorphized_name,
+                            args: vec![], // Monomorphized types have no type arguments
+                        }
+                    } else {
+                        type_ref.clone()
                     }
                 } else {
                     type_ref.clone()
