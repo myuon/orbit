@@ -46,108 +46,110 @@ impl<'a, W: Write> FormatterVisitor<'a, W> {
         }
     }
 
-    fn format_expression_to_string(&self, expr: &Expr) -> String {
-        match expr {
-            Expr::Int(n) => n.to_string(),
-            Expr::String(s) => format!("\"{}\"", s.replace("\"", "\\\"").replace("\n", "\\n")),
-            Expr::PushString(s) => format!(
-                "pushString(\"{}\")",
-                s.replace("\"", "\\\"").replace("\n", "\\n")
-            ),
-            Expr::Boolean(b) => b.to_string(),
-            Expr::Byte(b) => b.to_string(),
-            Expr::Identifier(name) => name.clone(),
-            Expr::Binary { left, op, right } => {
-                format!(
-                    "{} {} {}",
-                    self.format_expression_to_string(&left.value),
-                    self.format_binary_op(op),
-                    self.format_expression_to_string(&right.value)
-                )
-            }
-            Expr::Call { callee, args } => {
-                let args_str = args
-                    .iter()
-                    .map(|arg| self.format_expression_to_string(&arg.value))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{}({})", self.format_expression_to_string(&callee.value), args_str)
-            }
-            Expr::Index {
-                container,
-                index,
-                ..
-            } => {
-                format!(
-                    "{}[{}]",
-                    self.format_expression_to_string(&container.value),
-                    self.format_expression_to_string(&index.value)
-                )
-            }
-            Expr::FieldAccess { object, field, .. } => {
-                format!("{}.{}", self.format_expression_to_string(&object.value), field)
-            }
-            Expr::StructNew {
-                type_name,
-                fields,
-                kind,
-            } => {
-                let fields_str = fields
-                    .iter()
-                    .map(|(name, expr)| {
-                        format!(".{} = {}", name, self.format_expression_to_string(&expr.value))
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                if kind == &StructNewKind::Pattern {
-                    format!("new(struct) {} {{ {} }}", type_name, fields_str)
-                } else {
-                    format!("new {} {{ {} }}", type_name, fields_str)
-                }
-            }
-            Expr::Alloc { element_type, size } => {
-                format!(
-                    "alloc({}, {})",
-                    element_type,
-                    self.format_expression_to_string(&size.value)
-                )
-            }
-            Expr::MethodCall {
-                object,
-                object_type,
-                method,
-                args,
-            } => {
-                let args_str = args
-                    .iter()
-                    .map(|arg| self.format_expression_to_string(&arg.value))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                if let Some(obj) = object {
-                    format!(
-                        "{}.{}({})",
-                        self.format_expression_to_string(&obj.value),
-                        method,
-                        args_str
-                    )
-                } else if let Some(obj_type) = object_type {
-                    format!("(type {}).{}({})", obj_type, method, args_str)
-                } else {
-                    format!("<unknown>.{}({})", method, args_str)
-                }
-            }
-            Expr::TypeExpr { type_name } => type_name.to_string(),
-            Expr::Sizeof { type_name } => format!("sizeof({})", type_name.to_string()),
-            Expr::Cast { expr, target_type } => format!(
-                "{} as {}",
-                self.format_expression_to_string(&expr.value),
-                target_type.to_string()
-            ),
-        }
-    }
 }
 
 impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
+    fn visit_expr(&mut self, expr: &crate::ast::PositionedExpr) {
+        match &expr.value {
+            Expr::Int(n) => {
+                let _ = self.write(&n.to_string());
+            }
+            Expr::String(s) => {
+                let _ = self.write(&format!("\"{}\"", s.replace("\"", "\\\"").replace("\n", "\\n")));
+            }
+            Expr::PushString(s) => {
+                let _ = self.write(&format!(
+                    "pushString(\"{}\")",
+                    s.replace("\"", "\\\"").replace("\n", "\\n")
+                ));
+            }
+            Expr::Boolean(b) => {
+                let _ = self.write(&b.to_string());
+            }
+            Expr::Byte(b) => {
+                let _ = self.write(&b.to_string());
+            }
+            Expr::Identifier(name) => {
+                let _ = self.write(name);
+            }
+            Expr::Binary { left, op, right } => {
+                self.visit_expr(left);
+                let _ = self.write(" ");
+                let _ = self.write(self.format_binary_op(op));
+                let _ = self.write(" ");
+                self.visit_expr(right);
+            }
+            Expr::Call { callee, args } => {
+                self.visit_expr(callee);
+                let _ = self.write("(");
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        let _ = self.write(", ");
+                    }
+                    self.visit_expr(arg);
+                }
+                let _ = self.write(")");
+            }
+            Expr::Index { container, index, .. } => {
+                self.visit_expr(container);
+                let _ = self.write("[");
+                self.visit_expr(index);
+                let _ = self.write("]");
+            }
+            Expr::FieldAccess { object, field, .. } => {
+                self.visit_expr(object);
+                let _ = self.write(".");
+                let _ = self.write(field);
+            }
+            Expr::StructNew { type_name, fields, kind } => {
+                if kind == &StructNewKind::Pattern {
+                    let _ = self.write(&format!("new(struct) {} {{ ", type_name));
+                } else {
+                    let _ = self.write(&format!("new {} {{ ", type_name));
+                }
+                for (i, (name, field_expr)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        let _ = self.write(", ");
+                    }
+                    let _ = self.write(&format!(".{} = ", name));
+                    self.visit_expr(field_expr);
+                }
+                let _ = self.write(" }");
+            }
+            Expr::Alloc { element_type, size } => {
+                let _ = self.write(&format!("alloc({}, ", element_type));
+                self.visit_expr(size);
+                let _ = self.write(")");
+            }
+            Expr::MethodCall { object, object_type, method, args } => {
+                if let Some(obj) = object {
+                    self.visit_expr(obj);
+                    let _ = self.write(&format!(".{}(", method));
+                } else if let Some(obj_type) = object_type {
+                    let _ = self.write(&format!("(type {}).{}(", obj_type, method));
+                } else {
+                    let _ = self.write(&format!("<unknown>.{}(", method));
+                }
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        let _ = self.write(", ");
+                    }
+                    self.visit_expr(arg);
+                }
+                let _ = self.write(")");
+            }
+            Expr::TypeExpr { type_name } => {
+                let _ = self.write(&type_name.to_string());
+            }
+            Expr::Sizeof { type_name } => {
+                let _ = self.write(&format!("sizeof({})", type_name.to_string()));
+            }
+            Expr::Cast { expr, target_type } => {
+                self.visit_expr(expr);
+                let _ = self.write(&format!(" as {}", target_type.to_string()));
+            }
+        }
+    }
     fn visit_decl(&mut self, decl: &crate::ast::PositionedDecl) {
         match &decl.value {
             Decl::Function(func) => {
@@ -261,11 +263,9 @@ impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
             }
             Decl::GlobalVariable(var) => {
                 if let Some(ref value_expr) = var.value.value {
-                    let _ = self.writeln(&format!(
-                        "let {} = {};",
-                        var.value.name,
-                        self.format_expression_to_string(&value_expr.value)
-                    ));
+                    let _ = self.write(&format!("let {} = ", var.value.name));
+                    self.visit_expr(value_expr);
+                    let _ = self.writeln(";");
                 } else {
                     let _ = self.writeln(&format!("let {};", var.value.name));
                 }
@@ -279,41 +279,35 @@ impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
         
         match &stmt.value {
             Stmt::Let { name, value } => {
-                let _ = self.write(&format!(
-                    "{}let {} = {};",
-                    indent,
-                    name,
-                    self.format_expression_to_string(&value.value)
-                ));
+                let _ = self.write(&format!("{}let {} = ", indent, name));
+                self.visit_expr(value);
+                let _ = self.write(";");
             }
             Stmt::Expression(expr) => {
-                let _ = self.write(&format!("{}{};", indent, self.format_expression_to_string(&expr.value)));
+                let _ = self.write(&indent);
+                self.visit_expr(expr);
+                let _ = self.write(";");
             }
             Stmt::Return(expr) => {
-                let _ = self.write(&format!(
-                    "{}return {};",
-                    indent,
-                    self.format_expression_to_string(&expr.value)
-                ));
+                let _ = self.write(&format!("{}return ", indent));
+                self.visit_expr(expr);
+                let _ = self.write(";");
             }
             Stmt::Assign { lvalue, value } => {
-                let _ = self.write(&format!(
-                    "{}{} = {};",
-                    indent,
-                    self.format_expression_to_string(&lvalue.value),
-                    self.format_expression_to_string(&value.value)
-                ));
+                let _ = self.write(&indent);
+                self.visit_expr(lvalue);
+                let _ = self.write(" = ");
+                self.visit_expr(value);
+                let _ = self.write(";");
             }
             Stmt::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
-                let _ = self.writeln(&format!(
-                    "{}if {} do",
-                    indent,
-                    self.format_expression_to_string(&condition.value)
-                ));
+                let _ = self.write(&format!("{}if ", indent));
+                self.visit_expr(condition);
+                let _ = self.writeln(" do");
 
                 self.indent_level += 1;
                 for stmt in then_branch {
@@ -335,11 +329,9 @@ impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
                 let _ = self.write(&format!("{}end", indent));
             }
             Stmt::While { condition, body } => {
-                let _ = self.writeln(&format!(
-                    "{}while {} do",
-                    indent,
-                    self.format_expression_to_string(&condition.value)
-                ));
+                let _ = self.write(&format!("{}while ", indent));
+                self.visit_expr(condition);
+                let _ = self.writeln(" do");
 
                 self.indent_level += 1;
                 for stmt in body {
@@ -351,12 +343,9 @@ impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
                 let _ = self.write(&format!("{}end", indent));
             }
             Stmt::VectorPush { vector, value, .. } => {
-                let _ = self.write(&format!(
-                    "{}{}.push({});",
-                    indent,
-                    vector,
-                    self.format_expression_to_string(&value.value)
-                ));
+                let _ = self.write(&format!("{}{}.push(", indent, vector));
+                self.visit_expr(value);
+                let _ = self.write(");");
             }
         }
     }
