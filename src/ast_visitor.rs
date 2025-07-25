@@ -1,240 +1,254 @@
 use crate::ast::*;
+use anyhow::Result;
 
 /// Immutable visitor trait for traversing the AST without modification
 pub trait Visitor {
-    fn visit_expr(&mut self, e: &PositionedExpr) {
-        walk_expr(self, e);
+    fn visit_expr(&mut self, e: &PositionedExpr) -> Result<()> {
+        walk_expr(self, e)
     }
 
-    fn visit_stmt(&mut self, s: &PositionedStmt) {
-        walk_stmt(self, s);
+    fn visit_stmt(&mut self, s: &PositionedStmt) -> Result<()> {
+        walk_stmt(self, s)
     }
 
-    fn visit_decl(&mut self, d: &PositionedDecl) {
-        walk_decl(self, d);
+    fn visit_decl(&mut self, d: &PositionedDecl) -> Result<()> {
+        walk_decl(self, d)
     }
 
-    fn visit_program(&mut self, p: &Program) {
-        walk_program(self, p);
+    fn visit_program(&mut self, p: &Program) -> Result<()> {
+        walk_program(self, p)
     }
 
-    fn visit_function(&mut self, f: &PositionedFunction) {
-        walk_function(self, f);
+    fn visit_function(&mut self, f: &PositionedFunction) -> Result<()> {
+        walk_function(self, f)
     }
 
-    fn visit_struct_decl(&mut self, s: &PositionedStructDecl) {
-        walk_struct_decl(self, s);
+    fn visit_struct_decl(&mut self, s: &PositionedStructDecl) -> Result<()> {
+        walk_struct_decl(self, s)
     }
 
-    fn visit_global_variable(&mut self, g: &PositionedGlobalVariable) {
-        walk_global_variable(self, g);
+    fn visit_global_variable(&mut self, g: &PositionedGlobalVariable) -> Result<()> {
+        walk_global_variable(self, g)
     }
 
-    fn visit_type(&mut self, t: &Type) {
-        walk_type(self, t);
+    fn visit_type(&mut self, t: &Type) -> Result<()> {
+        walk_type(self, t)
     }
 }
 
 /// Mutable visitor trait for traversing and modifying the AST
 pub trait VisitorMut {
-    fn visit_expr(&mut self, e: &mut PositionedExpr) {
-        walk_expr_mut(self, e);
+    fn visit_expr(&mut self, e: &mut PositionedExpr) -> Result<()> {
+        walk_expr_mut(self, e)
     }
 
-    fn visit_stmt(&mut self, s: &mut PositionedStmt) {
-        walk_stmt_mut(self, s);
+    fn visit_stmt(&mut self, s: &mut PositionedStmt) -> Result<()> {
+        walk_stmt_mut(self, s)
     }
 
-    fn visit_decl(&mut self, d: &mut PositionedDecl) {
-        walk_decl_mut(self, d);
+    fn visit_decl(&mut self, d: &mut PositionedDecl) -> Result<()> {
+        walk_decl_mut(self, d)
     }
 
-    fn visit_program(&mut self, p: &mut Program) {
-        walk_program_mut(self, p);
+    fn visit_program(&mut self, p: &mut Program) -> Result<()> {
+        walk_program_mut(self, p)
     }
 
-    fn visit_function(&mut self, f: &mut PositionedFunction) {
-        walk_function_mut(self, f);
+    fn visit_function(&mut self, f: &mut PositionedFunction) -> Result<()> {
+        walk_function_mut(self, f)
     }
 
-    fn visit_struct_decl(&mut self, s: &mut PositionedStructDecl) {
-        walk_struct_decl_mut(self, s);
+    fn visit_struct_decl(&mut self, s: &mut PositionedStructDecl) -> Result<()> {
+        walk_struct_decl_mut(self, s)
     }
 
-    fn visit_global_variable(&mut self, g: &mut PositionedGlobalVariable) {
-        walk_global_variable_mut(self, g);
+    fn visit_global_variable(&mut self, g: &mut PositionedGlobalVariable) -> Result<()> {
+        walk_global_variable_mut(self, g)
     }
 
-    fn visit_type(&mut self, t: &mut Type) {
-        walk_type_mut(self, t);
+    fn visit_type(&mut self, t: &mut Type) -> Result<()> {
+        walk_type_mut(self, t)
     }
 }
 
 // Walk functions for immutable visitors
-pub fn walk_expr<V: Visitor + ?Sized>(visitor: &mut V, expr: &PositionedExpr) {
+pub fn walk_expr<V: Visitor + ?Sized>(visitor: &mut V, expr: &PositionedExpr) -> Result<()> {
     let expr = &expr.value;
     match expr {
         Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Byte(_) | Expr::Identifier(_) => {
         }
         Expr::Binary { left, right, .. } => {
-            visitor.visit_expr(left);
-            visitor.visit_expr(right);
+            visitor.visit_expr(left)?;
+            visitor.visit_expr(right)?;
         }
         Expr::Call { callee, args } => {
-            visitor.visit_expr(callee);
+            visitor.visit_expr(callee)?;
             for arg in args {
-                visitor.visit_expr(arg);
+                visitor.visit_expr(arg)?;
             }
         }
         Expr::Index {
             container, index, ..
         } => {
-            visitor.visit_expr(container);
-            visitor.visit_expr(index);
+            visitor.visit_expr(container)?;
+            visitor.visit_expr(index)?;
         }
         Expr::StructNew { fields, .. } => {
             for (_, field_expr) in fields {
-                visitor.visit_expr(field_expr);
+                visitor.visit_expr(field_expr)?;
             }
         }
         Expr::FieldAccess { object, .. } => {
-            visitor.visit_expr(object);
+            visitor.visit_expr(object)?;
         }
         Expr::MethodCall { object, args, .. } => {
             if let Some(obj) = object {
-                visitor.visit_expr(obj);
+                visitor.visit_expr(obj)?;
             }
             for arg in args {
-                visitor.visit_expr(arg);
+                visitor.visit_expr(arg)?;
             }
         }
         Expr::TypeExpr { type_name } => {
-            visitor.visit_type(type_name);
+            visitor.visit_type(type_name)?;
         }
         Expr::Alloc { element_type, size } => {
-            visitor.visit_type(element_type);
-            visitor.visit_expr(size);
+            visitor.visit_type(element_type)?;
+            visitor.visit_expr(size)?;
         }
         Expr::Sizeof { type_name } => {
-            visitor.visit_type(type_name);
+            visitor.visit_type(type_name)?;
         }
         Expr::Cast { expr, target_type } => {
-            visitor.visit_expr(expr);
-            visitor.visit_type(target_type);
+            visitor.visit_expr(expr)?;
+            visitor.visit_type(target_type)?;
         }
         Expr::PushString(_) => {}
     }
+    Ok(())
 }
 
-pub fn walk_stmt<V: Visitor + ?Sized>(visitor: &mut V, stmt: &PositionedStmt) {
+pub fn walk_stmt<V: Visitor + ?Sized>(visitor: &mut V, stmt: &PositionedStmt) -> Result<()> {
     let stmt = &stmt.value;
     match stmt {
         Stmt::Let { value, .. } => {
-            visitor.visit_expr(value);
+            visitor.visit_expr(value)?;
         }
         Stmt::Expression(expr) => {
-            visitor.visit_expr(expr);
+            visitor.visit_expr(expr)?;
         }
         Stmt::Return(expr) => {
-            visitor.visit_expr(expr);
+            visitor.visit_expr(expr)?;
         }
         Stmt::If {
             condition,
             then_branch,
             else_branch,
         } => {
-            visitor.visit_expr(condition);
+            visitor.visit_expr(condition)?;
             for stmt in then_branch {
-                visitor.visit_stmt(stmt);
+                visitor.visit_stmt(stmt)?;
             }
             if let Some(else_stmts) = else_branch {
                 for stmt in else_stmts {
-                    visitor.visit_stmt(stmt);
+                    visitor.visit_stmt(stmt)?;
                 }
             }
         }
         Stmt::While { condition, body } => {
-            visitor.visit_expr(condition);
+            visitor.visit_expr(condition)?;
             for stmt in body {
-                visitor.visit_stmt(stmt);
+                visitor.visit_stmt(stmt)?;
             }
         }
         Stmt::Assign { lvalue, value } => {
-            visitor.visit_expr(lvalue);
-            visitor.visit_expr(value);
+            visitor.visit_expr(lvalue)?;
+            visitor.visit_expr(value)?;
         }
         Stmt::VectorPush { value, .. } => {
-            visitor.visit_expr(value);
+            visitor.visit_expr(value)?;
         }
     }
+    Ok(())
 }
 
-pub fn walk_decl<V: Visitor + ?Sized>(visitor: &mut V, decl: &PositionedDecl) {
+pub fn walk_decl<V: Visitor + ?Sized>(visitor: &mut V, decl: &PositionedDecl) -> Result<()> {
     let decl = &decl.value;
     match decl {
         Decl::Function(func) => {
-            visitor.visit_function(func);
+            visitor.visit_function(func)?;
         }
         Decl::Struct(struct_decl) => {
-            visitor.visit_struct_decl(struct_decl);
+            visitor.visit_struct_decl(struct_decl)?;
         }
         Decl::GlobalVariable(global_var) => {
-            visitor.visit_global_variable(global_var);
+            visitor.visit_global_variable(global_var)?;
         }
     }
+    Ok(())
 }
 
-pub fn walk_program<V: Visitor + ?Sized>(visitor: &mut V, program: &Program) {
+pub fn walk_program<V: Visitor + ?Sized>(visitor: &mut V, program: &Program) -> Result<()> {
     for decl in &program.declarations {
-        visitor.visit_decl(decl);
+        visitor.visit_decl(decl)?;
     }
+    Ok(())
 }
 
-pub fn walk_function<V: Visitor + ?Sized>(visitor: &mut V, func: &PositionedFunction) {
+pub fn walk_function<V: Visitor + ?Sized>(
+    visitor: &mut V,
+    func: &PositionedFunction,
+) -> Result<()> {
     let func = &func.value;
     // Visit type parameters
     for type_param in &func.type_params {
-        visitor.visit_type(type_param);
+        visitor.visit_type(type_param)?;
     }
     // Visit parameter types
     for param in &func.params {
         if let Some(param_type) = &param.param_type {
-            visitor.visit_type(param_type);
+            visitor.visit_type(param_type)?;
         }
     }
     // Visit function body
     for stmt in &func.body {
-        visitor.visit_stmt(stmt);
+        visitor.visit_stmt(stmt)?;
     }
+    Ok(())
 }
 
-pub fn walk_struct_decl<V: Visitor + ?Sized>(visitor: &mut V, struct_decl: &PositionedStructDecl) {
+pub fn walk_struct_decl<V: Visitor + ?Sized>(
+    visitor: &mut V,
+    struct_decl: &PositionedStructDecl,
+) -> Result<()> {
     let struct_decl = &struct_decl.value;
     // Visit type parameters
     for type_param in &struct_decl.type_params {
-        visitor.visit_type(type_param);
+        visitor.visit_type(type_param)?;
     }
     // Visit field types
     for field in &struct_decl.fields {
-        visitor.visit_type(&field.field_type);
+        visitor.visit_type(&field.field_type)?;
     }
     // Visit methods
     for method in &struct_decl.methods {
-        visitor.visit_function(method);
+        visitor.visit_function(method)?;
     }
+    Ok(())
 }
 
 pub fn walk_global_variable<V: Visitor + ?Sized>(
     visitor: &mut V,
     global_var: &PositionedGlobalVariable,
-) {
+) -> Result<()> {
     let global_var = &global_var.value;
     if let Some(value) = &global_var.value {
-        visitor.visit_expr(value);
+        visitor.visit_expr(value)?;
     }
+    Ok(())
 }
 
-pub fn walk_type<V: Visitor + ?Sized>(visitor: &mut V, type_: &Type) {
+pub fn walk_type<V: Visitor + ?Sized>(visitor: &mut V, type_: &Type) -> Result<()> {
     match type_ {
         Type::Unknown
         | Type::Int
@@ -246,192 +260,215 @@ pub fn walk_type<V: Visitor + ?Sized>(visitor: &mut V, type_: &Type) {
         }
         Type::Struct { args, .. } => {
             for arg in args {
-                visitor.visit_type(arg);
+                visitor.visit_type(arg)?;
             }
         }
         Type::Pointer(inner_type) => {
-            visitor.visit_type(inner_type);
+            visitor.visit_type(inner_type)?;
         }
         Type::Function {
             params,
             return_type,
         } => {
             for param in params {
-                visitor.visit_type(param);
+                visitor.visit_type(param)?;
             }
-            visitor.visit_type(return_type);
+            visitor.visit_type(return_type)?;
         }
     }
+    Ok(())
 }
 
 // Walk functions for mutable visitors
-pub fn walk_expr_mut<V: VisitorMut + ?Sized>(visitor: &mut V, expr: &mut PositionedExpr) {
+pub fn walk_expr_mut<V: VisitorMut + ?Sized>(
+    visitor: &mut V,
+    expr: &mut PositionedExpr,
+) -> Result<()> {
     let expr = &mut expr.value;
     match expr {
         Expr::Int(_) | Expr::Boolean(_) | Expr::String(_) | Expr::Byte(_) | Expr::Identifier(_) => {
         }
         Expr::Binary { left, right, .. } => {
-            visitor.visit_expr(left);
-            visitor.visit_expr(right);
+            visitor.visit_expr(left)?;
+            visitor.visit_expr(right)?;
         }
         Expr::Call { callee, args } => {
-            visitor.visit_expr(callee);
+            visitor.visit_expr(callee)?;
             for arg in args {
-                visitor.visit_expr(arg);
+                visitor.visit_expr(arg)?;
             }
         }
         Expr::Index {
             container, index, ..
         } => {
-            visitor.visit_expr(container);
-            visitor.visit_expr(index);
+            visitor.visit_expr(container)?;
+            visitor.visit_expr(index)?;
         }
         Expr::StructNew { fields, .. } => {
             for (_, field_expr) in fields {
-                visitor.visit_expr(field_expr);
+                visitor.visit_expr(field_expr)?;
             }
         }
         Expr::FieldAccess { object, .. } => {
-            visitor.visit_expr(object);
+            visitor.visit_expr(object)?;
         }
         Expr::MethodCall { object, args, .. } => {
             if let Some(obj) = object {
-                visitor.visit_expr(obj);
+                visitor.visit_expr(obj)?;
             }
             for arg in args {
-                visitor.visit_expr(arg);
+                visitor.visit_expr(arg)?;
             }
         }
         Expr::TypeExpr { type_name } => {
-            visitor.visit_type(type_name);
+            visitor.visit_type(type_name)?;
         }
         Expr::Alloc { element_type, size } => {
-            visitor.visit_type(element_type);
-            visitor.visit_expr(size);
+            visitor.visit_type(element_type)?;
+            visitor.visit_expr(size)?;
         }
         Expr::Sizeof { type_name } => {
-            visitor.visit_type(type_name);
+            visitor.visit_type(type_name)?;
         }
         Expr::Cast { expr, target_type } => {
-            visitor.visit_expr(expr);
-            visitor.visit_type(target_type);
+            visitor.visit_expr(expr)?;
+            visitor.visit_type(target_type)?;
         }
         Expr::PushString(_) => {}
     }
+    Ok(())
 }
 
-pub fn walk_stmt_mut<V: VisitorMut + ?Sized>(visitor: &mut V, stmt: &mut PositionedStmt) {
+pub fn walk_stmt_mut<V: VisitorMut + ?Sized>(
+    visitor: &mut V,
+    stmt: &mut PositionedStmt,
+) -> Result<()> {
     let stmt = &mut stmt.value;
     match stmt {
         Stmt::Let { value, .. } => {
-            visitor.visit_expr(value);
+            visitor.visit_expr(value)?;
         }
         Stmt::Expression(expr) => {
-            visitor.visit_expr(expr);
+            visitor.visit_expr(expr)?;
         }
         Stmt::Return(expr) => {
-            visitor.visit_expr(expr);
+            visitor.visit_expr(expr)?;
         }
         Stmt::If {
             condition,
             then_branch,
             else_branch,
         } => {
-            visitor.visit_expr(condition);
+            visitor.visit_expr(condition)?;
             for stmt in then_branch {
-                visitor.visit_stmt(stmt);
+                visitor.visit_stmt(stmt)?;
             }
             if let Some(else_stmts) = else_branch {
                 for stmt in else_stmts {
-                    visitor.visit_stmt(stmt);
+                    visitor.visit_stmt(stmt)?;
                 }
             }
         }
         Stmt::While { condition, body } => {
-            visitor.visit_expr(condition);
+            visitor.visit_expr(condition)?;
             for stmt in body {
-                visitor.visit_stmt(stmt);
+                visitor.visit_stmt(stmt)?;
             }
         }
         Stmt::Assign { lvalue, value } => {
-            visitor.visit_expr(lvalue);
-            visitor.visit_expr(value);
+            visitor.visit_expr(lvalue)?;
+            visitor.visit_expr(value)?;
         }
         Stmt::VectorPush { value, .. } => {
-            visitor.visit_expr(value);
+            visitor.visit_expr(value)?;
         }
     }
+    Ok(())
 }
 
-pub fn walk_decl_mut<V: VisitorMut + ?Sized>(visitor: &mut V, decl: &mut PositionedDecl) {
+pub fn walk_decl_mut<V: VisitorMut + ?Sized>(
+    visitor: &mut V,
+    decl: &mut PositionedDecl,
+) -> Result<()> {
     let decl = &mut decl.value;
     match decl {
         Decl::Function(func) => {
-            visitor.visit_function(func);
+            visitor.visit_function(func)?;
         }
         Decl::Struct(struct_decl) => {
-            visitor.visit_struct_decl(struct_decl);
+            visitor.visit_struct_decl(struct_decl)?;
         }
         Decl::GlobalVariable(global_var) => {
-            visitor.visit_global_variable(global_var);
+            visitor.visit_global_variable(global_var)?;
         }
     }
+    Ok(())
 }
 
-pub fn walk_program_mut<V: VisitorMut + ?Sized>(visitor: &mut V, program: &mut Program) {
+pub fn walk_program_mut<V: VisitorMut + ?Sized>(
+    visitor: &mut V,
+    program: &mut Program,
+) -> Result<()> {
     for decl in &mut program.declarations {
-        visitor.visit_decl(decl);
+        visitor.visit_decl(decl)?;
     }
+    Ok(())
 }
 
-pub fn walk_function_mut<V: VisitorMut + ?Sized>(visitor: &mut V, func: &mut PositionedFunction) {
+pub fn walk_function_mut<V: VisitorMut + ?Sized>(
+    visitor: &mut V,
+    func: &mut PositionedFunction,
+) -> Result<()> {
     let func = &mut func.value;
     // Visit type parameters
     for type_param in &mut func.type_params {
-        visitor.visit_type(type_param);
+        visitor.visit_type(type_param)?;
     }
     // Visit parameter types
     for param in &mut func.params {
         if let Some(param_type) = &mut param.param_type {
-            visitor.visit_type(param_type);
+            visitor.visit_type(param_type)?;
         }
     }
     // Visit function body
     for stmt in &mut func.body {
-        visitor.visit_stmt(stmt);
+        visitor.visit_stmt(stmt)?;
     }
+    Ok(())
 }
 
 pub fn walk_struct_decl_mut<V: VisitorMut + ?Sized>(
     visitor: &mut V,
     struct_decl: &mut PositionedStructDecl,
-) {
+) -> Result<()> {
     let struct_decl = &mut struct_decl.value;
     // Visit type parameters
     for type_param in &mut struct_decl.type_params {
-        visitor.visit_type(type_param);
+        visitor.visit_type(type_param)?;
     }
     // Visit field types
     for field in &mut struct_decl.fields {
-        visitor.visit_type(&mut field.field_type);
+        visitor.visit_type(&mut field.field_type)?;
     }
     // Visit methods
     for method in &mut struct_decl.methods {
-        visitor.visit_function(method);
+        visitor.visit_function(method)?;
     }
+    Ok(())
 }
 
 pub fn walk_global_variable_mut<V: VisitorMut + ?Sized>(
     visitor: &mut V,
     global_var: &mut PositionedGlobalVariable,
-) {
+) -> Result<()> {
     let global_var = &mut global_var.value;
     if let Some(value) = &mut global_var.value {
-        visitor.visit_expr(value);
+        visitor.visit_expr(value)?;
     }
+    Ok(())
 }
 
-pub fn walk_type_mut<V: VisitorMut + ?Sized>(visitor: &mut V, type_: &mut Type) {
+pub fn walk_type_mut<V: VisitorMut + ?Sized>(visitor: &mut V, type_: &mut Type) -> Result<()> {
     match type_ {
         Type::Unknown
         | Type::Int
@@ -443,20 +480,21 @@ pub fn walk_type_mut<V: VisitorMut + ?Sized>(visitor: &mut V, type_: &mut Type) 
         }
         Type::Struct { args, .. } => {
             for arg in args {
-                visitor.visit_type(arg);
+                visitor.visit_type(arg)?;
             }
         }
         Type::Pointer(inner_type) => {
-            visitor.visit_type(inner_type);
+            visitor.visit_type(inner_type)?;
         }
         Type::Function {
             params,
             return_type,
         } => {
             for param in params {
-                visitor.visit_type(param);
+                visitor.visit_type(param)?;
             }
-            visitor.visit_type(return_type);
+            visitor.visit_type(return_type)?;
         }
     }
+    Ok(())
 }

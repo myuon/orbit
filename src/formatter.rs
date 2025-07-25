@@ -1,5 +1,6 @@
 use crate::ast::{BinaryOp, Decl, Expr, Program, Stmt, StructNewKind};
 use crate::ast_visitor::Visitor;
+use anyhow::Result;
 use std::io::Write;
 
 /// A formatter visitor that formats the AST as it traverses, writing to a writer
@@ -47,62 +48,62 @@ impl<'a, W: Write> FormatterVisitor<'a, W> {
 }
 
 impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
-    fn visit_expr(&mut self, expr: &crate::ast::PositionedExpr) {
+    fn visit_expr(&mut self, expr: &crate::ast::PositionedExpr) -> Result<()> {
         match &expr.value {
             Expr::Int(n) => {
-                let _ = self.write(&n.to_string());
+                self.write(&n.to_string())?;
             }
             Expr::String(s) => {
-                let _ = self.write(&format!(
+                self.write(&format!(
                     "\"{}\"",
                     s.replace("\"", "\\\"").replace("\n", "\\n")
-                ));
+                ))?;
             }
             Expr::PushString(s) => {
-                let _ = self.write(&format!(
+                self.write(&format!(
                     "pushString(\"{}\")",
                     s.replace("\"", "\\\"").replace("\n", "\\n")
-                ));
+                ))?;
             }
             Expr::Boolean(b) => {
-                let _ = self.write(&b.to_string());
+                self.write(&b.to_string())?;
             }
             Expr::Byte(b) => {
-                let _ = self.write(&b.to_string());
+                self.write(&b.to_string())?;
             }
             Expr::Identifier(name) => {
-                let _ = self.write(name);
+                self.write(name)?;
             }
             Expr::Binary { left, op, right } => {
-                self.visit_expr(left);
-                let _ = self.write(" ");
-                let _ = self.write(self.format_binary_op(op));
-                let _ = self.write(" ");
-                self.visit_expr(right);
+                self.visit_expr(left)?;
+                self.write(" ")?;
+                self.write(self.format_binary_op(op))?;
+                self.write(" ")?;
+                self.visit_expr(right)?;
             }
             Expr::Call { callee, args } => {
-                self.visit_expr(callee);
-                let _ = self.write("(");
+                self.visit_expr(callee)?;
+                self.write("(")?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
-                        let _ = self.write(", ");
+                        self.write(", ")?;
                     }
-                    self.visit_expr(arg);
+                    self.visit_expr(arg)?;
                 }
-                let _ = self.write(")");
+                self.write(")")?;
             }
             Expr::Index {
                 container, index, ..
             } => {
-                self.visit_expr(container);
-                let _ = self.write("[");
-                self.visit_expr(index);
-                let _ = self.write("]");
+                self.visit_expr(container)?;
+                self.write("[")?;
+                self.visit_expr(index)?;
+                self.write("]")?;
             }
             Expr::FieldAccess { object, field, .. } => {
-                self.visit_expr(object);
-                let _ = self.write(".");
-                let _ = self.write(field);
+                self.visit_expr(object)?;
+                self.write(".")?;
+                self.write(field)?;
             }
             Expr::StructNew {
                 type_name,
@@ -110,23 +111,23 @@ impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
                 kind,
             } => {
                 if kind == &StructNewKind::Pattern {
-                    let _ = self.write(&format!("new(struct) {} {{ ", type_name));
+                    self.write(&format!("new(struct) {} {{ ", type_name))?;
                 } else {
-                    let _ = self.write(&format!("new {} {{ ", type_name));
+                    self.write(&format!("new {} {{ ", type_name))?;
                 }
                 for (i, (name, field_expr)) in fields.iter().enumerate() {
                     if i > 0 {
-                        let _ = self.write(", ");
+                        self.write(", ")?;
                     }
-                    let _ = self.write(&format!(".{} = ", name));
-                    self.visit_expr(field_expr);
+                    self.write(&format!(".{} = ", name))?;
+                    self.visit_expr(field_expr)?;
                 }
-                let _ = self.write(" }");
+                self.write(" }")?;
             }
             Expr::Alloc { element_type, size } => {
-                let _ = self.write(&format!("alloc({}, ", element_type));
-                self.visit_expr(size);
-                let _ = self.write(")");
+                self.write(&format!("alloc({}, ", element_type))?;
+                self.visit_expr(size)?;
+                self.write(")")?;
             }
             Expr::MethodCall {
                 object,
@@ -135,57 +136,58 @@ impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
                 args,
             } => {
                 if let Some(obj) = object {
-                    self.visit_expr(obj);
-                    let _ = self.write(&format!(".{}(", method));
+                    self.visit_expr(obj)?;
+                    self.write(&format!(".{}(", method))?;
                 } else if let Some(obj_type) = object_type {
-                    let _ = self.write(&format!("(type {}).{}(", obj_type, method));
+                    self.write(&format!("(type {}).{}(", obj_type, method))?;
                 } else {
-                    let _ = self.write(&format!("<unknown>.{}(", method));
+                    self.write(&format!("<unknown>.{}(", method))?;
                 }
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
-                        let _ = self.write(", ");
+                        self.write(", ")?;
                     }
-                    self.visit_expr(arg);
+                    self.visit_expr(arg)?;
                 }
-                let _ = self.write(")");
+                self.write(")")?;
             }
             Expr::TypeExpr { type_name } => {
-                let _ = self.write(&type_name.to_string());
+                self.write(&type_name.to_string())?;
             }
             Expr::Sizeof { type_name } => {
-                let _ = self.write(&format!("sizeof({})", type_name.to_string()));
+                self.write(&format!("sizeof({})", type_name.to_string()))?;
             }
             Expr::Cast { expr, target_type } => {
-                self.visit_expr(expr);
-                let _ = self.write(&format!(" as {}", target_type.to_string()));
+                self.visit_expr(expr)?;
+                self.write(&format!(" as {}", target_type.to_string()))?;
             }
         }
+        Ok(())
     }
-    fn visit_decl(&mut self, decl: &crate::ast::PositionedDecl) {
+    fn visit_decl(&mut self, decl: &crate::ast::PositionedDecl) -> Result<()> {
         match &decl.value {
             Decl::Function(func) => {
-                let _ = self.write(&format!("fun {}(", func.value.name));
+                self.write(&format!("fun {}(", func.value.name))?;
 
                 // Format type parameters first
                 if !func.value.type_params.is_empty() {
                     for (i, param) in func.value.type_params.iter().enumerate() {
                         if i > 0 {
-                            let _ = self.write(", ");
+                            self.write(", ")?;
                         }
-                        let _ = self.write(&format!("{}: type", param));
+                        self.write(&format!("{}: type", param))?;
                     }
                     if !func.value.params.is_empty() {
-                        let _ = self.write(", ");
+                        self.write(", ")?;
                     }
                 }
 
                 // Format regular parameters
                 for (i, param) in func.value.params.iter().enumerate() {
                     if i > 0 {
-                        let _ = self.write(", ");
+                        self.write(", ")?;
                     }
-                    let _ = self.write(&format!(
+                    self.write(&format!(
                         "{}: {}",
                         param.name,
                         param
@@ -193,58 +195,58 @@ impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
                             .as_ref()
                             .map(|t| t.to_string())
                             .unwrap_or_else(|| "unknown".to_string())
-                    ));
+                    ))?;
                 }
 
-                let _ = self.writeln(") do");
+                self.writeln(") do")?;
 
                 // Format function body with increased indentation
                 self.indent_level += 1;
                 for stmt in &func.value.body {
-                    self.visit_stmt(stmt);
-                    let _ = self.writeln("");
+                    self.visit_stmt(stmt)?;
+                    self.writeln("")?;
                 }
                 self.indent_level -= 1;
 
-                let _ = self.writeln("end");
-                let _ = self.writeln("");
+                self.writeln("end")?;
+                self.writeln("")?;
             }
             Decl::Struct(struct_decl) => {
-                let _ = self.write(&format!("type {}", struct_decl.value.name));
+                self.write(&format!("type {}", struct_decl.value.name))?;
 
                 if !struct_decl.value.type_params.is_empty() {
-                    let _ = self.write("(");
+                    self.write("(")?;
                     for (i, param) in struct_decl.value.type_params.iter().enumerate() {
                         if i > 0 {
-                            let _ = self.write(", ");
+                            self.write(", ")?;
                         }
-                        let _ = self.write(&format!("{}: type", param));
+                        self.write(&format!("{}: type", param))?;
                     }
-                    let _ = self.write(")");
+                    self.write(")")?;
                 }
 
-                let _ = self.writeln(" = struct {");
+                self.writeln(" = struct {")?;
 
                 for field in &struct_decl.value.fields {
-                    let _ = self.writeln(&format!(
+                    self.writeln(&format!(
                         "    {}: {},",
                         field.name,
                         field.field_type.to_string()
-                    ));
+                    ))?;
                 }
 
                 // Format methods if any exist
                 if !struct_decl.value.methods.is_empty() {
-                    let _ = self.writeln("");
+                    self.writeln("")?;
                     for method in &struct_decl.value.methods {
-                        let _ = self.write(&format!("    fun {}(", method.value.name));
+                        self.write(&format!("    fun {}(", method.value.name))?;
 
                         // Format method parameters
                         for (i, param) in method.value.params.iter().enumerate() {
                             if i > 0 {
-                                let _ = self.write(", ");
+                                self.write(", ")?;
                             }
-                            let _ = self.write(&format!(
+                            self.write(&format!(
                                 "{}: {}",
                                 param.name,
                                 param
@@ -252,114 +254,116 @@ impl<'a, W: Write> Visitor for FormatterVisitor<'a, W> {
                                     .as_ref()
                                     .map(|t| t.to_string())
                                     .unwrap_or_else(|| "unknown".to_string())
-                            ));
+                            ))?;
                         }
 
-                        let _ = self.writeln(") do");
+                        self.writeln(") do")?;
 
                         // Format method body with increased indentation
                         self.indent_level += 2;
                         for stmt in &method.value.body {
-                            self.visit_stmt(stmt);
-                            let _ = self.writeln("");
+                            self.visit_stmt(stmt)?;
+                            self.writeln("")?;
                         }
                         self.indent_level -= 2;
 
-                        let _ = self.writeln("    end");
-                        let _ = self.writeln("");
+                        self.writeln("    end")?;
+                        self.writeln("")?;
                     }
                 }
 
-                let _ = self.writeln("};");
-                let _ = self.writeln("");
+                self.writeln("};")?;
+                self.writeln("")?;
             }
             Decl::GlobalVariable(var) => {
                 if let Some(ref value_expr) = var.value.value {
-                    let _ = self.write(&format!("let {} = ", var.value.name));
-                    self.visit_expr(value_expr);
-                    let _ = self.writeln(";");
+                    self.write(&format!("let {} = ", var.value.name))?;
+                    self.visit_expr(value_expr)?;
+                    self.writeln(";")?;
                 } else {
-                    let _ = self.writeln(&format!("let {};", var.value.name));
+                    self.writeln(&format!("let {};", var.value.name))?;
                 }
-                let _ = self.writeln("");
+                self.writeln("")?;
             }
         }
+        Ok(())
     }
 
-    fn visit_stmt(&mut self, stmt: &crate::ast::PositionedStmt) {
+    fn visit_stmt(&mut self, stmt: &crate::ast::PositionedStmt) -> Result<()> {
         let indent = self.indent();
 
         match &stmt.value {
             Stmt::Let { name, value } => {
-                let _ = self.write(&format!("{}let {} = ", indent, name));
-                self.visit_expr(value);
-                let _ = self.write(";");
+                self.write(&format!("{}let {} = ", indent, name))?;
+                self.visit_expr(value)?;
+                self.write(";")?;
             }
             Stmt::Expression(expr) => {
-                let _ = self.write(&indent);
-                self.visit_expr(expr);
-                let _ = self.write(";");
+                self.write(&indent)?;
+                self.visit_expr(expr)?;
+                self.write(";")?;
             }
             Stmt::Return(expr) => {
-                let _ = self.write(&format!("{}return ", indent));
-                self.visit_expr(expr);
-                let _ = self.write(";");
+                self.write(&format!("{}return ", indent))?;
+                self.visit_expr(expr)?;
+                self.write(";")?;
             }
             Stmt::Assign { lvalue, value } => {
-                let _ = self.write(&indent);
-                self.visit_expr(lvalue);
-                let _ = self.write(" = ");
-                self.visit_expr(value);
-                let _ = self.write(";");
+                self.write(&indent)?;
+                self.visit_expr(lvalue)?;
+                self.write(" = ")?;
+                self.visit_expr(value)?;
+                self.write(";")?;
             }
             Stmt::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
-                let _ = self.write(&format!("{}if ", indent));
-                self.visit_expr(condition);
-                let _ = self.writeln(" do");
+                self.write(&format!("{}if ", indent))?;
+                self.visit_expr(condition)?;
+                self.writeln(" do")?;
 
                 self.indent_level += 1;
                 for stmt in then_branch {
-                    self.visit_stmt(stmt);
-                    let _ = self.writeln("");
+                    self.visit_stmt(stmt)?;
+                    self.writeln("")?;
                 }
                 self.indent_level -= 1;
 
                 if let Some(else_branch) = else_branch {
-                    let _ = self.writeln(&format!("{}else do", indent));
+                    self.writeln(&format!("{}else do", indent))?;
                     self.indent_level += 1;
                     for stmt in else_branch {
-                        self.visit_stmt(stmt);
-                        let _ = self.writeln("");
+                        self.visit_stmt(stmt)?;
+                        self.writeln("")?;
                     }
                     self.indent_level -= 1;
                 }
 
-                let _ = self.write(&format!("{}end", indent));
+                self.write(&format!("{}end", indent))?;
             }
             Stmt::While { condition, body } => {
-                let _ = self.write(&format!("{}while ", indent));
-                self.visit_expr(condition);
-                let _ = self.writeln(" do");
+                self.write(&format!("{}while ", indent))?;
+                self.visit_expr(condition)?;
+                self.writeln(" do")?;
 
                 self.indent_level += 1;
                 for stmt in body {
-                    self.visit_stmt(stmt);
-                    let _ = self.writeln("");
+                    self.visit_stmt(stmt)?;
+                    self.writeln("")?;
                 }
                 self.indent_level -= 1;
 
-                let _ = self.write(&format!("{}end", indent));
+                self.write(&format!("{}end", indent))?;
             }
             Stmt::VectorPush { vector, value, .. } => {
-                let _ = self.write(&format!("{}{}.push(", indent, vector));
-                self.visit_expr(value);
-                let _ = self.write(");");
+                self.write(&format!("{}{}.push(", indent, vector))?;
+                self.visit_expr(value)?;
+                self.write(")?;")?;
             }
         }
+        Ok(())
     }
 }
 
@@ -387,7 +391,9 @@ impl OrbitFormatter {
 
         let mut visitor = FormatterVisitor::new(writer);
         for decl in &program.declarations {
-            visitor.visit_decl(decl);
+            visitor
+                .visit_decl(decl)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         }
 
         Ok(())
@@ -401,7 +407,9 @@ impl OrbitFormatter {
     ) -> std::io::Result<()> {
         let mut visitor = FormatterVisitor::new(writer);
         for decl in &program.declarations {
-            visitor.visit_decl(decl);
+            visitor
+                .visit_decl(decl)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         }
 
         Ok(())
@@ -415,7 +423,9 @@ impl OrbitFormatter {
     ) -> std::io::Result<()> {
         let mut visitor = FormatterVisitor::new(writer);
         for decl in &program.declarations {
-            visitor.visit_decl(decl);
+            visitor
+                .visit_decl(decl)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         }
 
         Ok(())

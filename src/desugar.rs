@@ -58,15 +58,15 @@ impl StructCollector {
 }
 
 impl VisitorMut for StructCollector {
-    fn visit_decl(&mut self, decl: &mut PositionedDecl) {
+    fn visit_decl(&mut self, decl: &mut PositionedDecl) -> Result<()> {
         if let Decl::Struct(struct_decl) = &decl.value {
             self.structs
                 .insert(struct_decl.value.name.clone(), struct_decl.value.clone());
         }
         // Don't walk into the declaration - we only need the top-level struct info
+        Ok(())
     }
 }
-
 
 /// Visitor for transforming expressions and statements using visitor pattern
 struct DesugarTransformer {
@@ -130,9 +130,9 @@ impl DesugarTransformer {
 }
 
 impl VisitorMut for DesugarTransformer {
-    fn visit_expr(&mut self, expr: &mut PositionedExpr) {
+    fn visit_expr(&mut self, expr: &mut PositionedExpr) -> Result<()> {
         // First, recursively visit children
-        walk_expr_mut(self, expr);
+        walk_expr_mut(self, expr)?;
 
         // Then transform this expression based on desugar patterns
         match &mut expr.value {
@@ -152,10 +152,7 @@ impl VisitorMut for DesugarTransformer {
                         struct_type.mangle_method_name(method)
                     } else {
                         // Fallback to resolving method name
-                        match self.resolve_method_name(&obj.value, method) {
-                            Ok(name) => name,
-                            Err(_) => return, // Skip transformation if we can't resolve
-                        }
+                        self.resolve_method_name(&obj.value, method)?
                     };
 
                     // Convert to a regular function call
@@ -199,8 +196,8 @@ impl VisitorMut for DesugarTransformer {
                                 args: vec![],
                             };
                             // Recursively process the new method call
-                            self.visit_expr(expr);
-                            return;
+                            self.visit_expr(expr)?;
+                            return Ok(());
                         }
                         Type::Struct {
                             name: struct_name,
@@ -217,8 +214,8 @@ impl VisitorMut for DesugarTransformer {
                                 args: vec![],
                             };
                             // Recursively process the new method call
-                            self.visit_expr(expr);
-                            return;
+                            self.visit_expr(expr)?;
+                            return Ok(());
                         }
                         _ => {}
                     }
@@ -254,8 +251,8 @@ impl VisitorMut for DesugarTransformer {
                                 args: vec![data_expr, length_expr],
                             };
                             // Recursively process the new method call
-                            self.visit_expr(expr);
-                            return;
+                            self.visit_expr(expr)?;
+                            return Ok(());
                         }
                     }
                 }
@@ -278,7 +275,7 @@ impl VisitorMut for DesugarTransformer {
                                 ))),
                                 args: vec![(**container).clone(), (**index).clone()],
                             };
-                            return;
+                            return Ok(());
                         }
                         Type::Struct { name, args: _ }
                             if self.supports_operation(name, &DesugarOperation::Index) =>
@@ -295,8 +292,8 @@ impl VisitorMut for DesugarTransformer {
                                 args: vec![(**index).clone()],
                             };
                             // Recursively process the new method call
-                            self.visit_expr(expr);
-                            return;
+                            self.visit_expr(expr)?;
+                            return Ok(());
                         }
                         _ => {}
                     }
@@ -324,18 +321,19 @@ impl VisitorMut for DesugarTransformer {
                     kind: StructNewKind::Regular,
                 };
                 // Recursively process the new struct
-                self.visit_expr(expr);
+                self.visit_expr(expr)?;
             }
             _ => {}
         }
+        Ok(())
     }
 
-    fn visit_stmt(&mut self, stmt: &mut PositionedStmt) {
+    fn visit_stmt(&mut self, stmt: &mut PositionedStmt) -> Result<()> {
         // Handle specific statement transformations
         match &mut stmt.value {
             Stmt::Assign { lvalue, value } => {
                 // First visit the value expression
-                self.visit_expr(value);
+                self.visit_expr(value)?;
 
                 // Check if lvalue is an Index expression with vec type
                 if let Expr::Index {
@@ -365,9 +363,9 @@ impl VisitorMut for DesugarTransformer {
                                     Stmt::Expression(Positioned::with_unknown_span(method_call));
                                 // Visit the new method call
                                 if let Stmt::Expression(expr) = &mut stmt.value {
-                                    self.visit_expr(expr);
+                                    self.visit_expr(expr)?;
                                 }
-                                return;
+                                return Ok(());
                             }
                             Type::Struct {
                                 name: struct_name,
@@ -384,9 +382,9 @@ impl VisitorMut for DesugarTransformer {
                                     Stmt::Expression(Positioned::with_unknown_span(method_call));
                                 // Visit the new method call
                                 if let Stmt::Expression(expr) = &mut stmt.value {
-                                    self.visit_expr(expr);
+                                    self.visit_expr(expr)?;
                                 }
-                                return;
+                                return Ok(());
                             }
                             _ => {}
                         }
@@ -394,7 +392,7 @@ impl VisitorMut for DesugarTransformer {
                 }
 
                 // Default case: visit lvalue
-                self.visit_expr(lvalue);
+                self.visit_expr(lvalue)?;
             }
             Stmt::VectorPush {
                 vector,
@@ -402,7 +400,7 @@ impl VisitorMut for DesugarTransformer {
                 vector_type,
             } => {
                 // First visit the value expression
-                self.visit_expr(value);
+                self.visit_expr(value)?;
 
                 // Check if this is a vec type that should be desugared to method call
                 if let Some(ref vtype) = vector_type {
@@ -425,24 +423,25 @@ impl VisitorMut for DesugarTransformer {
                                 Stmt::Expression(Positioned::with_unknown_span(method_call));
                             // Visit the new method call
                             if let Stmt::Expression(expr) = &mut stmt.value {
-                                self.visit_expr(expr);
+                                self.visit_expr(expr)?;
                             }
-                            return;
+                            return Ok(());
                         }
                     }
                 }
             }
             _ => {
                 // For other statements, use default walking
-                walk_stmt_mut(self, stmt);
+                walk_stmt_mut(self, stmt)?;
             }
         }
+        Ok(())
     }
 
-    fn visit_type(&mut self, type_: &mut Type) {
+    fn visit_type(&mut self, type_: &mut Type) -> Result<()> {
         // First visit children
-        walk_type_mut(self, type_);
-        
+        walk_type_mut(self, type_)?;
+
         // Then transform this type
         match type_ {
             Type::String => {
@@ -454,6 +453,7 @@ impl VisitorMut for DesugarTransformer {
             // Other types are transformed by the recursive visit
             _ => {}
         }
+        Ok(())
     }
 }
 
@@ -586,7 +586,7 @@ impl Desugarer {
         // First pass: collect all struct declarations using visitor
         let mut collector = StructCollector::new();
         for decl in &mut program.declarations {
-            collector.visit_decl(decl);
+            collector.visit_decl(decl)?;
         }
         self.structs = collector.structs;
 
@@ -665,7 +665,7 @@ impl Desugarer {
     ) -> Result<Function> {
         // Visit all statements in the function body
         for stmt in &mut function.body {
-            transformer.visit_stmt(stmt);
+            transformer.visit_stmt(stmt)?;
         }
 
         // Transform function parameter types
@@ -728,7 +728,7 @@ impl Desugarer {
 
         // Visit all statements in the method body
         for stmt in &mut method.body {
-            transformer.visit_stmt(stmt);
+            transformer.visit_stmt(stmt)?;
         }
 
         // Add return 0; if the last statement is not a return

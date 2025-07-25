@@ -47,7 +47,7 @@ impl DeadCodeEliminator {
     /// Collect all declarations for dependency analysis
     fn collect_declarations(&mut self, program: &Program) -> Result<()> {
         let mut collector = DeclarationCollector::new(self);
-        collector.visit_program(program);
+        collector.visit_program(program)?;
         Ok(())
     }
 
@@ -63,7 +63,7 @@ impl DeadCodeEliminator {
             self.mark_global_reachable(global_name);
             if let Some(ref value_expr) = global_var.value {
                 let mut dependency_marker = DependencyMarker::new(self);
-                dependency_marker.visit_expr(value_expr);
+                dependency_marker.visit_expr(value_expr)?;
             }
         }
 
@@ -89,7 +89,7 @@ impl DeadCodeEliminator {
             // Analyze function body for dependencies using visitor
             for stmt in &function.body {
                 let mut dependency_marker = DependencyMarker::new(self);
-                dependency_marker.visit_stmt(stmt);
+                dependency_marker.visit_stmt(stmt)?;
             }
         }
 
@@ -175,7 +175,7 @@ impl<'a> DeclarationCollector<'a> {
 }
 
 impl<'a> Visitor for DeclarationCollector<'a> {
-    fn visit_decl(&mut self, positioned_decl: &crate::ast::PositionedDecl) {
+    fn visit_decl(&mut self, positioned_decl: &crate::ast::PositionedDecl) -> Result<()> {
         match &positioned_decl.value {
             Decl::Function(positioned_func) => {
                 self.eliminator.functions.insert(
@@ -196,7 +196,8 @@ impl<'a> Visitor for DeclarationCollector<'a> {
                 );
             }
         }
-        walk_decl(self, positioned_decl);
+        walk_decl(self, positioned_decl)?;
+        Ok(())
     }
 }
 
@@ -212,7 +213,7 @@ impl<'a> DependencyMarker<'a> {
 }
 
 impl<'a> Visitor for DependencyMarker<'a> {
-    fn visit_expr(&mut self, positioned_expr: &PositionedExpr) {
+    fn visit_expr(&mut self, positioned_expr: &PositionedExpr) -> Result<()> {
         let expr = &positioned_expr.value;
         match expr {
             Expr::Call { callee, .. } => {
@@ -286,7 +287,8 @@ impl<'a> Visitor for DependencyMarker<'a> {
             }
             _ => {}
         }
-        walk_expr(self, positioned_expr);
+        walk_expr(self, positioned_expr)?;
+        Ok(())
     }
 }
 
