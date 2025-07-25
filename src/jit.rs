@@ -7,8 +7,8 @@ use std::collections::HashMap;
 /// Runtime context passed to JIT compiled functions
 #[repr(C)]
 pub struct JITContext {
-    /// Mutable reference to VM stack
-    pub stack: *mut Vec<Value>,
+    /// Mutable reference to VM encoded stack (via ValueStack)
+    pub stack: *mut Vec<u64>,
     /// Mutable reference to program counter
     pub pc: *mut usize,
     /// Mutable reference to base pointer

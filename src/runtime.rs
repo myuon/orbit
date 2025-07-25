@@ -1,6 +1,7 @@
 use crate::codegen::CodeGenerator;
 use crate::label_resolution::LabelResolver;
 use crate::profiler::InstructionTimer;
+use crate::value_stack::ValueStack;
 use crate::vm::Instruction;
 use crate::{ast::Program, profiler::Profiler};
 use anyhow::{bail, Result};
@@ -38,11 +39,11 @@ pub enum ControlFlow {
 
 #[derive(Debug)]
 pub struct VM {
-    stack: Vec<Value>,
-    pc: usize, // program counter
-    bp: usize, // base pointer for stack frame
-    sp: usize, // stack pointer
-    hp: usize, // heap pointer
+    stack: ValueStack, // JIT-compatible encoded stack with Value API
+    pc: usize,         // program counter
+    bp: usize,         // base pointer for stack frame
+    sp: usize,         // stack pointer
+    hp: usize,         // heap pointer
     program: Vec<Instruction>,
     pub print_stacks: bool, // whether to print stack state during execution
     pub print_heaps: bool,  // whether to print heap state during execution
@@ -70,7 +71,7 @@ impl VM {
 
     pub fn with_options(print_stacks: bool, print_heaps: bool, enable_profiling: bool) -> Self {
         Self {
-            stack: Vec::new(),
+            stack: ValueStack::new(),
             pc: 0,
             bp: 0,
             sp: 0,
@@ -93,7 +94,7 @@ impl VM {
         enable_profiling: bool,
     ) -> Self {
         Self {
-            stack: Vec::new(),
+            stack: ValueStack::new(),
             pc: 0,
             bp: 0,
             sp: 0,
@@ -112,6 +113,16 @@ impl VM {
     pub fn load_program(&mut self, program: Vec<Instruction>) {
         self.program = program;
         self.pc = 0;
+    }
+
+    /// Get the raw encoded stack for JIT operations
+    pub fn get_encoded_stack(&self) -> &Vec<u64> {
+        self.stack.as_encoded_vec()
+    }
+
+    /// Get mutable access to the raw encoded stack for JIT operations
+    pub fn get_encoded_stack_mut(&mut self) -> &mut Vec<u64> {
+        self.stack.as_encoded_vec_mut()
     }
 
     /// Enable output capture for testing
@@ -174,7 +185,8 @@ impl VM {
             }
 
             Instruction::Add => {
-                if self.stack.len() < 2 {
+                let stack_len = self.stack.len();
+                if stack_len < 2 {
                     return Err("Stack underflow for Add".to_string());
                 }
                 let b = self.stack.pop().unwrap();
@@ -197,7 +209,8 @@ impl VM {
             }
 
             Instruction::Sub => {
-                if self.stack.len() < 2 {
+                let stack_len = self.stack.len();
+                if stack_len < 2 {
                     return Err("Stack underflow for Sub".to_string());
                 }
                 let b = self.stack.pop().unwrap();
@@ -220,7 +233,8 @@ impl VM {
             }
 
             Instruction::Mul => {
-                if self.stack.len() < 2 {
+                let stack_len = self.stack.len();
+                if stack_len < 2 {
                     return Err("Stack underflow for Mul".to_string());
                 }
                 let b = self.stack.pop().unwrap();
@@ -243,7 +257,8 @@ impl VM {
             }
 
             Instruction::Div => {
-                if self.stack.len() < 2 {
+                let stack_len = self.stack.len();
+                if stack_len < 2 {
                     return Err("Stack underflow for Div".to_string());
                 }
                 let b = self.stack.pop().unwrap();
@@ -278,7 +293,8 @@ impl VM {
             }
 
             Instruction::Mod => {
-                if self.stack.len() < 2 {
+                let stack_len = self.stack.len();
+                if stack_len < 2 {
                     return Err("Stack underflow for Mod".to_string());
                 }
                 let b = self.stack.pop().unwrap();
@@ -295,7 +311,8 @@ impl VM {
             }
 
             Instruction::AddressAdd => {
-                if self.stack.len() < 2 {
+                let stack_len = self.stack.len();
+                if stack_len < 2 {
                     return Err("Stack underflow for AddressAdd".to_string());
                 }
                 let b = self.stack.pop().unwrap(); // second operand (index)
@@ -324,7 +341,8 @@ impl VM {
             }
 
             Instruction::AddressSub => {
-                if self.stack.len() < 2 {
+                let stack_len = self.stack.len();
+                if stack_len < 2 {
                     return Err("Stack underflow for AddressSub".to_string());
                 }
                 let b = self.stack.pop().unwrap();
@@ -348,7 +366,8 @@ impl VM {
             }
 
             Instruction::Eq => {
-                if self.stack.len() < 2 {
+                let stack_len = self.stack.len();
+                if stack_len < 2 {
                     return Err("Stack underflow for Eq".to_string());
                 }
                 let b = self.stack.pop().unwrap();
@@ -357,7 +376,8 @@ impl VM {
             }
 
             Instruction::Lt => {
-                if self.stack.len() < 2 {
+                let stack_len = self.stack.len();
+                if stack_len < 2 {
                     return Err("Stack underflow for Lt".to_string());
                 }
                 let b = self.stack.pop().unwrap();
@@ -380,7 +400,8 @@ impl VM {
             }
 
             Instruction::Lte => {
-                if self.stack.len() < 2 {
+                let stack_len = self.stack.len();
+                if stack_len < 2 {
                     return Err("Stack underflow for Lte".to_string());
                 }
                 let b = self.stack.pop().unwrap();
@@ -394,7 +415,8 @@ impl VM {
             }
 
             Instruction::Gt => {
-                if self.stack.len() < 2 {
+                let stack_len = self.stack.len();
+                if stack_len < 2 {
                     return Err("Stack underflow for Gt".to_string());
                 }
                 let b = self.stack.pop().unwrap();
@@ -408,7 +430,8 @@ impl VM {
             }
 
             Instruction::Gte => {
-                if self.stack.len() < 2 {
+                let stack_len = self.stack.len();
+                if stack_len < 2 {
                     return Err("Stack underflow for Gte".to_string());
                 }
                 let b = self.stack.pop().unwrap();
@@ -529,7 +552,11 @@ impl VM {
                         self.stack.len()
                     ));
                 }
-                self.stack.push(self.stack[index].clone());
+                let value = self
+                    .stack
+                    .get(index)
+                    .ok_or_else(|| format!("Invalid stack index: {}", index))?;
+                self.stack.push(value);
             }
 
             Instruction::SetLocal(offset) => {
@@ -558,7 +585,7 @@ impl VM {
                     self.stack.push(Value::Int(0));
                 }
 
-                self.stack[index] = value;
+                self.stack.set(index, value).map_err(|e| e)?;
             }
 
             Instruction::GetGlobal(index) => {
@@ -809,7 +836,8 @@ impl VM {
             Instruction::Store => {
                 // Stack: [value] [heap_ref] -> []
                 // Store value to heap at specified reference
-                if self.stack.len() < 2 {
+                let stack_len = self.stack.len();
+                if stack_len < 2 {
                     return Err("Stack underflow for Store".to_string());
                 }
                 let heap_ref = self.stack.pop().unwrap();
@@ -835,7 +863,8 @@ impl VM {
             Instruction::Syscall => {
                 // Stack: [return_placeholder] [syscall_number] [fd] [buffer] [length] (pushed left-to-right)
                 // For syscall(1): write(fd, buffer, length)
-                if self.stack.len() < 5 {
+                let stack_len = self.stack.len();
+                if stack_len < 5 {
                     return Err("Stack underflow for Syscall".to_string());
                 }
 
@@ -1047,9 +1076,9 @@ impl VM {
         }
     }
 
-    /// Get a reference to the stack for debugging
-    pub fn get_stack(&self) -> &Vec<Value> {
-        &self.stack
+    /// Get a snapshot of the stack values for debugging
+    pub fn get_stack(&self) -> Vec<Value> {
+        self.stack.iter().collect()
     }
 
     /// Calculate the length of a null-terminated string starting at the given address
@@ -1311,7 +1340,7 @@ mod tests {
         assert_eq!(vm.hp, 3);
         // Stack should contain heap start address
         assert_eq!(vm.stack.len(), 1);
-        if let Value::Address(addr) = vm.stack[0] {
+        if let Some(Value::Address(addr)) = vm.stack.get(0) {
             assert_eq!(addr, 0); // First allocation should start at 0
         } else {
             panic!("Expected Address on stack");
@@ -1382,8 +1411,8 @@ mod tests {
 
         // Check final result
         assert_eq!(vm.stack.len(), 1); // loaded value only
-        if let Some(Value::Int(n)) = vm.stack.last() {
-            assert_eq!(*n, 42);
+        if let Some(Value::Int(n)) = vm.stack.peek() {
+            assert_eq!(n, 42);
         } else {
             panic!("Expected Int(42) on stack top");
         }

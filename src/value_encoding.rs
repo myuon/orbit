@@ -55,7 +55,7 @@ impl ValueEncoder {
         if (encoded & POINTER_BIT) == 0 {
             // Numeric value: shift right by 1 to get original value
             // Use arithmetic right shift to preserve sign
-            let numeric_value = ((encoded as i64) >> 1);
+            let numeric_value = (encoded as i64) >> 1;
             // We can't distinguish between Int, Boolean, and Byte from encoding
             // Default to Int for now (this is the accepted limitation)
             Value::Int(numeric_value)
@@ -90,7 +90,7 @@ impl ValueEncoder {
 
     /// Get the numeric value from an encoded u64 (assumes it's numeric)
     pub fn get_numeric_value(encoded: u64) -> i64 {
-        ((encoded as i64) >> 1)
+        (encoded as i64) >> 1
     }
 
     /// Get the address from an encoded u64 (assumes it's an address)
