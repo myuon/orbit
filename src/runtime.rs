@@ -581,6 +581,9 @@ impl VM {
             }
 
             Instruction::Call(func_name) => {
+                // Record function call for profiling
+                self.profiler.record_function_call(func_name.clone());
+
                 // Check if this is the function we want to trace and print stack state
                 if let Some(ref target_func) = self.print_stacks_on_call {
                     if func_name == target_func {
@@ -623,6 +626,11 @@ impl VM {
 
             Instruction::CallRel(offset) => {
                 let new_pc = (self.pc as i32 + offset) as usize;
+                
+                // Record function call for profiling using the target address
+                let call_name = format!("func_addr_{}", new_pc);
+                self.profiler.record_function_call(call_name);
+
                 self.pc = new_pc;
 
                 // Print debug visualization (heap and/or stack) if enabled
@@ -1020,6 +1028,11 @@ impl VM {
         self.profiler.save_report_to_file(filename)
     }
 
+    /// Get function call TOP5 ranking for --print-timings
+    pub fn get_function_call_top5(&self) -> String {
+        self.profiler.generate_function_call_top5()
+    }
+
     /// Get the current program counter for debugging
     pub fn get_program_counter(&self) -> usize {
         self.pc
@@ -1262,6 +1275,11 @@ impl Runtime {
     /// Get captured output and clear the buffer
     pub fn take_captured_output(&mut self) -> Option<String> {
         self.vm.take_captured_output()
+    }
+
+    /// Get function call TOP5 ranking for --print-timings
+    pub fn get_function_call_top5(&self) -> String {
+        self.vm.get_function_call_top5()
     }
 }
 

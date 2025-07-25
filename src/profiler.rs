@@ -145,6 +145,25 @@ impl Profiler {
         output
     }
 
+    /// Generate function call TOP5 ranking for --print-timings
+    pub fn generate_function_call_top5(&self) -> String {
+        if !self.enabled || self.function_call_counts.is_empty() {
+            return String::new();
+        }
+
+        let mut func_sorted: Vec<_> = self.function_call_counts.iter().collect();
+        func_sorted.sort_by(|a, b| b.1.cmp(a.1));
+
+        let mut output = String::new();
+        output.push_str("Function Call Count TOP5:\n");
+        
+        for (i, (func_name, count)) in func_sorted.iter().take(5).enumerate() {
+            output.push_str(&format!("{}. {} ({})\n", i + 1, func_name, count));
+        }
+
+        output
+    }
+
     /// Save profiling report to file
     pub fn save_report_to_file(&self, filename: &str) -> Result<(), std::io::Error> {
         use std::fs::File;

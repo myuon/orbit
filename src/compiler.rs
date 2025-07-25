@@ -481,8 +481,8 @@ impl Compiler {
             }
         }
 
-        // 8. Enable profiling if requested
-        if self.options.enable_profiling {
+        // 8. Enable profiling if requested (or if print_timings is enabled)
+        if self.options.enable_profiling || self.options.print_timings {
             self.runtime.enable_profiling();
         }
 
@@ -524,6 +524,12 @@ impl Compiler {
         // Print total compilation time if requested
         if let Some(start_time) = start_time {
             eprintln!("Total: {}ms", start_time.elapsed().as_millis());
+            
+            // Display function call TOP5 ranking if print_timings is enabled
+            let top5 = self.runtime.get_function_call_top5();
+            if !top5.is_empty() {
+                eprintln!("\n{}", top5);
+            }
         }
 
         result
