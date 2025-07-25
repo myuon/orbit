@@ -4,9 +4,8 @@ use crate::{
         Program, Stmt, StructDecl, StructField, StructNewKind, Type,
     },
     ast_visitor::{walk_expr_mut, walk_stmt_mut, VisitorMut},
-    bail_with_position,
 };
-use anyhow::{bail, Result};
+use anyhow::Result;
 use std::collections::HashMap;
 
 /// Operations that can be desugared to method calls
@@ -183,7 +182,7 @@ impl VisitorMut for DesugarTransformer {
                 // Check if this is a vec type with Pattern kind (empty fields) that should be desugared to _new method call
                 if *kind == StructNewKind::Pattern && fields.is_empty() {
                     match type_name {
-                        Type::Struct { name, args }
+                        Type::Struct { name, args: _ }
                             if self.supports_operation(name, &DesugarOperation::New) =>
                         {
                             // Convert to method call: vec(T)._new()
@@ -276,7 +275,7 @@ impl VisitorMut for DesugarTransformer {
                             };
                             return;
                         }
-                        Type::Struct { name, args }
+                        Type::Struct { name, args: _ }
                             if self.supports_operation(name, &DesugarOperation::Index) =>
                         {
                             // Convert to method call: container._get(index)
@@ -340,7 +339,7 @@ impl VisitorMut for DesugarTransformer {
                 {
                     if let Some(ref container_type) = container_value_type {
                         match container_type {
-                            Type::Struct { name, args }
+                            Type::Struct { name, args: _ }
                                 if self.supports_operation(name, &DesugarOperation::Assign) =>
                             {
                                 // Convert to method call: container._set(index, value)
@@ -394,7 +393,7 @@ impl VisitorMut for DesugarTransformer {
 
                 // Check if this is a vec type that should be desugared to method call
                 if let Some(ref vtype) = vector_type {
-                    if let Type::Struct { name, args } = vtype {
+                    if let Type::Struct { name, args: _ } = vtype {
                         if self.supports_operation(name, &DesugarOperation::Push) {
                             // Convert to method call: vector._push(value)
                             let method_name = self
@@ -547,89 +546,7 @@ impl Desugarer {
         }
     }
 
-    /// Check if a type supports a specific desugar operation
-    fn supports_operation(&self, type_name: &str, operation: &DesugarOperation) -> bool {
-        self.type_operations
-            .get(type_name)
-            .map(|config| config.supports_operation(operation))
-            .unwrap_or(false)
-    }
 
-    /// Get the method name for a specific operation on a type
-    fn get_method_name(&self, type_name: &str, operation: &DesugarOperation) -> Option<&String> {
-        self.type_operations
-            .get(type_name)
-            .and_then(|config| config.get_method_name(operation))
-    }
-
-    /// Create a method call expression for collection operations
-    fn create_collection_method_call(
-        &mut self,
-        container: PositionedExpr,
-        operation: DesugarOperation,
-        args: Vec<PositionedExpr>,
-        type_name: &str,
-        type_args: &[Type],
-    ) -> Result<PositionedExpr> {
-        let method_name = self
-            .get_method_name(type_name, &operation)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Operation {:?} not supported for type {}",
-                    operation,
-                    type_name
-                )
-            })?
-            .clone();
-
-        let type_instance = Type::Struct {
-            name: type_name.to_string(),
-            args: type_args.to_vec(),
-        };
-
-        let method_call = Expr::MethodCall {
-            object: Some(Box::new(container)),
-            object_type: Some(type_instance),
-            method: method_name,
-            args,
-        };
-
-        self.desugar_expression(&Positioned::with_unknown_span(method_call))
-    }
-
-    /// Create an associated method call expression for collection types (like _new)
-    fn create_collection_associated_method_call(
-        &mut self,
-        operation: DesugarOperation,
-        args: Vec<PositionedExpr>,
-        type_name: &str,
-        type_args: &[Type],
-    ) -> Result<PositionedExpr> {
-        let method_name = self
-            .get_method_name(type_name, &operation)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Operation {:?} not supported for type {}",
-                    operation,
-                    type_name
-                )
-            })?
-            .clone();
-
-        let type_instance = Type::Struct {
-            name: type_name.to_string(),
-            args: type_args.to_vec(),
-        };
-
-        let method_call = Expr::MethodCall {
-            object: None,
-            object_type: Some(type_instance),
-            method: method_name,
-            args,
-        };
-
-        self.desugar_expression(&Positioned::with_unknown_span(method_call))
-    }
 
     /// Desugar a complete program using visitor pattern
     pub fn desugar_program(&mut self, mut program: Program) -> Result<Program> {
@@ -805,987 +722,287 @@ impl Desugarer {
         })
     }
 
-    /// Desugar a function by transforming method calls in its body
-    fn desugar_function(&mut self, function: &Function) -> Result<Function> {
-        let mut desugared_body = self.desugar_statements(&function.body)?;
 
-        // Transform function parameter types
-        let transformed_params = function
-            .params
-            .iter()
-            .map(|param| FunParam {
-                name: param.name.clone(),
-                param_type: param
-                    .param_type
-                    .as_ref()
-                    .map(|t| self.transform_type(t.clone())),
-            })
-            .collect();
-
-        // Transform type parameters
-        let transformed_type_params = function
-            .type_params
-            .iter()
-            .map(|t| self.transform_type(t.clone()))
-            .collect();
-
-        // Add return 0; if the last statement is not a return
-        if !desugared_body.is_empty() {
-            if let Some(last_stmt) = desugared_body.last() {
-                if !matches!(last_stmt.value, Stmt::Return(_)) {
-                    desugared_body.push(Positioned::with_unknown_span(Stmt::Return(
-                        Positioned::with_unknown_span(Expr::Int(0)),
-                    )));
-                }
-            }
-        } else {
-            // If function body is empty, add return 0;
-            desugared_body.push(Positioned::with_unknown_span(Stmt::Return(
-                Positioned::with_unknown_span(Expr::Int(0)),
-            )));
-        }
-
-        Ok(Function {
-            name: function.name.clone(),
-            type_params: transformed_type_params,
-            params: transformed_params,
-            body: desugared_body,
-        })
-    }
-
-    /// Convert a struct method to a standalone function with mangled name
-    fn desugar_method(&mut self, struct_name: &str, method: &Function) -> Result<Function> {
-        let struct_type = Type::from_struct_name(struct_name);
-        let mangled_name = struct_type.mangle_method_name(&method.name);
-        let mut desugared_body = self.desugar_statements(&method.body)?;
-
-        // Add return 0; if the last statement is not a return
-        if !desugared_body.is_empty() {
-            if let Some(last_stmt) = desugared_body.last() {
-                if !matches!(last_stmt.value, Stmt::Return(_)) {
-                    desugared_body.push(Positioned::with_unknown_span(Stmt::Return(
-                        Positioned::with_unknown_span(Expr::Int(0)),
-                    )));
-                }
-            }
-        } else {
-            // If method body is empty, add return 0;
-            desugared_body.push(Positioned::with_unknown_span(Stmt::Return(
-                Positioned::with_unknown_span(Expr::Int(0)),
-            )));
-        }
-
-        Ok(Function {
-            name: mangled_name,
-            type_params: method.type_params.clone(),
-            params: method.params.clone(),
-            body: desugared_body,
-        })
-    }
-
-    /// Desugar a list of statements
-    fn desugar_statements(&mut self, statements: &[PositionedStmt]) -> Result<Vec<PositionedStmt>> {
-        let mut desugared = Vec::new();
-        for stmt in statements {
-            desugared.push(self.desugar_statement(stmt)?);
-        }
-        Ok(desugared)
-    }
-
-    /// Desugar a single statement
-    fn desugar_statement(&mut self, statement: &PositionedStmt) -> Result<PositionedStmt> {
-        let desugared_stmt = match &statement.value {
-            Stmt::Let { name, value } => {
-                let desugared_value = self.desugar_expression(value)?;
-                Stmt::Let {
-                    name: name.clone(),
-                    value: desugared_value,
-                }
-            }
-            Stmt::Expression(expr) => {
-                let desugared_expr = self.desugar_expression(expr)?;
-                Stmt::Expression(desugared_expr)
-            }
-            Stmt::Return(expr) => {
-                let desugared_expr = self.desugar_expression(expr)?;
-                Stmt::Return(desugared_expr)
-            }
-            Stmt::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                let desugared_condition = self.desugar_expression(condition)?;
-                let desugared_then = self.desugar_statements(then_branch)?;
-                let desugared_else = if let Some(else_stmts) = else_branch {
-                    Some(self.desugar_statements(else_stmts)?)
-                } else {
-                    None
-                };
-                Stmt::If {
-                    condition: desugared_condition,
-                    then_branch: desugared_then,
-                    else_branch: desugared_else,
-                }
-            }
-            Stmt::While { condition, body } => {
-                let desugared_condition = self.desugar_expression(condition)?;
-                let desugared_body = self.desugar_statements(body)?;
-                Stmt::While {
-                    condition: desugared_condition,
-                    body: desugared_body,
-                }
-            }
-            Stmt::Assign { lvalue, value } => {
-                let desugared_value = self.desugar_expression(value)?;
-
-                // Check if lvalue is an Index expression with vec type
-                if let Expr::Index {
-                    container,
-                    index,
-                    container_value_type,
-                    ..
-                } = &lvalue.value
-                {
-                    if let Some(ref container_type) = container_value_type {
-                        match container_type {
-                            Type::Struct { name, args }
-                                if self.supports_operation(name, &DesugarOperation::Assign) =>
-                            {
-                                // Convert to method call: container._set(index, value)
-                                let desugared_container = self.desugar_expression(container)?;
-                                let desugared_index = self.desugar_expression(index)?;
-                                let desugared_method_call = self.create_collection_method_call(
-                                    desugared_container,
-                                    DesugarOperation::Assign,
-                                    vec![desugared_index, desugared_value],
-                                    name,
-                                    args,
-                                )?;
-                                return Ok(Positioned::with_unknown_span(Stmt::Expression(
-                                    desugared_method_call,
-                                )));
-                            }
-                            Type::Struct {
-                                name: struct_name,
-                                args: _,
-                            } if struct_name.contains("vec") => {
-                                // Convert to method call: container._set(index, value)
-                                let desugared_container = self.desugar_expression(container)?;
-                                let desugared_index = self.desugar_expression(index)?;
-                                let method_call = Expr::MethodCall {
-                                    object: Some(Box::new(desugared_container)),
-                                    object_type: Some(Type::Struct {
-                                        name: struct_name.clone(),
-                                        args: vec![],
-                                    }),
-                                    method: "_set".to_string(),
-                                    args: vec![desugared_index, desugared_value],
-                                };
-                                let desugared_method_call = self.desugar_expression(
-                                    &Positioned::with_unknown_span(method_call),
-                                )?;
-                                return Ok(Positioned::with_unknown_span(Stmt::Expression(
-                                    desugared_method_call,
-                                )));
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-
-                // Default case: regular assignment
-                let desugared_lvalue = self.desugar_expression(lvalue)?;
-                Stmt::Assign {
-                    lvalue: desugared_lvalue,
-                    value: desugared_value,
-                }
-            }
-            Stmt::VectorPush {
-                vector,
-                value,
-                vector_type,
-            } => {
-                let desugared_value = self.desugar_expression(value)?;
-
-                // Check if this is a vec type that should be desugared to method call
-                if let Some(ref vtype) = vector_type {
-                    match vtype {
-                        Type::Struct { name, args }
-                            if self.supports_operation(name, &DesugarOperation::Push) =>
-                        {
-                            // Convert to method call: vector._push(value)
-                            let vector_expr =
-                                Positioned::with_unknown_span(Expr::Identifier(vector.clone()));
-                            let desugared_method_call = self.create_collection_method_call(
-                                vector_expr,
-                                DesugarOperation::Push,
-                                vec![desugared_value],
-                                name,
-                                args,
-                            )?;
-                            return Ok(Positioned::with_unknown_span(Stmt::Expression(
-                                desugared_method_call,
-                            )));
-                        }
-                        _ => {}
-                    }
-                }
-
-                bail_with_position!(
-                    statement.span.clone(),
-                    "VectorPush is not supported for this type"
-                );
-            }
-        };
-        Ok(Positioned::with_unknown_span(desugared_stmt))
-    }
-
-    /// Desugar an expression, converting method calls to function calls
-    fn desugar_expression(&mut self, expression: &PositionedExpr) -> Result<PositionedExpr> {
-        let desugared_expr = match &expression.value {
-            // Method call is the main target for desugaring
-            Expr::MethodCall {
-                object,
-                object_type,
-                method,
-                args,
-            } => {
-                if let Some(obj) = object {
-                    // Instance method call: obj.method(args)
-                    let desugared_object = self.desugar_expression(obj)?;
-                    let mut desugared_args = Vec::new();
-                    for arg in args {
-                        desugared_args.push(self.desugar_expression(arg)?);
-                    }
-
-                    // Use embedded type information if available, otherwise fall back to heuristic
-                    let mangled_name = if let Some(struct_type) = object_type {
-                        struct_type.mangle_method_name(method)
-                    } else {
-                        self.resolve_method_name(&desugared_object.value, method)?
-                    };
-
-                    // Convert to a regular function call with object as first argument
-                    let mut call_args = vec![desugared_object];
-                    call_args.extend(desugared_args);
-
-                    Expr::Call {
-                        callee: Box::new(Positioned::with_unknown_span(Expr::Identifier(
-                            mangled_name,
-                        ))),
-                        args: call_args,
-                    }
-                } else if let Some(type_name_str) = object_type {
-                    // Associated method call: (type T).method(args)
-                    let mut desugared_args = Vec::new();
-                    for arg in args {
-                        desugared_args.push(self.desugar_expression(arg)?);
-                    }
-
-                    // Convert to a regular function call with mangled name
-                    // For (type T).method(args), this becomes T_method(args)
-                    let mangled_name = type_name_str.mangle_method_name(method);
-
-                    Expr::Call {
-                        callee: Box::new(Positioned::with_unknown_span(Expr::Identifier(
-                            mangled_name,
-                        ))),
-                        args: desugared_args,
-                    }
-                } else {
-                    bail!("MethodCall must have either object or type_name specified")
-                }
-            }
-
-            // Recursively desugar other expressions
-            Expr::Binary { left, op, right } => {
-                let desugared_left = self.desugar_expression(left)?;
-                let desugared_right = self.desugar_expression(right)?;
-                Expr::Binary {
-                    left: Box::new(desugared_left),
-                    op: *op,
-                    right: Box::new(desugared_right),
-                }
-            }
-            Expr::Call { callee, args } => {
-                let desugared_callee = self.desugar_expression(callee)?;
-                let mut desugared_args = Vec::new();
-                for arg in args {
-                    desugared_args.push(self.desugar_expression(arg)?);
-                }
-                Expr::Call {
-                    callee: Box::new(desugared_callee),
-                    args: desugared_args,
-                }
-            }
-            Expr::Index {
-                container,
-                index,
-                container_type,
-                container_value_type,
-            } => {
-                let desugared_container = self.desugar_expression(container)?;
-                let desugared_index = self.desugar_expression(index)?;
-
-                // Check if this is a string type that should be converted to array(byte) indexing
-                if let Some(ref container_type) = container_value_type {
-                    match container_type {
-                        Type::String => {
-                            // Convert string[index] to concrete array function call: array(byte)#_get(container, index)
-                            let function_call = Expr::Call {
-                                callee: Box::new(Positioned::with_unknown_span(Expr::Identifier(
-                                    "array(byte)#_get".to_string(),
-                                ))),
-                                args: vec![desugared_container, desugared_index],
-                            };
-                            return Ok(Positioned::with_unknown_span(function_call));
-                        }
-                        Type::Struct { name, args }
-                            if self.supports_operation(name, &DesugarOperation::Index) =>
-                        {
-                            // Convert to method call: container._get(index)
-                            return self.create_collection_method_call(
-                                desugared_container,
-                                DesugarOperation::Index,
-                                vec![desugared_index],
-                                name,
-                                args,
-                            );
-                        }
-                        _ => {}
-                    }
-                }
-
-                // Default case: regular index operation
-                Expr::Index {
-                    container: Box::new(desugared_container),
-                    index: Box::new(desugared_index),
-                    container_type: container_type.clone(),
-                    container_value_type: container_value_type.clone(),
-                }
-            }
-            Expr::StructNew {
-                type_name,
-                fields,
-                kind,
-            } => {
-                // Check if this is a vec type with Pattern kind (empty fields) that should be desugared to _new method call
-                if *kind == StructNewKind::Pattern && fields.is_empty() {
-                    match type_name {
-                        Type::Struct { name, args }
-                            if self.supports_operation(name, &DesugarOperation::New) =>
-                        {
-                            // Convert to method call: vec(T)._new()
-                            return self.create_collection_associated_method_call(
-                                DesugarOperation::New,
-                                vec![],
-                                name,
-                                args,
-                            );
-                        }
-                        Type::Struct {
-                            name: struct_name,
-                            args: _,
-                        } if struct_name.contains("vec") => {
-                            // Convert to method call: vec(T)._new()
-                            let method_call = Expr::MethodCall {
-                                object: None,
-                                object_type: Some(Type::Struct {
-                                    name: struct_name.clone(),
-                                    args: vec![],
-                                }),
-                                method: "_new".to_string(),
-                                args: vec![],
-                            };
-                            return Ok(self.desugar_expression(&Positioned::with_unknown_span(
-                                method_call,
-                            ))?);
-                        }
-                        _ => {}
-                    }
-                }
-
-                // Check if this is an array struct with data/length fields that should use _new_from_data
-                if let Type::Struct { name, args: _ } = type_name {
-                    if name == "array" && *kind == StructNewKind::Regular && fields.len() == 2 {
-                        // Check if fields are "data" and "length"
-                        let has_data_field =
-                            fields.iter().any(|(field_name, _)| field_name == "data");
-                        let has_length_field =
-                            fields.iter().any(|(field_name, _)| field_name == "length");
-
-                        if has_data_field && has_length_field {
-                            // Extract data and length field values
-                            let data_expr = fields
-                                .iter()
-                                .find(|(field_name, _)| field_name == "data")
-                                .map(|(_, expr)| expr.clone())
-                                .unwrap();
-                            let length_expr = fields
-                                .iter()
-                                .find(|(field_name, _)| field_name == "length")
-                                .map(|(_, expr)| expr.clone())
-                                .unwrap();
-
-                            // Convert to method call: array(T)._new_from_data(data, length)
-                            let method_call = Expr::MethodCall {
-                                object: None,
-                                object_type: Some(type_name.clone()),
-                                method: "_new_from_data".to_string(),
-                                args: vec![data_expr, length_expr],
-                            };
-
-                            return self
-                                .desugar_expression(&Positioned::with_unknown_span(method_call));
-                        }
-                    }
-                }
-
-                let mut desugared_fields = Vec::new();
-                for (field_name, field_value) in fields {
-                    let desugared_value = self.desugar_expression(field_value)?;
-                    desugared_fields.push((field_name.clone(), desugared_value));
-                }
-                Expr::StructNew {
-                    type_name: type_name.clone(),
-                    fields: desugared_fields,
-                    kind: *kind,
-                }
-            }
-            Expr::FieldAccess {
-                object,
-                field,
-                object_type,
-            } => {
-                let desugared_object = self.desugar_expression(object)?;
-                Expr::FieldAccess {
-                    object: Box::new(desugared_object),
-                    field: field.clone(),
-                    object_type: object_type.clone(),
-                }
-            }
-
-            Expr::Alloc { element_type, size } => {
-                let desugared_size = Box::new(self.desugar_expression(size)?);
-                Expr::Alloc {
-                    element_type: element_type.clone(),
-                    size: desugared_size,
-                }
-            }
-
-            Expr::Sizeof { type_name } => {
-                // sizeof expressions don't need desugaring
-                Expr::Sizeof {
-                    type_name: type_name.clone(),
-                }
-            }
-
-            Expr::Cast { expr, target_type } => {
-                // Cast expressions just need their inner expression desugared
-                Expr::Cast {
-                    expr: Box::new(self.desugar_expression(expr)?),
-                    target_type: target_type.clone(),
-                }
-            }
-
-            // String literals need to be converted to array(byte) structures
-            Expr::String(s) => {
-                // Convert "hello" to new(struct) array(byte) { .data = pushString("hello"), .length = 5 }
-                // Then recursively desugar the StructNew to convert it to method call
-                let string_length = s.len() as i64;
-                let struct_new = Expr::StructNew {
-                    type_name: Type::Struct {
-                        name: "array".to_string(),
-                        args: vec![Type::Byte],
-                    },
-                    fields: vec![
-                        (
-                            "data".to_string(),
-                            Positioned::with_unknown_span(Expr::PushString(s.clone())),
-                        ),
-                        (
-                            "length".to_string(),
-                            Positioned::with_unknown_span(Expr::Int(string_length)),
-                        ),
-                    ],
-                    kind: StructNewKind::Regular,
-                };
-
-                // Recursively desugar the StructNew
-                return self.desugar_expression(&Positioned::with_unknown_span(struct_new));
-            }
-            // Leaf expressions that don't need desugaring
-            Expr::Int(_)
-            | Expr::Boolean(_)
-            | Expr::Byte(_)
-            | Expr::Identifier(_)
-            | Expr::TypeExpr { .. }
-            | Expr::PushString(_) => expression.value.clone(),
-        };
-
-        // Apply type transformations to the desugared expression
-        let type_transformed_expr = self.transform_types_in_expr(desugared_expr);
-        Ok(Positioned::with_unknown_span(type_transformed_expr))
-    }
-
-    /// Transform types in expressions, converting Type::String to Type::Struct{array(byte)}
-    fn transform_types_in_expr(&self, expr: Expr) -> Expr {
-        match expr {
-            Expr::FieldAccess {
-                object,
-                field,
-                object_type,
-            } => {
-                let transformed_object_type = object_type.map(|t| self.transform_type(t));
-                Expr::FieldAccess {
-                    object: Box::new(Positioned::with_unknown_span(
-                        self.transform_types_in_expr(object.value.clone()),
-                    )),
-                    field,
-                    object_type: transformed_object_type,
-                }
-            }
-            Expr::MethodCall {
-                object,
-                object_type,
-                method,
-                args,
-            } => {
-                let transformed_object_type = object_type.map(|t| self.transform_type(t));
-                let transformed_object = object.map(|obj| {
-                    Box::new(Positioned::with_unknown_span(
-                        self.transform_types_in_expr(obj.value.clone()),
-                    ))
-                });
-                let transformed_args = args
-                    .into_iter()
-                    .map(|arg| {
-                        Positioned::with_unknown_span(self.transform_types_in_expr(arg.value))
-                    })
-                    .collect();
-                Expr::MethodCall {
-                    object: transformed_object,
-                    object_type: transformed_object_type,
-                    method,
-                    args: transformed_args,
-                }
-            }
-            Expr::Index {
-                container,
-                index,
-                container_type,
-                container_value_type,
-            } => {
-                let transformed_container_value_type =
-                    container_value_type.map(|t| self.transform_type(t));
-                Expr::Index {
-                    container: Box::new(Positioned::with_unknown_span(
-                        self.transform_types_in_expr(container.value.clone()),
-                    )),
-                    index: Box::new(Positioned::with_unknown_span(
-                        self.transform_types_in_expr(index.value.clone()),
-                    )),
-                    container_type,
-                    container_value_type: transformed_container_value_type,
-                }
-            }
-            Expr::Call { callee, args } => Expr::Call {
-                callee: Box::new(Positioned::with_unknown_span(
-                    self.transform_types_in_expr(callee.value.clone()),
-                )),
-                args: args
-                    .into_iter()
-                    .map(|arg| {
-                        Positioned::with_unknown_span(self.transform_types_in_expr(arg.value))
-                    })
-                    .collect(),
-            },
-            Expr::Binary { left, op, right } => Expr::Binary {
-                left: Box::new(Positioned::with_unknown_span(
-                    self.transform_types_in_expr(left.value.clone()),
-                )),
-                op,
-                right: Box::new(Positioned::with_unknown_span(
-                    self.transform_types_in_expr(right.value.clone()),
-                )),
-            },
-            // For other expressions, no type transformation needed
-            _ => expr,
-        }
-    }
-
-    /// Transform a type, converting Type::String to Type::Struct{array(byte)}
-    fn transform_type(&self, type_expr: Type) -> Type {
-        match type_expr {
-            Type::String => Type::Struct {
-                name: "array".to_string(),
-                args: vec![Type::Byte],
-            },
-            Type::Struct { name, args } => Type::Struct {
-                name,
-                args: args
-                    .into_iter()
-                    .map(|arg| self.transform_type(arg))
-                    .collect(),
-            },
-            Type::Pointer(inner) => Type::Pointer(Box::new(self.transform_type(*inner))),
-            Type::Function {
-                params,
-                return_type,
-            } => Type::Function {
-                params: params
-                    .into_iter()
-                    .map(|param| self.transform_type(param))
-                    .collect(),
-                return_type: Box::new(self.transform_type(*return_type)),
-            },
-            // Other types remain unchanged
-            t => t,
-        }
-    }
-
-    /// Resolve method name to mangled function name
-    /// This is a simplified implementation that tries to infer struct type from context
-    fn resolve_method_name(&self, object: &Expr, method: &str) -> Result<String> {
-        // Try to infer struct type from various contexts
-        let struct_name = match object {
-            // For identifiers, try to infer from available struct types
-            Expr::Identifier(_) => {
-                // For now, try all available struct types to see which one has this method
-                for (struct_name, struct_decl) in &self.structs {
-                    for struct_method in &struct_decl.methods {
-                        if struct_method.value.name == method {
-                            let struct_type = Type::from_struct_name(struct_name);
-                            return Ok(struct_type.mangle_method_name(method));
-                        }
-                    }
-                }
-                // If no match found, default to first available struct (for demo purposes)
-                if let Some((struct_name, _)) = self.structs.iter().next() {
-                    struct_name.clone()
-                } else {
-                    return Err(anyhow::anyhow!(
-                        "No struct types available for method resolution"
-                    ));
-                }
-            }
-            // For struct instantiation, we can determine the type directly
-            Expr::StructNew { type_name, .. } => type_name.to_string(),
-            // For field access, try to infer the field type
-            Expr::FieldAccess {
-                object: _, field, ..
-            } => {
-                // Try to find the field type in our struct definitions
-                for (_struct_name, struct_decl) in &self.structs {
-                    for struct_field in &struct_decl.fields {
-                        if struct_field.name == *field {
-                            return Ok(struct_field.field_type.mangle_method_name(method));
-                        }
-                    }
-                }
-                // If no match found, default to first available struct
-                if let Some((struct_name, _)) = self.structs.iter().next() {
-                    struct_name.clone()
-                } else {
-                    return Err(anyhow::anyhow!(
-                        "No struct types available for method resolution"
-                    ));
-                }
-            }
-            // For other expressions, default to first available struct
-            _ => {
-                if let Some((struct_name, _)) = self.structs.iter().next() {
-                    struct_name.clone()
-                } else {
-                    return Err(anyhow::anyhow!(
-                        "No struct types available for method resolution"
-                    ));
-                }
-            }
-        };
-
-        let struct_type = Type::from_struct_name(&struct_name);
-        Ok(struct_type.mangle_method_name(method))
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{BinaryOp, FunParam, StructNewKind, Type};
+    use crate::ast::{FunParam, StructNewKind, Type};
 
     #[test]
-    fn test_method_call_desugaring() {
+    fn test_visitor_method_call_desugaring() {
         let mut desugarer = Desugarer::new();
 
-        // Add a struct type to the desugarer for testing
-        let point_struct = StructDecl {
-            name: "Point".to_string(),
-            type_params: vec![],
-            fields: vec![],
-            methods: vec![Positioned::with_unknown_span(Function {
-                name: "sum".to_string(),
-                type_params: vec![],
-                params: vec![],
-                body: vec![],
-            })],
-        };
-        desugarer.structs.insert("Point".to_string(), point_struct);
-
-        // Create a method call: p.sum()
-        let method_call = Positioned::with_unknown_span(Expr::MethodCall {
-            object: Some(Box::new(Positioned::with_unknown_span(Expr::Identifier(
-                "p".to_string(),
-            )))),
-            object_type: None,
-            method: "sum".to_string(),
-            args: vec![],
-        });
-
-        let result = desugarer.desugar_expression(&method_call).unwrap();
-
-        // Should be converted to: Point#sum(p)
-        if let Expr::Call { callee, args } = &result.value {
-            if let Expr::Identifier(func_name) = &callee.value {
-                assert_eq!(func_name, "Point#sum");
-                assert_eq!(args.len(), 1);
-                if let Expr::Identifier(arg_name) = &args[0].value {
-                    assert_eq!(arg_name, "p");
-                } else {
-                    panic!("Expected identifier argument");
-                }
-            } else {
-                panic!("Expected identifier callee");
-            }
-        } else {
-            panic!("Expected function call result");
-        }
-    }
-
-    #[test]
-    fn test_struct_method_to_function_conversion() {
-        let mut desugarer = Desugarer::new();
-
-        // Create a struct with a method
-        let method = Function {
-            name: "sum".to_string(),
-            type_params: vec![],
-            params: vec![FunParam {
-                name: "self".to_string(),
-                param_type: Some(Type::Struct {
-                    name: "Point".to_string(),
-                    args: vec![],
-                }),
-            }],
-            body: vec![],
-        };
-
-        let result = desugarer.desugar_method("Point", &method).unwrap();
-
-        assert_eq!(result.name, "Point#sum");
-        assert_eq!(result.params.len(), 1);
-        assert_eq!(result.params[0].name, "self");
-    }
-
-    #[test]
-    fn test_method_call_with_embedded_type() {
-        let mut desugarer = Desugarer::new();
-
-        // Create a method call with embedded type information: p.sum()
-        let method_call = Positioned::with_unknown_span(Expr::MethodCall {
-            object: Some(Box::new(Positioned::with_unknown_span(Expr::Identifier(
-                "p".to_string(),
-            )))),
-            object_type: Some(Type::Struct {
-                name: "Point".to_string(),
-                args: vec![],
-            }), // Type information embedded by type checker
-            method: "sum".to_string(),
-            args: vec![],
-        });
-
-        let result = desugarer.desugar_expression(&method_call).unwrap();
-
-        // Should be converted to: Point#sum(p) using embedded type info
-        if let Expr::Call { callee, args } = &result.value {
-            if let Expr::Identifier(func_name) = &callee.value {
-                assert_eq!(func_name, "Point#sum");
-                assert_eq!(args.len(), 1);
-                if let Expr::Identifier(arg_name) = &args[0].value {
-                    assert_eq!(arg_name, "p");
-                } else {
-                    panic!("Expected identifier argument");
-                }
-            } else {
-                panic!("Expected identifier callee");
-            }
-        } else {
-            panic!("Expected function call result");
-        }
-    }
-
-    #[test]
-    fn test_struct_new_pattern_desugaring() {
-        let mut desugarer = Desugarer::new();
-
-        // Create a StructNew expression with kind=Pattern and a nested expression
-        let struct_new_pattern = Positioned::with_unknown_span(Expr::StructNew {
-            type_name: Type::Struct {
-                name: "Point".to_string(),
-                args: vec![],
-            },
-            fields: vec![
-                ("x".to_string(), Positioned::with_unknown_span(Expr::Int(5))),
-                (
-                    "y".to_string(),
-                    Positioned::with_unknown_span(Expr::Binary {
-                        left: Box::new(Positioned::with_unknown_span(Expr::Int(2))),
-                        op: BinaryOp::Add,
-                        right: Box::new(Positioned::with_unknown_span(Expr::Int(3))),
-                    }),
-                ),
-            ],
-            kind: StructNewKind::Pattern,
-        });
-
-        let result = desugarer.desugar_expression(&struct_new_pattern).unwrap();
-
-        // Should desugar nested expressions while preserving the StructNew structure
-        if let Expr::StructNew {
-            type_name,
-            fields,
-            kind: StructNewKind::Pattern,
-        } = &result.value
-        {
-            assert_eq!(
-                *type_name,
-                Type::Struct {
-                    name: "Point".to_string(),
-                    args: vec![]
-                }
-            );
-            assert_eq!(fields.len(), 2);
-
-            // Check first field
-            assert_eq!(fields[0].0, "x");
-            if let Expr::Int(val) = &fields[0].1.value {
-                assert_eq!(*val, 5);
-            } else {
-                panic!("Expected number in first field");
-            }
-
-            // Check second field - the nested expression should be desugared
-            assert_eq!(fields[1].0, "y");
-            if let Expr::Binary { left, op, right } = &fields[1].1.value {
-                assert_eq!(*op, BinaryOp::Add);
-                if let Expr::Int(left_val) = &left.value {
-                    assert_eq!(*left_val, 2);
-                } else {
-                    panic!("Expected number in left operand");
-                }
-                if let Expr::Int(right_val) = &right.value {
-                    assert_eq!(*right_val, 3);
-                } else {
-                    panic!("Expected number in right operand");
-                }
-            } else {
-                panic!("Expected binary expression in second field");
-            }
-        } else {
-            panic!("Expected StructNew result with kind=Pattern");
-        }
-    }
-
-    #[test]
-    fn test_function_auto_return_zero() {
-        let mut desugarer = Desugarer::new();
-
-        // Create a function without explicit return
-        let function = Function {
-            name: "test_func".to_string(),
-            type_params: vec![],
-            params: vec![],
-            body: vec![Positioned::with_unknown_span(Stmt::Let {
-                name: "x".to_string(),
-                value: Positioned::with_unknown_span(Expr::Int(42)),
-            })],
-        };
-
-        let result = desugarer.desugar_function(&function).unwrap();
-
-        // Should have added return 0; at the end
-        assert_eq!(result.body.len(), 2);
-        if let Stmt::Return(return_expr) = &result.body[1].value {
-            if let Expr::Int(0) = &return_expr.value {
-                // Expected behavior
-            } else {
-                panic!("Expected return 0; to be added");
-            }
-        } else {
-            panic!("Expected return 0; to be added");
-        }
-    }
-
-    #[test]
-    fn test_function_with_existing_return() {
-        let mut desugarer = Desugarer::new();
-
-        // Create a function with explicit return
-        let function = Function {
-            name: "test_func".to_string(),
-            type_params: vec![],
-            params: vec![],
-            body: vec![
-                Positioned::with_unknown_span(Stmt::Let {
-                    name: "x".to_string(),
-                    value: Positioned::with_unknown_span(Expr::Int(42)),
-                }),
-                Positioned::with_unknown_span(Stmt::Return(Positioned::with_unknown_span(
-                    Expr::Int(42),
+        // Create a simple program with a struct and method call
+        let program = Program {
+            declarations: vec![
+                Positioned::with_unknown_span(Decl::Struct(Positioned::with_unknown_span(
+                    StructDecl {
+                        name: "Point".to_string(),
+                        type_params: vec![],
+                        fields: vec![],
+                        methods: vec![Positioned::with_unknown_span(Function {
+                            name: "sum".to_string(),
+                            type_params: vec![],
+                            params: vec![FunParam {
+                                name: "self".to_string(),
+                                param_type: Some(Type::Struct {
+                                    name: "Point".to_string(),
+                                    args: vec![],
+                                }),
+                            }],
+                            body: vec![Positioned::with_unknown_span(Stmt::Return(
+                                Positioned::with_unknown_span(Expr::Int(42)),
+                            ))],
+                        })],
+                    },
+                ))),
+                Positioned::with_unknown_span(Decl::Function(Positioned::with_unknown_span(
+                    Function {
+                        name: "main".to_string(),
+                        type_params: vec![],
+                        params: vec![],
+                        body: vec![
+                            Positioned::with_unknown_span(Stmt::Let {
+                                name: "p".to_string(),
+                                value: Positioned::with_unknown_span(Expr::StructNew {
+                                    type_name: Type::Struct {
+                                        name: "Point".to_string(),
+                                        args: vec![],
+                                    },
+                                    fields: vec![],
+                                    kind: StructNewKind::Pattern,
+                                }),
+                            }),
+                            Positioned::with_unknown_span(Stmt::Expression(
+                                Positioned::with_unknown_span(Expr::MethodCall {
+                                    object: Some(Box::new(Positioned::with_unknown_span(
+                                        Expr::Identifier("p".to_string()),
+                                    ))),
+                                    object_type: Some(Type::Struct {
+                                        name: "Point".to_string(),
+                                        args: vec![],
+                                    }),
+                                    method: "sum".to_string(),
+                                    args: vec![],
+                                }),
+                            )),
+                        ],
+                    },
                 ))),
             ],
         };
 
-        let result = desugarer.desugar_function(&function).unwrap();
+        let result = desugarer.desugar_program(program).unwrap();
 
-        // Should NOT have added another return
-        assert_eq!(result.body.len(), 2);
-        if let Stmt::Return(return_expr) = &result.body[1].value {
-            if let Expr::Int(42) = &return_expr.value {
-                // Expected behavior - original return preserved
+        // Check that Point#sum function was created
+        let point_sum_func = result
+            .declarations
+            .iter()
+            .find(|decl| {
+                if let Decl::Function(func) = &decl.value {
+                    func.value.name == "Point#sum"
+                } else {
+                    false
+                }
+            })
+            .expect("Point#sum function should exist");
+
+        if let Decl::Function(func) = &point_sum_func.value {
+            assert_eq!(func.value.name, "Point#sum");
+            assert_eq!(func.value.params.len(), 1);
+            assert_eq!(func.value.params[0].name, "self");
+        }
+
+        // Check that method call was transformed to function call in main
+        let main_func = result
+            .declarations
+            .iter()
+            .find(|decl| {
+                if let Decl::Function(func) = &decl.value {
+                    func.value.name == "main"
+                } else {
+                    false
+                }
+            })
+            .expect("main function should exist");
+
+        if let Decl::Function(func) = &main_func.value {
+            if let Some(Stmt::Expression(expr)) = func.value.body.get(1).map(|s| &s.value) {
+                if let Expr::Call { callee, args } = &expr.value {
+                    if let Expr::Identifier(name) = &callee.value {
+                        assert_eq!(name, "Point#sum");
+                        assert_eq!(args.len(), 1);
+                    } else {
+                        panic!("Expected function call identifier");
+                    }
+                } else {
+                    panic!("Expected function call");
+                }
             } else {
-                panic!("Expected original return to be preserved");
+                panic!("Expected expression statement");
             }
-        } else {
-            panic!("Expected original return to be preserved");
         }
     }
 
     #[test]
-    fn test_empty_function_gets_return_zero() {
+    fn test_visitor_string_to_array_conversion() {
         let mut desugarer = Desugarer::new();
 
-        // Create an empty function
-        let function = Function {
-            name: "empty_func".to_string(),
-            type_params: vec![],
-            params: vec![],
-            body: vec![],
+        // Create a simple program with a string literal
+        let program = Program {
+            declarations: vec![Positioned::with_unknown_span(Decl::Function(
+                Positioned::with_unknown_span(Function {
+                    name: "main".to_string(),
+                    type_params: vec![],
+                    params: vec![],
+                    body: vec![Positioned::with_unknown_span(Stmt::Let {
+                        name: "s".to_string(),
+                        value: Positioned::with_unknown_span(Expr::String("hello".to_string())),
+                    })],
+                }),
+            ))],
         };
 
-        let result = desugarer.desugar_function(&function).unwrap();
+        let result = desugarer.desugar_program(program).unwrap();
 
-        // Should have added return 0;
-        assert_eq!(result.body.len(), 1);
-        if let Stmt::Return(return_expr) = &result.body[0].value {
-            if let Expr::Int(0) = &return_expr.value {
-                // Expected behavior
+        // Check that string was converted to array(byte) struct
+        let main_func = result
+            .declarations
+            .iter()
+            .find(|decl| {
+                if let Decl::Function(func) = &decl.value {
+                    func.value.name == "main"
+                } else {
+                    false
+                }
+            })
+            .expect("main function should exist");
+
+        if let Decl::Function(func) = &main_func.value {
+            if let Some(Stmt::Let { value, .. }) = func.value.body.get(0).map(|s| &s.value) {
+                if let Expr::Call { callee, args } = &value.value {
+                    if let Expr::Identifier(name) = &callee.value {
+                        assert_eq!(name, "array(byte)#_new_from_data");
+                        assert_eq!(args.len(), 2);
+                    } else {
+                        panic!("Expected array constructor call");
+                    }
+                } else {
+                    panic!("Expected function call for string conversion");
+                }
             } else {
-                panic!("Expected return 0; to be added to empty function");
+                panic!("Expected let statement");
             }
-        } else {
-            panic!("Expected return 0; to be added to empty function");
         }
     }
+
+    #[test]
+    fn test_visitor_embedded_type_method_call() {
+        let mut desugarer = Desugarer::new();
+
+        // Create a program that tests embedded type information
+        let program = Program {
+            declarations: vec![Positioned::with_unknown_span(Decl::Function(
+                Positioned::with_unknown_span(Function {
+                    name: "test".to_string(),
+                    type_params: vec![],
+                    params: vec![],
+                    body: vec![Positioned::with_unknown_span(Stmt::Expression(
+                        Positioned::with_unknown_span(Expr::MethodCall {
+                            object: Some(Box::new(Positioned::with_unknown_span(
+                                Expr::Identifier("p".to_string()),
+                            ))),
+                            object_type: Some(Type::Struct {
+                                name: "Point".to_string(),
+                                args: vec![],
+                            }),
+                            method: "sum".to_string(),
+                            args: vec![],
+                        }),
+                    ))],
+                }),
+            ))],
+        };
+
+        let result = desugarer.desugar_program(program).unwrap();
+
+        // Check that method call was converted using embedded type
+        let test_func = result
+            .declarations
+            .iter()
+            .find(|decl| {
+                if let Decl::Function(func) = &decl.value {
+                    func.value.name == "test"
+                } else {
+                    false
+                }
+            })
+            .expect("test function should exist");
+
+        if let Decl::Function(func) = &test_func.value {
+            if let Some(Stmt::Expression(expr)) = func.value.body.get(0).map(|s| &s.value) {
+                if let Expr::Call { callee, args } = &expr.value {
+                    if let Expr::Identifier(name) = &callee.value {
+                        assert_eq!(name, "Point#sum");
+                        assert_eq!(args.len(), 1);
+                    } else {
+                        panic!("Expected Point#sum function call");
+                    }
+                } else {
+                    panic!("Expected function call");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_visitor_function_return_auto_insertion() {
+        let mut desugarer = Desugarer::new();
+
+        // Create a function without explicit return
+        let program = Program {
+            declarations: vec![Positioned::with_unknown_span(Decl::Function(
+                Positioned::with_unknown_span(Function {
+                    name: "test_func".to_string(),
+                    type_params: vec![],
+                    params: vec![],
+                    body: vec![Positioned::with_unknown_span(Stmt::Let {
+                        name: "x".to_string(),
+                        value: Positioned::with_unknown_span(Expr::Int(42)),
+                    })],
+                }),
+            ))],
+        };
+
+        let result = desugarer.desugar_program(program).unwrap();
+
+        // Check that return 0; was added
+        let test_func = result
+            .declarations
+            .iter()
+            .find(|decl| {
+                if let Decl::Function(func) = &decl.value {
+                    func.value.name == "test_func"
+                } else {
+                    false
+                }
+            })
+            .expect("test_func should exist");
+
+        if let Decl::Function(func) = &test_func.value {
+            assert_eq!(func.value.body.len(), 2);
+            if let Some(Stmt::Return(return_expr)) = func.value.body.get(1).map(|s| &s.value) {
+                if let Expr::Int(0) = &return_expr.value {
+                    // Expected behavior
+                } else {
+                    panic!("Expected return 0; to be added");
+                }
+            } else {
+                panic!("Expected return statement to be added");
+            }
+        }
+    }
+
 }
