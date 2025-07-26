@@ -378,7 +378,9 @@ impl CodeGenerator {
 
         self.instructions.push(Instruction::Push(-1)); // placeholder for return value
         self.instructions.push(Instruction::Push(-1)); // placeholder for old BP
-        self.instructions.push(Instruction::Push(-1)); // placeholder for return address - use -1 to signal exit
+        self.instructions.push(Instruction::GetPC); // get current PC for return address
+        self.instructions.push(Instruction::Push(2)); // offset to after Call instruction
+        self.instructions.push(Instruction::AddressAdd); // calculate return address
 
         // Set BP
         self.instructions.push(Instruction::Push(3));
@@ -767,9 +769,9 @@ impl CodeGenerator {
 
                 if let Expr::Identifier(func_name) = &callee.value {
                     // 3. Push current PC + offset (return address)
-                    // PC will be at Call instruction, so return address is PC + 1
+                    // PC will be at GetPC instruction, need to calculate offset to after Call
                     self.instructions.push(Instruction::GetPC);
-                    self.instructions.push(Instruction::Push(6)); // Offset to return address (after Call)
+                    self.instructions.push(Instruction::Push(6)); // Offset: GetPC + Push + AddressAdd + GetBP + GetSP + SetBP + Call = 6
                     self.instructions.push(Instruction::AddressAdd);
 
                     // 4. Push current BP (old base pointer)

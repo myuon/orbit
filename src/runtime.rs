@@ -239,7 +239,7 @@ impl VM {
     }
 
     pub fn step(&mut self) -> Result<ControlFlow, String> {
-        let instruction = &self.program[self.pc];
+        let instruction = self.program[self.pc].clone();
         let pc_before_execution = self.pc;
 
         // Start timing if profiling is enabled
@@ -258,7 +258,7 @@ impl VM {
                         self.stack.len()
                     ));
                 }
-                let encoded = ValueEncoder::encode(&Value::Int(*value));
+                let encoded = ValueEncoder::encode(&Value::Int(value));
                 self.stack[self.sp] = encoded;
                 self.sp += 1;
             }
@@ -273,20 +273,26 @@ impl VM {
                 // Add null terminator
                 self.heap.push(Value::Byte(0));
                 // Push address pointing to first byte
-                self.push_value(Value::Address(start_index))?;
+                let encoded = ValueEncoder::encode(&Value::Address(start_index));
+                self.stack[self.sp] = encoded;
+                self.sp += 1;
                 // Update HP to keep it in sync with heap length
                 self.hp = self.heap.len();
             }
 
             Instruction::PushHeapRef(index) => {
-                if *index >= self.heap.len() {
+                if index >= self.heap.len() {
                     return Err(format!("Invalid heap index: {}", index));
                 }
-                self.push_value(Value::HeapRef(HeapIndex(*index)))?;
+                let encoded = ValueEncoder::encode(&Value::HeapRef(HeapIndex(index)));
+                self.stack[self.sp] = encoded;
+                self.sp += 1;
             }
 
             Instruction::PushAddress(addr) => {
-                self.push_value(Value::Address(*addr))?;
+                let encoded = ValueEncoder::encode(&Value::Address(addr));
+                self.stack[self.sp] = encoded;
+                self.sp += 1;
             }
 
             Instruction::Pop => {
@@ -325,8 +331,13 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for Sub".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
+                // Pop b
+                self.sp -= 1;
+                let b = ValueEncoder::decode(self.stack[self.sp]);
+                // Pop a
+                self.sp -= 1;
+                let a = ValueEncoder::decode(self.stack[self.sp]);
+                
                 let result = match (a, b) {
                     (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
                     (Value::Int(a), Value::Byte(b)) => Value::Int(a - b as i64),
@@ -334,15 +345,24 @@ impl VM {
                     (Value::Byte(a), Value::Byte(b)) => Value::Int(a as i64 - b as i64),
                     _ => return Err("Subtract operation requires numbers or bytes".to_string()),
                 };
-                self.push_value(result)?;
+                
+                // Push result
+                let encoded = ValueEncoder::encode(&result);
+                self.stack[self.sp] = encoded;
+                self.sp += 1;
             }
 
             Instruction::Mul => {
                 if self.sp < 2 {
                     return Err("Stack underflow for Mul".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
+                // Pop b
+                self.sp -= 1;
+                let b = ValueEncoder::decode(self.stack[self.sp]);
+                // Pop a
+                self.sp -= 1;
+                let a = ValueEncoder::decode(self.stack[self.sp]);
+                
                 let result = match (a, b) {
                     (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
                     (Value::Int(a), Value::Byte(b)) => Value::Int(a * b as i64),
@@ -350,7 +370,11 @@ impl VM {
                     (Value::Byte(a), Value::Byte(b)) => Value::Int(a as i64 * b as i64),
                     _ => return Err("Multiply operation requires numbers or bytes".to_string()),
                 };
-                self.push_value(result)?;
+                
+                // Push result
+                let encoded = ValueEncoder::encode(&result);
+                self.stack[self.sp] = encoded;
+                self.sp += 1;
             }
 
             Instruction::Div => {
@@ -469,9 +493,17 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for Eq".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
-                self.push_value(Value::Boolean(a == b))?;
+                // Pop b
+                self.sp -= 1;
+                let b = ValueEncoder::decode(self.stack[self.sp]);
+                // Pop a
+                self.sp -= 1;
+                let a = ValueEncoder::decode(self.stack[self.sp]);
+                
+                // Push result
+                let encoded = ValueEncoder::encode(&Value::Boolean(a == b));
+                self.stack[self.sp] = encoded;
+                self.sp += 1;
             }
 
             Instruction::Lt => {
@@ -559,10 +591,10 @@ impl VM {
             }
 
             Instruction::Jump(addr) => {
-                self.pc = *addr;
+                self.pc = addr;
 
                 // Print debug visualization (heap and/or stack) if enabled
-                self.print_debug_visualization(pc_before_execution, instruction);
+                self.print_debug_visualization(pc_before_execution, &instruction);
 
                 return Ok(ControlFlow::Continue);
             }
@@ -579,13 +611,13 @@ impl VM {
                     _ => false,
                 };
                 if should_jump {
-                    self.pc = *addr;
+                    self.pc = addr;
                 } else {
                     self.pc += 1;
                 }
 
                 // Print debug visualization (heap and/or stack) if enabled
-                self.print_debug_visualization(pc_before_execution, instruction);
+                self.print_debug_visualization(pc_before_execution, &instruction);
 
                 return Ok(ControlFlow::Continue);
             }
@@ -595,7 +627,7 @@ impl VM {
                 self.pc = new_pc;
 
                 // Print debug visualization (heap and/or stack) if enabled
-                self.print_debug_visualization(pc_before_execution, instruction);
+                self.print_debug_visualization(pc_before_execution, &instruction);
 
                 return Ok(ControlFlow::Continue);
             }
@@ -619,13 +651,13 @@ impl VM {
                 }
 
                 // Print debug visualization (heap and/or stack) if enabled
-                self.print_debug_visualization(pc_before_execution, instruction);
+                self.print_debug_visualization(pc_before_execution, &instruction);
 
                 return Ok(ControlFlow::Continue);
             }
 
             Instruction::GetLocal(offset) => {
-                let index = if *offset < 0 {
+                let index = if offset < 0 {
                     // Negative offset: access parameters (before BP)
                     let abs_offset = (-offset) as usize;
                     if self.bp < abs_offset {
@@ -637,7 +669,7 @@ impl VM {
                     self.bp - abs_offset
                 } else {
                     // Positive offset: access local variables (after BP)
-                    self.bp + (*offset as usize)
+                    self.bp + (offset as usize)
                 };
 
                 // Local variables are accessed relative to BP
@@ -654,7 +686,7 @@ impl VM {
                 }
                 let value = self.pop_value()?;
 
-                let index = if *offset < 0 {
+                let index = if offset < 0 {
                     // Negative offset: access parameters (before BP)
                     let abs_offset = (-offset) as usize;
                     if self.bp < abs_offset {
@@ -666,7 +698,7 @@ impl VM {
                     self.bp - abs_offset
                 } else {
                     // Positive offset: access local variables (after BP)
-                    self.bp + (*offset as usize)
+                    self.bp + (offset as usize)
                 };
 
                 // Extend stack if needed for positive offsets
@@ -677,10 +709,10 @@ impl VM {
             }
 
             Instruction::GetGlobal(index) => {
-                if *index >= self.globals.len() {
+                if index >= self.globals.len() {
                     return Err(format!("Global variable index out of bounds: {}", index));
                 }
-                self.push_value(self.globals[*index].clone())?;
+                self.push_value(self.globals[index].clone())?;
             }
 
             Instruction::SetGlobal(index) => {
@@ -689,10 +721,10 @@ impl VM {
                 }
                 let value = self.pop_value()?;
                 // Extend globals vector if needed
-                while self.globals.len() <= *index {
+                while self.globals.len() <= index {
                     self.globals.push(Value::Int(0)); // Default value
                 }
-                self.globals[*index] = value;
+                self.globals[index] = value;
             }
 
             Instruction::Call(func_name) => {
@@ -701,7 +733,7 @@ impl VM {
 
                 // Check if this is the function we want to trace and print stack state
                 if let Some(ref target_func) = self.print_stacks_on_call {
-                    if func_name == target_func {
+                    if &func_name == target_func {
                         // Only show stack contents from index 0 to sp
                         let visible_stack: Vec<String> = (0..self.sp)
                             .filter_map(|i| self.get_stack_value(i))
@@ -710,7 +742,7 @@ impl VM {
                         println!(
                             "{:04} {:20} [{}]",
                             self.pc,
-                            format!("{}", instruction),
+                            format!("call {}", func_name),
                             visible_stack.join(", ")
                         );
                     }
@@ -720,7 +752,7 @@ impl VM {
                 let mut target_addr = None;
                 for (i, inst) in self.program.iter().enumerate() {
                     if let Instruction::Label(label_name) = inst {
-                        if label_name == func_name {
+                        if label_name == &func_name {
                             target_addr = Some(i + 1); // Jump to instruction after label
                             break;
                         }
@@ -736,7 +768,7 @@ impl VM {
                         // Check if we should JIT compile:
                         // 1. If function is marked for forced JIT compilation, or
                         // 2. If it meets the normal threshold (10+ calls)
-                        if self.jit_compile_functions.contains_key(func_name) {
+                        if self.jit_compile_functions.contains_key(&func_name) {
                             // For forced JIT compilation, always compile
                             true
                         } else {
@@ -766,7 +798,7 @@ impl VM {
                             ) {
                                 Ok(()) => {
                                     jit_compilation_successful = true;
-                                    if self.jit_compile_functions.contains_key(func_name) {
+                                    if self.jit_compile_functions.contains_key(&func_name) {
                                         eprintln!("JIT: Successfully compiled function '{}' at address {} (forced compilation)", 
                                                  func_name, addr);
                                     } else {
@@ -837,16 +869,18 @@ impl VM {
                                         eprintln!("JIT: Execution failed for function '{}', falling back to interpreter", func_name);
                                         // Fall through to interpreter execution
                                         self.pc = addr;
+                                        let call_instruction = Instruction::Call(func_name.clone());
                                         self.print_debug_visualization(
                                             pc_before_execution,
-                                            instruction,
+                                            &call_instruction,
                                         );
                                         return Ok(ControlFlow::Continue);
                                     }
                                 }
 
                                 // Print debug visualization (heap and/or stack) if enabled
-                                self.print_debug_visualization(pc_before_execution, instruction);
+                                let call_instruction = Instruction::Call(func_name.clone());
+                                self.print_debug_visualization(pc_before_execution, &call_instruction);
 
                                 // JIT execution completed, return immediately
                                 return Ok(ControlFlow::Continue);
@@ -859,7 +893,8 @@ impl VM {
                     self.pc = addr;
 
                     // Print debug visualization (heap and/or stack) if enabled
-                    self.print_debug_visualization(pc_before_execution, instruction);
+                    let call_instruction = Instruction::Call(func_name.clone());
+                    self.print_debug_visualization(pc_before_execution, &call_instruction);
 
                     return Ok(ControlFlow::Continue);
                 } else {
@@ -1007,14 +1042,14 @@ impl VM {
                                     self.pc = new_pc;
                                     self.print_debug_visualization(
                                         pc_before_execution,
-                                        instruction,
+                                        &instruction,
                                     );
                                     return Ok(ControlFlow::Continue);
                                 }
                             }
 
                             // Print debug visualization (heap and/or stack) if enabled
-                            self.print_debug_visualization(pc_before_execution, instruction);
+                            self.print_debug_visualization(pc_before_execution, &instruction);
 
                             // JIT execution completed, return immediately
                             return Ok(ControlFlow::Continue);
@@ -1032,7 +1067,7 @@ impl VM {
                 self.pc = new_pc;
 
                 // Print debug visualization (heap and/or stack) if enabled
-                self.print_debug_visualization(pc_before_execution, instruction);
+                self.print_debug_visualization(pc_before_execution, &instruction);
 
                 return Ok(ControlFlow::Continue);
             }
@@ -1347,23 +1382,27 @@ impl VM {
 
         // Record profiling data if enabled
         if let Some(elapsed) = timer.finish() {
-            let instruction_name = format!("{:?}", instruction)
+            // Need to clone the instruction again since it was moved by the match
+            let instruction_for_profiling = self.program[pc_before_execution].clone();
+            
+            // Special handling for Call instructions first
+            if let Instruction::Call(ref func_name) = instruction_for_profiling {
+                self.profiler.record_function_call(func_name.clone());
+            }
+            
+            let instruction_name = format!("{:?}", instruction_for_profiling)
                 .split('(')
                 .next()
                 .unwrap_or("Unknown")
                 .to_string();
             self.profiler.record_instruction(instruction_name, elapsed);
-
-            // Special handling for Call instructions
-            if let Instruction::Call(func_name) = instruction {
-                self.profiler.record_function_call(func_name.clone());
-            }
         }
 
         self.pc += 1;
 
         // Print debug visualization (heap and/or stack) if enabled
-        self.print_debug_visualization(pc_before_execution, instruction);
+        let instruction_for_debug = self.program[pc_before_execution].clone();
+        self.print_debug_visualization(pc_before_execution, &instruction_for_debug);
 
         Ok(ControlFlow::Continue)
     }
