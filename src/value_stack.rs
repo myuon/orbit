@@ -82,8 +82,6 @@ impl ValueStack {
             return Err("Stack underflow: SP is 0".to_string());
         }
 
-        *sp -= 1;
-
         if *sp >= self.encoded_stack.len() {
             return Err(format!(
                 "Stack access out of bounds: SP {} >= capacity {}",
@@ -93,6 +91,9 @@ impl ValueStack {
         }
 
         let encoded = self.encoded_stack[*sp];
+
+        *sp -= 1;
+
         Ok(ValueEncoder::decode(encoded))
     }
 
