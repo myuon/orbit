@@ -378,7 +378,7 @@ impl CodeGenerator {
 
         self.instructions.push(Instruction::Push(-1)); // placeholder for return value
         self.instructions.push(Instruction::Push(-1)); // placeholder for old BP
-        self.instructions.push(Instruction::PushAddress(0)); // placeholder for return address
+        self.instructions.push(Instruction::Push(-1)); // placeholder for return address - use -1 to signal exit
 
         // Set BP
         self.instructions.push(Instruction::Push(3));
@@ -387,7 +387,10 @@ impl CodeGenerator {
         // Call main
         self.instructions
             .push(Instruction::Call("main".to_string()));
-        self.emit_return_sequence();
+        
+        // After main returns, the return value is on stack top
+        // The program should exit with this value
+        self.instructions.push(Instruction::Ret);
 
         // 3. 各関数をコンパイル（ラベルと本体を一緒に）
         for func in &functions {
@@ -439,13 +442,23 @@ impl CodeGenerator {
 
     /// Emit return sequence for non-main functions  
     fn emit_return_sequence(&mut self) {
-        self.instructions.push(Instruction::SetLocal(
-            -(self.current_function_param_count as i32 + 3),
-        ));
-        self.instructions.push(Instruction::GetBP);
-        self.instructions.push(Instruction::SetSP);
-        self.instructions.push(Instruction::SetBP);
-        self.instructions.push(Instruction::Ret);
+        if self.current_function_name == "main" {
+            // For main function, push -1 as return address to signal exit
+            // Then push return value on top
+            self.instructions.push(Instruction::Push(-1)); // return address for exit
+            // Return value is already on stack, so Ret will use it as exit value
+            self.instructions.push(Instruction::Ret);
+        } else {
+            // Stack layout: [return_value_slot] [args...] [return_addr] [old_bp] <- BP
+            // Return value should be stored at BP - (param_count + 3)
+            self.instructions.push(Instruction::SetLocal(
+                -(self.current_function_param_count as i32 + 3),
+            ));
+            self.instructions.push(Instruction::GetBP);
+            self.instructions.push(Instruction::SetSP);
+            self.instructions.push(Instruction::SetBP);
+            self.instructions.push(Instruction::Ret);
+        }
     }
 
     /// Compile a statement to VM bytecode
@@ -1119,9 +1132,10 @@ mod tests {
         println!("Generated IR:");
         println!("{}", compiler.dump_ir());
 
-        let mut vm = VM::new();
+        let mut vm = VM::new_with_stack_printing(true);
         vm.load_program(instructions);
         let result = vm.execute().unwrap();
+        println!("Final result: {}", result);
         assert_eq!(result, 42);
     }
 

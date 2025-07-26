@@ -234,12 +234,12 @@ impl ARM64JITCompiler {
 
         // JIT context register assignments (matching Zig implementation):
         const REG_C_STACK: Register = Register::X0;
-        const REG_C_PC: Register = Register::X1;
+        // const REG_C_PC: Register = Register::X1;
         const REG_C_BP: Register = Register::X2;
         const REG_C_SP: Register = Register::X3;
-        const REG_C_HP: Register = Register::X4;
-        const REG_C_HEAP: Register = Register::X5;
-        const REG_C_GLOBALS: Register = Register::X6;
+        // const REG_C_HP: Register = Register::X4;
+        // const REG_C_HEAP: Register = Register::X5;
+        // const REG_C_GLOBALS: Register = Register::X6;
 
         // Working registers
         const REG_TEMP1: Register = Register::X9;
