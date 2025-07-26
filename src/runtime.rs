@@ -170,7 +170,7 @@ impl VM {
                 self.stack.len()
             ));
         }
-        
+
         let encoded = ValueEncoder::encode(&value);
         self.stack[self.sp] = encoded;
         self.sp += 1;
@@ -182,7 +182,7 @@ impl VM {
         if self.sp == 0 {
             return Err("Stack underflow: SP is 0".to_string());
         }
-        
+
         self.sp -= 1;
         let encoded = self.stack[self.sp];
         Ok(ValueEncoder::decode(encoded))
@@ -206,15 +206,15 @@ impl VM {
                 self.stack.len()
             ));
         }
-        
+
         let encoded = ValueEncoder::encode(&value);
         self.stack[index] = encoded;
-        
+
         // Update SP if we're setting beyond current SP
         if index >= self.sp {
             self.sp = index + 1;
         }
-        
+
         Ok(())
     }
 
@@ -312,7 +312,7 @@ impl VM {
                 // Pop a
                 self.sp -= 1;
                 let a = ValueEncoder::decode(self.stack[self.sp]);
-                
+
                 let result = match (a, b) {
                     (Value::Int(a), Value::Int(b)) => Value::Int(a + b),
                     (Value::Int(a), Value::Byte(b)) => Value::Int(a + b as i64),
@@ -320,7 +320,7 @@ impl VM {
                     (Value::Byte(a), Value::Byte(b)) => Value::Int(a as i64 + b as i64),
                     _ => return Err("Add operation requires numbers or bytes".to_string()),
                 };
-                
+
                 // Push result
                 let encoded = ValueEncoder::encode(&result);
                 self.stack[self.sp] = encoded;
@@ -337,7 +337,7 @@ impl VM {
                 // Pop a
                 self.sp -= 1;
                 let a = ValueEncoder::decode(self.stack[self.sp]);
-                
+
                 let result = match (a, b) {
                     (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
                     (Value::Int(a), Value::Byte(b)) => Value::Int(a - b as i64),
@@ -345,7 +345,7 @@ impl VM {
                     (Value::Byte(a), Value::Byte(b)) => Value::Int(a as i64 - b as i64),
                     _ => return Err("Subtract operation requires numbers or bytes".to_string()),
                 };
-                
+
                 // Push result
                 let encoded = ValueEncoder::encode(&result);
                 self.stack[self.sp] = encoded;
@@ -362,7 +362,7 @@ impl VM {
                 // Pop a
                 self.sp -= 1;
                 let a = ValueEncoder::decode(self.stack[self.sp]);
-                
+
                 let result = match (a, b) {
                     (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
                     (Value::Int(a), Value::Byte(b)) => Value::Int(a * b as i64),
@@ -370,7 +370,7 @@ impl VM {
                     (Value::Byte(a), Value::Byte(b)) => Value::Int(a as i64 * b as i64),
                     _ => return Err("Multiply operation requires numbers or bytes".to_string()),
                 };
-                
+
                 // Push result
                 let encoded = ValueEncoder::encode(&result);
                 self.stack[self.sp] = encoded;
@@ -437,9 +437,9 @@ impl VM {
                 self.sp -= 1;
                 let b = ValueEncoder::decode(self.stack[self.sp]);
                 // Pop a (first operand - container)
-                self.sp -= 1; 
+                self.sp -= 1;
                 let a = ValueEncoder::decode(self.stack[self.sp]);
-                
+
                 let result = match (&a, &b) {
                     (Value::Address(addr), Value::Int(offset)) => {
                         Value::Address(addr + *offset as usize)
@@ -459,7 +459,7 @@ impl VM {
                         ))
                     }
                 };
-                
+
                 // Push result
                 let encoded = ValueEncoder::encode(&result);
                 self.stack[self.sp] = encoded;
@@ -499,7 +499,7 @@ impl VM {
                 // Pop a
                 self.sp -= 1;
                 let a = ValueEncoder::decode(self.stack[self.sp]);
-                
+
                 // Push result
                 let encoded = ValueEncoder::encode(&Value::Boolean(a == b));
                 self.stack[self.sp] = encoded;
@@ -675,7 +675,8 @@ impl VM {
                 // Local variables are accessed relative to BP
                 // No bounds checking needed as stack is pre-allocated
                 // Parameter validation is done in caller
-                let value = self.get_stack_value(index)
+                let value = self
+                    .get_stack_value(index)
                     .ok_or_else(|| format!("Invalid stack index: {}", index))?;
                 self.push_value(value)?;
             }
@@ -880,7 +881,10 @@ impl VM {
 
                                 // Print debug visualization (heap and/or stack) if enabled
                                 let call_instruction = Instruction::Call(func_name.clone());
-                                self.print_debug_visualization(pc_before_execution, &call_instruction);
+                                self.print_debug_visualization(
+                                    pc_before_execution,
+                                    &call_instruction,
+                                );
 
                                 // JIT execution completed, return immediately
                                 return Ok(ControlFlow::Continue);
@@ -936,7 +940,13 @@ impl VM {
                 // If we should compile, do it now
                 if should_jit_compile {
                     // let function_instructions = self.extract_function_instructions(new_pc);
-                    let function_instructions = vec![Instruction::Push(15), Instruction::Ret];
+                    let function_instructions = vec![
+                        Instruction::Push(1),
+                        Instruction::Push(2),
+                        Instruction::Push(3),
+                        Instruction::Push(4),
+                        Instruction::Ret,
+                    ];
                     let count = *self.function_call_counts.get(&new_pc).unwrap(); // We know this exists
 
                     if let Some(ref mut jit_compiler) = self.jit_compiler {
@@ -947,8 +957,8 @@ impl VM {
                         ) {
                             Ok(()) => {
                                 eprintln!(
-                                    "JIT: Compiling function at address {} (after {} calls)\n{:?}",
-                                    new_pc, count, function_instructions
+                                    "JIT: Compiling function at address {} (after {} calls)",
+                                    new_pc, count
                                 );
 
                                 jit_compilation_successful = true;
@@ -1384,12 +1394,12 @@ impl VM {
         if let Some(elapsed) = timer.finish() {
             // Need to clone the instruction again since it was moved by the match
             let instruction_for_profiling = self.program[pc_before_execution].clone();
-            
+
             // Special handling for Call instructions first
             if let Instruction::Call(ref func_name) = instruction_for_profiling {
                 self.profiler.record_function_call(func_name.clone());
             }
-            
+
             let instruction_name = format!("{:?}", instruction_for_profiling)
                 .split('(')
                 .next()
@@ -1481,7 +1491,9 @@ impl VM {
 
     /// Get a snapshot of the stack values for debugging
     pub fn get_stack(&self) -> Vec<Value> {
-        (0..self.sp).map(|i| self.get_stack_value(i).unwrap()).collect()
+        (0..self.sp)
+            .map(|i| self.get_stack_value(i).unwrap())
+            .collect()
     }
 
     /// Extract function instructions starting from the given address until Ret
@@ -1755,20 +1767,20 @@ mod tests {
         // Test GetHP/SetHP: allocate 3 values on heap
         vm.load_program(vec![
             // Simple allocation: get current HP, then advance it
-            Instruction::GetHP,       // [current_hp]
-            Instruction::Push(3),     // [current_hp, 3]
-            Instruction::AddressAdd,  // [new_hp]
-            Instruction::SetHP,       // [] (HP = new_hp, heap extended)
+            Instruction::GetHP,      // [current_hp]
+            Instruction::Push(3),    // [current_hp, 3]
+            Instruction::AddressAdd, // [new_hp]
+            Instruction::SetHP,      // [] (HP = new_hp, heap extended)
         ]);
 
         // Execute GetHP
         vm.step().unwrap();
         println!("After GetHP: {:?}", vm.get_stack());
-        
+
         // Execute Push(3)
         vm.step().unwrap();
         println!("After Push(3): {:?}", vm.get_stack());
-        
+
         // Execute the rest
         while vm.pc < vm.program.len() {
             vm.step().unwrap();
@@ -1787,17 +1799,17 @@ mod tests {
         // Test Load/Store with allocated memory - use simple approach
         vm.load_program(vec![
             // Allocate heap space by advancing HP
-            Instruction::GetHP,       // [current_hp = 0]
-            Instruction::Push(2),     // [current_hp, 2]
-            Instruction::AddressAdd,  // [new_hp = 2]
-            Instruction::SetHP,       // [] (HP = 2, heap extended)
+            Instruction::GetHP,      // [current_hp = 0]
+            Instruction::Push(2),    // [current_hp, 2]
+            Instruction::AddressAdd, // [new_hp = 2]
+            Instruction::SetHP,      // [] (HP = 2, heap extended)
             // Set value at address 0: Store 42 at heap[0]
-            Instruction::Push(42),    // [42]
+            Instruction::Push(42),       // [42]
             Instruction::PushAddress(0), // [42, addr(0)]
-            Instruction::Store,       // [] (store 42 at heap[0])
+            Instruction::Store,          // [] (store 42 at heap[0])
             // Get value from address 0: Load from heap[0]
             Instruction::PushAddress(0), // [addr(0)]
-            Instruction::Load, // [42] (load from heap[0])
+            Instruction::Load,           // [42] (load from heap[0])
         ]);
 
         // Execute step by step
@@ -1824,17 +1836,17 @@ mod tests {
         // Test Load/Store with allocated memory using GetHP/SetHP
         vm.load_program(vec![
             // Allocate heap space by advancing HP (same pattern as test_heap_memory_allocation)
-            Instruction::GetHP,       // [current_hp = 0]
-            Instruction::Push(3),     // [current_hp, 3]
-            Instruction::AddressAdd,  // [new_hp = 3]
-            Instruction::SetHP,       // [] (HP = 3, heap extended)
+            Instruction::GetHP,      // [current_hp = 0]
+            Instruction::Push(3),    // [current_hp, 3]
+            Instruction::AddressAdd, // [new_hp = 3]
+            Instruction::SetHP,      // [] (HP = 3, heap extended)
             // Store value 42 at heap_start_addr
-            Instruction::Push(42),    // [42]
+            Instruction::Push(42),       // [42]
             Instruction::PushAddress(0), // [42, heap_start_addr]
-            Instruction::Store,       // [] (store 42 at heap_start_addr)
+            Instruction::Store,          // [] (store 42 at heap_start_addr)
             // Load value from heap_start_addr
             Instruction::PushAddress(0), // [heap_start_addr]
-            Instruction::Load, // [42]
+            Instruction::Load,           // [42]
         ]);
 
         // Execute step by step
@@ -1844,7 +1856,11 @@ mod tests {
 
         // Check final result
         assert_eq!(vm.sp, 1); // loaded value only
-        match if vm.sp > 0 { Some(ValueEncoder::decode(vm.stack[vm.sp - 1])) } else { None } {
+        match if vm.sp > 0 {
+            Some(ValueEncoder::decode(vm.stack[vm.sp - 1]))
+        } else {
+            None
+        } {
             Some(value) => {
                 println!("Actual value on stack top: {:?}", value);
                 if let Value::Int(n) = value {
@@ -1853,7 +1869,7 @@ mod tests {
                     panic!("Expected Int(42), got {:?}", value);
                 }
             }
-            None => panic!("Stack is empty, expected Int(42)")
+            None => panic!("Stack is empty, expected Int(42)"),
         }
     }
 
@@ -1864,21 +1880,21 @@ mod tests {
         // Test AddressAdd + Load/Store (replacement for HeapGetOffset/HeapSetOffset)
         vm.load_program(vec![
             // Allocate heap space by advancing HP (same pattern as test_heap_memory_allocation)
-            Instruction::GetHP,       // [current_hp = 0]
-            Instruction::Push(3),     // [current_hp, 3]
-            Instruction::AddressAdd,  // [new_hp = 3]
-            Instruction::SetHP,       // [] (HP = 3, heap extended)
+            Instruction::GetHP,      // [current_hp = 0]
+            Instruction::Push(3),    // [current_hp, 3]
+            Instruction::AddressAdd, // [new_hp = 3]
+            Instruction::SetHP,      // [] (HP = 3, heap extended)
             // Set value at offset 1: Store 100 at heap_start_addr + 1
-            Instruction::Push(100),   // [100]
+            Instruction::Push(100),      // [100]
             Instruction::PushAddress(0), // [100, heap_start_addr]
-            Instruction::Push(1),     // [100, heap_start_addr, 1]
-            Instruction::AddressAdd,  // [100, target_addr]
-            Instruction::Store,       // [] (store 100 at target_addr)
+            Instruction::Push(1),        // [100, heap_start_addr, 1]
+            Instruction::AddressAdd,     // [100, target_addr]
+            Instruction::Store,          // [] (store 100 at target_addr)
             // Get value from offset 1: Load from heap_start_addr + 1
             Instruction::PushAddress(0), // [heap_start_addr]
-            Instruction::Push(1),    // [heap_start_addr, 1]
-            Instruction::AddressAdd, // [target_addr]
-            Instruction::Load,       // [100]
+            Instruction::Push(1),        // [heap_start_addr, 1]
+            Instruction::AddressAdd,     // [target_addr]
+            Instruction::Load,           // [100]
         ]);
 
         // Execute step by step
