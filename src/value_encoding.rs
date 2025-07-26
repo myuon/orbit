@@ -3,22 +3,22 @@ use crate::runtime::{HeapIndex, Value};
 /// Value encoding for JIT compilation
 /// 
 /// Encoding scheme using 64-bit integers:
-/// - LSB (bit 0): 0 = numeric value, 1 = pointer
-/// - For numeric values (LSB = 0): remaining 63 bits store the value
-///   - Int, Boolean, Byte are all stored as i63 values
-/// - For pointer values (LSB = 1):
-///   - Bit 1: 0 = Address, 1 = HeapRef
+/// - MSB (bit 63): 0 = numeric value, 1 = pointer
+/// - For numeric values (MSB = 0): remaining 63 bits store the value
+///   - Int, Boolean, Byte are all stored as i63 values (sign-extended)
+/// - For pointer values (MSB = 1):
+///   - Bit 62: 0 = Address, 1 = HeapRef
 ///   - Remaining 62 bits store the address/index
 /// 
 /// Examples:
-/// - Int(42) -> 0x0000000000000054 (42 << 1 | 0)
-/// - Boolean(true) -> 0x0000000000000002 (1 << 1 | 0)
-/// - Byte(255) -> 0x00000000000001FE (255 << 1 | 0)
-/// - Address(0x1000) -> 0x0000000000002001 (0x1000 << 2 | 0 << 1 | 1)
-/// - HeapRef(5) -> 0x0000000000000017 (5 << 2 | 1 << 1 | 1)
+/// - Int(42) -> 0x000000000000002A (42)
+/// - Boolean(true) -> 0x0000000000000001 (1)
+/// - Byte(255) -> 0x00000000000000FF (255)
+/// - Address(0x1000) -> 0x8000000000001000 (MSB=1, bit 62=0, value=0x1000)
+/// - HeapRef(5) -> 0xC000000000000005 (MSB=1, bit 62=1, value=5)
 
-const POINTER_BIT: u64 = 1;
-const HEAP_REF_BIT: u64 = 2;
+const POINTER_BIT: u64 = 1u64 << 63;  // MSB (bit 63)
+const HEAP_REF_BIT: u64 = 1u64 << 62;  // Bit 62
 
 pub struct ValueEncoder;
 
@@ -27,25 +27,25 @@ impl ValueEncoder {
     pub fn encode(value: &Value) -> u64 {
         match value {
             Value::Int(n) => {
-                // Store as i63: shift left by 1, LSB = 0
-                // Use wrapping operations to handle negative numbers correctly
-                ((*n as u64).wrapping_shl(1)) & !POINTER_BIT
+                // Store as i63: MSB = 0 (numeric), remaining 63 bits store the value
+                // Mask out the MSB to ensure it's 0 for numeric values
+                (*n as u64) & !(POINTER_BIT)
             }
             Value::Boolean(b) => {
-                // Store as i63: shift left by 1, LSB = 0
-                ((*b as u64) << 1) & !POINTER_BIT
+                // Store as i63: MSB = 0 (numeric), value in lower bits
+                (*b as u64) & !(POINTER_BIT)
             }
             Value::Byte(b) => {
-                // Store as i63: shift left by 1, LSB = 0
-                ((*b as u64) << 1) & !POINTER_BIT
+                // Store as i63: MSB = 0 (numeric), value in lower bits
+                (*b as u64) & !(POINTER_BIT)
             }
             Value::Address(addr) => {
-                // LSB = 1 (pointer), bit 1 = 0 (address), remaining bits = address
-                (*addr as u64) << 2 | POINTER_BIT
+                // MSB = 1 (pointer), bit 62 = 0 (address), remaining bits = address
+                POINTER_BIT | ((*addr as u64) & !(POINTER_BIT | HEAP_REF_BIT))
             }
             Value::HeapRef(HeapIndex(index)) => {
-                // LSB = 1 (pointer), bit 1 = 1 (heap ref), remaining bits = index
-                (*index as u64) << 2 | HEAP_REF_BIT | POINTER_BIT
+                // MSB = 1 (pointer), bit 62 = 1 (heap ref), remaining bits = index
+                POINTER_BIT | HEAP_REF_BIT | ((*index as u64) & !(POINTER_BIT | HEAP_REF_BIT))
             }
         }
     }
@@ -53,21 +53,27 @@ impl ValueEncoder {
     /// Decode a u64 back into a Value
     pub fn decode(encoded: u64) -> Value {
         if (encoded & POINTER_BIT) == 0 {
-            // Numeric value: shift right by 1 to get original value
-            // Use arithmetic right shift to preserve sign
-            let numeric_value = (encoded as i64) >> 1;
+            // Numeric value: MSB = 0, extract value from lower 63 bits
+            // Sign-extend from bit 62 to handle negative numbers correctly
+            let numeric_value = if (encoded & (1u64 << 62)) != 0 {
+                // Negative number: sign-extend
+                (encoded as i64) | (POINTER_BIT as i64)
+            } else {
+                // Positive number
+                encoded as i64
+            };
             // We can't distinguish between Int, Boolean, and Byte from encoding
             // Default to Int for now (this is the accepted limitation)
             Value::Int(numeric_value)
         } else {
-            // Pointer value: check bit 1 to distinguish Address vs HeapRef
+            // Pointer value: check bit 62 to distinguish Address vs HeapRef
             if (encoded & HEAP_REF_BIT) == 0 {
-                // Address: extract from bits 2 and up
-                let addr = (encoded >> 2) as usize;
+                // Address: extract from lower 62 bits
+                let addr = (encoded & !(POINTER_BIT | HEAP_REF_BIT)) as usize;
                 Value::Address(addr)
             } else {
-                // HeapRef: extract from bits 2 and up
-                let index = (encoded >> 2) as usize;
+                // HeapRef: extract from lower 62 bits
+                let index = (encoded & !(POINTER_BIT | HEAP_REF_BIT)) as usize;
                 Value::HeapRef(HeapIndex(index))
             }
         }
@@ -90,42 +96,49 @@ impl ValueEncoder {
 
     /// Get the numeric value from an encoded u64 (assumes it's numeric)
     pub fn get_numeric_value(encoded: u64) -> i64 {
-        (encoded as i64) >> 1
+        // Sign-extend from bit 62 to handle negative numbers correctly
+        if (encoded & (1u64 << 62)) != 0 {
+            // Negative number: sign-extend
+            (encoded as i64) | (POINTER_BIT as i64)
+        } else {
+            // Positive number
+            encoded as i64
+        }
     }
 
     /// Get the address from an encoded u64 (assumes it's an address)
     pub fn get_address(encoded: u64) -> usize {
-        (encoded >> 2) as usize
+        (encoded & !(POINTER_BIT | HEAP_REF_BIT)) as usize
     }
 
     /// Get the heap index from an encoded u64 (assumes it's a heap ref)
     pub fn get_heap_index(encoded: u64) -> usize {
-        (encoded >> 2) as usize
+        (encoded & !(POINTER_BIT | HEAP_REF_BIT)) as usize
     }
 
     /// Create an encoded integer value
     pub fn encode_int(value: i64) -> u64 {
-        (value as u64).wrapping_shl(1)
+        (value as u64) & !(POINTER_BIT)
     }
 
     /// Create an encoded boolean value
     pub fn encode_bool(value: bool) -> u64 {
-        (value as u64) << 1
+        (value as u64) & !(POINTER_BIT)
     }
 
     /// Create an encoded byte value
     pub fn encode_byte(value: u8) -> u64 {
-        (value as u64) << 1
+        (value as u64) & !(POINTER_BIT)
     }
 
     /// Create an encoded address value
     pub fn encode_address(addr: usize) -> u64 {
-        (addr as u64) << 2 | POINTER_BIT
+        POINTER_BIT | ((addr as u64) & !(POINTER_BIT | HEAP_REF_BIT))
     }
 
     /// Create an encoded heap reference value
     pub fn encode_heap_ref(index: usize) -> u64 {
-        (index as u64) << 2 | HEAP_REF_BIT | POINTER_BIT
+        POINTER_BIT | HEAP_REF_BIT | ((index as u64) & !(POINTER_BIT | HEAP_REF_BIT))
     }
 }
 
@@ -229,12 +242,12 @@ mod tests {
         assert_eq!(int_encoded, 0x0000000000000000);
         
         let bool_true_encoded = ValueEncoder::encode_bool(true);
-        assert_eq!(bool_true_encoded, 0x0000000000000002);
+        assert_eq!(bool_true_encoded, 0x0000000000000001);
         
         let addr_encoded = ValueEncoder::encode_address(1);
-        assert_eq!(addr_encoded, 0x0000000000000005); // 1 << 2 | 1
+        assert_eq!(addr_encoded, 0x8000000000000001); // MSB=1, bit 62=0, value=1
         
         let heap_encoded = ValueEncoder::encode_heap_ref(1);
-        assert_eq!(heap_encoded, 0x0000000000000007); // 1 << 2 | 2 | 1
+        assert_eq!(heap_encoded, 0xC000000000000001); // MSB=1, bit 62=1, value=1
     }
 }
