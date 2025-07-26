@@ -68,10 +68,8 @@ impl ValueStack {
         self.encoded_stack[*sp] = encoded;
         *sp += 1;
 
-        // Update length to track the highest used position
-        if *sp > self.len {
-            self.len = *sp;
-        }
+        // Keep internal length in sync with sp
+        self.len = *sp;
 
         Ok(())
     }
@@ -82,17 +80,19 @@ impl ValueStack {
             return Err("Stack underflow: SP is 0".to_string());
         }
 
-        if *sp >= self.encoded_stack.len() {
+        if *sp > self.encoded_stack.len() {
             return Err(format!(
-                "Stack access out of bounds: SP {} >= capacity {}",
+                "Stack access out of bounds: SP {} > capacity {}",
                 *sp,
                 self.encoded_stack.len()
             ));
         }
 
+        *sp -= 1;
         let encoded = self.encoded_stack[*sp];
 
-        *sp -= 1;
+        // Keep internal length in sync with sp
+        self.len = *sp;
 
         Ok(ValueEncoder::decode(encoded))
     }

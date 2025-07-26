@@ -2,7 +2,7 @@ use crate::codegen::CodeGenerator;
 use crate::jit::ARM64JITCompiler;
 use crate::label_resolution::LabelResolver;
 use crate::profiler::InstructionTimer;
-use crate::value_encoding::ValueEncoder;
+use crate::value_stack::ValueStack;
 use crate::vm::Instruction;
 use crate::{ast::Program, profiler::Profiler};
 use anyhow::{bail, Result};
@@ -41,7 +41,7 @@ pub enum ControlFlow {
 
 #[derive(Debug)]
 pub struct VM {
-    stack: Box<[u64]>, // JIT-compatible encoded stack with direct u64 storage
+    stack: ValueStack, // JIT-compatible encoded stack with Value API
     pc: usize,         // program counter
     bp: usize,         // base pointer for stack frame
     sp: usize,         // stack pointer
@@ -83,7 +83,7 @@ impl VM {
 
     pub fn with_options(print_stacks: bool, print_heaps: bool, enable_profiling: bool) -> Self {
         Self {
-            stack: vec![0u64; 1024].into_boxed_slice(),
+            stack: ValueStack::with_fixed_capacity(1024),
             pc: 0,
             bp: 0,
             sp: 0,
@@ -111,7 +111,7 @@ impl VM {
         enable_profiling: bool,
     ) -> Self {
         Self {
-            stack: vec![0u64; 1024].into_boxed_slice(),
+            stack: ValueStack::with_fixed_capacity(1024),
             pc: 0,
             bp: 0,
             sp: 0,
@@ -153,79 +153,12 @@ impl VM {
 
     /// Get the raw encoded stack for JIT operations
     pub fn get_encoded_stack(&self) -> &[u64] {
-        &self.stack[..self.sp]
+        self.stack.as_encoded_slice()
     }
 
     /// Get mutable access to the raw encoded stack for JIT operations
     pub fn get_encoded_stack_mut(&mut self) -> &mut [u64] {
-        &mut self.stack[..self.sp]
-    }
-
-    /// Push a value onto the stack (encodes automatically)
-    fn push_value(&mut self, value: Value) -> Result<(), String> {
-        if self.sp >= self.stack.len() {
-            return Err(format!(
-                "Stack overflow: SP {} exceeds capacity {}",
-                self.sp,
-                self.stack.len()
-            ));
-        }
-        
-        let encoded = ValueEncoder::encode(&value);
-        self.stack[self.sp] = encoded;
-        self.sp += 1;
-        Ok(())
-    }
-
-    /// Pop a value from the stack (decodes automatically)
-    fn pop_value(&mut self) -> Result<Value, String> {
-        if self.sp == 0 {
-            return Err("Stack underflow: SP is 0".to_string());
-        }
-        
-        self.sp -= 1;
-        let encoded = self.stack[self.sp];
-        Ok(ValueEncoder::decode(encoded))
-    }
-
-    /// Get a value at specific stack index (0-based from bottom)
-    fn get_stack_value(&self, index: usize) -> Option<Value> {
-        if index < self.sp {
-            Some(ValueEncoder::decode(self.stack[index]))
-        } else {
-            None
-        }
-    }
-
-    /// Set a value at specific stack index (0-based from bottom)
-    fn set_stack_value(&mut self, index: usize, value: Value) -> Result<(), String> {
-        if index >= self.stack.len() {
-            return Err(format!(
-                "Index {} out of bounds for stack capacity {}",
-                index,
-                self.stack.len()
-            ));
-        }
-        
-        let encoded = ValueEncoder::encode(&value);
-        self.stack[index] = encoded;
-        
-        // Update SP if we're setting beyond current SP
-        if index >= self.sp {
-            self.sp = index + 1;
-        }
-        
-        Ok(())
-    }
-
-    /// Check if stack is empty
-    fn is_stack_empty(&self) -> bool {
-        self.sp == 0
-    }
-
-    /// Clear the stack
-    fn clear_stack(&mut self) {
-        self.sp = 0;
+        self.stack.as_encoded_slice_mut()
     }
 
     /// Enable output capture for testing
@@ -251,7 +184,7 @@ impl VM {
             }
 
             Instruction::Push(value) => {
-                self.push_value(Value::Int(*value))?;
+                self.stack.push_at_sp(Value::Int(*value), &mut self.sp)?;
             }
 
             Instruction::PushString(s) => {
@@ -264,7 +197,8 @@ impl VM {
                 // Add null terminator
                 self.heap.push(Value::Byte(0));
                 // Push address pointing to first byte
-                self.push_value(Value::Address(start_index))?;
+                self.stack
+                    .push_at_sp(Value::Address(start_index), &mut self.sp)?;
                 // Update HP to keep it in sync with heap length
                 self.hp = self.heap.len();
             }
@@ -273,35 +207,39 @@ impl VM {
                 if *index >= self.heap.len() {
                     return Err(format!("Invalid heap index: {}", index));
                 }
-                self.push_value(Value::HeapRef(HeapIndex(*index)))?;
+                self.stack
+                    .push_at_sp(Value::HeapRef(HeapIndex(*index)), &mut self.sp)?;
             }
 
             Instruction::PushAddress(addr) => {
-                self.push_value(Value::Address(*addr))?;
+                self.stack.push_at_sp(Value::Address(*addr), &mut self.sp)?;
             }
 
             Instruction::Pop => {
-                self.pop_value()?;
+                self.stack.pop_at_sp(&mut self.sp)?;
             }
 
             Instruction::Add => {
                 if self.sp < 2 {
                     return Err("Stack underflow for Add".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
+                let b = self.stack.pop_at_sp(&mut self.sp)?;
+                let a = self.stack.pop_at_sp(&mut self.sp)?;
                 match (a, b) {
                     (Value::Int(a), Value::Int(b)) => {
-                        self.push_value(Value::Int(a + b))?;
+                        self.stack.push_at_sp(Value::Int(a + b), &mut self.sp)?;
                     }
                     (Value::Int(a), Value::Byte(b)) => {
-                        self.push_value(Value::Int(a + b as i64))?;
+                        self.stack
+                            .push_at_sp(Value::Int(a + b as i64), &mut self.sp)?;
                     }
                     (Value::Byte(a), Value::Int(b)) => {
-                        self.push_value(Value::Int(a as i64 + b))?;
+                        self.stack
+                            .push_at_sp(Value::Int(a as i64 + b), &mut self.sp)?;
                     }
                     (Value::Byte(a), Value::Byte(b)) => {
-                        self.push_value(Value::Int(a as i64 + b as i64))?;
+                        self.stack
+                            .push_at_sp(Value::Int(a as i64 + b as i64), &mut self.sp)?;
                     }
                     _ => return Err("Add operation requires numbers or bytes".to_string()),
                 }
@@ -311,20 +249,23 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for Sub".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
+                let b = self.stack.pop_at_sp(&mut self.sp)?;
+                let a = self.stack.pop_at_sp(&mut self.sp)?;
                 match (a, b) {
                     (Value::Int(a), Value::Int(b)) => {
-                        self.push_value(Value::Int(a - b))?;
+                        self.stack.push_at_sp(Value::Int(a - b), &mut self.sp)?;
                     }
                     (Value::Int(a), Value::Byte(b)) => {
-                        self.push_value(Value::Int(a - b as i64))?;
+                        self.stack
+                            .push_at_sp(Value::Int(a - b as i64), &mut self.sp)?;
                     }
                     (Value::Byte(a), Value::Int(b)) => {
-                        self.push_value(Value::Int(a as i64 - b))?;
+                        self.stack
+                            .push_at_sp(Value::Int(a as i64 - b), &mut self.sp)?;
                     }
                     (Value::Byte(a), Value::Byte(b)) => {
-                        self.push_value(Value::Int(a as i64 - b as i64))?;
+                        self.stack
+                            .push_at_sp(Value::Int(a as i64 - b as i64), &mut self.sp)?;
                     }
                     _ => return Err("Subtract operation requires numbers or bytes".to_string()),
                 }
@@ -334,20 +275,23 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for Mul".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
+                let b = self.stack.pop_at_sp(&mut self.sp)?;
+                let a = self.stack.pop_at_sp(&mut self.sp)?;
                 match (a, b) {
                     (Value::Int(a), Value::Int(b)) => {
-                        self.push_value(Value::Int(a * b))?;
+                        self.stack.push_at_sp(Value::Int(a * b), &mut self.sp)?;
                     }
                     (Value::Int(a), Value::Byte(b)) => {
-                        self.push_value(Value::Int(a * b as i64))?;
+                        self.stack
+                            .push_at_sp(Value::Int(a * b as i64), &mut self.sp)?;
                     }
                     (Value::Byte(a), Value::Int(b)) => {
-                        self.push_value(Value::Int(a as i64 * b))?;
+                        self.stack
+                            .push_at_sp(Value::Int(a as i64 * b), &mut self.sp)?;
                     }
                     (Value::Byte(a), Value::Byte(b)) => {
-                        self.push_value(Value::Int(a as i64 * b as i64))?;
+                        self.stack
+                            .push_at_sp(Value::Int(a as i64 * b as i64), &mut self.sp)?;
                     }
                     _ => return Err("Multiply operation requires numbers or bytes".to_string()),
                 }
@@ -357,32 +301,35 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for Div".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
+                let b = self.stack.pop_at_sp(&mut self.sp)?;
+                let a = self.stack.pop_at_sp(&mut self.sp)?;
                 match (a, b) {
                     (Value::Int(a), Value::Int(b)) => {
                         if b == 0 {
                             return Err("Division by zero".to_string());
                         }
-                        self.push_value(Value::Int(a / b))?;
+                        self.stack.push_at_sp(Value::Int(a / b), &mut self.sp)?;
                     }
                     (Value::Int(a), Value::Byte(b)) => {
                         if b == 0 {
                             return Err("Division by zero".to_string());
                         }
-                        self.push_value(Value::Int(a / b as i64))?;
+                        self.stack
+                            .push_at_sp(Value::Int(a / b as i64), &mut self.sp)?;
                     }
                     (Value::Byte(a), Value::Int(b)) => {
                         if b == 0 {
                             return Err("Division by zero".to_string());
                         }
-                        self.push_value(Value::Int(a as i64 / b))?;
+                        self.stack
+                            .push_at_sp(Value::Int(a as i64 / b), &mut self.sp)?;
                     }
                     (Value::Byte(a), Value::Byte(b)) => {
                         if b == 0 {
                             return Err("Division by zero".to_string());
                         }
-                        self.push_value(Value::Int(a as i64 / b as i64))?;
+                        self.stack
+                            .push_at_sp(Value::Int(a as i64 / b as i64), &mut self.sp)?;
                     }
                     _ => return Err("Divide operation requires numbers or bytes".to_string()),
                 }
@@ -392,14 +339,14 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for Mod".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
+                let b = self.stack.pop_at_sp(&mut self.sp)?;
+                let a = self.stack.pop_at_sp(&mut self.sp)?;
                 match (a, b) {
                     (Value::Int(a), Value::Int(b)) => {
                         if b == 0 {
                             return Err("Modulo by zero".to_string());
                         }
-                        self.push_value(Value::Int(a % b))?;
+                        self.stack.push_at_sp(Value::Int(a % b), &mut self.sp)?;
                     }
                     _ => return Err("Modulo operation requires numbers".to_string()),
                 }
@@ -409,19 +356,22 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for AddressAdd".to_string());
                 }
-                let b = self.pop_value()?; // second operand (index)
-                let a = self.pop_value()?; // first operand (container)
+                let b = self.stack.pop_at_sp(&mut self.sp)?; // second operand (index)
+                let a = self.stack.pop_at_sp(&mut self.sp)?; // first operand (container)
                 match (&a, &b) {
                     (Value::Address(addr), Value::Int(offset)) => {
-                        self.push_value(Value::Address(addr + *offset as usize))?;
+                        self.stack
+                            .push_at_sp(Value::Address(addr + *offset as usize), &mut self.sp)?;
                     }
                     (Value::HeapRef(heap_ref), Value::Int(offset)) => {
                         // HeapRef + offset = new HeapRef with adjusted index
-                        self.push_value(Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize)))?;
+                        self.stack
+                            .push_at_sp(Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize)), &mut self.sp)?;
                     }
                     (Value::Int(offset), Value::HeapRef(heap_ref)) => {
                         // Handle reversed order: Int + HeapRef -> HeapRef
-                        self.push_value(Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize)))?;
+                        self.stack
+                            .push_at_sp(Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize)), &mut self.sp)?;
                     }
                     _ => {
                         return Err(format!(
@@ -436,15 +386,17 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for AddressSub".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
+                let b = self.stack.pop_at_sp(&mut self.sp)?;
+                let a = self.stack.pop_at_sp(&mut self.sp)?;
                 match (&a, &b) {
                     (Value::Address(addr), Value::Int(offset)) => {
-                        self.push_value(Value::Address(addr - *offset as usize))?;
+                        self.stack
+                            .push_at_sp(Value::Address(addr - *offset as usize), &mut self.sp)?;
                     }
                     (Value::HeapRef(heap_ref), Value::Int(offset)) => {
                         // HeapRef - offset = new HeapRef with adjusted index
-                        self.push_value(Value::HeapRef(HeapIndex(heap_ref.0 - *offset as usize)))?;
+                        self.stack
+                            .push_at_sp(Value::HeapRef(HeapIndex(heap_ref.0 - *offset as usize)), &mut self.sp)?;
                     }
                     _ => {
                         return Err(format!(
@@ -459,29 +411,32 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for Eq".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
-                self.push_value(Value::Boolean(a == b))?;
+                let b = self.stack.pop_at_sp(&mut self.sp)?;
+                let a = self.stack.pop_at_sp(&mut self.sp)?;
+                self.stack
+                    .push_at_sp(Value::Boolean(a == b), &mut self.sp)?;
             }
 
             Instruction::Lt => {
                 if self.sp < 2 {
                     return Err("Stack underflow for Lt".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
+                let b = self.stack.pop_at_sp(&mut self.sp)?;
+                let a = self.stack.pop_at_sp(&mut self.sp)?;
                 match (a, b) {
                     (Value::Int(a), Value::Int(b)) => {
-                        self.push_value(Value::Boolean(a < b))?;
+                        self.stack.push_at_sp(Value::Boolean(a < b), &mut self.sp)?;
                     }
                     (Value::Int(a), Value::Byte(b)) => {
-                        self.push_value(Value::Boolean(a < b as i64))?;
+                        self.stack
+                            .push_at_sp(Value::Boolean(a < b as i64), &mut self.sp)?;
                     }
                     (Value::Byte(a), Value::Int(b)) => {
-                        self.push_value(Value::Boolean((a as i64) < b))?;
+                        self.stack
+                            .push_at_sp(Value::Boolean((a as i64) < b), &mut self.sp)?;
                     }
                     (Value::Byte(a), Value::Byte(b)) => {
-                        self.push_value(Value::Boolean(a < b))?;
+                        self.stack.push_at_sp(Value::Boolean(a < b), &mut self.sp)?;
                     }
                     _ => return Err("Less than operation requires numbers or bytes".to_string()),
                 }
@@ -491,11 +446,12 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for Lte".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
+                let b = self.stack.pop_at_sp(&mut self.sp)?;
+                let a = self.stack.pop_at_sp(&mut self.sp)?;
                 match (a, b) {
                     (Value::Int(a), Value::Int(b)) => {
-                        self.push_value(Value::Boolean(a <= b))?;
+                        self.stack
+                            .push_at_sp(Value::Boolean(a <= b), &mut self.sp)?;
                     }
                     _ => return Err("Less than or equal operation requires numbers".to_string()),
                 }
@@ -505,11 +461,11 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for Gt".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
+                let b = self.stack.pop_at_sp(&mut self.sp)?;
+                let a = self.stack.pop_at_sp(&mut self.sp)?;
                 match (a, b) {
                     (Value::Int(a), Value::Int(b)) => {
-                        self.push_value(Value::Boolean(a > b))?;
+                        self.stack.push_at_sp(Value::Boolean(a > b), &mut self.sp)?;
                     }
                     _ => return Err("Greater than operation requires numbers".to_string()),
                 }
@@ -519,30 +475,33 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for Gte".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
+                let b = self.stack.pop_at_sp(&mut self.sp)?;
+                let a = self.stack.pop_at_sp(&mut self.sp)?;
                 match (a, b) {
                     (Value::Int(a), Value::Int(b)) => {
-                        self.push_value(Value::Boolean(a >= b))?;
+                        self.stack
+                            .push_at_sp(Value::Boolean(a >= b), &mut self.sp)?;
                     }
                     _ => return Err("Greater than or equal operation requires numbers".to_string()),
                 }
             }
 
             Instruction::Not => {
-                if self.is_stack_empty() {
+                if self.stack.is_empty() {
                     return Err("Stack underflow for Not".to_string());
                 }
-                let value = self.pop_value()?;
+                let value = self.stack.pop_at_sp(&mut self.sp)?;
                 match value {
                     Value::Boolean(b) => {
-                        self.push_value(Value::Boolean(!b))?;
+                        self.stack.push_at_sp(Value::Boolean(!b), &mut self.sp)?;
                     }
                     Value::Int(n) => {
-                        self.push_value(Value::Boolean(n == 0))?;
+                        self.stack
+                            .push_at_sp(Value::Boolean(n == 0), &mut self.sp)?;
                     }
                     Value::Byte(b) => {
-                        self.push_value(Value::Boolean(b == 0))?;
+                        self.stack
+                            .push_at_sp(Value::Boolean(b == 0), &mut self.sp)?;
                     }
                     _ => return Err("Not operation requires boolean, number, or byte".to_string()),
                 }
@@ -558,10 +517,10 @@ impl VM {
             }
 
             Instruction::JumpIfZero(addr) => {
-                if self.is_stack_empty() {
+                if self.stack.is_empty() {
                     return Err("Stack underflow for JumpIfZero".to_string());
                 }
-                let value = self.pop_value()?;
+                let value = self.stack.pop_at_sp(&mut self.sp)?;
                 let should_jump = match value {
                     Value::Int(n) => n == 0,
                     Value::Boolean(b) => !b,
@@ -591,10 +550,10 @@ impl VM {
             }
 
             Instruction::JumpIfZeroRel(offset) => {
-                if self.is_stack_empty() {
+                if self.stack.is_empty() {
                     return Err("Stack underflow for JumpIfZeroRel".to_string());
                 }
-                let value = self.pop_value()?;
+                let value = self.stack.pop_at_sp(&mut self.sp)?;
                 let should_jump = match value {
                     Value::Int(n) => n == 0,
                     Value::Boolean(b) => !b,
@@ -633,16 +592,18 @@ impl VM {
                 // Local variables are accessed relative to BP
                 // No bounds checking needed as stack is pre-allocated
                 // Parameter validation is done in caller
-                let value = self.get_stack_value(index)
+                let value = self
+                    .stack
+                    .get(index)
                     .ok_or_else(|| format!("Invalid stack index: {}", index))?;
-                self.push_value(value)?;
+                self.stack.push_at_sp(value, &mut self.sp)?;
             }
 
             Instruction::SetLocal(offset) => {
-                if self.is_stack_empty() {
+                if self.stack.is_empty() {
                     return Err("Stack underflow for SetLocal".to_string());
                 }
-                let value = self.pop_value()?;
+                let value = self.stack.pop_at_sp(&mut self.sp)?;
 
                 let index = if *offset < 0 {
                     // Negative offset: access parameters (before BP)
@@ -663,21 +624,22 @@ impl VM {
                 // Ensure stack has enough space - no dynamic resizing needed
                 // Stack is pre-allocated with fixed capacity
 
-                self.set_stack_value(index, value)?;
+                self.stack.set(index, value).map_err(|e| e)?;
             }
 
             Instruction::GetGlobal(index) => {
                 if *index >= self.globals.len() {
                     return Err(format!("Global variable index out of bounds: {}", index));
                 }
-                self.push_value(self.globals[*index].clone())?;
+                self.stack
+                    .push_at_sp(self.globals[*index].clone(), &mut self.sp)?;
             }
 
             Instruction::SetGlobal(index) => {
-                if self.is_stack_empty() {
+                if self.stack.is_empty() {
                     return Err("Stack underflow for SetGlobal".to_string());
                 }
-                let value = self.pop_value()?;
+                let value = self.stack.pop_at_sp(&mut self.sp)?;
                 // Extend globals vector if needed
                 while self.globals.len() <= *index {
                     self.globals.push(Value::Int(0)); // Default value
@@ -694,7 +656,7 @@ impl VM {
                     if func_name == target_func {
                         // Only show stack contents from index 0 to sp
                         let visible_stack: Vec<String> = (0..self.sp)
-                            .filter_map(|i| self.get_stack_value(i))
+                            .filter_map(|i| self.stack.get(i))
                             .map(|x| x.to_string())
                             .collect();
                         println!(
@@ -794,7 +756,7 @@ impl VM {
 
                                 // Execute the JIT compiled function with error handling
                                 // Get mutable pointers to VM state
-                                let stack_ptr = self.stack.as_mut_ptr();
+                                let stack_ptr = self.stack.as_encoded_slice_mut().as_mut_ptr();
                                 let pc_ptr = &mut self.pc as *mut usize;
                                 let bp_ptr = &mut self.bp as *mut usize;
                                 let sp_ptr = &mut self.sp as *mut usize;
@@ -962,7 +924,7 @@ impl VM {
 
                             // Execute the JIT compiled function with error handling
                             // Get mutable pointers to VM state
-                            let stack_ptr = self.stack.as_mut_ptr();
+                            let stack_ptr = self.stack.as_encoded_slice_mut().as_mut_ptr();
                             let pc_ptr = &mut self.pc as *mut usize;
                             let bp_ptr = &mut self.bp as *mut usize;
                             let sp_ptr = &mut self.sp as *mut usize;
@@ -1028,21 +990,13 @@ impl VM {
             }
 
             Instruction::Ret => {
-                let return_addr = if self.sp > 0 {
-                    Some(self.pop_value().map_err(|e| e)?)
-                } else {
-                    None
-                };
+                let return_addr = self.stack.pop();
                 match return_addr {
                     Some(Value::Address(addr)) => {
                         self.pc = addr;
                     }
                     Some(Value::Int(n)) if n == -1 => {
-                        let value = if self.sp > 0 {
-                            Some(self.pop_value().map_err(|e| e)?)
-                        } else {
-                            None
-                        };
+                        let value = self.stack.pop();
                         match value {
                             Some(Value::Int(n)) => return Ok(ControlFlow::Exit(n)),
                             Some(Value::Byte(b)) => return Ok(ControlFlow::Exit(b as i64)),
@@ -1068,14 +1022,15 @@ impl VM {
             }
 
             Instruction::GetBP => {
-                self.push_value(Value::Address(self.bp))?;
+                self.stack
+                    .push_at_sp(Value::Address(self.bp), &mut self.sp)?;
             }
 
             Instruction::SetBP => {
-                if self.is_stack_empty() {
+                if self.stack.is_empty() {
                     return Err("Stack underflow for SetBP".to_string());
                 }
-                let value = self.pop_value()?;
+                let value = self.stack.pop_at_sp(&mut self.sp)?;
                 match value {
                     Value::Address(addr) => {
                         self.bp = addr;
@@ -1088,14 +1043,15 @@ impl VM {
             }
 
             Instruction::GetSP => {
-                self.push_value(Value::Address(self.sp))?;
+                self.stack
+                    .push_at_sp(Value::Address(self.sp), &mut self.sp)?;
             }
 
             Instruction::SetSP => {
                 if self.sp == 0 {
                     return Err("Stack underflow for SetSP".to_string());
                 }
-                let value = self.pop_value()?;
+                let value = self.stack.pop_at_sp(&mut self.sp)?;
                 match value {
                     Value::Address(addr) => {
                         self.sp = addr;
@@ -1108,14 +1064,15 @@ impl VM {
             }
 
             Instruction::GetHP => {
-                self.push_value(Value::Address(self.hp))?;
+                self.stack
+                    .push_at_sp(Value::Address(self.hp), &mut self.sp)?;
             }
 
             Instruction::SetHP => {
-                if self.is_stack_empty() {
+                if self.stack.is_empty() {
                     return Err("Stack underflow for SetHP".to_string());
                 }
-                let value = self.pop_value()?;
+                let value = self.stack.pop_at_sp(&mut self.sp)?;
                 let new_hp = match value {
                     Value::Address(addr) => addr,
                     Value::Int(n) => n as usize,
@@ -1131,14 +1088,15 @@ impl VM {
             }
 
             Instruction::GetPC => {
-                self.push_value(Value::Address(self.pc))?;
+                self.stack
+                    .push_at_sp(Value::Address(self.pc), &mut self.sp)?;
             }
 
             Instruction::SetPC => {
-                if self.is_stack_empty() {
+                if self.stack.is_empty() {
                     return Err("Stack underflow for SetPC".to_string());
                 }
-                let value = self.pop_value()?;
+                let value = self.stack.pop_at_sp(&mut self.sp)?;
                 match value {
                     Value::Address(addr) => {
                         self.pc = addr;
@@ -1166,24 +1124,24 @@ impl VM {
             Instruction::Load => {
                 // Stack: [heap_ref] -> [value]
                 // Load value from heap at specified reference
-                if self.is_stack_empty() {
+                if self.stack.is_empty() {
                     return Err("Stack underflow for Load".to_string());
                 }
-                let heap_ref = self.pop_value()?;
+                let heap_ref = self.stack.pop_at_sp(&mut self.sp)?;
                 match heap_ref {
                     Value::HeapRef(heap_index) => {
                         if heap_index.0 >= self.heap.len() {
                             return Err(format!("Invalid heap index: {}", heap_index.0));
                         }
                         let value = &self.heap[heap_index.0];
-                        self.push_value(value.clone())?;
+                        self.stack.push_at_sp(value.clone(), &mut self.sp)?;
                     }
                     Value::Address(addr) => {
                         if addr >= self.heap.len() {
                             return Err(format!("Invalid address: {}", addr));
                         }
                         let value = &self.heap[addr];
-                        self.push_value(value.clone())?;
+                        self.stack.push_at_sp(value.clone(), &mut self.sp)?;
                     }
                     _ => return Err("Load requires a heap reference or address".to_string()),
                 }
@@ -1195,8 +1153,8 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for Store".to_string());
                 }
-                let heap_ref = self.pop_value()?;
-                let value = self.pop_value()?;
+                let heap_ref = self.stack.pop_at_sp(&mut self.sp)?;
+                let value = self.stack.pop_at_sp(&mut self.sp)?;
                 match heap_ref {
                     Value::HeapRef(heap_index) => {
                         if heap_index.0 >= self.heap.len() {
@@ -1223,10 +1181,10 @@ impl VM {
                 }
 
                 // Pop the 4 arguments (length, buffer, fd, syscall_number) in reverse order
-                let length = self.pop_value()?;
-                let buffer_ref = self.pop_value()?;
-                let fd = self.pop_value()?;
-                let syscall_number = self.pop_value()?;
+                let length = self.stack.pop_at_sp(&mut self.sp)?;
+                let buffer_ref = self.stack.pop_at_sp(&mut self.sp)?;
+                let fd = self.stack.pop_at_sp(&mut self.sp)?;
+                let syscall_number = self.stack.pop_at_sp(&mut self.sp)?;
 
                 // The return placeholder is left on the stack for the result
 
@@ -1263,7 +1221,7 @@ impl VM {
                                 }
 
                                 // Push the actual number of bytes written as return value
-                                self.push_value(Value::Int(actual_length as i64))?;
+                                self.stack.push_at_sp(Value::Int(actual_length as i64), &mut self.sp)?;
                             }
                             Value::HeapRef(heap_index) => {
                                 // Handle array(byte) structures stored as RawValue
@@ -1319,7 +1277,7 @@ impl VM {
                                     std::io::stdout().flush().unwrap();
                                 }
 
-                                self.push_value(Value::Int(actual_length as i64))?;
+                                self.stack.push_at_sp(Value::Int(actual_length as i64), &mut self.sp)?;
                             }
                             _ => {
                                 return Err(
@@ -1369,10 +1327,10 @@ impl VM {
         }
 
         // Program ended, return top of stack or 0
-        if self.is_stack_empty() {
+        if self.stack.is_empty() {
             Ok(0)
         } else {
-            let value = self.pop_value()?;
+            let value = self.stack.pop_at_sp(&mut self.sp)?;
             match value {
                 Value::Int(n) => Ok(n as i64),
                 Value::Boolean(b) => Ok(if b { 1 } else { 0 }),
@@ -1385,7 +1343,7 @@ impl VM {
 
     /// Reset the VM state for a fresh execution
     pub fn reset(&mut self) {
-        self.clear_stack();
+        self.stack.clear();
         self.pc = 0;
         self.bp = 0;
         self.sp = 0;
@@ -1432,7 +1390,7 @@ impl VM {
 
     /// Get a snapshot of the stack values for debugging
     pub fn get_stack(&self) -> Vec<Value> {
-        (0..self.sp).map(|i| self.get_stack_value(i).unwrap()).collect()
+        self.stack.iter().collect()
     }
 
     /// Extract function instructions starting from the given address until Ret
@@ -1706,13 +1664,21 @@ mod tests {
         // Test GetHP/SetHP: allocate 3 values on heap
         vm.load_program(vec![
             // Simple allocation: get current HP, then advance it
-            Instruction::GetHP,      // [current_hp]
-            Instruction::Push(3),    // [current_hp, 3]
-            Instruction::AddressAdd, // [new_hp]
-            Instruction::SetHP,      // [] (HP = new_hp, heap extended)
+            Instruction::GetHP,       // [current_hp]
+            Instruction::Push(3),     // [current_hp, 3]
+            Instruction::AddressAdd,  // [new_hp]
+            Instruction::SetHP,       // [] (HP = new_hp, heap extended)
         ]);
 
-        // Execute step by step to check intermediate state
+        // Execute GetHP
+        vm.step().unwrap();
+        println!("After GetHP: {:?}", vm.get_stack());
+        
+        // Execute Push(3)
+        vm.step().unwrap();
+        println!("After Push(3): {:?}", vm.get_stack());
+        
+        // Execute the rest
         while vm.pc < vm.program.len() {
             vm.step().unwrap();
         }
@@ -1730,17 +1696,17 @@ mod tests {
         // Test Load/Store with allocated memory - use simple approach
         vm.load_program(vec![
             // Allocate heap space by advancing HP
-            Instruction::GetHP,      // [current_hp = 0]
-            Instruction::Push(2),    // [current_hp, 2]
-            Instruction::AddressAdd, // [new_hp = 2]
-            Instruction::SetHP,      // [] (HP = 2, heap extended)
+            Instruction::GetHP,       // [current_hp = 0]
+            Instruction::Push(2),     // [current_hp, 2]
+            Instruction::AddressAdd,  // [new_hp = 2]
+            Instruction::SetHP,       // [] (HP = 2, heap extended)
             // Set value at address 0: Store 42 at heap[0]
-            Instruction::Push(42),       // [42]
+            Instruction::Push(42),    // [42]
             Instruction::PushAddress(0), // [42, addr(0)]
-            Instruction::Store,          // [] (store 42 at heap[0])
+            Instruction::Store,       // [] (store 42 at heap[0])
             // Get value from address 0: Load from heap[0]
             Instruction::PushAddress(0), // [addr(0)]
-            Instruction::Load,           // [42] (load from heap[0])
+            Instruction::Load, // [42] (load from heap[0])
         ]);
 
         // Execute step by step
@@ -1767,17 +1733,17 @@ mod tests {
         // Test Load/Store with allocated memory using GetHP/SetHP
         vm.load_program(vec![
             // Allocate heap space by advancing HP (same pattern as test_heap_memory_allocation)
-            Instruction::GetHP,      // [current_hp = 0]
-            Instruction::Push(3),    // [current_hp, 3]
-            Instruction::AddressAdd, // [new_hp = 3]
-            Instruction::SetHP,      // [] (HP = 3, heap extended)
+            Instruction::GetHP,       // [current_hp = 0]
+            Instruction::Push(3),     // [current_hp, 3]
+            Instruction::AddressAdd,  // [new_hp = 3]
+            Instruction::SetHP,       // [] (HP = 3, heap extended)
             // Store value 42 at heap_start_addr
-            Instruction::Push(42),       // [42]
+            Instruction::Push(42),    // [42]
             Instruction::PushAddress(0), // [42, heap_start_addr]
-            Instruction::Store,          // [] (store 42 at heap_start_addr)
+            Instruction::Store,       // [] (store 42 at heap_start_addr)
             // Load value from heap_start_addr
             Instruction::PushAddress(0), // [heap_start_addr]
-            Instruction::Load,           // [42]
+            Instruction::Load, // [42]
         ]);
 
         // Execute step by step
@@ -1787,7 +1753,7 @@ mod tests {
 
         // Check final result
         assert_eq!(vm.sp, 1); // loaded value only
-        match vm.get_stack_value(vm.sp - 1) {
+        match vm.stack.peek() {
             Some(value) => {
                 println!("Actual value on stack top: {:?}", value);
                 if let Value::Int(n) = value {
@@ -1796,7 +1762,7 @@ mod tests {
                     panic!("Expected Int(42), got {:?}", value);
                 }
             }
-            None => panic!("Stack is empty, expected Int(42)"),
+            None => panic!("Stack is empty, expected Int(42)")
         }
     }
 
@@ -1807,21 +1773,21 @@ mod tests {
         // Test AddressAdd + Load/Store (replacement for HeapGetOffset/HeapSetOffset)
         vm.load_program(vec![
             // Allocate heap space by advancing HP (same pattern as test_heap_memory_allocation)
-            Instruction::GetHP,      // [current_hp = 0]
-            Instruction::Push(3),    // [current_hp, 3]
-            Instruction::AddressAdd, // [new_hp = 3]
-            Instruction::SetHP,      // [] (HP = 3, heap extended)
+            Instruction::GetHP,       // [current_hp = 0]
+            Instruction::Push(3),     // [current_hp, 3]
+            Instruction::AddressAdd,  // [new_hp = 3]
+            Instruction::SetHP,       // [] (HP = 3, heap extended)
             // Set value at offset 1: Store 100 at heap_start_addr + 1
-            Instruction::Push(100),      // [100]
+            Instruction::Push(100),   // [100]
             Instruction::PushAddress(0), // [100, heap_start_addr]
-            Instruction::Push(1),        // [100, heap_start_addr, 1]
-            Instruction::AddressAdd,     // [100, target_addr]
-            Instruction::Store,          // [] (store 100 at target_addr)
+            Instruction::Push(1),     // [100, heap_start_addr, 1]
+            Instruction::AddressAdd,  // [100, target_addr]
+            Instruction::Store,       // [] (store 100 at target_addr)
             // Get value from offset 1: Load from heap_start_addr + 1
             Instruction::PushAddress(0), // [heap_start_addr]
-            Instruction::Push(1),        // [heap_start_addr, 1]
-            Instruction::AddressAdd,     // [target_addr]
-            Instruction::Load,           // [100]
+            Instruction::Push(1),    // [heap_start_addr, 1]
+            Instruction::AddressAdd, // [target_addr]
+            Instruction::Load,       // [100]
         ]);
 
         // Execute step by step
