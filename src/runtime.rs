@@ -251,7 +251,16 @@ impl VM {
             }
 
             Instruction::Push(value) => {
-                self.push_value(Value::Int(*value))?;
+                if self.sp >= self.stack.len() {
+                    return Err(format!(
+                        "Stack overflow: SP {} exceeds capacity {}",
+                        self.sp,
+                        self.stack.len()
+                    ));
+                }
+                let encoded = ValueEncoder::encode(&Value::Int(*value));
+                self.stack[self.sp] = encoded;
+                self.sp += 1;
             }
 
             Instruction::PushString(s) => {
@@ -281,30 +290,35 @@ impl VM {
             }
 
             Instruction::Pop => {
-                self.pop_value()?;
+                if self.sp == 0 {
+                    return Err("Stack underflow: SP is 0".to_string());
+                }
+                self.sp -= 1;
             }
 
             Instruction::Add => {
                 if self.sp < 2 {
                     return Err("Stack underflow for Add".to_string());
                 }
-                let b = self.pop_value()?;
-                let a = self.pop_value()?;
-                match (a, b) {
-                    (Value::Int(a), Value::Int(b)) => {
-                        self.push_value(Value::Int(a + b))?;
-                    }
-                    (Value::Int(a), Value::Byte(b)) => {
-                        self.push_value(Value::Int(a + b as i64))?;
-                    }
-                    (Value::Byte(a), Value::Int(b)) => {
-                        self.push_value(Value::Int(a as i64 + b))?;
-                    }
-                    (Value::Byte(a), Value::Byte(b)) => {
-                        self.push_value(Value::Int(a as i64 + b as i64))?;
-                    }
+                // Pop b
+                self.sp -= 1;
+                let b = ValueEncoder::decode(self.stack[self.sp]);
+                // Pop a
+                self.sp -= 1;
+                let a = ValueEncoder::decode(self.stack[self.sp]);
+                
+                let result = match (a, b) {
+                    (Value::Int(a), Value::Int(b)) => Value::Int(a + b),
+                    (Value::Int(a), Value::Byte(b)) => Value::Int(a + b as i64),
+                    (Value::Byte(a), Value::Int(b)) => Value::Int(a as i64 + b),
+                    (Value::Byte(a), Value::Byte(b)) => Value::Int(a as i64 + b as i64),
                     _ => return Err("Add operation requires numbers or bytes".to_string()),
-                }
+                };
+                
+                // Push result
+                let encoded = ValueEncoder::encode(&result);
+                self.stack[self.sp] = encoded;
+                self.sp += 1;
             }
 
             Instruction::Sub => {
@@ -313,21 +327,14 @@ impl VM {
                 }
                 let b = self.pop_value()?;
                 let a = self.pop_value()?;
-                match (a, b) {
-                    (Value::Int(a), Value::Int(b)) => {
-                        self.push_value(Value::Int(a - b))?;
-                    }
-                    (Value::Int(a), Value::Byte(b)) => {
-                        self.push_value(Value::Int(a - b as i64))?;
-                    }
-                    (Value::Byte(a), Value::Int(b)) => {
-                        self.push_value(Value::Int(a as i64 - b))?;
-                    }
-                    (Value::Byte(a), Value::Byte(b)) => {
-                        self.push_value(Value::Int(a as i64 - b as i64))?;
-                    }
+                let result = match (a, b) {
+                    (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
+                    (Value::Int(a), Value::Byte(b)) => Value::Int(a - b as i64),
+                    (Value::Byte(a), Value::Int(b)) => Value::Int(a as i64 - b),
+                    (Value::Byte(a), Value::Byte(b)) => Value::Int(a as i64 - b as i64),
                     _ => return Err("Subtract operation requires numbers or bytes".to_string()),
-                }
+                };
+                self.push_value(result)?;
             }
 
             Instruction::Mul => {
@@ -336,21 +343,14 @@ impl VM {
                 }
                 let b = self.pop_value()?;
                 let a = self.pop_value()?;
-                match (a, b) {
-                    (Value::Int(a), Value::Int(b)) => {
-                        self.push_value(Value::Int(a * b))?;
-                    }
-                    (Value::Int(a), Value::Byte(b)) => {
-                        self.push_value(Value::Int(a * b as i64))?;
-                    }
-                    (Value::Byte(a), Value::Int(b)) => {
-                        self.push_value(Value::Int(a as i64 * b))?;
-                    }
-                    (Value::Byte(a), Value::Byte(b)) => {
-                        self.push_value(Value::Int(a as i64 * b as i64))?;
-                    }
+                let result = match (a, b) {
+                    (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
+                    (Value::Int(a), Value::Byte(b)) => Value::Int(a * b as i64),
+                    (Value::Byte(a), Value::Int(b)) => Value::Int(a as i64 * b),
+                    (Value::Byte(a), Value::Byte(b)) => Value::Int(a as i64 * b as i64),
                     _ => return Err("Multiply operation requires numbers or bytes".to_string()),
-                }
+                };
+                self.push_value(result)?;
             }
 
             Instruction::Div => {
@@ -409,19 +409,24 @@ impl VM {
                 if self.sp < 2 {
                     return Err("Stack underflow for AddressAdd".to_string());
                 }
-                let b = self.pop_value()?; // second operand (index)
-                let a = self.pop_value()?; // first operand (container)
-                match (&a, &b) {
+                // Pop b (second operand - index)
+                self.sp -= 1;
+                let b = ValueEncoder::decode(self.stack[self.sp]);
+                // Pop a (first operand - container)
+                self.sp -= 1; 
+                let a = ValueEncoder::decode(self.stack[self.sp]);
+                
+                let result = match (&a, &b) {
                     (Value::Address(addr), Value::Int(offset)) => {
-                        self.push_value(Value::Address(addr + *offset as usize))?;
+                        Value::Address(addr + *offset as usize)
                     }
                     (Value::HeapRef(heap_ref), Value::Int(offset)) => {
                         // HeapRef + offset = new HeapRef with adjusted index
-                        self.push_value(Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize)))?;
+                        Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize))
                     }
                     (Value::Int(offset), Value::HeapRef(heap_ref)) => {
                         // Handle reversed order: Int + HeapRef -> HeapRef
-                        self.push_value(Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize)))?;
+                        Value::HeapRef(HeapIndex(heap_ref.0 + *offset as usize))
                     }
                     _ => {
                         return Err(format!(
@@ -429,7 +434,12 @@ impl VM {
                             a, b
                         ))
                     }
-                }
+                };
+                
+                // Push result
+                let encoded = ValueEncoder::encode(&result);
+                self.stack[self.sp] = encoded;
+                self.sp += 1;
             }
 
             Instruction::AddressSub => {
@@ -1795,7 +1805,7 @@ mod tests {
 
         // Check final result
         assert_eq!(vm.sp, 1); // loaded value only
-        match vm.stack.peek() {
+        match if vm.sp > 0 { Some(ValueEncoder::decode(vm.stack[vm.sp - 1])) } else { None } {
             Some(value) => {
                 println!("Actual value on stack top: {:?}", value);
                 if let Value::Int(n) = value {
