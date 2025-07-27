@@ -416,7 +416,14 @@ impl ARM64CodeGen {
 
     /// Push value from register to VM stack
     /// Arguments: src_reg (register containing value to push), stack_reg (C stack pointer), sp_reg (C SP pointer), temp_reg1, temp_reg2 (temporary registers)
-    pub fn push_to_stack(&mut self, src_reg: Register, stack_reg: Register, sp_reg: Register, temp_reg1: Register, temp_reg2: Register) {
+    pub fn push_to_stack(
+        &mut self,
+        src_reg: Register,
+        stack_reg: Register,
+        sp_reg: Register,
+        temp_reg1: Register,
+        temp_reg2: Register,
+    ) {
         // Load current SP: *sp_reg
         self.ldr(sp_reg, 0, temp_reg1);
 
@@ -435,7 +442,14 @@ impl ARM64CodeGen {
 
     /// Pop value from VM stack to register
     /// Arguments: dst_reg (register to store popped value), stack_reg (C stack pointer), sp_reg (C SP pointer), temp_reg1, temp_reg2 (temporary registers)
-    pub fn pop_from_stack(&mut self, dst_reg: Register, stack_reg: Register, sp_reg: Register, temp_reg1: Register, temp_reg2: Register) {
+    pub fn pop_from_stack(
+        &mut self,
+        dst_reg: Register,
+        stack_reg: Register,
+        sp_reg: Register,
+        temp_reg1: Register,
+        temp_reg2: Register,
+    ) {
         // Load current SP: *sp_reg
         self.ldr(sp_reg, 0, temp_reg1);
 

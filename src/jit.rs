@@ -283,7 +283,6 @@ impl ARM64JITCompiler {
         const REG_TEMP3: Register = Register::X11;
         const REG_TEMP4: Register = Register::X12; // Additional temp register for complex operations
 
-
         // Second pass: generate code and record jump/call target positions
         for (instruction_idx, instruction) in instructions.iter().enumerate() {
             let vm_addr = start_addr + instruction_idx;
@@ -355,7 +354,7 @@ impl ARM64JITCompiler {
                 Instruction::Div => {
                     gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // b
                     gen.pop_from_stack(REG_TEMP2, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // a
-                                                          // gen.emit(0xD4200000);
+                                                                                                // gen.emit(0xD4200000);
                     gen.sdiv(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a / b
                     gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
