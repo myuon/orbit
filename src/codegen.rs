@@ -1149,8 +1149,12 @@ mod tests {
         println!("Generated IR:");
         println!("{}", compiler.dump_ir());
 
+        // Apply label resolution
+        let mut label_resolver = crate::label_resolution::LabelResolver::new();
+        let resolved_instructions = label_resolver.resolve_labels(instructions).unwrap();
+
         let mut vm = VM::new_with_stack_printing(true);
-        vm.load_program(instructions);
+        vm.load_program(resolved_instructions);
         let result = vm.execute().unwrap();
         println!("Final result: {}", result);
         assert_eq!(result, 42);
@@ -1222,8 +1226,12 @@ mod tests {
         println!("Generated IR for new struct implementation:");
         println!("{}", compiler.dump_ir());
 
+        // Apply label resolution
+        let mut label_resolver = crate::label_resolution::LabelResolver::new();
+        let resolved_instructions = label_resolver.resolve_labels(instructions).unwrap();
+
         let mut vm = VM::new();
-        vm.load_program(instructions);
+        vm.load_program(resolved_instructions);
 
         // Since this returns a heap reference, we should get a HeapRef value
         // For now, just verify it doesn't crash
@@ -1300,8 +1308,12 @@ mod tests {
         println!("Generated IR:");
         println!("{}", compiler.dump_ir());
 
+        // Apply label resolution
+        let mut label_resolver = crate::label_resolution::LabelResolver::new();
+        let resolved_instructions = label_resolver.resolve_labels(instructions).unwrap();
+
         let mut vm = VM::new_with_stack_printing(true);
-        vm.load_program(instructions);
+        vm.load_program(resolved_instructions);
         let result = vm.execute().unwrap();
         println!("Final result: {}", result);
         assert_eq!(result, 5);

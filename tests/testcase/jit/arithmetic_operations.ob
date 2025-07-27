@@ -1,0 +1,23 @@
+fun add(a, b) do
+    return a + b;
+end
+
+fun multiply(a, b) do
+    return a * b;
+end
+
+fun divide(a, b) do
+    return a / b;
+end
+
+fun subtract(a, b) do
+    return a - b;
+end
+
+fun main() do
+    let x = add(10, 5);
+    let y = multiply(x, 2);
+    let z = divide(y, 3);
+    let result = subtract(z, 3);
+    return result;
+end

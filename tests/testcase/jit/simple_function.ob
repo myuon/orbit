@@ -1,0 +1,7 @@
+fun simple_function(x) do
+    return x * 2;
+end
+
+fun main() do
+    return simple_function(21);
+end
