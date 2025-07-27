@@ -194,6 +194,8 @@ impl ARM64JITCompiler {
             self.generate_arm64_code(instructions)?
         };
 
+        // std::fs::write("jit.bin", &machine_code)?;
+
         let offset = self.executable_memory.write_bytes(&machine_code)?;
         self.executable_memory.make_executable()?;
 
@@ -234,7 +236,7 @@ impl ARM64JITCompiler {
 
         // JIT context register assignments (matching Zig implementation):
         const REG_C_STACK: Register = Register::X0;
-        // const REG_C_PC: Register = Register::X1;
+        const REG_C_PC: Register = Register::X1;
         const REG_C_BP: Register = Register::X2;
         const REG_C_SP: Register = Register::X3;
         // const REG_C_HP: Register = Register::X4;
@@ -326,6 +328,7 @@ impl ARM64JITCompiler {
                 Instruction::Div => {
                     pop_from_stack(&mut gen, REG_TEMP1)?; // b
                     pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                                                          // gen.emit(0xD4200000);
                     gen.sdiv(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a / b
                     push_to_stack(&mut gen, REG_TEMP1)?;
                 }
@@ -448,9 +451,12 @@ impl ARM64JITCompiler {
                 }
 
                 Instruction::Ret => {
-                    // Function epilogue
-                    gen.function_epilogue();
+                    // Pop return address from stack and set as PC
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // Pop return address
+                    gen.str(REG_TEMP1, REG_C_PC, 0); // Store to *REG_C_PC
 
+                    // Function epilogue and return
+                    gen.function_epilogue();
                     gen.ret();
                 }
 
@@ -589,5 +595,29 @@ mod tests {
 
         // Should not have a compiled function
         assert!(compiler.get_compiled_function(0x200).is_none());
+    }
+
+    #[test]
+    fn test_ret_instruction_with_stack_pop() {
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test sequence: Push return address, then Ret (should pop and set PC)
+        let instructions = vec![
+            Instruction::Push(0x1000), // Push return address
+            Instruction::Ret,          // Pop return address and set PC
+        ];
+
+        // Should successfully compile without errors
+        let result = compiler.compile_function(0x300, &instructions, false);
+        assert!(
+            result.is_ok(),
+            "Failed to compile Ret instruction: {:?}",
+            result.err()
+        );
+
+        // Should have a compiled function
+        assert!(compiler.get_compiled_function(0x300).is_some());
     }
 }

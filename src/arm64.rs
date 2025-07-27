@@ -158,9 +158,9 @@ impl ARM64CodeGen {
 
     // === Arithmetic Instructions ===
 
-    /// ADD - Add registers
+    /// ADD - Add registers: dst = src1 + src2
     pub fn add_reg(&mut self, src1: Register, src2: Register, dst: Register) {
-        let instruction = 0x8B000000 | (src1.as_u32() << 16) | (src2.as_u32() << 5) | dst.as_u32();
+        let instruction = 0x8B000000 | (src2.as_u32() << 16) | (src1.as_u32() << 5) | dst.as_u32();
         self.emit(instruction);
     }
 
@@ -171,9 +171,9 @@ impl ARM64CodeGen {
         self.emit(instruction);
     }
 
-    /// SUB - Subtract registers
+    /// SUB - Subtract registers: dst = src1 - src2
     pub fn sub_reg(&mut self, src1: Register, src2: Register, dst: Register) {
-        let instruction = 0xCB000000 | (src1.as_u32() << 16) | (src2.as_u32() << 5) | dst.as_u32();
+        let instruction = 0xCB000000 | (src2.as_u32() << 16) | (src1.as_u32() << 5) | dst.as_u32();
         self.emit(instruction);
     }
 
@@ -192,9 +192,9 @@ impl ARM64CodeGen {
     /// MADD - Multiply-add: dst = src1 * src2 + addend
     pub fn madd(&mut self, src1: Register, src2: Register, addend: Register, dst: Register) {
         let instruction = 0x9B000000
-            | (src1.as_u32() << 16)
+            | (src2.as_u32() << 16)
             | (addend.as_u32() << 10)
-            | (src2.as_u32() << 5)
+            | (src1.as_u32() << 5)
             | dst.as_u32();
         self.emit(instruction);
     }
@@ -202,30 +202,30 @@ impl ARM64CodeGen {
     /// MSUB - Multiply-subtract: dst = addend - src1 * src2
     pub fn msub(&mut self, src1: Register, src2: Register, addend: Register, dst: Register) {
         let instruction = 0x9B008000
-            | (src1.as_u32() << 16)
+            | (src2.as_u32() << 16)
             | (addend.as_u32() << 10)
-            | (src2.as_u32() << 5)
+            | (src1.as_u32() << 5)
             | dst.as_u32();
         self.emit(instruction);
     }
 
-    /// SDIV - Signed divide
+    /// SDIV - Signed divide: dst = src1 / src2
     pub fn sdiv(&mut self, src1: Register, src2: Register, dst: Register) {
-        let instruction = 0x9AC00C00 | (src1.as_u32() << 16) | (src2.as_u32() << 5) | dst.as_u32();
+        let instruction = 0x9AC00C00 | (src2.as_u32() << 16) | (src1.as_u32() << 5) | dst.as_u32();
         self.emit(instruction);
     }
 
     // === Comparison Instructions ===
 
-    /// CMP - Compare registers (alias for SUBS with XZR as destination)
+    /// CMP - Compare registers (alias for SUBS with XZR as destination): compare src1 - src2
     pub fn cmp(&mut self, src1: Register, src2: Register) {
-        let instruction = 0xEB00001F | (src1.as_u32() << 16) | (src2.as_u32() << 5);
+        let instruction = 0xEB00001F | (src2.as_u32() << 16) | (src1.as_u32() << 5);
         self.emit(instruction);
     }
 
-    /// SUBS - Subtract and set flags
+    /// SUBS - Subtract and set flags: dst = src1 - src2
     pub fn subs(&mut self, src1: Register, src2: Register, dst: Register) {
-        let instruction = 0xEB000000 | (src1.as_u32() << 16) | (src2.as_u32() << 5) | dst.as_u32();
+        let instruction = 0xEB000000 | (src2.as_u32() << 16) | (src1.as_u32() << 5) | dst.as_u32();
         self.emit(instruction);
     }
 
@@ -250,7 +250,7 @@ impl ARM64CodeGen {
     pub fn ldr(&mut self, base: Register, offset: u16, dst: Register) {
         assert!(offset <= 0x1FF, "Offset must be 9-bit");
         let instruction =
-            0xF8400400 | ((offset as u32) << 12) | (base.as_u32() << 5) | dst.as_u32();
+            0xF9400000 | ((offset as u32) << 10) | (base.as_u32() << 5) | dst.as_u32();
         self.emit(instruction);
     }
 
@@ -350,8 +350,6 @@ impl ARM64CodeGen {
     pub fn function_epilogue(&mut self) {
         // ldp x29, x30, [sp], #16
         self.ldp_post_index(FP, LR, SP, 16);
-        // ret
-        self.ret();
     }
 
     /// Placeholder instruction (will be patched later)
@@ -402,7 +400,7 @@ mod tests {
 
         // Test ADD registers
         gen.add_reg(Register::X0, Register::X1, Register::X2);
-        assert_eq!(gen.code.last(), Some(&0x8B000022)); // add x2, x0, x1
+        assert_eq!(gen.code.last(), Some(&0x8B010002)); // add x2, x0, x1
 
         // Test RET
         gen.ret();
@@ -417,7 +415,7 @@ mod tests {
         assert_eq!(gen.code.len(), 1);
 
         gen.function_epilogue();
-        assert_eq!(gen.code.len(), 3); // prologue + ldp + ret
+        assert_eq!(gen.code.len(), 2); // prologue + ldp
     }
 
     #[test]
@@ -428,5 +426,52 @@ mod tests {
 
         let bytes = gen.finalize();
         assert_eq!(bytes.len(), 8); // 2 instructions * 4 bytes each
+    }
+
+    #[test]
+    fn test_ldr_instruction_encoding() {
+        let mut gen = ARM64CodeGen::new();
+
+        // Test LDR x9, [x11] (offset = 0)
+        gen.ldr(Register::X11, 0, Register::X9);
+
+        let machine_code = gen.finalize();
+
+        // Expected encoding for LDR x9, [x11]:
+        // 0xF9400000 (base) + (0 << 10) + (11 << 5) + 9 = 0xF9400169
+        // In little-endian: [0x69, 0x01, 0x40, 0xF9]
+        let expected = vec![0x69, 0x01, 0x40, 0xF9];
+
+        assert_eq!(
+            machine_code, expected,
+            "LDR x9, [x11] should generate correct offset addressing mode instruction"
+        );
+    }
+
+    #[test]
+    fn test_arithmetic_operand_order() {
+        let mut gen = ARM64CodeGen::new();
+
+        // Test SUB x9, x10, x11 → x9 = x10 - x11
+        gen.sub_reg(Register::X10, Register::X11, Register::X9);
+        let sub_instruction = *gen.code.last().unwrap();
+        // Expected: 0xCB000000 | (x11 << 16) | (x10 << 5) | x9
+        // = 0xCB000000 | (11 << 16) | (10 << 5) | 9
+        // = 0xCB000000 | 0xB0000 | 0x140 | 9 = 0xCB0B0149
+        assert_eq!(
+            sub_instruction, 0xCB0B0149,
+            "SUB should encode operands correctly"
+        );
+
+        // Test SDIV x9, x10, x11 → x9 = x10 / x11
+        gen.sdiv(Register::X10, Register::X11, Register::X9);
+        let div_instruction = *gen.code.last().unwrap();
+        // Expected: 0x9AC00C00 | (x11 << 16) | (x10 << 5) | x9
+        // = 0x9AC00C00 | (11 << 16) | (10 << 5) | 9
+        // = 0x9AC00C00 | 0xB0000 | 0x140 | 9 = 0x9ACB0D49
+        assert_eq!(
+            div_instruction, 0x9ACB0D49,
+            "SDIV should encode operands correctly"
+        );
     }
 }

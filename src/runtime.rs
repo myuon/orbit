@@ -939,14 +939,7 @@ impl VM {
 
                 // If we should compile, do it now
                 if should_jit_compile {
-                    // let function_instructions = self.extract_function_instructions(new_pc);
-                    let function_instructions = vec![
-                        Instruction::Push(1),
-                        Instruction::Push(2),
-                        Instruction::Push(3),
-                        Instruction::Push(4),
-                        Instruction::Ret,
-                    ];
+                    let function_instructions = self.extract_function_instructions(new_pc);
                     let count = *self.function_call_counts.get(&new_pc).unwrap(); // We know this exists
 
                     if let Some(ref mut jit_compiler) = self.jit_compiler {
@@ -1057,6 +1050,8 @@ impl VM {
                                     return Ok(ControlFlow::Continue);
                                 }
                             }
+
+                            self.pc += 1;
 
                             // Print debug visualization (heap and/or stack) if enabled
                             self.print_debug_visualization(pc_before_execution, &instruction);
