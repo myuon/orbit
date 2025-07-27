@@ -351,6 +351,12 @@ impl ARM64CodeGen {
         0x14000000 | offset_bits
     }
 
+    /// Get BL instruction encoding for relative branch with link
+    pub fn get_bl_instr(offset: i32) -> u32 {
+        let offset_bits = (offset as u32) & 0x3FFFFFF;
+        0x94000000 | offset_bits
+    }
+
     /// Get CBZ offset encoding for conditional branch if zero
     pub fn get_cbz_offset(offset: i32) -> u32 {
         let offset_bits = (offset as u32) & 0x7FFFF;

@@ -674,8 +674,8 @@ impl ARM64JITCompiler {
                     assert!(target_addr != usize::MAX, "CallRel target not set");
 
                     let branch_offset = target_addr as i32 - source_addr as i32;
-                    let b_instruction = ARM64CodeGen::get_b_instr(branch_offset);
-                    gen.patch(source_addr, b_instruction);
+                    let bl_instruction = ARM64CodeGen::get_bl_instr(branch_offset);
+                    gen.patch(source_addr, bl_instruction);
                 }
                 _ => {}
             }
