@@ -11,7 +11,7 @@ fn format_hexdump(data: &[u8], start_addr: usize) -> String {
 
     for (i, chunk) in data.chunks(16).enumerate() {
         let addr = start_addr + i * 16;
-        // result.push_str(&format!("{:08x}: ", addr));
+        result.push_str(&format!("{:08x}: ", addr));
 
         // Hex bytes
         for (j, byte) in chunk.iter().enumerate() {
