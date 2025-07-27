@@ -66,22 +66,26 @@ fn compare_execution_states(
     );
 }
 
-
 fn run_jit_test_file(test_file: &Path) -> anyhow::Result<()> {
     let test_name = test_file.file_stem().unwrap().to_str().unwrap();
     println!("Running JIT test file: {}", test_name);
 
     let expected_result_file = test_file.with_extension("result");
     if !expected_result_file.exists() {
-        return Err(anyhow::anyhow!("No expected result file found for test {}", test_name));
+        return Err(anyhow::anyhow!(
+            "No expected result file found for test {}",
+            test_name
+        ));
     }
 
-    let expected_result = fs::read_to_string(&expected_result_file)?.trim().to_string();
+    let expected_result = fs::read_to_string(&expected_result_file)?
+        .trim()
+        .to_string();
     let test_content = fs::read_to_string(test_file)?;
 
     // Execute with VM only
     let vm_state = execute_with_vm(&test_content)?;
-    
+
     // Execute with JIT disabled for now (until JIT compilation is fixed)
     let (jit_state, _jit_was_used) = execute_with_jit(&test_content, vec![])?;
 
@@ -137,7 +141,8 @@ fn test_jit_files() {
     }
 
     for test_file in test_files {
-        run_jit_test_file(&test_file).expect(&format!("JIT test file {} failed", test_file.display()));
+        run_jit_test_file(&test_file)
+            .expect(&format!("JIT test file {} failed", test_file.display()));
     }
 
     println!("✓ All JIT file tests passed");

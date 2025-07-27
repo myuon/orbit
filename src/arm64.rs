@@ -515,15 +515,21 @@ mod tests {
 
         // Test MOV immediate
         gen.mov_imm(Register::X0, 42);
-        assert_eq!(gen.code.last(), Some(&0xD2800540)); // mov x0, #42
+
+        let code = gen.code.last();
+        assert_eq!(code, Some(&0xD2800540)); // mov x0, #42
 
         // Test ADD registers
         gen.add_reg(Register::X0, Register::X1, Register::X2);
-        assert_eq!(gen.code.last(), Some(&0x8B010002)); // add x2, x0, x1
+
+        let code = gen.code.last();
+        assert_eq!(code, Some(&0x8B010002)); // add x2, x0, x1
 
         // Test RET
         gen.ret();
-        assert_eq!(gen.code.last(), Some(&0xd65f03c0)); // ret
+
+        let code = gen.code.last();
+        assert_eq!(code, Some(&0xd65f03c0)); // ret
     }
 
     #[test]
@@ -531,10 +537,12 @@ mod tests {
         let mut gen = ARM64CodeGen::new();
 
         gen.function_prologue();
-        assert_eq!(gen.code.len(), 1);
+        let code = gen.code.len();
+        assert_eq!(code, 1);
 
         gen.function_epilogue();
-        assert_eq!(gen.code.len(), 2); // prologue + ldp
+        let code = gen.code.len();
+        assert_eq!(code, 2); // Prologue + epilogue
     }
 
     #[test]
