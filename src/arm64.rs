@@ -384,6 +384,26 @@ impl ARM64CodeGen {
         pos
     }
 
+    /// LSL immediate - Logical shift left by immediate
+    pub fn lsl_imm(&mut self, src: Register, dst: Register, shift: u8) {
+        // LSL is an alias for UBFM with specific parameters
+        // UBFM Xd, Xn, #(-shift MOD 64), #(63-shift)
+        let immr = (64 - shift as u32) % 64;
+        let imms = 63 - shift as u32;
+        let instruction = 0xD3400000 | (immr << 16) | (imms << 10) | (src.as_u32() << 5) | dst.as_u32();
+        self.emit(instruction);
+    }
+
+    /// LSR immediate - Logical shift right by immediate
+    pub fn lsr_imm(&mut self, src: Register, dst: Register, shift: u8) {
+        // LSR is an alias for UBFM with specific parameters
+        // UBFM Xd, Xn, #shift, #63
+        let immr = shift as u32;
+        let imms = 63;
+        let instruction = 0xD3400000 | (immr << 16) | (imms << 10) | (src.as_u32() << 5) | dst.as_u32();
+        self.emit(instruction);
+    }
+
     /// Patch a placeholder instruction with actual instruction
     pub fn patch(&mut self, position: usize, instruction: u32) {
         assert!(position < self.code.len(), "Invalid patch position");

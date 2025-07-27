@@ -324,9 +324,6 @@ impl ARM64JITCompiler {
         // Second pass: generate code and record jump/call target positions
         for (instruction_idx, instruction) in instructions.iter().enumerate() {
             let vm_addr = start_addr + instruction_idx;
-            if instruction_idx == 0 {
-                gen.function_prologue();
-            }
             // Record jump target positions
             if jump_targets.contains_key(&vm_addr) {
                 eprintln!(
@@ -346,6 +343,9 @@ impl ARM64JITCompiler {
                     gen.position()
                 );
                 call_targets.insert(vm_addr, gen.position());
+            }
+            if instruction_idx == 0 {
+                gen.function_prologue();
             }
 
             match instruction {
@@ -540,8 +540,14 @@ impl ARM64JITCompiler {
 
                 Instruction::Ret => {
                     // Pop return address from stack and set as PC
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // Pop return address
-                    gen.str(REG_TEMP1, REG_C_PC, 0); // Store to *REG_C_PC
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // Pop return address (ValueEncoded)
+                    
+                    // Remove the ValueEncoding bit (1u64 << 63) to get the actual address
+                    // Use LSL/LSR trick to clear the MSB: shift left 1 bit, then right 1 bit
+                    gen.lsl_imm(REG_TEMP1, REG_TEMP1, 1);  // Left shift by 1 (removes MSB)
+                    gen.lsr_imm(REG_TEMP1, REG_TEMP1, 1);  // Right shift by 1 (restores position, MSB=0)
+                    
+                    gen.str(REG_TEMP1, REG_C_PC, 0); // Store actual address to *REG_C_PC
 
                     // Function epilogue and return
                     gen.function_epilogue();
@@ -560,7 +566,7 @@ impl ARM64JITCompiler {
                     // Unconditional relative jump
                     // Calculate target VM address
                     let target_vm_addr = (vm_addr as i32 + offset) as usize;
-                    
+
                     // Emit placeholder for branch instruction
                     gen.emit(0x0);
                     jump_sources.insert(vm_addr, gen.position() - 1);
@@ -570,7 +576,7 @@ impl ARM64JITCompiler {
                 Instruction::JumpIfZeroRel(offset) => {
                     // Conditional relative jump: if stack top == 0, branch
                     pop_from_stack(&mut gen, REG_TEMP1)?; // Pop condition value
-                    
+
                     // Calculate target VM address
                     let target_vm_addr = (vm_addr as i32 + offset) as usize;
 
@@ -617,7 +623,7 @@ impl ARM64JITCompiler {
                 Instruction::JumpIfZero(_label) => {
                     // Should not reach here after label resolution
                 }
-                
+
                 Instruction::JumpRel(offset) => {
                     let source_addr = jump_sources
                         .get(&vm_addr)
@@ -1055,5 +1061,113 @@ mod tests {
 
         // Should have a compiled function
         assert!(compiler.get_compiled_function(0x1200).is_some());
+    }
+
+    #[test]
+    fn test_comparison_instructions_compilation() {
+        use crate::runtime::VM;
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test comparison instructions: 3 < 7 should be true (1)
+        let instructions = vec![
+            Instruction::Push(3), // Push first operand (a)
+            Instruction::Push(7), // Push second operand (b)
+            Instruction::Lt,      // Compare a < b (should be true)
+            Instruction::Ret,     // Return result
+        ];
+
+        // Should successfully compile without errors
+        let result = compiler.compile_function(0x1300, &instructions, false);
+        assert!(
+            result.is_ok(),
+            "Failed to compile comparison instructions: {:?}",
+            result.err()
+        );
+
+        // Should have a compiled function
+        assert!(compiler.get_compiled_function(0x1300).is_some());
+
+        // Verify with VM that this should return 1 (true) - but without Ret for simple test
+        let vm_instructions = vec![
+            Instruction::Push(3), // Push first operand (a)
+            Instruction::Push(7), // Push second operand (b)
+            Instruction::Lt,      // Compare a < b (should be true)
+        ];
+        let mut vm = VM::new();
+        vm.load_program(vm_instructions);
+        let vm_result = vm.execute().unwrap();
+        println!("VM result for 3 < 7: {}", vm_result);
+        assert_eq!(vm_result, 1); // 3 < 7 should be true
+    }
+
+    #[test]
+    fn test_gt_comparison_compilation() {
+        use crate::runtime::VM;
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test GT comparison: 7 > 3 should be true (1)
+        let instructions = vec![
+            Instruction::Push(7), // Push first operand (a)
+            Instruction::Push(3), // Push second operand (b)
+            Instruction::Gt,      // Compare a > b (should be true)
+            Instruction::Ret,     // Return result
+        ];
+
+        // Should successfully compile without errors
+        let result = compiler.compile_function(0x1400, &instructions, false);
+        assert!(
+            result.is_ok(),
+            "Failed to compile GT comparison: {:?}",
+            result.err()
+        );
+
+        // Should have a compiled function
+        assert!(compiler.get_compiled_function(0x1400).is_some());
+
+        // Verify with VM that this should return 1 (true) - but without Ret for simple test
+        let vm_instructions = vec![
+            Instruction::Push(7), // Push first operand (a)
+            Instruction::Push(3), // Push second operand (b)
+            Instruction::Gt,      // Compare a > b (should be true)
+        ];
+        let mut vm = VM::new();
+        vm.load_program(vm_instructions);
+        let vm_result = vm.execute().unwrap();
+        println!("VM result for 7 > 3: {}", vm_result);
+        assert_eq!(vm_result, 1); // 7 > 3 should be true
+    }
+
+    #[test]
+    fn test_comparison_false_cases() {
+        use crate::runtime::VM;
+        use crate::vm::Instruction;
+
+        // Test 7 < 3 should be false (0)
+        let vm_instructions = vec![
+            Instruction::Push(7), // Push first operand (a)
+            Instruction::Push(3), // Push second operand (b)
+            Instruction::Lt,      // Compare a < b (should be false)
+        ];
+        let mut vm = VM::new();
+        vm.load_program(vm_instructions);
+        let vm_result = vm.execute().unwrap();
+        println!("VM result for 7 < 3: {}", vm_result);
+        assert_eq!(vm_result, 0); // 7 < 3 should be false
+
+        // Test 3 > 7 should be false (0)
+        let vm_instructions = vec![
+            Instruction::Push(3), // Push first operand (a)
+            Instruction::Push(7), // Push second operand (b)
+            Instruction::Gt,      // Compare a > b (should be false)
+        ];
+        let mut vm = VM::new();
+        vm.load_program(vm_instructions);
+        let vm_result = vm.execute().unwrap();
+        println!("VM result for 3 > 7: {}", vm_result);
+        assert_eq!(vm_result, 0); // 3 > 7 should be false
     }
 }
