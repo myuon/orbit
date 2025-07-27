@@ -61,6 +61,8 @@ pub struct CompilerOptions {
     pub print_jit_asm: bool,
     /// Output file for JIT compiled machine code
     pub jit_compile_output: Option<String>,
+    /// Disable JIT compilation entirely
+    pub disable_jit: bool,
 }
 
 impl Default for CompilerOptions {
@@ -87,6 +89,7 @@ impl Default for CompilerOptions {
             jit_compile_functions: Vec::new(),
             print_jit_asm: false,
             jit_compile_output: None,
+            disable_jit: false,
         }
     }
 }
@@ -531,6 +534,11 @@ impl Compiler {
         // Set JIT compile output file
         self.runtime
             .set_jit_compile_output(self.options.jit_compile_output.clone());
+
+        // Disable JIT if requested
+        if self.options.disable_jit {
+            self.runtime.disable_jit();
+        }
 
         let result = if self.options.print_stacks || self.options.print_stacks_on_call.is_some() {
             self.runtime

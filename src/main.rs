@@ -92,6 +92,10 @@ struct Config {
     /// Output JIT compiled machine code to specified file
     #[arg(long, value_name = "FILE")]
     jit_compile_output: Option<String>,
+
+    /// Disable JIT compilation entirely
+    #[arg(long)]
+    nojit: bool,
 }
 
 impl Config {
@@ -121,6 +125,7 @@ impl Config {
             jit_compile_functions: self.jit_compile.clone(),
             print_jit_asm: self.print_jit_asm,
             jit_compile_output: self.jit_compile_output.clone(),
+            disable_jit: self.nojit,
         }
     }
 }
