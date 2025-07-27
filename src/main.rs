@@ -88,6 +88,10 @@ struct Config {
     /// Print JIT compiled ARM64 assembly as hexdump
     #[arg(long)]
     print_jit_asm: bool,
+
+    /// Output JIT compiled machine code to specified file
+    #[arg(long, value_name = "FILE")]
+    jit_compile_output: Option<String>,
 }
 
 impl Config {
@@ -116,6 +120,7 @@ impl Config {
             print_timings: self.print_timings,
             jit_compile_functions: self.jit_compile.clone(),
             print_jit_asm: self.print_jit_asm,
+            jit_compile_output: self.jit_compile_output.clone(),
         }
     }
 }

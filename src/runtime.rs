@@ -151,6 +151,13 @@ impl VM {
         self.print_jit_asm = print_jit_asm;
     }
 
+    /// Set JIT compile output file
+    pub fn set_jit_compile_output(&mut self, output_file: Option<String>) {
+        if let Some(ref mut jit_compiler) = self.jit_compiler {
+            jit_compiler.set_jit_compile_output(output_file);
+        }
+    }
+
     /// Get the raw encoded stack for JIT operations
     pub fn get_encoded_stack(&self) -> &[u64] {
         &self.stack[..self.sp]
@@ -1747,6 +1754,11 @@ impl Runtime {
     /// Set JIT assembly printing option
     pub fn set_print_jit_asm(&mut self, print_jit_asm: bool) {
         self.vm.set_print_jit_asm(print_jit_asm);
+    }
+
+    /// Set JIT compile output file
+    pub fn set_jit_compile_output(&mut self, output_file: Option<String>) {
+        self.vm.set_jit_compile_output(output_file);
     }
 }
 

@@ -162,6 +162,8 @@ pub struct ARM64JITCompiler {
     compiled_functions: HashMap<usize, JITCompiledFunction>,
     /// Call count threshold for JIT compilation
     jit_threshold: u64,
+    /// Output file for JIT compiled machine code
+    jit_compile_output: Option<String>,
 }
 
 impl ARM64JITCompiler {
@@ -172,6 +174,7 @@ impl ARM64JITCompiler {
             executable_memory,
             compiled_functions: HashMap::new(),
             jit_threshold: 10, // Compile after 10 calls
+            jit_compile_output: None,
         })
     }
 
@@ -194,7 +197,10 @@ impl ARM64JITCompiler {
             self.generate_arm64_code(instructions)?
         };
 
-        // std::fs::write("jit.bin", &machine_code)?;
+        // Write machine code to specified output file if configured
+        if let Some(ref output_file) = self.jit_compile_output {
+            std::fs::write(output_file, &machine_code)?;
+        }
 
         let offset = self.executable_memory.write_bytes(&machine_code)?;
         self.executable_memory.make_executable()?;
@@ -490,6 +496,11 @@ impl ARM64JITCompiler {
     /// Set JIT compilation threshold
     pub fn set_jit_threshold(&mut self, threshold: u64) {
         self.jit_threshold = threshold;
+    }
+
+    /// Set JIT compile output file
+    pub fn set_jit_compile_output(&mut self, output_file: Option<String>) {
+        self.jit_compile_output = output_file;
     }
 
     /// Get compilation statistics
