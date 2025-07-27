@@ -389,7 +389,7 @@ impl CodeGenerator {
         // Call main
         self.instructions
             .push(Instruction::Call("main".to_string()));
-        
+
         // After main returns, the return value is on stack top
         // The program should exit with this value
         self.instructions.push(Instruction::Ret);
@@ -448,7 +448,7 @@ impl CodeGenerator {
             // For main function, push -1 as return address to signal exit
             // Then push return value on top
             self.instructions.push(Instruction::Push(-1)); // return address for exit
-            // Return value is already on stack, so Ret will use it as exit value
+                                                           // Return value is already on stack, so Ret will use it as exit value
             self.instructions.push(Instruction::Ret);
         } else {
             // Stack layout: [return_value_slot] [args...] [return_addr] [old_bp] <- BP

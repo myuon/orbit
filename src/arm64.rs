@@ -223,6 +223,13 @@ impl ARM64CodeGen {
         self.emit(instruction);
     }
 
+    /// CMP immediate - Compare register with 12-bit immediate
+    pub fn cmp_imm(&mut self, src: Register, imm: u16) {
+        assert!(imm <= 0xFFF, "Immediate value must be 12-bit");
+        let instruction = 0xF100001F | ((imm as u32) << 10) | (src.as_u32() << 5);
+        self.emit(instruction);
+    }
+
     /// SUBS - Subtract and set flags: dst = src1 - src2
     pub fn subs(&mut self, src1: Register, src2: Register, dst: Register) {
         let instruction = 0xEB000000 | (src2.as_u32() << 16) | (src1.as_u32() << 5) | dst.as_u32();
@@ -336,6 +343,18 @@ impl ARM64CodeGen {
         let instruction = 0xB5000000 | (offset_bits << 5) | src.as_u32();
         self.emit(instruction);
         Ok(())
+    }
+
+    /// Get B instruction encoding for relative branch
+    pub fn get_b_instr(offset: i32) -> u32 {
+        let offset_bits = (offset as u32) & 0x3FFFFFF;
+        0x14000000 | offset_bits
+    }
+
+    /// Get CBZ offset encoding for conditional branch if zero
+    pub fn get_cbz_offset(offset: i32) -> u32 {
+        let offset_bits = (offset as u32) & 0x7FFFF;
+        offset_bits << 5
     }
 
     // === Special/Convenience Methods ===

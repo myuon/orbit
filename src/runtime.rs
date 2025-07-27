@@ -773,8 +773,9 @@ impl VM {
 
                 if let Some(addr) = target_addr {
                     // Handle JIT compilation - first increment call count and check if we should compile
-                    let should_jit_compile = if self.jit_compiler.is_some() 
-                        && !self.jit_failed_functions.contains(&addr) {
+                    let should_jit_compile = if self.jit_compiler.is_some()
+                        && !self.jit_failed_functions.contains(&addr)
+                    {
                         let count = self.function_call_counts.entry(addr).or_insert(0);
                         *count += 1;
 
@@ -928,8 +929,9 @@ impl VM {
                 self.profiler.record_function_call(call_name);
 
                 // Handle JIT compilation - first increment call count and check if we should compile
-                let should_jit_compile = if self.jit_compiler.is_some() 
-                    && !self.jit_failed_functions.contains(&new_pc) {
+                let should_jit_compile = if self.jit_compiler.is_some()
+                    && !self.jit_failed_functions.contains(&new_pc)
+                {
                     let count = self.function_call_counts.entry(new_pc).or_insert(0);
                     *count += 1;
 
@@ -1950,17 +1952,17 @@ mod tests {
     #[test]
     fn test_jit_failed_compilation_tracking() {
         let mut vm = VM::new();
-        
+
         // Initially no failed functions
         assert!(vm.jit_failed_functions.is_empty());
-        
+
         // Simulate adding a failed function
         vm.jit_failed_functions.insert(100);
-        
+
         // Check that the function is marked as failed
         assert!(vm.jit_failed_functions.contains(&100));
         assert_eq!(vm.jit_failed_functions.len(), 1);
-        
+
         // Other functions should not be affected
         assert!(!vm.jit_failed_functions.contains(&200));
     }

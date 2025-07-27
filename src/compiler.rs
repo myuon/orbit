@@ -473,7 +473,10 @@ impl Compiler {
                     // Check if this function should be JIT compiled
                     if self.options.jit_compile_functions.contains(label_name) {
                         jit_function_positions.insert(label_name.clone(), index);
-                        eprintln!("JIT: Marked function '{}' for compilation at address {}", label_name, index);
+                        eprintln!(
+                            "JIT: Marked function '{}' for compilation at address {}",
+                            label_name, index
+                        );
                     }
                 }
             }
@@ -519,13 +522,15 @@ impl Compiler {
         };
 
         // Set JIT function positions before execution
-        self.runtime.set_jit_compile_functions(jit_function_positions);
+        self.runtime
+            .set_jit_compile_functions(jit_function_positions);
 
         // Set JIT assembly printing option
         self.runtime.set_print_jit_asm(self.options.print_jit_asm);
 
         // Set JIT compile output file
-        self.runtime.set_jit_compile_output(self.options.jit_compile_output.clone());
+        self.runtime
+            .set_jit_compile_output(self.options.jit_compile_output.clone());
 
         let result = if self.options.print_stacks || self.options.print_stacks_on_call.is_some() {
             self.runtime

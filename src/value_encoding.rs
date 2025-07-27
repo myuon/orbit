@@ -1,7 +1,7 @@
 use crate::runtime::{HeapIndex, Value};
 
 /// Value encoding for JIT compilation
-/// 
+///
 /// Encoding scheme using 64-bit integers:
 /// - MSB (bit 63): 0 = numeric value, 1 = pointer
 /// - For numeric values (MSB = 0): remaining 63 bits store the value
@@ -9,7 +9,7 @@ use crate::runtime::{HeapIndex, Value};
 /// - For pointer values (MSB = 1):
 ///   - Bit 62: 0 = Address, 1 = HeapRef
 ///   - Remaining 62 bits store the address/index
-/// 
+///
 /// Examples:
 /// - Int(42) -> 0x000000000000002A (42)
 /// - Boolean(true) -> 0x0000000000000001 (1)
@@ -17,8 +17,8 @@ use crate::runtime::{HeapIndex, Value};
 /// - Address(0x1000) -> 0x8000000000001000 (MSB=1, bit 62=0, value=0x1000)
 /// - HeapRef(5) -> 0xC000000000000005 (MSB=1, bit 62=1, value=5)
 
-const POINTER_BIT: u64 = 1u64 << 63;  // MSB (bit 63)
-const HEAP_REF_BIT: u64 = 1u64 << 62;  // Bit 62
+const POINTER_BIT: u64 = 1u64 << 63; // MSB (bit 63)
+const HEAP_REF_BIT: u64 = 1u64 << 62; // Bit 62
 
 pub struct ValueEncoder;
 
@@ -151,7 +151,7 @@ mod tests {
         let original = Value::Int(42);
         let encoded = ValueEncoder::encode(&original);
         let decoded = ValueEncoder::decode(encoded);
-        
+
         assert_eq!(decoded, Value::Int(42));
         assert!(!ValueEncoder::is_pointer(encoded));
     }
@@ -161,7 +161,7 @@ mod tests {
         let original = Value::Boolean(true);
         let encoded = ValueEncoder::encode(&original);
         let decoded = ValueEncoder::decode(encoded);
-        
+
         // Boolean will be decoded as Int due to limitation
         assert_eq!(decoded, Value::Int(1));
         assert!(!ValueEncoder::is_pointer(encoded));
@@ -172,7 +172,7 @@ mod tests {
         let original = Value::Byte(255);
         let encoded = ValueEncoder::encode(&original);
         let decoded = ValueEncoder::decode(encoded);
-        
+
         // Byte will be decoded as Int due to limitation
         assert_eq!(decoded, Value::Int(255));
         assert!(!ValueEncoder::is_pointer(encoded));
@@ -183,7 +183,7 @@ mod tests {
         let original = Value::Address(0x1000);
         let encoded = ValueEncoder::encode(&original);
         let decoded = ValueEncoder::decode(encoded);
-        
+
         assert_eq!(decoded, Value::Address(0x1000));
         assert!(ValueEncoder::is_pointer(encoded));
         assert!(ValueEncoder::is_address(encoded));
@@ -195,7 +195,7 @@ mod tests {
         let original = Value::HeapRef(HeapIndex(42));
         let encoded = ValueEncoder::encode(&original);
         let decoded = ValueEncoder::decode(encoded);
-        
+
         assert_eq!(decoded, Value::HeapRef(HeapIndex(42)));
         assert!(ValueEncoder::is_pointer(encoded));
         assert!(!ValueEncoder::is_address(encoded));
@@ -207,7 +207,7 @@ mod tests {
         let original = Value::Int(-42);
         let encoded = ValueEncoder::encode(&original);
         let decoded = ValueEncoder::decode(encoded);
-        
+
         assert_eq!(decoded, Value::Int(-42));
         assert!(!ValueEncoder::is_pointer(encoded));
     }
@@ -219,7 +219,7 @@ mod tests {
         let original = Value::Int(max_i63);
         let encoded = ValueEncoder::encode(&original);
         let decoded = ValueEncoder::decode(encoded);
-        
+
         assert_eq!(decoded, Value::Int(max_i63));
     }
 
@@ -227,10 +227,10 @@ mod tests {
     fn test_utility_functions() {
         let int_encoded = ValueEncoder::encode_int(100);
         assert_eq!(ValueEncoder::get_numeric_value(int_encoded), 100);
-        
+
         let addr_encoded = ValueEncoder::encode_address(0x2000);
         assert_eq!(ValueEncoder::get_address(addr_encoded), 0x2000);
-        
+
         let heap_encoded = ValueEncoder::encode_heap_ref(15);
         assert_eq!(ValueEncoder::get_heap_index(heap_encoded), 15);
     }
@@ -240,13 +240,13 @@ mod tests {
         // Test specific bit patterns to ensure correct encoding
         let int_encoded = ValueEncoder::encode_int(0);
         assert_eq!(int_encoded, 0x0000000000000000);
-        
+
         let bool_true_encoded = ValueEncoder::encode_bool(true);
         assert_eq!(bool_true_encoded, 0x0000000000000001);
-        
+
         let addr_encoded = ValueEncoder::encode_address(1);
         assert_eq!(addr_encoded, 0x8000000000000001); // MSB=1, bit 62=0, value=1
-        
+
         let heap_encoded = ValueEncoder::encode_heap_ref(1);
         assert_eq!(heap_encoded, 0xC000000000000001); // MSB=1, bit 62=1, value=1
     }
