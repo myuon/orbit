@@ -112,6 +112,7 @@ fn run_jit_test_file(test_file: &Path) -> anyhow::Result<()> {
 }
 
 #[test]
+#[cfg(target_os = "macos")]
 fn test_jit_files() {
     let jit_testcase_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")

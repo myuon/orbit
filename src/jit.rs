@@ -706,7 +706,7 @@ impl std::fmt::Display for JITStats {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
 

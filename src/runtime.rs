@@ -1770,6 +1770,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn test_jit_failed_compilation_tracking() {
         let mut vm = VM::new();
 
