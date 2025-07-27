@@ -31,8 +31,8 @@ pub enum Instruction {
     Not,
 
     // Control flow
-    Jump(usize),
-    JumpIfZero(usize),
+    Jump(String),       // Jump to label
+    JumpIfZero(String), // Jump to label if zero
     JumpRel(i32),       // Jump by relative offset
     JumpIfZeroRel(i32), // Jump by relative offset if zero
 
@@ -99,8 +99,8 @@ impl fmt::Display for Instruction {
             Instruction::Gt => write!(f, "gt"),
             Instruction::Gte => write!(f, "gte"),
             Instruction::Not => write!(f, "not"),
-            Instruction::Jump(addr) => write!(f, "jump {}", addr),
-            Instruction::JumpIfZero(addr) => write!(f, "jump_if_zero {}", addr),
+            Instruction::Jump(label) => write!(f, "jump {}", label),
+            Instruction::JumpIfZero(label) => write!(f, "jump_if_zero {}", label),
             Instruction::JumpRel(offset) => write!(f, "jump_rel {}", offset),
             Instruction::JumpIfZeroRel(offset) => write!(f, "jump_if_zero_rel {}", offset),
             Instruction::GetLocal(offset) => write!(f, "get_local {}", offset),

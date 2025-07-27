@@ -242,34 +242,31 @@ impl ARM64JITCompiler {
         let mut gen = ARM64CodeGen::new();
         let mut jump_sources: HashMap<usize, usize> = HashMap::new();
         let mut jump_targets: HashMap<usize, usize> = HashMap::new();
+        let mut call_sources: HashMap<usize, usize> = HashMap::new();
+        let mut call_targets: HashMap<usize, usize> = HashMap::new();
 
-        // First pass: identify jump sources and targets
+        // First pass: identify jump/call sources and targets
         for (source_idx, instruction) in instructions.iter().enumerate() {
             match instruction {
-                Instruction::Jump(target) => {
-                    let vm_addr = start_addr + source_idx;
-                    eprintln!(
-                        "DEBUG: Jump at VM addr {} (array idx {}) -> target {}",
-                        vm_addr, source_idx, target
-                    );
-                    jump_sources.insert(vm_addr, usize::MAX);
-                    jump_targets.insert(*target, usize::MAX);
+                Instruction::Jump(_label) => {
+                    panic!("Jump with label should have been resolved to JumpRel before JIT compilation");
                 }
-                Instruction::JumpIfZero(target) => {
+                Instruction::JumpIfZero(_label) => {
+                    panic!("JumpIfZero with label should have been resolved to JumpIfZeroRel before JIT compilation");
+                }
+                Instruction::CallRel(offset) => {
                     let vm_addr = start_addr + source_idx;
+                    let target_addr = (vm_addr as i32 + offset) as usize;
                     eprintln!(
-                        "DEBUG: JumpIfZero at VM addr {} (array idx {}) -> target {}",
-                        vm_addr, source_idx, target
+                        "DEBUG: CallRel at VM addr {} (array idx {}) -> target {}",
+                        vm_addr, source_idx, target_addr
                     );
-                    jump_sources.insert(vm_addr, usize::MAX);
-                    jump_targets.insert(*target, usize::MAX);
+                    call_sources.insert(vm_addr, usize::MAX);
+                    call_targets.insert(target_addr, usize::MAX);
                 }
                 _ => {}
             }
         }
-
-        // Function prologue
-        gen.function_prologue();
 
         // JIT context register assignments (matching Zig implementation):
         const REG_C_STACK: Register = Register::X0;
@@ -324,9 +321,12 @@ impl ARM64JITCompiler {
             Ok(())
         };
 
-        // Second pass: generate code and record jump target positions
+        // Second pass: generate code and record jump/call target positions
         for (instruction_idx, instruction) in instructions.iter().enumerate() {
             let vm_addr = start_addr + instruction_idx;
+            if instruction_idx == 0 {
+                gen.function_prologue();
+            }
             // Record jump target positions
             if jump_targets.contains_key(&vm_addr) {
                 eprintln!(
@@ -337,6 +337,17 @@ impl ARM64JITCompiler {
                 );
                 jump_targets.insert(vm_addr, gen.position());
             }
+            // Record call target positions
+            if call_targets.contains_key(&vm_addr) {
+                eprintln!(
+                    "DEBUG: Recording call target at VM addr {} (array idx {}) -> position {}",
+                    vm_addr,
+                    instruction_idx,
+                    gen.position()
+                );
+                call_targets.insert(vm_addr, gen.position());
+            }
+
             match instruction {
                 Instruction::Push(value) => {
                     if *value >= 0 {
@@ -537,20 +548,23 @@ impl ARM64JITCompiler {
                     gen.ret();
                 }
 
-                Instruction::Jump(_target_addr) => {
-                    // Emit placeholder for unconditional branch
-                    gen.emit(0x0);
-                    jump_sources.insert(vm_addr, gen.position() - 1);
+                Instruction::Jump(_label) => {
+                    return Err(anyhow::anyhow!("Jump with label should have been resolved to JumpRel before JIT compilation"));
                 }
 
-                Instruction::JumpIfZero(_target_addr) => {
-                    // Conditional jump: if stack top == 0, branch
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // Pop condition value
+                Instruction::JumpIfZero(_label) => {
+                    return Err(anyhow::anyhow!("JumpIfZero with label should have been resolved to JumpIfZeroRel before JIT compilation"));
+                }
 
-                    // Emit CBZ instruction with placeholder offset
-                    let cbz_instruction = 0xB4000000 | REG_TEMP1.as_u32();
-                    gen.emit(cbz_instruction);
-                    jump_sources.insert(vm_addr, gen.position() - 1);
+                Instruction::CallRel(_offset) => {
+                    // Function call: push current PC as return address and branch
+                    // Push current PC + 1 as return address
+                    // gen.mov_imm(REG_TEMP1, (vm_addr + 1) as u16);
+                    // push_to_stack(&mut gen, REG_TEMP1)?;
+
+                    // Emit placeholder for branch instruction
+                    gen.emit(0x0);
+                    call_sources.insert(vm_addr, gen.position() - 1);
                 }
 
                 Instruction::Nop => {
@@ -572,44 +586,27 @@ impl ARM64JITCompiler {
         for (instruction_idx, instruction) in instructions.iter().enumerate() {
             let vm_addr = start_addr + instruction_idx;
             match instruction {
-                Instruction::Jump(target) => {
-                    let source_addr = jump_sources
-                        .get(&vm_addr)
-                        .copied()
-                        .ok_or_else(|| anyhow::anyhow!("Jump source not found"))?;
-                    let target_addr = jump_targets
-                        .get(target)
-                        .copied()
-                        .ok_or_else(|| anyhow::anyhow!("Jump target not found"))?;
-                    assert!(target_addr != usize::MAX, "Jump target not set");
-
-                    let offset = target_addr as i32 - source_addr as i32;
-                    let b_instruction = ARM64CodeGen::get_b_instr(offset);
-                    gen.patch(source_addr, b_instruction);
+                Instruction::Jump(_label) => {
+                    // Should not reach here after label resolution
                 }
-                Instruction::JumpIfZero(target) => {
-                    let source_addr = jump_sources
+                Instruction::JumpIfZero(_label) => {
+                    // Should not reach here after label resolution
+                }
+                Instruction::CallRel(offset) => {
+                    let source_addr = call_sources
                         .get(&vm_addr)
                         .copied()
-                        .ok_or_else(|| anyhow::anyhow!("JumpIfZero source not found"))?;
-                    let target_addr = jump_targets
-                        .get(target)
+                        .ok_or_else(|| anyhow::anyhow!("CallRel source not found"))?;
+                    let target_addr_calc = (vm_addr as i32 + offset) as usize;
+                    let target_addr = call_targets
+                        .get(&target_addr_calc)
                         .copied()
-                        .ok_or_else(|| anyhow::anyhow!("JumpIfZero target not found"))?;
-                    assert!(target_addr != usize::MAX, "JumpIfZero target not set");
+                        .ok_or_else(|| anyhow::anyhow!("CallRel target not found"))?;
+                    assert!(target_addr != usize::MAX, "CallRel target not set");
 
-                    let offset = target_addr as i32 - source_addr as i32;
-                    let cbz_offset = ARM64CodeGen::get_cbz_offset(offset);
-
-                    // Get existing CBZ instruction and add offset
-                    let existing_instruction = gen.code[source_addr];
-                    assert_eq!(
-                        existing_instruction & 0xFF000000,
-                        0xB4000000,
-                        "Expected CBZ instruction"
-                    );
-                    let patched_instruction = existing_instruction | cbz_offset;
-                    gen.patch(source_addr, patched_instruction);
+                    let branch_offset = target_addr as i32 - source_addr as i32;
+                    let b_instruction = ARM64CodeGen::get_b_instr(branch_offset);
+                    gen.patch(source_addr, b_instruction);
                 }
                 _ => {}
             }
@@ -767,24 +764,24 @@ mod tests {
     }
 
     #[test]
-    fn test_jump_instruction_compilation() {
+    fn test_jump_rel_instruction_compilation() {
         use crate::vm::Instruction;
 
         let mut compiler = ARM64JITCompiler::new().unwrap();
 
-        // Test unconditional jump
+        // Test unconditional jump (using JumpRel which is what should be generated after label resolution)
         let instructions = vec![
             Instruction::Push(1),
-            Instruction::Jump(403), // Jump to instruction at VM address 403
-            Instruction::Push(2),   // Should be skipped
-            Instruction::Push(3),   // Target of jump
+            Instruction::JumpRel(2), // Jump 2 instructions forward (skip Push(2))
+            Instruction::Push(2),    // Should be skipped
+            Instruction::Push(3),    // Target of jump
         ];
 
         // Should successfully compile without errors
         let result = compiler.compile_function(0x400, &instructions, false);
         assert!(
             result.is_ok(),
-            "Failed to compile Jump instruction: {:?}",
+            "Failed to compile JumpRel instruction: {:?}",
             result.err()
         );
 
@@ -793,24 +790,24 @@ mod tests {
     }
 
     #[test]
-    fn test_jump_if_zero_instruction_compilation() {
+    fn test_jump_if_zero_rel_instruction_compilation() {
         use crate::vm::Instruction;
 
         let mut compiler = ARM64JITCompiler::new().unwrap();
 
-        // Test conditional jump
+        // Test conditional jump (using JumpIfZeroRel which is what should be generated after label resolution)
         let instructions = vec![
-            Instruction::Push(0),         // Push zero
-            Instruction::JumpIfZero(502), // Jump to instruction at VM address 502
-            Instruction::Push(2),         // Should be skipped since condition is true
-            Instruction::Push(3),         // Target of jump
+            Instruction::Push(0),          // Push zero
+            Instruction::JumpIfZeroRel(2), // Jump 2 instructions forward if zero (skip Push(2))
+            Instruction::Push(2),          // Should be skipped since condition is true
+            Instruction::Push(3),          // Target of jump
         ];
 
         // Should successfully compile without errors
         let result = compiler.compile_function(0x500, &instructions, false);
         assert!(
             result.is_ok(),
-            "Failed to compile JumpIfZero instruction: {:?}",
+            "Failed to compile JumpIfZeroRel instruction: {:?}",
             result.err()
         );
 
@@ -937,5 +934,57 @@ mod tests {
 
         // Should have a compiled function
         assert!(compiler.get_compiled_function(0x1000).is_some());
+    }
+
+    #[test]
+    fn test_call_rel_instruction_compilation() {
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test CallRel instruction with simple relative call
+        let instructions = vec![
+            Instruction::Push(42),   // Push some value
+            Instruction::CallRel(2), // Call function at relative offset +2 (instruction at index 3)
+            Instruction::Ret,        // Return from main function
+            Instruction::Push(100),  // Target function starts here
+            Instruction::Ret,        // Return from called function
+        ];
+
+        // Should successfully compile without errors
+        let result = compiler.compile_function(0x1100, &instructions, false);
+        assert!(
+            result.is_ok(),
+            "Failed to compile CallRel instruction: {:?}",
+            result.err()
+        );
+
+        // Should have a compiled function
+        assert!(compiler.get_compiled_function(0x1100).is_some());
+    }
+
+    #[test]
+    fn test_call_rel_recursive_function() {
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test recursive function call (calls itself) - simplified version
+        let instructions = vec![
+            Instruction::Push(5),    // 0: Push initial value
+            Instruction::CallRel(1), // 1: Call function at offset +1 (instruction 2)
+            Instruction::Ret,        // 2: Return value (target of call)
+        ];
+
+        // Should successfully compile without errors
+        let result = compiler.compile_function(0x1200, &instructions, false);
+        assert!(
+            result.is_ok(),
+            "Failed to compile recursive CallRel: {:?}",
+            result.err()
+        );
+
+        // Should have a compiled function
+        assert!(compiler.get_compiled_function(0x1200).is_some());
     }
 }

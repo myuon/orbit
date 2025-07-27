@@ -58,6 +58,11 @@ impl CodeGenerator {
     //   HeapAlloc(field_count) -> struct_ptr
     //   Initialize each field: HeapSetOffset(struct_ptr, offset, value)
 
+    /// Generate a unique label for control flow constructs
+    fn generate_label(&self, prefix: &str) -> String {
+        format!("{}_{}", prefix, nanoid::nanoid!(8))
+    }
+
     /// Generate instantiated name from a Type (similar to MonomorphizationTarget::instantiated_name)
     fn type_to_instantiated_name(&self, typ: &Type) -> String {
         match typ {
@@ -502,14 +507,17 @@ impl CodeGenerator {
                 //   jump loop_start
                 // loop_end:
 
-                let loop_start = self.instructions.len();
+                let loop_start_label = self.generate_label("loop_start");
+                let loop_end_label = self.generate_label("loop_end");
+
+                // Add loop start label
+                self.instructions.push(Instruction::Label(loop_start_label.clone()));
 
                 // Compile condition
                 self.compile_expression(condition);
 
                 // Jump to end if condition is false
-                let jump_to_end = self.instructions.len();
-                self.instructions.push(Instruction::JumpIfZero(0)); // Placeholder
+                self.instructions.push(Instruction::JumpIfZero(loop_end_label.clone()));
 
                 // Compile body
                 for stmt in body {
@@ -517,11 +525,10 @@ impl CodeGenerator {
                 }
 
                 // Jump back to start
-                self.instructions.push(Instruction::Jump(loop_start));
+                self.instructions.push(Instruction::Jump(loop_start_label));
 
-                // Set the jump target for the end
-                let loop_end = self.instructions.len();
-                self.instructions[jump_to_end] = Instruction::JumpIfZero(loop_end);
+                // Add loop end label
+                self.instructions.push(Instruction::Label(loop_end_label));
             }
 
             Stmt::If {
@@ -538,12 +545,14 @@ impl CodeGenerator {
                 //   else_branch (if exists)
                 // end:
 
+                let else_label = self.generate_label("else");
+                let end_label = self.generate_label("endif");
+
                 // Compile condition
                 self.compile_expression(condition);
 
                 // Jump to else if condition is false
-                let jump_to_else = self.instructions.len();
-                self.instructions.push(Instruction::JumpIfZero(0)); // Placeholder
+                self.instructions.push(Instruction::JumpIfZero(else_label.clone()));
 
                 // Compile then branch
                 for stmt in then_branch {
@@ -551,12 +560,10 @@ impl CodeGenerator {
                 }
 
                 // Jump to end (skip else branch)
-                let jump_to_end = self.instructions.len();
-                self.instructions.push(Instruction::Jump(0)); // Placeholder
+                self.instructions.push(Instruction::Jump(end_label.clone()));
 
-                // Set jump target for else branch
-                let else_start = self.instructions.len();
-                self.instructions[jump_to_else] = Instruction::JumpIfZero(else_start);
+                // Add else label
+                self.instructions.push(Instruction::Label(else_label));
 
                 // Compile else branch if it exists
                 if let Some(else_branch) = else_branch {
@@ -565,9 +572,8 @@ impl CodeGenerator {
                     }
                 }
 
-                // Set jump target for end
-                let end = self.instructions.len();
-                self.instructions[jump_to_end] = Instruction::Jump(end);
+                // Add end label
+                self.instructions.push(Instruction::Label(end_label));
             }
 
             Stmt::VectorPush { .. } => {
@@ -1094,14 +1100,20 @@ mod tests {
 
     #[test]
     fn test_jump_operations() {
-        let mut vm = VM::new();
-        vm.load_program(vec![
+        use crate::label_resolution::LabelResolver;
+        let mut resolver = LabelResolver::new();
+        let instructions = vec![
             Instruction::Push(0),
-            Instruction::JumpIfZero(4), // Jump to instruction 4 (Push(99))
+            Instruction::JumpIfZero("target".to_string()), // Jump to target label
             Instruction::Push(1),       // This should be skipped
             Instruction::Add,           // This should be skipped
+            Instruction::Label("target".to_string()),
             Instruction::Push(99),      // Jump target
-        ]);
+        ];
+        let resolved_instructions = resolver.resolve_labels(instructions).unwrap();
+        
+        let mut vm = VM::new();
+        vm.load_program(resolved_instructions);
         let result = vm.execute().unwrap();
         assert_eq!(result, 99);
     }

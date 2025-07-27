@@ -601,36 +601,12 @@ impl VM {
                 }
             }
 
-            Instruction::Jump(addr) => {
-                self.pc = addr;
-
-                // Print debug visualization (heap and/or stack) if enabled
-                self.print_debug_visualization(pc_before_execution, &instruction);
-
-                return Ok(ControlFlow::Continue);
+            Instruction::Jump(_label) => {
+                return Err("Jump with label should have been resolved to JumpRel before execution".to_string());
             }
 
-            Instruction::JumpIfZero(addr) => {
-                if self.is_stack_empty() {
-                    return Err("Stack underflow for JumpIfZero".to_string());
-                }
-                let value = self.pop_value()?;
-                let should_jump = match value {
-                    Value::Int(n) => n == 0,
-                    Value::Boolean(b) => !b,
-                    Value::Byte(b) => b == 0,
-                    _ => false,
-                };
-                if should_jump {
-                    self.pc = addr;
-                } else {
-                    self.pc += 1;
-                }
-
-                // Print debug visualization (heap and/or stack) if enabled
-                self.print_debug_visualization(pc_before_execution, &instruction);
-
-                return Ok(ControlFlow::Continue);
+            Instruction::JumpIfZero(_label) => {
+                return Err("JumpIfZero with label should have been resolved to JumpIfZeroRel before execution".to_string());
             }
 
             Instruction::JumpRel(offset) => {
@@ -1527,8 +1503,9 @@ impl VM {
                 // Scan already collected instructions for jumps
                 for (idx, inst) in instructions.iter().enumerate() {
                     match inst {
-                        Instruction::Jump(target) | Instruction::JumpIfZero(target) => {
-                            max_target = max_target.max(*target);
+                        Instruction::JumpRel(offset) | Instruction::JumpIfZeroRel(offset) => {
+                            let target = (current_addr as i32 + offset) as usize;
+                            max_target = max_target.max(target);
                         }
                         _ => {}
                     }
