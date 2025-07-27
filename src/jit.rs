@@ -194,7 +194,7 @@ impl ARM64JITCompiler {
         let machine_code = if instructions.is_empty() {
             self.generate_arm64_stub()?
         } else {
-            self.generate_arm64_code(instructions)?
+            self.generate_arm64_code(start_addr, instructions)?
         };
 
         // Write machine code to specified output file if configured
@@ -234,8 +234,39 @@ impl ARM64JITCompiler {
     }
 
     /// Generate ARM64 machine code for VM instructions
-    fn generate_arm64_code(&self, instructions: &[Instruction]) -> Result<Vec<u8>> {
+    fn generate_arm64_code(
+        &self,
+        start_addr: usize,
+        instructions: &[Instruction],
+    ) -> Result<Vec<u8>> {
         let mut gen = ARM64CodeGen::new();
+        let mut jump_sources: HashMap<usize, usize> = HashMap::new();
+        let mut jump_targets: HashMap<usize, usize> = HashMap::new();
+
+        // First pass: identify jump sources and targets
+        for (source_idx, instruction) in instructions.iter().enumerate() {
+            match instruction {
+                Instruction::Jump(target) => {
+                    let vm_addr = start_addr + source_idx;
+                    eprintln!(
+                        "DEBUG: Jump at VM addr {} (array idx {}) -> target {}",
+                        vm_addr, source_idx, target
+                    );
+                    jump_sources.insert(vm_addr, usize::MAX);
+                    jump_targets.insert(*target, usize::MAX);
+                }
+                Instruction::JumpIfZero(target) => {
+                    let vm_addr = start_addr + source_idx;
+                    eprintln!(
+                        "DEBUG: JumpIfZero at VM addr {} (array idx {}) -> target {}",
+                        vm_addr, source_idx, target
+                    );
+                    jump_sources.insert(vm_addr, usize::MAX);
+                    jump_targets.insert(*target, usize::MAX);
+                }
+                _ => {}
+            }
+        }
 
         // Function prologue
         gen.function_prologue();
@@ -293,8 +324,19 @@ impl ARM64JITCompiler {
             Ok(())
         };
 
-        // Process each instruction
-        for instruction in instructions {
+        // Second pass: generate code and record jump target positions
+        for (instruction_idx, instruction) in instructions.iter().enumerate() {
+            let vm_addr = start_addr + instruction_idx;
+            // Record jump target positions
+            if jump_targets.contains_key(&vm_addr) {
+                eprintln!(
+                    "DEBUG: Recording jump target at VM addr {} (array idx {}) -> position {}",
+                    vm_addr,
+                    instruction_idx,
+                    gen.position()
+                );
+                jump_targets.insert(vm_addr, gen.position());
+            }
             match instruction {
                 Instruction::Push(value) => {
                     if *value >= 0 {
@@ -303,6 +345,11 @@ impl ARM64JITCompiler {
                         // For negative values, use MOVN with (abs(value) - 1)
                         gen.movn_imm(REG_TEMP1, (value.abs() - 1) as u16);
                     }
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::PushAddress(addr) => {
+                    gen.mov_imm(REG_TEMP1, *addr as u16);
                     push_to_stack(&mut gen, REG_TEMP1)?;
                 }
 
@@ -344,6 +391,20 @@ impl ARM64JITCompiler {
                     pop_from_stack(&mut gen, REG_TEMP2)?; // a
                     gen.sdiv(REG_TEMP2, REG_TEMP1, REG_TEMP3); // a / b
                     gen.msub(REG_TEMP3, REG_TEMP1, REG_TEMP2, REG_TEMP1); // a - (a/b) * b
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::AddressAdd => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // b (offset)
+                    pop_from_stack(&mut gen, REG_TEMP2)?; // a (address/heapref)
+                    gen.add_reg(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a + b
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::AddressSub => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // b (offset)
+                    pop_from_stack(&mut gen, REG_TEMP2)?; // a (address/heapref)
+                    gen.sub_reg(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a - b
                     push_to_stack(&mut gen, REG_TEMP1)?;
                 }
 
@@ -407,6 +468,16 @@ impl ARM64JITCompiler {
                     gen.str(REG_TEMP1, REG_C_BP, 0); // Store to *REG_C_BP
                 }
 
+                Instruction::GetPC => {
+                    gen.ldr(REG_C_PC, 0, REG_TEMP1); // Load *REG_C_PC
+                    push_to_stack(&mut gen, REG_TEMP1)?;
+                }
+
+                Instruction::SetPC => {
+                    pop_from_stack(&mut gen, REG_TEMP1)?;
+                    gen.str(REG_TEMP1, REG_C_PC, 0); // Store to *REG_C_PC
+                }
+
                 Instruction::GetLocal(offset) => {
                     // Load BP: *REG_C_BP
                     gen.ldr(REG_C_BP, 0, REG_TEMP2);
@@ -466,6 +537,22 @@ impl ARM64JITCompiler {
                     gen.ret();
                 }
 
+                Instruction::Jump(_target_addr) => {
+                    // Emit placeholder for unconditional branch
+                    gen.emit(0x0);
+                    jump_sources.insert(vm_addr, gen.position() - 1);
+                }
+
+                Instruction::JumpIfZero(_target_addr) => {
+                    // Conditional jump: if stack top == 0, branch
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // Pop condition value
+
+                    // Emit CBZ instruction with placeholder offset
+                    let cbz_instruction = 0xB4000000 | REG_TEMP1.as_u32();
+                    gen.emit(cbz_instruction);
+                    jump_sources.insert(vm_addr, gen.position() - 1);
+                }
+
                 Instruction::Nop => {
                     // No operation - just continue
                     continue;
@@ -478,6 +565,53 @@ impl ARM64JITCompiler {
                         instruction
                     ));
                 }
+            }
+        }
+
+        // Third pass: patch jump instructions with correct offsets
+        for (instruction_idx, instruction) in instructions.iter().enumerate() {
+            let vm_addr = start_addr + instruction_idx;
+            match instruction {
+                Instruction::Jump(target) => {
+                    let source_addr = jump_sources
+                        .get(&vm_addr)
+                        .copied()
+                        .ok_or_else(|| anyhow::anyhow!("Jump source not found"))?;
+                    let target_addr = jump_targets
+                        .get(target)
+                        .copied()
+                        .ok_or_else(|| anyhow::anyhow!("Jump target not found"))?;
+                    assert!(target_addr != usize::MAX, "Jump target not set");
+
+                    let offset = target_addr as i32 - source_addr as i32;
+                    let b_instruction = ARM64CodeGen::get_b_instr(offset);
+                    gen.patch(source_addr, b_instruction);
+                }
+                Instruction::JumpIfZero(target) => {
+                    let source_addr = jump_sources
+                        .get(&vm_addr)
+                        .copied()
+                        .ok_or_else(|| anyhow::anyhow!("JumpIfZero source not found"))?;
+                    let target_addr = jump_targets
+                        .get(target)
+                        .copied()
+                        .ok_or_else(|| anyhow::anyhow!("JumpIfZero target not found"))?;
+                    assert!(target_addr != usize::MAX, "JumpIfZero target not set");
+
+                    let offset = target_addr as i32 - source_addr as i32;
+                    let cbz_offset = ARM64CodeGen::get_cbz_offset(offset);
+
+                    // Get existing CBZ instruction and add offset
+                    let existing_instruction = gen.code[source_addr];
+                    assert_eq!(
+                        existing_instruction & 0xFF000000,
+                        0xB4000000,
+                        "Expected CBZ instruction"
+                    );
+                    let patched_instruction = existing_instruction | cbz_offset;
+                    gen.patch(source_addr, patched_instruction);
+                }
+                _ => {}
             }
         }
 
@@ -630,5 +764,178 @@ mod tests {
 
         // Should have a compiled function
         assert!(compiler.get_compiled_function(0x300).is_some());
+    }
+
+    #[test]
+    fn test_jump_instruction_compilation() {
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test unconditional jump
+        let instructions = vec![
+            Instruction::Push(1),
+            Instruction::Jump(403), // Jump to instruction at VM address 403
+            Instruction::Push(2),   // Should be skipped
+            Instruction::Push(3),   // Target of jump
+        ];
+
+        // Should successfully compile without errors
+        let result = compiler.compile_function(0x400, &instructions, false);
+        assert!(
+            result.is_ok(),
+            "Failed to compile Jump instruction: {:?}",
+            result.err()
+        );
+
+        // Should have a compiled function
+        assert!(compiler.get_compiled_function(0x400).is_some());
+    }
+
+    #[test]
+    fn test_jump_if_zero_instruction_compilation() {
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test conditional jump
+        let instructions = vec![
+            Instruction::Push(0),         // Push zero
+            Instruction::JumpIfZero(502), // Jump to instruction at VM address 502
+            Instruction::Push(2),         // Should be skipped since condition is true
+            Instruction::Push(3),         // Target of jump
+        ];
+
+        // Should successfully compile without errors
+        let result = compiler.compile_function(0x500, &instructions, false);
+        assert!(
+            result.is_ok(),
+            "Failed to compile JumpIfZero instruction: {:?}",
+            result.err()
+        );
+
+        // Should have a compiled function
+        assert!(compiler.get_compiled_function(0x500).is_some());
+    }
+
+    #[test]
+    fn test_get_pc_instruction_compilation() {
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test GetPC instruction
+        let instructions = vec![
+            Instruction::GetPC, // Get current PC
+            Instruction::Ret,   // Return
+        ];
+
+        // Should successfully compile without errors
+        let result = compiler.compile_function(0x600, &instructions, false);
+        assert!(
+            result.is_ok(),
+            "Failed to compile GetPC instruction: {:?}",
+            result.err()
+        );
+
+        // Should have a compiled function
+        assert!(compiler.get_compiled_function(0x600).is_some());
+    }
+
+    #[test]
+    fn test_set_pc_instruction_compilation() {
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test SetPC instruction
+        let instructions = vec![
+            Instruction::Push(0x1000), // Push address
+            Instruction::SetPC,        // Set PC to address
+            Instruction::Ret,          // Return
+        ];
+
+        // Should successfully compile without errors
+        let result = compiler.compile_function(0x700, &instructions, false);
+        assert!(
+            result.is_ok(),
+            "Failed to compile SetPC instruction: {:?}",
+            result.err()
+        );
+
+        // Should have a compiled function
+        assert!(compiler.get_compiled_function(0x700).is_some());
+    }
+
+    #[test]
+    fn test_unsupported_instruction_failure() {
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test that unsupported instructions fail compilation
+        let instructions = vec![
+            Instruction::Push(10),
+            Instruction::Syscall, // This is unsupported and should fail
+        ];
+
+        // Should fail for unsupported instructions
+        let result = compiler.compile_function(0x800, &instructions, false);
+        assert!(result.is_err(), "Should fail for unsupported instructions");
+
+        // Should not have a compiled function
+        assert!(compiler.get_compiled_function(0x800).is_none());
+    }
+
+    #[test]
+    fn test_address_add_instruction_compilation() {
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test AddressAdd instruction
+        let instructions = vec![
+            Instruction::PushAddress(1000), // Push base address
+            Instruction::Push(5),           // Push offset
+            Instruction::AddressAdd,        // Add offset to address
+            Instruction::Ret,               // Return
+        ];
+
+        // Should successfully compile without errors
+        let result = compiler.compile_function(0x900, &instructions, false);
+        assert!(
+            result.is_ok(),
+            "Failed to compile AddressAdd instruction: {:?}",
+            result.err()
+        );
+
+        // Should have a compiled function
+        assert!(compiler.get_compiled_function(0x900).is_some());
+    }
+
+    #[test]
+    fn test_address_sub_instruction_compilation() {
+        use crate::vm::Instruction;
+
+        let mut compiler = ARM64JITCompiler::new().unwrap();
+
+        // Test AddressSub instruction
+        let instructions = vec![
+            Instruction::PushAddress(1000), // Push base address
+            Instruction::Push(5),           // Push offset
+            Instruction::AddressSub,        // Subtract offset from address
+            Instruction::Ret,               // Return
+        ];
+
+        // Should successfully compile without errors
+        let result = compiler.compile_function(0x1000, &instructions, false);
+        assert!(
+            result.is_ok(),
+            "Failed to compile AddressSub instruction: {:?}",
+            result.err()
+        );
+
+        // Should have a compiled function
+        assert!(compiler.get_compiled_function(0x1000).is_some());
     }
 }

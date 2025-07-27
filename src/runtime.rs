@@ -66,6 +66,8 @@ pub struct VM {
     jit_function_addresses: HashMap<usize, String>,
     // Print JIT compiled assembly as hexdump
     print_jit_asm: bool,
+    // Set of function addresses that failed JIT compilation
+    jit_failed_functions: std::collections::HashSet<usize>,
 }
 
 impl VM {
@@ -101,6 +103,7 @@ impl VM {
             jit_compile_functions: HashMap::new(),
             jit_function_addresses: HashMap::new(),
             print_jit_asm: false,
+            jit_failed_functions: std::collections::HashSet::new(),
         }
     }
 
@@ -129,6 +132,7 @@ impl VM {
             jit_compile_functions: HashMap::new(),
             jit_function_addresses: HashMap::new(),
             print_jit_asm: false,
+            jit_failed_functions: std::collections::HashSet::new(),
         }
     }
 
@@ -769,7 +773,8 @@ impl VM {
 
                 if let Some(addr) = target_addr {
                     // Handle JIT compilation - first increment call count and check if we should compile
-                    let should_jit_compile = if self.jit_compiler.is_some() {
+                    let should_jit_compile = if self.jit_compiler.is_some() 
+                        && !self.jit_failed_functions.contains(&addr) {
                         let count = self.function_call_counts.entry(addr).or_insert(0);
                         *count += 1;
 
@@ -819,6 +824,8 @@ impl VM {
                                         "JIT: Failed to compile function '{}' at address {}: {}",
                                         func_name, addr, e
                                     );
+                                    // Mark this function as failed to prevent future compilation attempts
+                                    self.jit_failed_functions.insert(addr);
                                 }
                             }
                         }
@@ -921,7 +928,8 @@ impl VM {
                 self.profiler.record_function_call(call_name);
 
                 // Handle JIT compilation - first increment call count and check if we should compile
-                let should_jit_compile = if self.jit_compiler.is_some() {
+                let should_jit_compile = if self.jit_compiler.is_some() 
+                    && !self.jit_failed_functions.contains(&new_pc) {
                     let count = self.function_call_counts.entry(new_pc).or_insert(0);
                     *count += 1;
 
@@ -987,6 +995,8 @@ impl VM {
                                     "JIT: Failed to compile function '{}' at address {}: {}",
                                     func_name, new_pc, e
                                 );
+                                // Mark this function as failed to prevent future compilation attempts
+                                self.jit_failed_functions.insert(new_pc);
                             }
                         }
                     }
@@ -1498,7 +1508,7 @@ impl VM {
             .collect()
     }
 
-    /// Extract function instructions starting from the given address until Ret
+    /// Extract function instructions starting from the given address until function end
     fn extract_function_instructions(&self, start_addr: usize) -> Vec<Instruction> {
         let mut instructions = Vec::new();
         let mut current_addr = start_addr;
@@ -1507,9 +1517,25 @@ impl VM {
             let instruction = &self.program[current_addr];
             instructions.push(instruction.clone());
 
-            // Stop at Ret instruction
+            // Stop at Ret instruction, but continue if we encounter jumps that might go beyond
             if matches!(instruction, Instruction::Ret) {
-                break;
+                // Look ahead for any jumps that target beyond the current position
+                let mut max_target = current_addr;
+
+                // Scan already collected instructions for jumps
+                for (idx, inst) in instructions.iter().enumerate() {
+                    match inst {
+                        Instruction::Jump(target) | Instruction::JumpIfZero(target) => {
+                            max_target = max_target.max(*target);
+                        }
+                        _ => {}
+                    }
+                }
+
+                // If no jumps go beyond current position, we can safely end here
+                if max_target <= current_addr {
+                    break;
+                }
             }
 
             current_addr += 1;
@@ -1919,5 +1945,23 @@ mod tests {
         } else {
             panic!("Expected Int(100), got {:?}", stack[0]);
         }
+    }
+
+    #[test]
+    fn test_jit_failed_compilation_tracking() {
+        let mut vm = VM::new();
+        
+        // Initially no failed functions
+        assert!(vm.jit_failed_functions.is_empty());
+        
+        // Simulate adding a failed function
+        vm.jit_failed_functions.insert(100);
+        
+        // Check that the function is marked as failed
+        assert!(vm.jit_failed_functions.contains(&100));
+        assert_eq!(vm.jit_failed_functions.len(), 1);
+        
+        // Other functions should not be affected
+        assert!(!vm.jit_failed_functions.contains(&200));
     }
 }
