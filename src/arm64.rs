@@ -411,6 +411,64 @@ impl ARM64CodeGen {
         assert!(position < self.code.len(), "Invalid patch position");
         self.code[position] = instruction;
     }
+
+    // === JIT Stack Operations ===
+
+    /// Push value from register to VM stack
+    /// Arguments: src_reg (register containing value to push), stack_reg (C stack pointer), sp_reg (C SP pointer), temp_reg1, temp_reg2 (temporary registers)
+    pub fn push_to_stack(&mut self, src_reg: Register, stack_reg: Register, sp_reg: Register, temp_reg1: Register, temp_reg2: Register) {
+        // Load current SP: *sp_reg
+        self.ldr(sp_reg, 0, temp_reg1);
+
+        // Calculate stack address: stack_reg + (SP * 8)
+        self.mov_imm(temp_reg2, 8);
+        self.mul(temp_reg1, temp_reg2, temp_reg2);
+        self.add_reg(stack_reg, temp_reg2, temp_reg2);
+
+        // Store value to stack: [stack_reg + (SP * 8)] = src_reg
+        self.str(src_reg, temp_reg2, 0);
+
+        // Increment SP: *sp_reg += 1
+        self.add_imm(temp_reg1, 1, temp_reg1);
+        self.str(temp_reg1, sp_reg, 0);
+    }
+
+    /// Pop value from VM stack to register
+    /// Arguments: dst_reg (register to store popped value), stack_reg (C stack pointer), sp_reg (C SP pointer), temp_reg1, temp_reg2 (temporary registers)
+    pub fn pop_from_stack(&mut self, dst_reg: Register, stack_reg: Register, sp_reg: Register, temp_reg1: Register, temp_reg2: Register) {
+        // Load current SP: *sp_reg
+        self.ldr(sp_reg, 0, temp_reg1);
+
+        // Decrement SP: *sp_reg -= 1
+        self.sub_imm(temp_reg1, 1, temp_reg1);
+        self.str(temp_reg1, sp_reg, 0);
+
+        // Calculate stack address: stack_reg + (SP * 8)
+        self.mov_imm(temp_reg2, 8);
+        self.mul(temp_reg1, temp_reg2, temp_reg2);
+        self.add_reg(stack_reg, temp_reg2, temp_reg2);
+
+        // Load value from stack: dst_reg = [stack_reg + (SP * 8)]
+        self.ldr(temp_reg2, 0, dst_reg);
+    }
+
+    /// Set POINTER_BIT (1u64 << 63) for pointer encoding
+    /// Arguments: reg (register to modify), temp_reg (temporary register)
+    pub fn set_pointer_bit(&mut self, reg: Register, temp_reg: Register) {
+        // Set POINTER_BIT (1u64 << 63) to encode as pointer
+        self.mov_imm(temp_reg, 0x8000);
+        self.lsl_imm(temp_reg, temp_reg, 48); // Shift to bit 63 (0x8000 << 48 = 1u64 << 63)
+        self.add_reg(reg, temp_reg, reg); // reg += POINTER_BIT (same as |= since MSB is 0)
+    }
+
+    /// Clear POINTER_BIT (remove MSB) for address extraction
+    /// Arguments: reg (register to modify)
+    pub fn clear_pointer_bit(&mut self, reg: Register) {
+        // Clear POINTER_BIT (remove MSB) to get actual address
+        // Use LSL/LSR trick: shift left 1 bit, then right 1 bit
+        self.lsl_imm(reg, reg, 1); // Left shift by 1 (removes MSB)
+        self.lsr_imm(reg, reg, 1); // Right shift by 1 (restores position, MSB=0)
+    }
 }
 
 impl Default for ARM64CodeGen {

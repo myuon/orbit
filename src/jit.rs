@@ -281,45 +281,8 @@ impl ARM64JITCompiler {
         const REG_TEMP1: Register = Register::X9;
         const REG_TEMP2: Register = Register::X10;
         const REG_TEMP3: Register = Register::X11;
+        const REG_TEMP4: Register = Register::X12; // Additional temp register for complex operations
 
-        // Helper closures for common operations
-        let push_to_stack = |gen: &mut ARM64CodeGen, src_reg: Register| -> Result<()> {
-            // Load current SP: *REG_C_SP
-            gen.ldr(REG_C_SP, 0, REG_TEMP2);
-
-            // Calculate stack address: REG_C_STACK + (SP * 8)
-            gen.mov_imm(REG_TEMP3, 8);
-            gen.mul(REG_TEMP2, REG_TEMP3, REG_TEMP3);
-            gen.add_reg(REG_C_STACK, REG_TEMP3, REG_TEMP3);
-
-            // Store value to stack: [REG_C_STACK + (SP * 8)] = src_reg
-            gen.str(src_reg, REG_TEMP3, 0);
-
-            // Increment SP: *REG_C_SP += 1
-            gen.add_imm(REG_TEMP2, 1, REG_TEMP2);
-            gen.str(REG_TEMP2, REG_C_SP, 0);
-
-            Ok(())
-        };
-
-        let pop_from_stack = |gen: &mut ARM64CodeGen, dst_reg: Register| -> Result<()> {
-            // Load current SP: *REG_C_SP
-            gen.ldr(REG_C_SP, 0, REG_TEMP2);
-
-            // Decrement SP: *REG_C_SP -= 1
-            gen.sub_imm(REG_TEMP2, 1, REG_TEMP2);
-            gen.str(REG_TEMP2, REG_C_SP, 0);
-
-            // Calculate stack address: REG_C_STACK + (SP * 8)
-            gen.mov_imm(REG_TEMP3, 8);
-            gen.mul(REG_TEMP2, REG_TEMP3, REG_TEMP3);
-            gen.add_reg(REG_C_STACK, REG_TEMP3, REG_TEMP3);
-
-            // Load value from stack: dst_reg = [REG_C_STACK + (SP * 8)]
-            gen.ldr(REG_TEMP3, 0, dst_reg);
-
-            Ok(())
-        };
 
         // Second pass: generate code and record jump/call target positions
         for (instruction_idx, instruction) in instructions.iter().enumerate() {
@@ -356,136 +319,142 @@ impl ARM64JITCompiler {
                         // For negative values, use MOVN with (abs(value) - 1)
                         gen.movn_imm(REG_TEMP1, (value.abs() - 1) as u16);
                     }
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::PushAddress(addr) => {
                     gen.mov_imm(REG_TEMP1, *addr as u16);
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::Pop => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?;
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::Add => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
-                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // b
+                    gen.pop_from_stack(REG_TEMP2, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // a
                     gen.add_reg(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a + b
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::Sub => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
-                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // b
+                    gen.pop_from_stack(REG_TEMP2, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // a
                     gen.sub_reg(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a - b
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::Mul => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
-                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // b
+                    gen.pop_from_stack(REG_TEMP2, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // a
                     gen.mul(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a * b
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::Div => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
-                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // b
+                    gen.pop_from_stack(REG_TEMP2, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // a
                                                           // gen.emit(0xD4200000);
                     gen.sdiv(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a / b
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::Mod => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
-                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // b
+                    gen.pop_from_stack(REG_TEMP2, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // a
                     gen.sdiv(REG_TEMP2, REG_TEMP1, REG_TEMP3); // a / b
                     gen.msub(REG_TEMP3, REG_TEMP1, REG_TEMP2, REG_TEMP1); // a - (a/b) * b
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::AddressAdd => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // b (offset)
-                    pop_from_stack(&mut gen, REG_TEMP2)?; // a (address/heapref)
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // b (offset)
+                    gen.pop_from_stack(REG_TEMP2, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // a (address/heapref)
                     gen.add_reg(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a + b
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::AddressSub => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // b (offset)
-                    pop_from_stack(&mut gen, REG_TEMP2)?; // a (address/heapref)
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // b (offset)
+                    gen.pop_from_stack(REG_TEMP2, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // a (address/heapref)
                     gen.sub_reg(REG_TEMP2, REG_TEMP1, REG_TEMP1); // a - b
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::Eq => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
-                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // b
+                    gen.pop_from_stack(REG_TEMP2, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // a
                     gen.subs(REG_TEMP2, REG_TEMP1, REG_TEMP3); // a - b, set flags
                     gen.cset(REG_TEMP1, Condition::EQ); // REG_TEMP1 = (a == b) ? 1 : 0
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::Lt => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
-                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // b
+                    gen.pop_from_stack(REG_TEMP2, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // a
                     gen.cmp(REG_TEMP2, REG_TEMP1); // compare a, b
                     gen.cset(REG_TEMP1, Condition::LT); // REG_TEMP1 = (a < b) ? 1 : 0
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::Lte => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
-                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // b
+                    gen.pop_from_stack(REG_TEMP2, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // a
                     gen.cmp(REG_TEMP2, REG_TEMP1); // compare a, b
                     gen.cset(REG_TEMP1, Condition::LE); // REG_TEMP1 = (a <= b) ? 1 : 0
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::Gt => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
-                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // b
+                    gen.pop_from_stack(REG_TEMP2, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // a
                     gen.cmp(REG_TEMP2, REG_TEMP1); // compare a, b
                     gen.cset(REG_TEMP1, Condition::GT); // REG_TEMP1 = (a > b) ? 1 : 0
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::Gte => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // b
-                    pop_from_stack(&mut gen, REG_TEMP2)?; // a
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // b
+                    gen.pop_from_stack(REG_TEMP2, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP4); // a
                     gen.cmp(REG_TEMP2, REG_TEMP1); // compare a, b
                     gen.cset(REG_TEMP1, Condition::GE); // REG_TEMP1 = (a >= b) ? 1 : 0
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::GetSP => {
                     gen.ldr(REG_C_SP, 0, REG_TEMP1); // Load *REG_C_SP
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.set_pointer_bit(REG_TEMP1, REG_TEMP2); // Set POINTER_BIT to encode as pointer
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::SetSP => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?;
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
+                    gen.clear_pointer_bit(REG_TEMP1); // Clear POINTER_BIT to get actual address
                     gen.str(REG_TEMP1, REG_C_SP, 0); // Store to *REG_C_SP
                 }
 
                 Instruction::GetBP => {
                     gen.ldr(REG_C_BP, 0, REG_TEMP1); // Load *REG_C_BP
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.set_pointer_bit(REG_TEMP1, REG_TEMP2); // Set POINTER_BIT to encode as pointer
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::SetBP => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?;
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
+                    gen.clear_pointer_bit(REG_TEMP1); // Clear POINTER_BIT to get actual address
                     gen.str(REG_TEMP1, REG_C_BP, 0); // Store to *REG_C_BP
                 }
 
                 Instruction::GetPC => {
                     gen.ldr(REG_C_PC, 0, REG_TEMP1); // Load *REG_C_PC
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    gen.set_pointer_bit(REG_TEMP1, REG_TEMP2); // Set POINTER_BIT to encode as pointer
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
                 }
 
                 Instruction::SetPC => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?;
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3);
+                    gen.clear_pointer_bit(REG_TEMP1); // Clear POINTER_BIT to get actual address
                     gen.str(REG_TEMP1, REG_C_PC, 0); // Store to *REG_C_PC
                 }
 
@@ -510,11 +479,12 @@ impl ARM64JITCompiler {
 
                     // Load value from calculated address
                     gen.ldr(REG_TEMP3, 0, REG_TEMP1);
-                    push_to_stack(&mut gen, REG_TEMP1)?;
+                    // Use different temp registers to avoid conflicts (REG_TEMP3 holds address, use REG_TEMP2 for push temps)
+                    gen.push_to_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP3, REG_TEMP2);
                 }
 
                 Instruction::SetLocal(offset) => {
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // value to store
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3); // value to store
 
                     // Load BP: *REG_C_BP
                     gen.ldr(REG_C_BP, 0, REG_TEMP2);
@@ -540,7 +510,7 @@ impl ARM64JITCompiler {
 
                 Instruction::Ret => {
                     // Pop return address from stack and set as PC
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // Pop return address (ValueEncoded)
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3); // Pop return address (ValueEncoded)
 
                     // Remove the ValueEncoding bit (1u64 << 63) to get the actual address
                     // Use LSL/LSR trick to clear the MSB: shift left 1 bit, then right 1 bit
@@ -575,7 +545,7 @@ impl ARM64JITCompiler {
 
                 Instruction::JumpIfZeroRel(offset) => {
                     // Conditional relative jump: if stack top == 0, branch
-                    pop_from_stack(&mut gen, REG_TEMP1)?; // Pop condition value
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3); // Pop condition value
 
                     // Calculate target VM address
                     let target_vm_addr = (vm_addr as i32 + offset) as usize;
