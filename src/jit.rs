@@ -556,6 +556,31 @@ impl ARM64JITCompiler {
                     return Err(anyhow::anyhow!("JumpIfZero with label should have been resolved to JumpIfZeroRel before JIT compilation"));
                 }
 
+                Instruction::JumpRel(offset) => {
+                    // Unconditional relative jump
+                    // Calculate target VM address
+                    let target_vm_addr = (vm_addr as i32 + offset) as usize;
+                    
+                    // Emit placeholder for branch instruction
+                    gen.emit(0x0);
+                    jump_sources.insert(vm_addr, gen.position() - 1);
+                    jump_targets.insert(target_vm_addr, usize::MAX);
+                }
+
+                Instruction::JumpIfZeroRel(offset) => {
+                    // Conditional relative jump: if stack top == 0, branch
+                    pop_from_stack(&mut gen, REG_TEMP1)?; // Pop condition value
+                    
+                    // Calculate target VM address
+                    let target_vm_addr = (vm_addr as i32 + offset) as usize;
+
+                    // Emit CBZ instruction with placeholder offset
+                    let cbz_instruction = 0xB4000000 | REG_TEMP1.as_u32();
+                    gen.emit(cbz_instruction);
+                    jump_sources.insert(vm_addr, gen.position() - 1);
+                    jump_targets.insert(target_vm_addr, usize::MAX);
+                }
+
                 Instruction::CallRel(_offset) => {
                     // Function call: push current PC as return address and branch
                     // Push current PC + 1 as return address
@@ -592,6 +617,50 @@ impl ARM64JITCompiler {
                 Instruction::JumpIfZero(_label) => {
                     // Should not reach here after label resolution
                 }
+                
+                Instruction::JumpRel(offset) => {
+                    let source_addr = jump_sources
+                        .get(&vm_addr)
+                        .copied()
+                        .ok_or_else(|| anyhow::anyhow!("JumpRel source not found"))?;
+                    let target_vm_addr = (vm_addr as i32 + offset) as usize;
+                    let target_addr = jump_targets
+                        .get(&target_vm_addr)
+                        .copied()
+                        .ok_or_else(|| anyhow::anyhow!("JumpRel target not found"))?;
+                    assert!(target_addr != usize::MAX, "JumpRel target not set");
+
+                    let branch_offset = target_addr as i32 - source_addr as i32;
+                    let b_instruction = ARM64CodeGen::get_b_instr(branch_offset);
+                    gen.patch(source_addr, b_instruction);
+                }
+
+                Instruction::JumpIfZeroRel(offset) => {
+                    let source_addr = jump_sources
+                        .get(&vm_addr)
+                        .copied()
+                        .ok_or_else(|| anyhow::anyhow!("JumpIfZeroRel source not found"))?;
+                    let target_vm_addr = (vm_addr as i32 + offset) as usize;
+                    let target_addr = jump_targets
+                        .get(&target_vm_addr)
+                        .copied()
+                        .ok_or_else(|| anyhow::anyhow!("JumpIfZeroRel target not found"))?;
+                    assert!(target_addr != usize::MAX, "JumpIfZeroRel target not set");
+
+                    let branch_offset = target_addr as i32 - source_addr as i32;
+                    let cbz_offset = ARM64CodeGen::get_cbz_offset(branch_offset);
+
+                    // Get existing CBZ instruction and add offset
+                    let existing_instruction = gen.code[source_addr];
+                    assert_eq!(
+                        existing_instruction & 0xFF000000,
+                        0xB4000000,
+                        "Expected CBZ instruction"
+                    );
+                    let patched_instruction = existing_instruction | cbz_offset;
+                    gen.patch(source_addr, patched_instruction);
+                }
+
                 Instruction::CallRel(offset) => {
                     let source_addr = call_sources
                         .get(&vm_addr)
