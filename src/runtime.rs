@@ -602,7 +602,10 @@ impl VM {
             }
 
             Instruction::Jump(_label) => {
-                return Err("Jump with label should have been resolved to JumpRel before execution".to_string());
+                return Err(
+                    "Jump with label should have been resolved to JumpRel before execution"
+                        .to_string(),
+                );
             }
 
             Instruction::JumpIfZero(_label) => {

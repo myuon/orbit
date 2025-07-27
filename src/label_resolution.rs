@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn test_label_resolution_for_jump() {
         let mut resolver = LabelResolver::new();
-        
+
         let instructions = vec![
             Instruction::Push(1),
             Instruction::Jump("target".to_string()),
@@ -107,13 +107,13 @@ mod tests {
             Instruction::Label("target".to_string()),
             Instruction::Push(3),
         ];
-        
+
         let resolved = resolver.resolve_labels(instructions).unwrap();
-        
+
         // Check that Jump was converted to JumpRel with correct offset
         // Jump from index 1 to index 3, so offset = 3 - 1 = 2
         assert_eq!(resolved[1], Instruction::JumpRel(2));
-        
+
         // Check that Label was converted to Nop
         assert_eq!(resolved[3], Instruction::Nop);
     }
@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn test_label_resolution_for_jump_if_zero() {
         let mut resolver = LabelResolver::new();
-        
+
         let instructions = vec![
             Instruction::Push(0),
             Instruction::JumpIfZero("end".to_string()),
@@ -129,13 +129,13 @@ mod tests {
             Instruction::Label("end".to_string()),
             Instruction::Push(3),
         ];
-        
+
         let resolved = resolver.resolve_labels(instructions).unwrap();
-        
+
         // Check that JumpIfZero was converted to JumpIfZeroRel with correct offset
         // JumpIfZero from index 1 to index 3, so offset = 3 - 1 = 2
         assert_eq!(resolved[1], Instruction::JumpIfZeroRel(2));
-        
+
         // Check that Label was converted to Nop
         assert_eq!(resolved[3], Instruction::Nop);
     }
@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn test_label_resolution_for_call() {
         let mut resolver = LabelResolver::new();
-        
+
         let instructions = vec![
             Instruction::Push(1),
             Instruction::Call("function".to_string()),
@@ -151,13 +151,13 @@ mod tests {
             Instruction::Label("function".to_string()),
             Instruction::Push(3),
         ];
-        
+
         let resolved = resolver.resolve_labels(instructions).unwrap();
-        
+
         // Check that Call was converted to CallRel with correct offset
         // Call from index 1 to index 3, so offset = 3 - 1 = 2
         assert_eq!(resolved[1], Instruction::CallRel(2));
-        
+
         // Check that Label was converted to Nop
         assert_eq!(resolved[3], Instruction::Nop);
     }
@@ -165,15 +165,17 @@ mod tests {
     #[test]
     fn test_unresolved_label_error() {
         let mut resolver = LabelResolver::new();
-        
+
         let instructions = vec![
             Instruction::Push(1),
             Instruction::Jump("nonexistent".to_string()),
             Instruction::Push(2),
         ];
-        
+
         let result = resolver.resolve_labels(instructions);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Unresolved label in Jump: nonexistent"));
+        assert!(result
+            .unwrap_err()
+            .contains("Unresolved label in Jump: nonexistent"));
     }
 }

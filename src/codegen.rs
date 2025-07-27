@@ -511,13 +511,15 @@ impl CodeGenerator {
                 let loop_end_label = self.generate_label("loop_end");
 
                 // Add loop start label
-                self.instructions.push(Instruction::Label(loop_start_label.clone()));
+                self.instructions
+                    .push(Instruction::Label(loop_start_label.clone()));
 
                 // Compile condition
                 self.compile_expression(condition);
 
                 // Jump to end if condition is false
-                self.instructions.push(Instruction::JumpIfZero(loop_end_label.clone()));
+                self.instructions
+                    .push(Instruction::JumpIfZero(loop_end_label.clone()));
 
                 // Compile body
                 for stmt in body {
@@ -552,7 +554,8 @@ impl CodeGenerator {
                 self.compile_expression(condition);
 
                 // Jump to else if condition is false
-                self.instructions.push(Instruction::JumpIfZero(else_label.clone()));
+                self.instructions
+                    .push(Instruction::JumpIfZero(else_label.clone()));
 
                 // Compile then branch
                 for stmt in then_branch {
@@ -1105,13 +1108,13 @@ mod tests {
         let instructions = vec![
             Instruction::Push(0),
             Instruction::JumpIfZero("target".to_string()), // Jump to target label
-            Instruction::Push(1),       // This should be skipped
-            Instruction::Add,           // This should be skipped
+            Instruction::Push(1),                          // This should be skipped
+            Instruction::Add,                              // This should be skipped
             Instruction::Label("target".to_string()),
-            Instruction::Push(99),      // Jump target
+            Instruction::Push(99), // Jump target
         ];
         let resolved_instructions = resolver.resolve_labels(instructions).unwrap();
-        
+
         let mut vm = VM::new();
         vm.load_program(resolved_instructions);
         let result = vm.execute().unwrap();

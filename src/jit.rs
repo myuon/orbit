@@ -541,12 +541,12 @@ impl ARM64JITCompiler {
                 Instruction::Ret => {
                     // Pop return address from stack and set as PC
                     pop_from_stack(&mut gen, REG_TEMP1)?; // Pop return address (ValueEncoded)
-                    
+
                     // Remove the ValueEncoding bit (1u64 << 63) to get the actual address
                     // Use LSL/LSR trick to clear the MSB: shift left 1 bit, then right 1 bit
-                    gen.lsl_imm(REG_TEMP1, REG_TEMP1, 1);  // Left shift by 1 (removes MSB)
-                    gen.lsr_imm(REG_TEMP1, REG_TEMP1, 1);  // Right shift by 1 (restores position, MSB=0)
-                    
+                    gen.lsl_imm(REG_TEMP1, REG_TEMP1, 1); // Left shift by 1 (removes MSB)
+                    gen.lsr_imm(REG_TEMP1, REG_TEMP1, 1); // Right shift by 1 (restores position, MSB=0)
+
                     gen.str(REG_TEMP1, REG_C_PC, 0); // Store actual address to *REG_C_PC
 
                     // Function epilogue and return

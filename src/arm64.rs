@@ -390,7 +390,8 @@ impl ARM64CodeGen {
         // UBFM Xd, Xn, #(-shift MOD 64), #(63-shift)
         let immr = (64 - shift as u32) % 64;
         let imms = 63 - shift as u32;
-        let instruction = 0xD3400000 | (immr << 16) | (imms << 10) | (src.as_u32() << 5) | dst.as_u32();
+        let instruction =
+            0xD3400000 | (immr << 16) | (imms << 10) | (src.as_u32() << 5) | dst.as_u32();
         self.emit(instruction);
     }
 
@@ -400,7 +401,8 @@ impl ARM64CodeGen {
         // UBFM Xd, Xn, #shift, #63
         let immr = shift as u32;
         let imms = 63;
-        let instruction = 0xD3400000 | (immr << 16) | (imms << 10) | (src.as_u32() << 5) | dst.as_u32();
+        let instruction =
+            0xD3400000 | (immr << 16) | (imms << 10) | (src.as_u32() << 5) | dst.as_u32();
         self.emit(instruction);
     }
 
