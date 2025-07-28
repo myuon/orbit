@@ -575,6 +575,13 @@ impl Desugarer {
             .with_operation(DesugarOperation::New, "_new");
         type_operations.insert("array".to_string(), array_config);
 
+        // Configure map type operations
+        let map_config = TypeDesugarConfig::new()
+            .with_operation(DesugarOperation::Index, "_get")
+            .with_operation(DesugarOperation::Assign, "_set")
+            .with_operation(DesugarOperation::New, "_new");
+        type_operations.insert("map".to_string(), map_config);
+
         Self {
             structs: HashMap::new(),
             type_operations,

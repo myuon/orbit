@@ -1344,9 +1344,9 @@ impl TypeChecker {
                             name
                         };
 
-                        if base_name == "vec" || name == "vec" {
+                        if base_name == "vec" || name == "vec" || base_name == "map" || name == "map" {
                             // Check if _get method exists
-                            let get_method_name = if base_name == "vec" {
+                            let get_method_name = if base_name == "vec" || base_name == "map" {
                                 format!(
                                     "{}({})#_get",
                                     base_name,
@@ -1358,20 +1358,44 @@ impl TypeChecker {
                             } else {
                                 format!("{}#_get", name)
                             };
-                            if self.functions.contains_key(&get_method_name) {
-                                if !index_type.is_compatible_with(&Type::Int) {
-                                    bail_with_position!(
-                                        index.span.clone(),
-                                        "vec index must be number, got {}",
-                                        index_type
-                                    );
-                                }
-                                // For vec(T), get the element type
-                                if let Some(element_type) = args.get(0) {
-                                    Ok(element_type.clone())
-                                } else if let Some(element_type) =
-                                    self.extract_vec_element_type(name)
-                                {
+                            if base_name == "map" || self.functions.contains_key(&get_method_name) {
+                                if base_name == "map" {
+                                    // For map(K, V), index must be compatible with K
+                                    if let Some(key_type) = args.get(0) {
+                                        if !index_type.is_compatible_with(key_type) {
+                                            bail_with_position!(
+                                                index.span.clone(),
+                                                "map index must be {}, got {}",
+                                                key_type,
+                                                index_type
+                                            );
+                                        }
+                                    }
+                                    // For map(K, V), return the value type V
+                                    if let Some(value_type) = args.get(1) {
+                                        Ok(value_type.clone())
+                                    } else {
+                                        bail_with_position!(
+                                            container.span.clone(),
+                                            "Cannot determine value type for map: {}",
+                                            name
+                                        );
+                                    }
+                                } else {
+                                    // vec case
+                                    if !index_type.is_compatible_with(&Type::Int) {
+                                        bail_with_position!(
+                                            index.span.clone(),
+                                            "vec index must be number, got {}",
+                                            index_type
+                                        );
+                                    }
+                                    // For vec(T), get the element type
+                                    if let Some(element_type) = args.get(0) {
+                                        Ok(element_type.clone())
+                                    } else if let Some(element_type) =
+                                        self.extract_vec_element_type(name)
+                                    {
                                     // If the element type is a type parameter, we need to resolve it
                                     // For now, we'll use a simplified approach for concrete types
                                     if let Type::TypeParameter(_) = element_type {
@@ -1392,19 +1416,28 @@ impl TypeChecker {
                                     } else {
                                         Ok(element_type)
                                     }
+                                    } else {
+                                        bail_with_position!(
+                                            container.span.clone(),
+                                            "Cannot determine element type for vec: {}",
+                                            name
+                                        );
+                                    }
+                                }
+                            } else {
+                                if base_name == "map" {
+                                    bail_with_position!(
+                                        container.span.clone(),
+                                        "map type {} does not have a _get method",
+                                        name
+                                    );
                                 } else {
                                     bail_with_position!(
                                         container.span.clone(),
-                                        "Cannot determine element type for vec: {}",
+                                        "vec type {} does not have a _get method",
                                         name
                                     );
                                 }
-                            } else {
-                                bail_with_position!(
-                                    container.span.clone(),
-                                    "vec type {} does not have a _get method",
-                                    name
-                                );
                             }
                         } else {
                             bail_with_position!(
@@ -1977,6 +2010,17 @@ impl TypeChecker {
                     Type::Pointer(Box::new(element_type.clone())),
                 );
                 concrete_fields.insert("length".to_string(), Type::Int);
+                concrete_fields.insert("capacity".to_string(), Type::Int);
+                return Some(concrete_fields);
+            }
+
+            if generic_name == "map" && concrete_args.len() == 2 {
+                // For map(K, V), we know the structure: { data: [*]int, capacity: int }
+                let mut concrete_fields = HashMap::new();
+                concrete_fields.insert(
+                    "data".to_string(),
+                    Type::Pointer(Box::new(Type::Int)),
+                );
                 concrete_fields.insert("capacity".to_string(), Type::Int);
                 return Some(concrete_fields);
             }
