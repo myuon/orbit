@@ -317,28 +317,16 @@ impl ARM64JITCompiler {
                 }
                 Instruction::JumpRel(offset) => {
                     let target_vm_addr = (vm_addr as i32 + offset) as usize;
-                    eprintln!(
-                        "DEBUG: JumpRel at VM addr {} (array idx {}) -> target {}",
-                        vm_addr, source_idx, target_vm_addr
-                    );
                     jump_sources.insert(vm_addr, usize::MAX);
                     jump_targets.insert(target_vm_addr, usize::MAX);
                 }
                 Instruction::JumpIfZeroRel(offset) => {
                     let target_vm_addr = (vm_addr as i32 + offset) as usize;
-                    eprintln!(
-                        "DEBUG: JumpIfZeroRel at VM addr {} (array idx {}) -> target {}",
-                        vm_addr, source_idx, target_vm_addr
-                    );
                     jump_sources.insert(vm_addr, usize::MAX);
                     jump_targets.insert(target_vm_addr, usize::MAX);
                 }
                 Instruction::CallRel(offset) => {
                     let target_addr = (vm_addr as i32 + offset) as usize;
-                    eprintln!(
-                        "DEBUG: CallRel at VM addr {} (array idx {}) -> target {}",
-                        vm_addr, source_idx, target_addr
-                    );
                     call_sources.insert(vm_addr, usize::MAX);
                     call_targets.insert(target_addr, usize::MAX);
                 }
@@ -366,45 +354,15 @@ impl ARM64JITCompiler {
             let vm_addr = start_addr + instruction_idx;
             // Record jump target positions
             if jump_targets.contains_key(&vm_addr) {
-                eprintln!(
-                    "DEBUG: Recording jump target at VM addr {} (array idx {}) -> position {}",
-                    vm_addr,
-                    instruction_idx,
-                    gen.position()
-                );
                 jump_targets.insert(vm_addr, gen.position());
-
-                // Add debug breakpoint at jump targets if enabled
-                if std::env::var("ORBIT_JIT_DEBUG_JUMP_TARGETS").is_ok() {
-                    eprintln!(
-                        "DEBUG: Adding breakpoint at jump target VM addr {}",
-                        vm_addr
-                    );
-                    gen.debug_breakpoint();
-                }
             }
             // Record call target positions
             if call_targets.contains_key(&vm_addr) {
-                eprintln!(
-                    "DEBUG: Recording call target at VM addr {} (array idx {}) -> position {}",
-                    vm_addr,
-                    instruction_idx,
-                    gen.position()
-                );
                 call_targets.insert(vm_addr, gen.position());
             }
             // Add function prologue only for the first instruction of function compilation
             if instruction_idx == 0 && is_function {
                 gen.function_prologue();
-
-                // Add debug breakpoint at the beginning if enabled
-                if std::env::var("ORBIT_JIT_DEBUG_BREAKPOINT").is_ok() {
-                    eprintln!(
-                        "DEBUG: Adding breakpoint at start of JIT function at address {}",
-                        start_addr
-                    );
-                    gen.debug_breakpoint();
-                }
             }
 
             match instruction {
@@ -642,12 +600,7 @@ impl ARM64JITCompiler {
                     // Emit placeholder for branch instruction
                     gen.emit(0x0);
                     jump_sources.insert(vm_addr, gen.position() - 1);
-                    eprintln!("jump_target: {:?}", jump_targets.get(&_target_vm_addr));
 
-                    eprintln!(
-                        "DEBUG: JumpRel at VM addr {} (array idx {}) -> target {}",
-                        vm_addr, instruction_idx, _target_vm_addr
-                    );
                 }
 
                 Instruction::JumpIfZeroRel(offset) => {
@@ -681,10 +634,6 @@ impl ARM64JITCompiler {
 
                 Instruction::BrkJit => {
                     // JIT-only breakpoint: generates BRK instruction in JIT, no-op in interpreter
-                    eprintln!(
-                        "DEBUG: Inserting BRK instruction for brk_jit at VM addr {}",
-                        vm_addr
-                    );
                     gen.debug_breakpoint();
                 }
 
@@ -837,8 +786,6 @@ impl ARM64JITCompiler {
 
                 function_ptr(stack, pc, bp, sp, hp, heap, globals);
             }
-
-            eprintln!("executed JIT function at address 0x{:x}", addr);
 
             Ok(())
         } else {
