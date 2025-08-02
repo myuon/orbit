@@ -188,6 +188,7 @@ impl VM {
 
     /// Disable JIT compilation
     pub fn disable_jit(&mut self) {
+        eprintln!("[INFO] JIT: JIT compilation disabled");
         self.jit_disabled = true;
     }
 
@@ -292,11 +293,13 @@ impl VM {
 
             Instruction::Push(value) => {
                 if self.sp >= self.stack.len() {
-                    return Err(format!(
+                    let error_msg = format!(
                         "Stack overflow: SP {} exceeds capacity {}",
                         self.sp,
                         self.stack.len()
-                    ));
+                    );
+                    eprintln!("[ERROR] VM: {}", error_msg);
+                    return Err(error_msg);
                 }
                 let encoded = ValueEncoder::encode(&Value::Int(value));
                 self.stack[self.sp] = encoded;
@@ -426,6 +429,7 @@ impl VM {
                 match (a, b) {
                     (Value::Int(a), Value::Int(b)) => {
                         if b == 0 {
+                            eprintln!("[ERROR] VM: Division by zero attempted");
                             return Err("Division by zero".to_string());
                         }
                         self.push_value(Value::Int(a / b))?;
@@ -665,6 +669,7 @@ impl VM {
                                 return Ok(ControlFlow::Continue);
                             }
                             Err(e) => {
+                                eprintln!("[INFO] JIT: JIT execution failed at address {} - falling back to interpreter: {:?}", new_pc, e);
                                 self.jit_failed_functions.insert(new_pc);
                             }
                         }
@@ -746,6 +751,7 @@ impl VM {
                                             return Ok(ControlFlow::Continue);
                                         }
                                         Err(e) => {
+                                            eprintln!("[INFO] JIT: Jump block execution failed at address {} - falling back to interpreter: {:?}", new_pc, e);
                                             self.jit_failed_functions.insert(new_pc);
                                         }
                                     }
@@ -799,6 +805,7 @@ impl VM {
                                     return Ok(ControlFlow::Continue);
                                 }
                                 Err(e) => {
+                                    eprintln!("[INFO] JIT: JIT execution failed at address {} - falling back to interpreter: {:?}", new_pc, e);
                                     self.jit_failed_functions.insert(new_pc);
                                 }
                             }
@@ -1125,6 +1132,7 @@ impl VM {
                 }
 
                 // Fallback to interpreter execution
+                eprintln!("[INFO] JIT: No JIT compilation available for address {} - falling back to interpreter", new_pc);
                 self.pc = new_pc;
 
                 // Print debug visualization (heap and/or stack) if enabled
@@ -1284,7 +1292,9 @@ impl VM {
                 match heap_ref {
                     Value::HeapRef(heap_index) => {
                         if heap_index.0 >= self.heap.len() {
-                            return Err(format!("Invalid heap index: {}", heap_index.0));
+                            let error_msg = format!("Invalid heap index: {}", heap_index.0);
+                            eprintln!("[ERROR] VM: Heap access out of bounds - {}", error_msg);
+                            return Err(error_msg);
                         }
                         let value = &self.heap[heap_index.0];
                         self.push_value(value.clone())?;
