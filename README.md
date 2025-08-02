@@ -155,9 +155,3 @@ fun main() do
   return global + local;  // 350
 end
 ```
-
-## Build and Run
-
-```bash
-zig build
-```

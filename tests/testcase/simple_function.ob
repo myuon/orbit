@@ -1,0 +1,7 @@
+fun add(x, y) do
+  return x + y;
+end
+
+fun main() do
+  return add(2, 3);
+end

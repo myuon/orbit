@@ -1,0 +1,5 @@
+fun main() do
+  syscall_write(fd_stdout, "Hello, World!\n");
+  syscall_write(fd_stdout, "42\n");
+  return 0;
+end

@@ -1,0 +1,7 @@
+fun main() do
+  let ages = new map(string, int) {};
+  ages["alice"] = 25;
+  ages["bob"] = 30;
+  ages["charlie"] = 35;
+  return ages["alice"] + ages["bob"];
+end

@@ -1,0 +1,58 @@
+[tasks.fmt]
+description = "Format code and commit changes"
+run = ["cargo fmt", "git add .", "git commit -m 'style: cargo format'"]
+
+[tasks.bench]
+description = "Run benchmark and save report with timestamp and commit hash"
+run = '''
+#!/bin/bash
+set -e
+
+# Create logs directory if it doesn't exist
+mkdir -p ./logs
+
+# Get current timestamp and commit hash
+TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+COMMIT_HASH=$(git rev-parse --short HEAD)
+
+# Run benchmark and save to file
+OUTPUT_FILE="./logs/bench_report_${TIMESTAMP}_${COMMIT_HASH}.md"
+cargo bench --bench orbit_bench > "$OUTPUT_FILE"
+
+echo "Benchmark report saved to: $OUTPUT_FILE"
+'''
+
+[tasks.lldb]
+description = "Build and debug with LLDB"
+run = ["cargo build", "lldb ./target/debug/orbit"]
+
+[tasks.disassemble]
+description = "Disassemble JIT compiled machine code from binary file"
+run = '''
+#!/bin/bash
+set -e
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: mise run disassemble <binary_file>"
+    echo "Example: mise run disassemble jit.bin"
+    exit 1
+fi
+
+BINARY_FILE="$1"
+
+if [ ! -f "$BINARY_FILE" ]; then
+    echo "Error: Binary file '$BINARY_FILE' not found"
+    exit 1
+fi
+
+echo "Disassembling $BINARY_FILE..."
+
+# Convert binary to ELF format
+llvm-objcopy -I binary \
+             -O elf64-littleaarch64 \
+             --rename-section .data=.text,code \
+             "$BINARY_FILE" "${BINARY_FILE%.bin}.elf"
+
+# Disassemble the ELF file
+llvm-objdump -d --arch-name=arm64 "${BINARY_FILE%.bin}.elf"
+'''

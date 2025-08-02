@@ -1,0 +1,4 @@
+fun main() do
+  let str = "Hi";
+  return str[10];
+end

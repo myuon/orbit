@@ -1,0 +1,31 @@
+type Point = struct {
+  x: int,
+  y: int,
+
+  fun distance_squared_from_origin(self: Point) do
+    return self.x * self.x + self.y * self.y;
+  end
+};
+
+type Circle = struct {
+  center: Point,
+  radius: int,
+
+  fun area_approx(self: Circle) do
+    return 3 * self.radius * self.radius;
+  end
+
+  fun get_center_distance(self: Circle) do
+    return self.center.distance_squared_from_origin();
+  end
+};
+
+fun main() do
+  let center = new Point { .x = 3, .y = 4 };
+  let circle = new Circle { .center = center, .radius = 5 };
+  
+  let area = circle.area_approx();
+  let center_dist = circle.get_center_distance();
+  
+  return area + center_dist;
+end

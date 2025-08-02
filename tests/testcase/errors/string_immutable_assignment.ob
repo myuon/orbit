@@ -1,0 +1,5 @@
+fun main() do
+  let str = "Hello";
+  str[0] = 72;
+  return str[0];
+end

@@ -1,0 +1,391 @@
+use crate::ast::{Token, TokenType};
+use anyhow::Result;
+
+pub struct Lexer {
+    input: Vec<char>,
+    position: usize,
+    current_char: Option<char>,
+}
+
+impl Lexer {
+    pub fn new(input: &str) -> Self {
+        let chars: Vec<char> = input.chars().collect();
+        let current_char = chars.get(0).copied();
+
+        Lexer {
+            input: chars,
+            position: 0,
+            current_char,
+        }
+    }
+
+    fn advance(&mut self) {
+        self.position += 1;
+        if self.position < self.input.len() {
+            self.current_char = Some(self.input[self.position]);
+        } else {
+            self.current_char = None;
+        }
+    }
+
+    fn skip_whitespace(&mut self) {
+        while let Some(ch) = self.current_char {
+            if ch.is_whitespace() {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn read_number(&mut self) -> i64 {
+        let mut num_str = String::new();
+
+        while let Some(ch) = self.current_char {
+            if ch.is_ascii_digit() || ch == '.' {
+                num_str.push(ch);
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        num_str.parse().unwrap_or(0)
+    }
+
+    fn read_string(&mut self) -> String {
+        let mut string_value = String::new();
+        self.advance(); // Skip opening quote
+
+        while let Some(ch) = self.current_char {
+            if ch == '"' {
+                self.advance(); // Skip closing quote
+                break;
+            } else if ch == '\\' {
+                self.advance();
+                if let Some(escaped) = self.current_char {
+                    match escaped {
+                        'n' => string_value.push('\n'),
+                        't' => string_value.push('\t'),
+                        'r' => string_value.push('\r'),
+                        '\\' => string_value.push('\\'),
+                        '"' => string_value.push('"'),
+                        _ => {
+                            string_value.push('\\');
+                            string_value.push(escaped);
+                        }
+                    }
+                    self.advance();
+                }
+            } else {
+                string_value.push(ch);
+                self.advance();
+            }
+        }
+
+        string_value
+    }
+
+    fn read_identifier(&mut self) -> String {
+        let mut identifier = String::new();
+
+        while let Some(ch) = self.current_char {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                identifier.push(ch);
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        identifier
+    }
+
+    pub fn next_token(&mut self) -> Token {
+        loop {
+            match self.current_char {
+                Some(ch) if ch.is_whitespace() => {
+                    self.skip_whitespace();
+                }
+                Some(ch) if ch.is_ascii_digit() => {
+                    let pos = self.position;
+                    let num = self.read_number();
+                    return Token {
+                        token_type: TokenType::Int(num),
+                        position: pos,
+                    };
+                }
+                Some(ch) if ch.is_ascii_alphabetic() || ch == '_' => {
+                    let pos = self.position;
+                    let identifier = self.read_identifier();
+                    let token_type = match identifier.as_str() {
+                        "true" => TokenType::Boolean(true),
+                        "false" => TokenType::Boolean(false),
+                        "let" => TokenType::Let,
+                        "as" => TokenType::As,
+                        "fun" => TokenType::Fun,
+                        "do" => TokenType::Do,
+                        "end" => TokenType::End,
+                        "return" => TokenType::Return,
+                        "if" => TokenType::If,
+                        "then" => TokenType::Then,
+                        "else" => TokenType::Else,
+                        "while" => TokenType::While,
+                        "new" => TokenType::New,
+                        "type" => TokenType::Type,
+                        "struct" => TokenType::Struct,
+                        "pointer" => TokenType::Pointer,
+                        "alloc" => TokenType::Alloc,
+                        "sizeof" => TokenType::Sizeof,
+                        _ => TokenType::Identifier(identifier),
+                    };
+                    return Token {
+                        token_type,
+                        position: pos,
+                    };
+                }
+                Some('"') => {
+                    let pos = self.position;
+                    let string_value = self.read_string();
+                    return Token {
+                        token_type: TokenType::String(string_value),
+                        position: pos,
+                    };
+                }
+                Some('+') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::Plus,
+                        position: pos,
+                    };
+                }
+                Some('-') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::Minus,
+                        position: pos,
+                    };
+                }
+                Some('*') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::Star,
+                        position: pos,
+                    };
+                }
+                Some('/') => {
+                    let pos = self.position;
+                    self.advance();
+                    // Check for comment
+                    if let Some('/') = self.current_char {
+                        // Skip comment to end of line
+                        while let Some(ch) = self.current_char {
+                            if ch == '\n' {
+                                self.advance();
+                                break;
+                            }
+                            self.advance();
+                        }
+                        continue; // Skip to next token
+                    }
+                    return Token {
+                        token_type: TokenType::Slash,
+                        position: pos,
+                    };
+                }
+                Some('%') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::Modulo,
+                        position: pos,
+                    };
+                }
+                Some('=') => {
+                    let pos = self.position;
+                    self.advance();
+                    if let Some('=') = self.current_char {
+                        self.advance();
+                        return Token {
+                            token_type: TokenType::Equal,
+                            position: pos,
+                        };
+                    }
+                    return Token {
+                        token_type: TokenType::Assign,
+                        position: pos,
+                    };
+                }
+                Some(';') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::Semicolon,
+                        position: pos,
+                    };
+                }
+                Some('(') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::LeftParen,
+                        position: pos,
+                    };
+                }
+                Some(')') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::RightParen,
+                        position: pos,
+                    };
+                }
+                Some('[') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::LeftBracket,
+                        position: pos,
+                    };
+                }
+                Some(']') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::RightBracket,
+                        position: pos,
+                    };
+                }
+                Some('{') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::LeftBrace,
+                        position: pos,
+                    };
+                }
+                Some('}') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::RightBrace,
+                        position: pos,
+                    };
+                }
+                Some(',') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::Comma,
+                        position: pos,
+                    };
+                }
+                Some(':') => {
+                    let pos = self.position;
+                    self.advance();
+                    return Token {
+                        token_type: TokenType::Colon,
+                        position: pos,
+                    };
+                }
+                Some('!') => {
+                    let pos = self.position;
+                    self.advance();
+                    if let Some('=') = self.current_char {
+                        self.advance();
+                        return Token {
+                            token_type: TokenType::NotEqual,
+                            position: pos,
+                        };
+                    }
+                    // Handle unexpected '!' character
+                    continue;
+                }
+                Some('<') => {
+                    let pos = self.position;
+                    self.advance();
+                    if let Some('=') = self.current_char {
+                        self.advance();
+                        return Token {
+                            token_type: TokenType::LessEqual,
+                            position: pos,
+                        };
+                    } else if let Some('-') = self.current_char {
+                        self.advance();
+                        return Token {
+                            token_type: TokenType::Push,
+                            position: pos,
+                        };
+                    }
+                    return Token {
+                        token_type: TokenType::Less,
+                        position: pos,
+                    };
+                }
+                Some('>') => {
+                    let pos = self.position;
+                    self.advance();
+                    if let Some('=') = self.current_char {
+                        self.advance();
+                        return Token {
+                            token_type: TokenType::GreaterEqual,
+                            position: pos,
+                        };
+                    }
+                    return Token {
+                        token_type: TokenType::Greater,
+                        position: pos,
+                    };
+                }
+                Some('.') => {
+                    let pos = self.position;
+                    // Check if this is a float or a dot operator
+                    if self.position + 1 < self.input.len()
+                        && self.input[self.position + 1].is_ascii_digit()
+                    {
+                        // This is a float literal starting with a dot
+                        let num = self.read_number();
+                        return Token {
+                            token_type: TokenType::Int(num),
+                            position: pos,
+                        };
+                    } else {
+                        self.advance();
+                        return Token {
+                            token_type: TokenType::Dot,
+                            position: pos,
+                        };
+                    }
+                }
+                None => {
+                    return Token {
+                        token_type: TokenType::Eof,
+                        position: self.position,
+                    };
+                }
+                Some(_) => {
+                    self.advance();
+                }
+            }
+        }
+    }
+
+    pub fn tokenize(&mut self) -> Result<Vec<Token>> {
+        let mut tokens = Vec::new();
+
+        loop {
+            let token = self.next_token();
+            let is_eof = matches!(token.token_type, TokenType::Eof);
+            tokens.push(token);
+
+            if is_eof {
+                break;
+            }
+        }
+
+        Ok(tokens)
+    }
+}

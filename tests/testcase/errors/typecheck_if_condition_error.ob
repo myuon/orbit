@@ -1,0 +1,5 @@
+fun main() do
+  if 42 do
+    return 1;
+  end
+end

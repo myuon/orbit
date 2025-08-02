@@ -1,0 +1,5 @@
+fun main() do
+  let map = new map(int, int) {};
+  map[5] = 10;
+  return map[5];
+end

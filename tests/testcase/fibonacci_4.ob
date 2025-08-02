@@ -1,0 +1,13 @@
+// Test recursive Fibonacci function with n=4
+// Expected result: fibonacci(4) = 3
+fun fibonacci(n) do
+  if (n <= 1) do
+    return n;
+  else do
+    return fibonacci(n - 1) + fibonacci(n - 2);
+  end
+end
+
+fun main() do
+  return fibonacci(4);
+end

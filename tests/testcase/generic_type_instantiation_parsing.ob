@@ -1,0 +1,14 @@
+type Container(T: type) = struct {
+  value: T,
+};
+
+type Point = struct {
+  x: int,
+  y: int,
+  container: Container(int),
+  nested: Container(Container([*]byte)),
+};
+
+fun main() do
+  return 1337;
+end

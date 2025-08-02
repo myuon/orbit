@@ -1,0 +1,21 @@
+type Person = struct {
+  name: string,
+  age: int,
+};
+
+type Point = struct {
+  x: int,
+  y: int,
+};
+
+fun main() do
+  let person = new Person { .name = "Alice", .age = 25 };
+  let point = new Point { .x = 1, .y = 2 };
+  
+  // Reassign struct fields
+  person.age = 30;
+  point.x = 10;
+  point.y = 20;
+  
+  return person.age + point.x + point.y;
+end

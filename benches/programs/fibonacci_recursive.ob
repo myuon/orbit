@@ -1,0 +1,13 @@
+// Recursive Fibonacci benchmark
+// Deep recursion performance test
+fun fibonacci(n) do
+  if (n <= 1) do
+    return n;
+  else do
+    return fibonacci(n - 1) + fibonacci(n - 2);
+  end
+end
+
+fun main() do
+  return fibonacci({{BENCH_SIZE}});
+end

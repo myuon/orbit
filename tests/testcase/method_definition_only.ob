@@ -1,0 +1,33 @@
+type Rectangle = struct {
+  width: int,
+  height: int,
+
+  fun area(self: Rectangle) do
+    return self.width * self.height;
+  end
+
+  fun perimeter(self: Rectangle) do
+    return 2 * (self.width + self.height);
+  end
+
+  fun scale(self: Rectangle, factor: int) do
+    self.width = self.width * factor;
+    self.height = self.height * factor;
+  end
+};
+
+type Circle = struct {
+  radius: int,
+
+  fun area_approx(self: Circle) do
+    return 3 * self.radius * self.radius;
+  end
+
+  fun diameter(self: Circle) do
+    return 2 * self.radius;
+  end
+};
+
+fun main() do
+  return 100;
+end

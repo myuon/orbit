@@ -1,0 +1,25 @@
+type Rectangle = struct {
+  width: int,
+  height: int,
+
+  fun area(self: Rectangle) do
+    return self.width * self.height;
+  end
+
+  fun scale(self: Rectangle, factor: int) do
+    self.width = self.width * factor;
+    self.height = self.height * factor;
+  end
+
+  fun get_width(self: Rectangle) do
+    return self.width;
+  end
+};
+
+fun main() do
+  let rect = new Rectangle { .width = 5, .height = 3 };
+  let original_area = rect.area();
+  rect.scale(2);
+  let new_width = rect.get_width();
+  return original_area + new_width;
+end

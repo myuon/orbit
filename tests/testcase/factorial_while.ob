@@ -1,0 +1,10 @@
+fun main() do
+  let n = 5;
+  let result = 1;
+  let i = 1;
+  while i <= n do
+    result = result * i;
+    i = i + 1;
+  end
+  return result;
+end
