@@ -39,6 +39,22 @@ pub enum ControlFlow {
     Continue,
 }
 
+/// Information about an external jump from a jump block
+#[derive(Debug, Clone)]
+pub struct ExternalJump {
+    pub block_index: usize,   // Index within the block instructions
+    pub absolute_addr: usize, // Absolute address in program
+    pub target_addr: usize,   // Target address of the jump
+    pub jump_type: ExternalJumpType,
+}
+
+#[derive(Debug, Clone)]
+pub enum ExternalJumpType {
+    JumpRel(i32),
+    JumpIfZeroRel(i32),
+    CallRel(i32),
+}
+
 #[derive(Debug)]
 pub struct VM {
     stack: Box<[u64]>, // JIT-compatible encoded stack with direct u64 storage
@@ -60,6 +76,8 @@ pub struct VM {
     jit_compiler: Option<ARM64JITCompiler>,
     // Function call counts for JIT compilation decision
     function_call_counts: HashMap<usize, u64>,
+    // Jump counts for JIT compilation decision (jump_target_address -> count)
+    jump_counts: HashMap<usize, u64>,
     // Functions marked for JIT compilation (function_name -> label_address)
     jit_compile_functions: HashMap<String, usize>,
     // Reverse mapping for JIT functions (label_address -> function_name)
@@ -87,7 +105,7 @@ impl VM {
 
     pub fn with_options(print_stacks: bool, print_heaps: bool, enable_profiling: bool) -> Self {
         Self {
-            stack: vec![0u64; 1024].into_boxed_slice(),
+            stack: vec![0u64; 1024 * 1024].into_boxed_slice(),
             pc: 0,
             bp: 0,
             sp: 0,
@@ -102,6 +120,7 @@ impl VM {
             profiler: Profiler::new_with_enabled(enable_profiling),
             jit_compiler: ARM64JITCompiler::new().ok(),
             function_call_counts: HashMap::new(),
+            jump_counts: HashMap::new(),
             jit_compile_functions: HashMap::new(),
             jit_function_addresses: HashMap::new(),
             print_jit_asm: false,
@@ -132,6 +151,7 @@ impl VM {
             profiler: Profiler::new_with_enabled(enable_profiling),
             jit_compiler: ARM64JITCompiler::new().ok(),
             function_call_counts: HashMap::new(),
+            jump_counts: HashMap::new(),
             jit_compile_functions: HashMap::new(),
             jit_function_addresses: HashMap::new(),
             print_jit_asm: false,
@@ -623,6 +643,170 @@ impl VM {
 
             Instruction::JumpRel(offset) => {
                 let new_pc = (self.pc as i32 + offset) as usize;
+
+                // Track jump counts (for potential future JIT compilation)
+                let count = self.jump_counts.entry(new_pc).or_insert(0);
+                *count += 1;
+
+                // Try to execute JIT compiled function first
+                if let Some(ref mut jit_compiler) = self.jit_compiler {
+                    if jit_compiler.is_compiled(new_pc) {
+                        eprintln!(
+                            "JIT: About to execute function at address {} with PC={}, SP={}",
+                            new_pc, self.pc, self.sp
+                        );
+
+                        match jit_compiler.execute_function(
+                            new_pc,
+                            self.stack.as_mut_ptr(),
+                            &mut self.pc,
+                            &mut self.bp,
+                            &mut self.sp,
+                            &mut self.hp,
+                            &mut self.heap,
+                            &mut self.globals,
+                        ) {
+                            Ok(()) => {
+                                eprintln!(
+                                    "JIT: Successfully executed jump function at address {}",
+                                    new_pc
+                                );
+                                return Ok(ControlFlow::Continue);
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "JIT: Failed to execute jump function at address {}: {}",
+                                    new_pc, e
+                                );
+                                self.jit_failed_functions.insert(new_pc);
+                            }
+                        }
+                    }
+                }
+
+                // Enable jump block JIT compilation
+                if *count == 10 {
+                    // First time hitting threshold
+                    if let Some((block, start_addr, end_addr, external_jumps)) =
+                        self.extract_jump_block_with_exits(new_pc)
+                    {
+                        eprintln!("Jump hotspot detected at address {} (JumpRel): block size {}, range {}..{}, external jumps: {}", 
+                                  new_pc, block.len(), start_addr, end_addr, external_jumps.len());
+
+                        // Print external jumps info
+                        for (i, ext_jump) in external_jumps.iter().enumerate() {
+                            eprintln!(
+                                "  External jump {}: block[{}] -> target {} ({:?})",
+                                i, ext_jump.block_index, ext_jump.target_addr, ext_jump.jump_type
+                            );
+                        }
+
+                        if let Some(jit_block) = self.prepare_jit_block(new_pc) {
+                            eprintln!(
+                                "Prepared JIT block with fallbacks: {} instructions",
+                                jit_block.len()
+                            );
+
+                            // Print JIT block for debugging
+                            eprintln!("JIT block with fallbacks:");
+                            for (i, inst) in jit_block.iter().enumerate() {
+                                eprintln!("  {}: {}", i, inst);
+                            }
+
+                            // Try JIT compilation with exit path handling
+                            if external_jumps.is_empty() {
+                                // Simple case without external jumps - compile the original block
+                                if self.jit_compiler.is_some()
+                                    && !self.jit_disabled
+                                    && !self.jit_failed_functions.contains(&new_pc)
+                                {
+                                    let print_jit_asm = self.print_jit_asm;
+                                    if let Some(ref mut jit_compiler) = self.jit_compiler {
+                                        match jit_compiler.compile_jump_block(
+                                            new_pc,
+                                            &block,
+                                            None, // No function prologue offset needed for simple blocks
+                                            print_jit_asm,
+                                        ) {
+                                            Ok(()) => {
+                                                eprintln!("JIT: Successfully compiled simple jump block at address {} (no external jumps)", new_pc);
+                                            }
+                                            Err(e) => {
+                                                eprintln!("JIT: Failed to compile simple jump block at address {}: {}", new_pc, e);
+                                                self.jit_failed_functions.insert(new_pc);
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Complex case with external jumps - compile with fallbacks
+                                if self.jit_compiler.is_some()
+                                    && !self.jit_disabled
+                                    && !self.jit_failed_functions.contains(&new_pc)
+                                {
+                                    let print_jit_asm = self.print_jit_asm;
+                                    if let Some(ref mut jit_compiler) = self.jit_compiler {
+                                        match jit_compiler.compile_jump_block(
+                                            new_pc,
+                                            &jit_block,
+                                            None, // No function prologue offset needed
+                                            print_jit_asm,
+                                        ) {
+                                            Ok(()) => {
+                                                eprintln!("JIT: Successfully compiled jump block at address {} with exit path handling", new_pc);
+                                            }
+                                            Err(e) => {
+                                                eprintln!("JIT: Failed to compile jump block with exit paths at address {}: {}", new_pc, e);
+                                                eprintln!(
+                                                    "JIT: Falling back to interpreter execution"
+                                                );
+                                                self.jit_failed_functions.insert(new_pc);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if let Some(ref mut jit_compiler) = self.jit_compiler {
+                                if jit_compiler.is_compiled(new_pc) {
+                                    eprintln!(
+                            "JIT: About to execute function at address {} with PC={}, SP={}",
+                            new_pc, self.pc, self.sp
+                        );
+
+                                    match jit_compiler.execute_function(
+                                        new_pc,
+                                        self.stack.as_mut_ptr(),
+                                        &mut self.pc,
+                                        &mut self.bp,
+                                        &mut self.sp,
+                                        &mut self.hp,
+                                        &mut self.heap,
+                                        &mut self.globals,
+                                    ) {
+                                        Ok(()) => {
+                                            eprintln!(
+                                    "JIT: Successfully executed jump function at address {}",
+                                    new_pc
+                                );
+                                            return Ok(ControlFlow::Continue);
+                                        }
+                                        Err(e) => {
+                                            eprintln!(
+                                    "JIT: Failed to execute jump function at address {}: {}",
+                                    new_pc, e
+                                );
+                                            self.jit_failed_functions.insert(new_pc);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        eprintln!("Jump hotspot detected at address {} (JumpRel) but could not extract block", new_pc);
+                    }
+                }
+
                 self.pc = new_pc;
 
                 // Print debug visualization (heap and/or stack) if enabled
@@ -644,6 +828,127 @@ impl VM {
                 };
                 if should_jump {
                     let new_pc = (self.pc as i32 + offset) as usize;
+
+                    // Track jump counts (for potential future JIT compilation)
+                    let count = self.jump_counts.entry(new_pc).or_insert(0);
+                    *count += 1;
+
+                    // Try to execute JIT compiled function first
+                    if let Some(ref mut jit_compiler) = self.jit_compiler {
+                        if jit_compiler.is_compiled(new_pc) {
+                            match jit_compiler.execute_function(
+                                new_pc,
+                                self.stack.as_mut_ptr(),
+                                &mut self.pc,
+                                &mut self.bp,
+                                &mut self.sp,
+                                &mut self.hp,
+                                &mut self.heap,
+                                &mut self.globals,
+                            ) {
+                                Ok(()) => {
+                                    eprintln!("JIT: Successfully executed conditional function at address {}", new_pc);
+                                    return Ok(ControlFlow::Continue);
+                                }
+                                Err(e) => {
+                                    eprintln!("JIT: Failed to execute conditional function at address {}: {}", new_pc, e);
+                                    self.jit_failed_functions.insert(new_pc);
+                                }
+                            }
+                        }
+                    }
+
+                    // If jump count exceeds threshold, try JIT compilation with exit path handling
+                    if *count == 10 {
+                        // First time hitting threshold
+                        if let Some((block, start_addr, end_addr, external_jumps)) =
+                            self.extract_jump_block_with_exits(new_pc)
+                        {
+                            eprintln!("Jump hotspot detected at address {} (JumpIfZeroRel): block size {}, range {}..{}, external jumps: {}", 
+                                      new_pc, block.len(), start_addr, end_addr, external_jumps.len());
+
+                            // Print external jumps info
+                            for (i, ext_jump) in external_jumps.iter().enumerate() {
+                                eprintln!(
+                                    "  External jump {}: block[{}] -> target {} ({:?})",
+                                    i,
+                                    ext_jump.block_index,
+                                    ext_jump.target_addr,
+                                    ext_jump.jump_type
+                                );
+                            }
+
+                            if let Some(jit_block) = self.prepare_jit_block(new_pc) {
+                                eprintln!(
+                                    "Prepared JIT block with fallbacks: {} instructions",
+                                    jit_block.len()
+                                );
+
+                                // Print JIT block for debugging
+                                eprintln!("JIT block with fallbacks:");
+                                for (i, inst) in jit_block.iter().enumerate() {
+                                    eprintln!("  {}: {}", i, inst);
+                                }
+
+                                // Try JIT compilation with exit path handling
+                                if external_jumps.is_empty() {
+                                    // Simple case without external jumps - compile the original block
+                                    if self.jit_compiler.is_some()
+                                        && !self.jit_disabled
+                                        && !self.jit_failed_functions.contains(&new_pc)
+                                    {
+                                        let print_jit_asm = self.print_jit_asm;
+                                        if let Some(ref mut jit_compiler) = self.jit_compiler {
+                                            match jit_compiler.compile_jump_block(
+                                            new_pc,
+                                            &block,
+                                            None, // No function prologue offset needed for simple blocks
+                                            print_jit_asm,
+                                        ) {
+                                                Ok(()) => {
+                                                    eprintln!("JIT: Successfully compiled simple conditional jump block at address {} (no external jumps)", new_pc);
+                                                }
+                                                Err(e) => {
+                                                    eprintln!("JIT: Failed to compile simple conditional jump block at address {}: {}", new_pc, e);
+                                                    self.jit_failed_functions.insert(new_pc);
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Complex case with external jumps - compile with fallbacks
+                                    if self.jit_compiler.is_some()
+                                        && !self.jit_disabled
+                                        && !self.jit_failed_functions.contains(&new_pc)
+                                    {
+                                        let print_jit_asm = self.print_jit_asm;
+                                        if let Some(ref mut jit_compiler) = self.jit_compiler {
+                                            match jit_compiler.compile_jump_block(
+                                            new_pc,
+                                            &jit_block,
+                                            None, // No function prologue offset needed
+                                            print_jit_asm,
+                                        ) {
+                                                Ok(()) => {
+                                                    eprintln!("JIT: Successfully compiled conditional jump block at address {} with exit path handling", new_pc);
+                                                }
+                                                Err(e) => {
+                                                    eprintln!("JIT: Failed to compile conditional jump block with exit paths at address {}: {}", new_pc, e);
+                                                    eprintln!(
+                                                        "JIT: Falling back to interpreter execution"
+                                                    );
+                                                    self.jit_failed_functions.insert(new_pc);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            eprintln!("Jump hotspot detected at address {} (JumpIfZeroRel) but could not extract block", new_pc);
+                        }
+                    }
+
                     self.pc = new_pc;
                 } else {
                     self.pc += 1;
@@ -1037,6 +1342,11 @@ impl VM {
                 // Do nothing
             }
 
+            Instruction::BrkJit => {
+                // JIT-only breakpoint: no-op in interpreter, breakpoint in JIT
+                // This instruction is transparent to the interpreter
+            }
+
             // (HeapAlloc removed - now handled via GetHP/SetHP)
 
             // (HeapGet removed - now handled via Load)
@@ -1359,6 +1669,237 @@ impl VM {
         }
 
         instructions
+    }
+
+    /// Extract a jump block starting from target_addr and ending with a jump back to target_addr
+    /// Returns (instructions, start_addr, end_addr) of the block, or None if no valid block found
+    fn extract_jump_block(&self, target_addr: usize) -> Option<(Vec<Instruction>, usize, usize)> {
+        if target_addr >= self.program.len() {
+            return None;
+        }
+
+        let mut instructions = Vec::new();
+        let mut current_addr = target_addr;
+        let start_addr = target_addr;
+
+        // Scan from target_addr looking for a jump back to target_addr
+        while current_addr < self.program.len() {
+            let instruction = &self.program[current_addr];
+            instructions.push(instruction.clone());
+
+            // Check if this is a jump back to our target address
+            match instruction {
+                Instruction::JumpRel(offset) => {
+                    let jump_target = (current_addr as i32 + offset) as usize;
+                    if jump_target == target_addr {
+                        // Found the jump back to start - this completes the block
+                        return Some((instructions, start_addr, current_addr));
+                    }
+                }
+                Instruction::Ret => {
+                    // If we hit a return, the block is incomplete
+                    break;
+                }
+                _ => {}
+            }
+
+            current_addr += 1;
+
+            // Safety check to avoid infinite loops
+            if instructions.len() > 1000 {
+                eprintln!("Warning: Jump block extraction exceeded 1000 instructions, stopping");
+                break;
+            }
+        }
+
+        None
+    }
+
+    /// Extract a jump block with detailed external jump information
+    /// Returns (instructions, start_addr, end_addr, external_jumps)
+    fn extract_jump_block_with_exits(
+        &self,
+        target_addr: usize,
+    ) -> Option<(Vec<Instruction>, usize, usize, Vec<ExternalJump>)> {
+        if target_addr >= self.program.len() {
+            return None;
+        }
+
+        let mut instructions = Vec::new();
+        let mut current_addr = target_addr;
+        let start_addr = target_addr;
+        let mut end_addr = target_addr;
+
+        // First pass: find the block boundaries
+        while current_addr < self.program.len() {
+            let instruction = &self.program[current_addr];
+            instructions.push(instruction.clone());
+
+            // Check if this is a jump back to our target address
+            match instruction {
+                Instruction::JumpRel(offset) => {
+                    let jump_target = (current_addr as i32 + offset) as usize;
+                    if jump_target == target_addr {
+                        // Found the jump back to start - this completes the block
+                        end_addr = current_addr;
+                        break;
+                    }
+                }
+                Instruction::Ret => {
+                    // If we hit a return, the block is incomplete
+                    return None;
+                }
+                _ => {}
+            }
+
+            current_addr += 1;
+
+            // Safety check to avoid infinite loops
+            if instructions.len() > 1000 {
+                eprintln!("Warning: Jump block extraction exceeded 1000 instructions, stopping");
+                return None;
+            }
+        }
+
+        // Second pass: identify external jumps now that we know the block boundaries
+        let mut external_jumps = Vec::new();
+        for (block_index, instruction) in instructions.iter().enumerate() {
+            let instruction_addr = start_addr + block_index;
+
+            match instruction {
+                Instruction::JumpRel(offset) => {
+                    let jump_target = (instruction_addr as i32 + offset) as usize;
+                    // Skip the jump back to start (that's what defines our block)
+                    if jump_target != target_addr {
+                        external_jumps.push(ExternalJump {
+                            block_index,
+                            absolute_addr: instruction_addr,
+                            target_addr: jump_target,
+                            jump_type: ExternalJumpType::JumpRel(*offset),
+                        });
+                    }
+                }
+                Instruction::JumpIfZeroRel(offset) => {
+                    let jump_target = (instruction_addr as i32 + offset) as usize;
+                    // Check if this jumps outside the block boundaries
+                    if jump_target < start_addr || jump_target > end_addr {
+                        external_jumps.push(ExternalJump {
+                            block_index,
+                            absolute_addr: instruction_addr,
+                            target_addr: jump_target,
+                            jump_type: ExternalJumpType::JumpIfZeroRel(*offset),
+                        });
+                    }
+                }
+                Instruction::CallRel(offset) => {
+                    let call_target = (instruction_addr as i32 + offset) as usize;
+                    external_jumps.push(ExternalJump {
+                        block_index,
+                        absolute_addr: instruction_addr,
+                        target_addr: call_target,
+                        jump_type: ExternalJumpType::CallRel(*offset),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        Some((instructions, start_addr, end_addr, external_jumps))
+    }
+
+    /// Check if a block contains jumps to addresses outside the block range
+    fn has_external_jumps(
+        &self,
+        block: &[Instruction],
+        start_addr: usize,
+        end_addr: usize,
+    ) -> bool {
+        for (idx, instruction) in block.iter().enumerate() {
+            let current_addr = start_addr + idx;
+
+            match instruction {
+                Instruction::JumpRel(offset) => {
+                    let jump_target = (current_addr as i32 + offset) as usize;
+                    // Check if jump target is outside the block range
+                    if jump_target < start_addr || jump_target > end_addr {
+                        return true;
+                    }
+                }
+                Instruction::JumpIfZeroRel(offset) => {
+                    let jump_target = (current_addr as i32 + offset) as usize;
+                    // Check if jump target is outside the block range
+                    if jump_target < start_addr || jump_target > end_addr {
+                        return true;
+                    }
+                }
+                Instruction::CallRel(_) => {
+                    // Function calls are considered external jumps
+                    return true;
+                }
+                _ => {}
+            }
+        }
+
+        false
+    }
+
+    /// Create fallback instructions for external jumps
+    /// Returns (modified_block, fallback_instructions)
+    fn create_jit_block_with_fallbacks(
+        &self,
+        mut block: Vec<Instruction>,
+        external_jumps: Vec<ExternalJump>,
+    ) -> (Vec<Instruction>, Vec<Instruction>) {
+        let mut fallback_instructions = Vec::new();
+        let original_block_size = block.len();
+
+        // Create fallback instructions for each external jump
+        for (fallback_index, external_jump) in external_jumps.iter().enumerate() {
+            // Calculate offset from external jump position to fallback position
+            let jump_position = external_jump.block_index;
+            let fallback_position = original_block_size + fallback_index * 3; // Each fallback is 3 instructions
+            let offset_to_fallback = (fallback_position as i32) - (jump_position as i32); // Jump is relative to current instruction
+
+            // Replace the external jump with a jump to fallback
+            match &external_jump.jump_type {
+                ExternalJumpType::JumpIfZeroRel(_) => {
+                    block[jump_position] = Instruction::JumpIfZeroRel(offset_to_fallback);
+                }
+                ExternalJumpType::JumpRel(_) => {
+                    block[jump_position] = Instruction::JumpRel(offset_to_fallback);
+                }
+                ExternalJumpType::CallRel(_) => {
+                    // For function calls, we still need to handle them specially
+                    // For now, redirect to fallback
+                    block[jump_position] = Instruction::JumpRel(offset_to_fallback);
+                }
+            }
+
+            // Create fallback instructions: set_pc + ret
+            fallback_instructions.push(Instruction::Push(external_jump.target_addr as i64));
+            fallback_instructions.push(Instruction::SetPC);
+            fallback_instructions.push(Instruction::Ret);
+        }
+
+        (block, fallback_instructions)
+    }
+
+    /// Prepare a jump block for JIT compilation by handling external jumps
+    fn prepare_jit_block(&self, target_addr: usize) -> Option<Vec<Instruction>> {
+        if let Some((block, _start_addr, _end_addr, external_jumps)) =
+            self.extract_jump_block_with_exits(target_addr)
+        {
+            let (modified_block, fallback_instructions) =
+                self.create_jit_block_with_fallbacks(block, external_jumps);
+
+            // Combine modified block with fallback instructions
+            let mut jit_block = modified_block;
+            jit_block.extend(fallback_instructions);
+
+            Some(jit_block)
+        } else {
+            None
+        }
     }
 
     /// Calculate the length of a null-terminated string starting at the given address

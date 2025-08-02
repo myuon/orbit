@@ -1,5 +1,5 @@
 use crate::arm64::{ARM64CodeGen, Condition, Register};
-use crate::runtime::Value;
+
 use crate::vm::Instruction;
 use anyhow::Result;
 use memmap2::MmapMut;
@@ -45,13 +45,13 @@ fn format_hexdump(data: &[u8], start_addr: usize) -> String {
 /// - heap: mutable reference to heap storage
 /// - globals: mutable reference to global variables
 pub type JITFunction = extern "C" fn(
-    stack: *mut u64,          // .x0
-    pc: *mut usize,           // .x1
-    bp: *mut usize,           // .x2
-    sp: *mut usize,           // .x3
-    hp: *mut usize,           // .x4
-    heap: *mut Vec<Value>,    // .x5
-    globals: *mut Vec<Value>, // .x6
+    stack: *mut u64,                          // .x0
+    pc: *mut usize,                           // .x1
+    bp: *mut usize,                           // .x2
+    sp: *mut usize,                           // .x3
+    hp: *mut usize,                           // .x4
+    heap: *mut Vec<crate::runtime::Value>,    // .x5
+    globals: *mut Vec<crate::runtime::Value>, // .x6
 );
 
 /// Executable memory region for JIT compiled code
@@ -183,6 +183,11 @@ impl ARM64JITCompiler {
         call_count >= self.jit_threshold && !self.compiled_functions.contains_key(&addr)
     }
 
+    /// Check if a jump target should be JIT compiled based on jump count
+    pub fn should_jit_compile_jump(&self, addr: usize, jump_count: u64) -> bool {
+        jump_count >= self.jit_threshold && !self.compiled_functions.contains_key(&addr)
+    }
+
     /// Compile a function to ARM64 machine code
     pub fn compile_function(
         &mut self,
@@ -194,7 +199,7 @@ impl ARM64JITCompiler {
         let machine_code = if instructions.is_empty() {
             self.generate_arm64_stub()?
         } else {
-            self.generate_arm64_code(start_addr, instructions)?
+            self.generate_arm64_code(start_addr, instructions, true)?
         };
 
         // Write machine code to specified output file if configured
@@ -228,6 +233,60 @@ impl ARM64JITCompiler {
         Ok(())
     }
 
+    /// Compile a jump block to ARM64 machine code (without function prologue)
+    pub fn compile_jump_block(
+        &mut self,
+        start_addr: usize,
+        instructions: &[Instruction],
+        function_prologue_offset: Option<usize>,
+        print_asm: bool,
+    ) -> Result<()> {
+        // Generate actual ARM64 code for the VM instructions (without function prologue)
+        let machine_code = if instructions.is_empty() {
+            self.generate_arm64_stub()?
+        } else {
+            self.generate_arm64_code(start_addr, instructions, false)?
+        };
+
+        // Write machine code to specified output file if configured
+        if let Some(ref output_file) = self.jit_compile_output {
+            std::fs::write(output_file, &machine_code)?;
+        }
+
+        let offset = self.executable_memory.write_bytes(&machine_code)?;
+        self.executable_memory.make_executable()?;
+
+        // Print JIT assembly hexdump if requested
+        if print_asm {
+            eprintln!(
+                "JIT: Compiled jump block at address {} ({} bytes):",
+                start_addr,
+                machine_code.len()
+            );
+            eprint!("{}", format_hexdump(&machine_code, offset));
+        }
+
+        // For jump blocks, we need to create a function pointer that jumps to the
+        // right location after the function prologue
+        let actual_function_ptr = if let Some(prologue_offset) = function_prologue_offset {
+            // Create a wrapper that jumps to the prologue location and then to our block
+            self.executable_memory.get_function_ptr(prologue_offset)
+        } else {
+            // Direct function pointer (no prologue needed)
+            self.executable_memory.get_function_ptr(offset)
+        };
+
+        let jit_function = JITCompiledFunction {
+            start_addr,
+            function_ptr: actual_function_ptr,
+            call_count: 0,
+            code_size: machine_code.len(),
+        };
+
+        self.compiled_functions.insert(start_addr, jit_function);
+        Ok(())
+    }
+
     /// Get compiled function if available
     pub fn get_compiled_function(&self, addr: usize) -> Option<&JITCompiledFunction> {
         self.compiled_functions.get(&addr)
@@ -238,6 +297,7 @@ impl ARM64JITCompiler {
         &self,
         start_addr: usize,
         instructions: &[Instruction],
+        is_function: bool,
     ) -> Result<Vec<u8>> {
         let mut gen = ARM64CodeGen::new();
         let mut jump_sources: HashMap<usize, usize> = HashMap::new();
@@ -247,6 +307,7 @@ impl ARM64JITCompiler {
 
         // First pass: identify jump/call sources and targets
         for (source_idx, instruction) in instructions.iter().enumerate() {
+            let vm_addr = start_addr + source_idx;
             match instruction {
                 Instruction::Jump(_label) => {
                     panic!("Jump with label should have been resolved to JumpRel before JIT compilation");
@@ -254,8 +315,25 @@ impl ARM64JITCompiler {
                 Instruction::JumpIfZero(_label) => {
                     panic!("JumpIfZero with label should have been resolved to JumpIfZeroRel before JIT compilation");
                 }
+                Instruction::JumpRel(offset) => {
+                    let target_vm_addr = (vm_addr as i32 + offset) as usize;
+                    eprintln!(
+                        "DEBUG: JumpRel at VM addr {} (array idx {}) -> target {}",
+                        vm_addr, source_idx, target_vm_addr
+                    );
+                    jump_sources.insert(vm_addr, usize::MAX);
+                    jump_targets.insert(target_vm_addr, usize::MAX);
+                }
+                Instruction::JumpIfZeroRel(offset) => {
+                    let target_vm_addr = (vm_addr as i32 + offset) as usize;
+                    eprintln!(
+                        "DEBUG: JumpIfZeroRel at VM addr {} (array idx {}) -> target {}",
+                        vm_addr, source_idx, target_vm_addr
+                    );
+                    jump_sources.insert(vm_addr, usize::MAX);
+                    jump_targets.insert(target_vm_addr, usize::MAX);
+                }
                 Instruction::CallRel(offset) => {
-                    let vm_addr = start_addr + source_idx;
                     let target_addr = (vm_addr as i32 + offset) as usize;
                     eprintln!(
                         "DEBUG: CallRel at VM addr {} (array idx {}) -> target {}",
@@ -295,6 +373,15 @@ impl ARM64JITCompiler {
                     gen.position()
                 );
                 jump_targets.insert(vm_addr, gen.position());
+
+                // Add debug breakpoint at jump targets if enabled
+                if std::env::var("ORBIT_JIT_DEBUG_JUMP_TARGETS").is_ok() {
+                    eprintln!(
+                        "DEBUG: Adding breakpoint at jump target VM addr {}",
+                        vm_addr
+                    );
+                    gen.debug_breakpoint();
+                }
             }
             // Record call target positions
             if call_targets.contains_key(&vm_addr) {
@@ -306,8 +393,18 @@ impl ARM64JITCompiler {
                 );
                 call_targets.insert(vm_addr, gen.position());
             }
-            if instruction_idx == 0 {
+            // Add function prologue only for the first instruction of function compilation
+            if instruction_idx == 0 && is_function {
                 gen.function_prologue();
+
+                // Add debug breakpoint at the beginning if enabled
+                if std::env::var("ORBIT_JIT_DEBUG_BREAKPOINT").is_ok() {
+                    eprintln!(
+                        "DEBUG: Adding breakpoint at start of JIT function at address {}",
+                        start_addr
+                    );
+                    gen.debug_breakpoint();
+                }
             }
 
             match instruction {
@@ -508,19 +605,25 @@ impl ARM64JITCompiler {
                 }
 
                 Instruction::Ret => {
-                    // Pop return address from stack and set as PC
-                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3); // Pop return address (ValueEncoded)
+                    if is_function {
+                        // For functions: Pop return address from stack and set as PC
+                        gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3); // Pop return address (ValueEncoded)
 
-                    // Remove the ValueEncoding bit (1u64 << 63) to get the actual address
-                    // Use LSL/LSR trick to clear the MSB: shift left 1 bit, then right 1 bit
-                    gen.lsl_imm(REG_TEMP1, REG_TEMP1, 1); // Left shift by 1 (removes MSB)
-                    gen.lsr_imm(REG_TEMP1, REG_TEMP1, 1); // Right shift by 1 (restores position, MSB=0)
+                        // Remove the ValueEncoding bit (1u64 << 63) to get the actual address
+                        // Use LSL/LSR trick to clear the MSB: shift left 1 bit, then right 1 bit
+                        gen.lsl_imm(REG_TEMP1, REG_TEMP1, 1); // Left shift by 1 (removes MSB)
+                        gen.lsr_imm(REG_TEMP1, REG_TEMP1, 1); // Right shift by 1 (restores position, MSB=0)
 
-                    gen.str(REG_TEMP1, REG_C_PC, 0); // Store actual address to *REG_C_PC
-
-                    // Function epilogue and return
-                    gen.function_epilogue();
-                    gen.ret();
+                        gen.str(REG_TEMP1, REG_C_PC, 0); // Store actual address to *REG_C_PC
+                        
+                        // Function epilogue and return
+                        gen.function_epilogue();
+                        gen.ret();
+                    } else {
+                        // For jump blocks: Don't pop from stack, just return to VM
+                        // The VM will handle PC update after JIT execution
+                        gen.ret();
+                    }
                 }
 
                 Instruction::Jump(_label) => {
@@ -534,12 +637,17 @@ impl ARM64JITCompiler {
                 Instruction::JumpRel(offset) => {
                     // Unconditional relative jump
                     // Calculate target VM address
-                    let target_vm_addr = (vm_addr as i32 + offset) as usize;
+                    let _target_vm_addr = (vm_addr as i32 + offset) as usize;
 
                     // Emit placeholder for branch instruction
                     gen.emit(0x0);
                     jump_sources.insert(vm_addr, gen.position() - 1);
-                    jump_targets.insert(target_vm_addr, usize::MAX);
+                    eprintln!("jump_target: {:?}", jump_targets.get(&_target_vm_addr));
+
+                    eprintln!(
+                        "DEBUG: JumpRel at VM addr {} (array idx {}) -> target {}",
+                        vm_addr, instruction_idx, _target_vm_addr
+                    );
                 }
 
                 Instruction::JumpIfZeroRel(offset) => {
@@ -553,7 +661,6 @@ impl ARM64JITCompiler {
                     let cbz_instruction = 0xB4000000 | REG_TEMP1.as_u32();
                     gen.emit(cbz_instruction);
                     jump_sources.insert(vm_addr, gen.position() - 1);
-                    jump_targets.insert(target_vm_addr, usize::MAX);
                 }
 
                 Instruction::CallRel(_offset) => {
@@ -570,6 +677,15 @@ impl ARM64JITCompiler {
                 Instruction::Nop => {
                     // No operation - just continue
                     continue;
+                }
+
+                Instruction::BrkJit => {
+                    // JIT-only breakpoint: generates BRK instruction in JIT, no-op in interpreter
+                    eprintln!(
+                        "DEBUG: Inserting BRK instruction for brk_jit at VM addr {}",
+                        vm_addr
+                    );
+                    gen.debug_breakpoint();
                 }
 
                 // Unsupported instructions (these will cause fallback to interpreter)
@@ -676,6 +792,61 @@ impl ARM64JITCompiler {
     /// Set JIT compile output file
     pub fn set_jit_compile_output(&mut self, output_file: Option<String>) {
         self.jit_compile_output = output_file;
+    }
+
+    /// Check if a function is already compiled
+    pub fn is_compiled(&self, addr: usize) -> bool {
+        self.compiled_functions.contains_key(&addr)
+    }
+
+    /// Execute a JIT compiled function
+    pub fn execute_function(
+        &mut self,
+        addr: usize,
+        stack: *mut u64,
+        pc: &mut usize,
+        bp: &mut usize,
+        sp: &mut usize,
+        hp: &mut usize,
+        heap: &mut Vec<crate::runtime::Value>,
+        globals: &mut Vec<crate::runtime::Value>,
+    ) -> Result<()> {
+        if let Some(jit_function) = self.compiled_functions.get_mut(&addr) {
+            // Get the JIT function pointer
+            let function_ptr = jit_function.function_ptr;
+
+            // Increment call count
+            jit_function.call_count += 1;
+
+            // Check stack space before JIT execution
+            // We need at least 1KB of stack space for ARM64 function prologue and execution
+            const MIN_STACK_SPACE: usize = 1024;
+
+            unsafe {
+                // Get current stack pointer (approximation)
+                let mut current_sp: usize;
+                std::arch::asm!("mov {}, sp", out(reg) current_sp);
+
+                // Simple stack depth check - if we're too close to a page boundary, skip JIT
+                if current_sp % 4096 < MIN_STACK_SPACE {
+                    return Err(anyhow::anyhow!(
+                        "Insufficient stack space for JIT execution (current_sp: 0x{:x})",
+                        current_sp
+                    ));
+                }
+
+                function_ptr(stack, pc, bp, sp, hp, heap, globals);
+            }
+
+            eprintln!("executed JIT function at address 0x{:x}", addr);
+
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "Function at address {} is not compiled",
+                addr
+            ))
+        }
     }
 
     /// Get compilation statistics
