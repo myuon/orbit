@@ -19,6 +19,9 @@ pub mod utils;
 pub mod value_encoding;
 pub mod vm;
 
+// Stack size constants
+pub const STACK_SIZE: usize = 1024 * 1024;
+
 // Re-export commonly used items
 pub use compiler::{execute_code, execute_code_with_output, Compiler, CompilerOptions};
 pub use runtime::Value;

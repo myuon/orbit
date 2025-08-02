@@ -105,7 +105,7 @@ impl VM {
 
     pub fn with_options(print_stacks: bool, print_heaps: bool, enable_profiling: bool) -> Self {
         Self {
-            stack: vec![0u64; 1024 * 1024].into_boxed_slice(),
+            stack: vec![0u64; crate::STACK_SIZE].into_boxed_slice(),
             pc: 0,
             bp: 0,
             sp: 0,

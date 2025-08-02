@@ -169,7 +169,7 @@ pub struct ARM64JITCompiler {
 impl ARM64JITCompiler {
     /// Create a new ARM64 JIT compiler
     pub fn new() -> Result<Self> {
-        let executable_memory = ExecutableMemory::new(1024 * 1024)?; // 1MB
+        let executable_memory = ExecutableMemory::new(crate::STACK_SIZE)?; // 1MB
         Ok(ARM64JITCompiler {
             executable_memory,
             compiled_functions: HashMap::new(),
