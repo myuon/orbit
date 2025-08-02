@@ -651,8 +651,6 @@ impl VM {
                 // Try to execute JIT compiled function first
                 if let Some(ref mut jit_compiler) = self.jit_compiler {
                     if jit_compiler.is_compiled(new_pc) {
-
-
                         match jit_compiler.execute_function(
                             new_pc,
                             self.stack.as_mut_ptr(),
@@ -664,11 +662,9 @@ impl VM {
                             &mut self.globals,
                         ) {
                             Ok(()) => {
-
                                 return Ok(ControlFlow::Continue);
                             }
                             Err(e) => {
-
                                 self.jit_failed_functions.insert(new_pc);
                             }
                         }
@@ -681,16 +677,7 @@ impl VM {
                     if let Some((block, start_addr, end_addr, external_jumps)) =
                         self.extract_jump_block_with_exits(new_pc)
                     {
-
-
-
-
-
                         if let Some(jit_block) = self.prepare_jit_block(new_pc) {
-
-
-
-
                             // Try JIT compilation with exit path handling
                             if external_jumps.is_empty() {
                                 // Simple case without external jumps - compile the original block
@@ -707,10 +694,10 @@ impl VM {
                                             print_jit_asm,
                                         ) {
                                             Ok(()) => {
-                                                
+                                                eprintln!("[INFO] JIT: Successfully compiled jump block at address {}", new_pc);
                                             }
                                             Err(e) => {
-                                                
+                                                eprintln!("[INFO] JIT: Failed to compile jump block at address {}: {}", new_pc, e);
                                                 self.jit_failed_functions.insert(new_pc);
                                             }
                                         }
@@ -731,11 +718,10 @@ impl VM {
                                             print_jit_asm,
                                         ) {
                                             Ok(()) => {
-                                                
+                                                eprintln!("[INFO] JIT: Successfully compiled jump block with external jumps at address {}", new_pc);
                                             }
                                             Err(e) => {
-                                                
-
+                                                eprintln!("[INFO] JIT: Failed to compile jump block with external jumps at address {}: {}", new_pc, e);
                                                 self.jit_failed_functions.insert(new_pc);
                                             }
                                         }
@@ -745,8 +731,6 @@ impl VM {
 
                             if let Some(ref mut jit_compiler) = self.jit_compiler {
                                 if jit_compiler.is_compiled(new_pc) {
-            
-
                                     match jit_compiler.execute_function(
                                         new_pc,
                                         self.stack.as_mut_ptr(),
@@ -758,11 +742,10 @@ impl VM {
                                         &mut self.globals,
                                     ) {
                                         Ok(()) => {
-            
+                                            eprintln!("[INFO] JIT: Successfully executed jump block at address {}", new_pc);
                                             return Ok(ControlFlow::Continue);
                                         }
                                         Err(e) => {
-            
                                             self.jit_failed_functions.insert(new_pc);
                                         }
                                     }
@@ -770,7 +753,6 @@ impl VM {
                             }
                         }
                     } else {
-                        
                     }
                 }
 
@@ -814,11 +796,9 @@ impl VM {
                                 &mut self.globals,
                             ) {
                                 Ok(()) => {
-                                    
                                     return Ok(ControlFlow::Continue);
                                 }
                                 Err(e) => {
-                                    
                                     self.jit_failed_functions.insert(new_pc);
                                 }
                             }
@@ -831,16 +811,7 @@ impl VM {
                         if let Some((block, start_addr, end_addr, external_jumps)) =
                             self.extract_jump_block_with_exits(new_pc)
                         {
-
-
-    
-    
-
                             if let Some(jit_block) = self.prepare_jit_block(new_pc) {
-    
-
-    
-
                                 // Try JIT compilation with exit path handling
                                 if external_jumps.is_empty() {
                                     // Simple case without external jumps - compile the original block
@@ -851,16 +822,16 @@ impl VM {
                                         let print_jit_asm = self.print_jit_asm;
                                         if let Some(ref mut jit_compiler) = self.jit_compiler {
                                             match jit_compiler.compile_jump_block(
-                                            new_pc,
-                                            &block,
-                                            None, // No function prologue offset needed for simple blocks
-                                            print_jit_asm,
-                                        ) {
+                                                new_pc,
+                                                &block,
+                                                None, // No function prologue offset needed for simple blocks
+                                                print_jit_asm,
+                                            ) {
                                                 Ok(()) => {
-                                                    
+                                                    eprintln!("[INFO] JIT: Successfully compiled jump block at address {}", new_pc);
                                                 }
                                                 Err(e) => {
-                                                    
+                                                    eprintln!("[INFO] JIT: Failed to compile jump block at address {}: {}", new_pc, e);
                                                     self.jit_failed_functions.insert(new_pc);
                                                 }
                                             }
@@ -875,17 +846,16 @@ impl VM {
                                         let print_jit_asm = self.print_jit_asm;
                                         if let Some(ref mut jit_compiler) = self.jit_compiler {
                                             match jit_compiler.compile_jump_block(
-                                            new_pc,
-                                            &jit_block,
-                                            None, // No function prologue offset needed
-                                            print_jit_asm,
-                                        ) {
+                                                new_pc,
+                                                &jit_block,
+                                                None, // No function prologue offset needed
+                                                print_jit_asm,
+                                            ) {
                                                 Ok(()) => {
-                                                    
+                                                    eprintln!("[INFO] JIT: Successfully compiled jump block with external jumps at address {}", new_pc);
                                                 }
                                                 Err(e) => {
-                                                    
-    
+                                                    eprintln!("[INFO] JIT: Failed to compile jump block with external jumps at address {}: {}", new_pc, e);
                                                     self.jit_failed_functions.insert(new_pc);
                                                 }
                                             }
@@ -894,7 +864,6 @@ impl VM {
                                 }
                             }
                         } else {
-                            
                         }
                     }
 
@@ -1034,8 +1003,6 @@ impl VM {
                             self.print_jit_asm,
                         ) {
                             Ok(()) => {
-
-
                                 jit_compilation_successful = true;
                                 // Try to get function name for better logging
                                 let func_name = self
@@ -1044,10 +1011,13 @@ impl VM {
                                     .map(|s| s.as_str())
                                     .unwrap_or("unknown");
 
+                                eprintln!(
+                                    "[INFO] JIT: Successfully compiled function '{}' at address {}",
+                                    func_name, new_pc
+                                );
+
                                 if self.jit_function_addresses.contains_key(&new_pc) {
-                                    
                                 } else {
-                                    
                                 }
                             }
                             Err(e) => {
@@ -1056,6 +1026,11 @@ impl VM {
                                     .get(&new_pc)
                                     .map(|s| s.as_str())
                                     .unwrap_or("unknown");
+
+                                eprintln!(
+                                    "[INFO] JIT: Failed to compile function '{}' at address {}: {}",
+                                    func_name, new_pc, e
+                                );
 
                                 // Mark this function as failed to prevent future compilation attempts
                                 self.jit_failed_functions.insert(new_pc);
@@ -1083,6 +1058,7 @@ impl VM {
                                 .map(|s| s.as_str())
                                 .unwrap_or("unknown");
 
+                            let is_function = self.jit_function_addresses.contains_key(&new_pc);
 
                             // Execute the JIT compiled function with error handling
                             // Get mutable pointers to VM state
@@ -1110,10 +1086,18 @@ impl VM {
 
                             match jit_result {
                                 Ok(()) => {
-
+                                    if is_function {
+                                        eprintln!("[INFO] JIT: Successfully executed function '{}' at address {}", func_name, new_pc);
+                                    } else {
+                                        eprintln!("[INFO] JIT: Successfully executed jump block at address {}", new_pc);
+                                    }
                                 }
                                 Err(_) => {
-                                    
+                                    if is_function {
+                                        eprintln!("[INFO] JIT: Failed to execute function '{}' at address {} - falling back to interpreter", func_name, new_pc);
+                                    } else {
+                                        eprintln!("[INFO] JIT: Failed to execute jump block at address {} - falling back to interpreter", new_pc);
+                                    }
                                     // Fall through to interpreter execution
                                     self.pc = new_pc;
                                     self.print_debug_visualization(
@@ -1138,7 +1122,6 @@ impl VM {
                         .get(&new_pc)
                         .map(|s| s.as_str())
                         .unwrap_or("unknown");
-                    
                 }
 
                 // Fallback to interpreter execution
@@ -1642,7 +1625,6 @@ impl VM {
 
             // Safety check to avoid infinite loops
             if instructions.len() > 1000 {
-
                 break;
             }
         }
@@ -1691,7 +1673,6 @@ impl VM {
 
             // Safety check to avoid infinite loops
             if instructions.len() > 1000 {
-
                 return None;
             }
         }
