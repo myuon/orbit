@@ -761,6 +761,18 @@ impl CodeGenerator {
                         return;
                     }
 
+                    // Handle brk_jit as a special built-in function
+                    if func_name == "brk_jit" {
+                        // brk_jit() takes no arguments and generates BrkJit instruction
+                        if !args.is_empty() {
+                            panic!("brk_jit() takes no arguments, got {}", args.len());
+                        }
+                        self.instructions.push(Instruction::BrkJit);
+                        // Push a dummy value since the expression context expects a return value
+                        self.instructions.push(Instruction::Push(0));
+                        return;
+                    }
+
                     // Check if function exists
                     if !self.functions.contains_key(func_name) {
                         panic!("Undefined function: {}", func_name);

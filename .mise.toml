@@ -22,6 +22,10 @@ cargo bench --bench orbit_bench > "$OUTPUT_FILE"
 echo "Benchmark report saved to: $OUTPUT_FILE"
 '''
 
+[tasks.lldb]
+description = "Build and debug with LLDB"
+run = ["cargo build", "lldb ./target/debug/orbit"]
+
 [tasks.disassemble]
 description = "Disassemble JIT compiled machine code from binary file"
 run = '''

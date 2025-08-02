@@ -1175,6 +1175,18 @@ impl TypeChecker {
                         return Ok(Type::Int); // syscall returns a number (result code)
                     }
 
+                    if func_name == "brk_jit" {
+                        // brk_jit takes no arguments
+                        if !args.is_empty() {
+                            bail_with_position!(
+                                callee.span.clone(),
+                                "brk_jit() takes no arguments, got {}",
+                                args.len()
+                            );
+                        }
+                        return Ok(Type::Int); // brk_jit returns nothing (but we use Int for consistency)
+                    }
+
                     // Check if this is a generic function first
                     if let Some(generic_func) = self.generic_functions.get(func_name) {
                         // For generic functions, be more permissive during initial type checking
@@ -1344,7 +1356,11 @@ impl TypeChecker {
                             name
                         };
 
-                        if base_name == "vec" || name == "vec" || base_name == "map" || name == "map" {
+                        if base_name == "vec"
+                            || name == "vec"
+                            || base_name == "map"
+                            || name == "map"
+                        {
                             // Check if _get method exists
                             let get_method_name = if base_name == "vec" || base_name == "map" {
                                 format!(
@@ -1396,26 +1412,26 @@ impl TypeChecker {
                                     } else if let Some(element_type) =
                                         self.extract_vec_element_type(name)
                                     {
-                                    // If the element type is a type parameter, we need to resolve it
-                                    // For now, we'll use a simplified approach for concrete types
-                                    if let Type::TypeParameter(_) = element_type {
-                                        // Try to extract the concrete type from the struct name
-                                        if name.starts_with("vec(") && name.ends_with(')') {
-                                            let inner = &name[9..name.len() - 1];
-                                            if inner != "T" {
-                                                // This is a concrete type like "int", not a type parameter
-                                                Ok(Type::simple_type_from_string(inner))
+                                        // If the element type is a type parameter, we need to resolve it
+                                        // For now, we'll use a simplified approach for concrete types
+                                        if let Type::TypeParameter(_) = element_type {
+                                            // Try to extract the concrete type from the struct name
+                                            if name.starts_with("vec(") && name.ends_with(')') {
+                                                let inner = &name[9..name.len() - 1];
+                                                if inner != "T" {
+                                                    // This is a concrete type like "int", not a type parameter
+                                                    Ok(Type::simple_type_from_string(inner))
+                                                } else {
+                                                    // This is a type parameter that needs substitution
+                                                    // For now, return the type parameter as is
+                                                    Ok(element_type)
+                                                }
                                             } else {
-                                                // This is a type parameter that needs substitution
-                                                // For now, return the type parameter as is
                                                 Ok(element_type)
                                             }
                                         } else {
                                             Ok(element_type)
                                         }
-                                    } else {
-                                        Ok(element_type)
-                                    }
                                     } else {
                                         bail_with_position!(
                                             container.span.clone(),
@@ -2017,10 +2033,7 @@ impl TypeChecker {
             if generic_name == "map" && concrete_args.len() == 2 {
                 // For map(K, V), we know the structure: { data: [*]int, capacity: int }
                 let mut concrete_fields = HashMap::new();
-                concrete_fields.insert(
-                    "data".to_string(),
-                    Type::Pointer(Box::new(Type::Int)),
-                );
+                concrete_fields.insert("data".to_string(), Type::Pointer(Box::new(Type::Int)));
                 concrete_fields.insert("capacity".to_string(), Type::Int);
                 return Some(concrete_fields);
             }

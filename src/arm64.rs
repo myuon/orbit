@@ -138,6 +138,21 @@ impl ARM64CodeGen {
         self.emit(0xd65f03c0); // ret x30
     }
 
+    /// BRK - Breakpoint instruction for debugging with lldb
+    /// Generates a software breakpoint that will be caught by the debugger
+    pub fn brk(&mut self, imm: u16) {
+        // BRK instruction format: 0xD4200000 | (imm << 5)
+        // imm is a 16-bit immediate value (0-65535)
+        let instruction = 0xD4200000 | ((imm as u32) << 5);
+        self.emit(instruction);
+    }
+
+    /// BRK with default immediate value for simple debugging
+    pub fn debug_breakpoint(&mut self) {
+        // Use immediate value 0 for simple breakpoints
+        self.brk(0);
+    }
+
     /// MOV immediate - Move 16-bit immediate to register (with LSL 0)
     pub fn mov_imm(&mut self, dst: Register, imm: u16) {
         let instruction = 0xD2800000 | ((imm as u32) << 5) | dst.as_u32();
@@ -270,9 +285,18 @@ impl ARM64CodeGen {
     }
 
     /// STP - Store pair pre-indexed: [base + offset]! = {src1, src2}
-    pub fn stp_pre_index(&mut self, src1: Register, src2: Register, base: Register, offset: i8) {
-        assert!(offset >= -64 && offset <= 63, "Offset must be 7-bit signed");
-        let offset_bits = (offset as u32) & 0x7F;
+    pub fn stp_pre_index(&mut self, src1: Register, src2: Register, base: Register, offset: i32) {
+        assert!(
+            offset >= -512 && offset <= 504,
+            "Offset must be in range -512 to 504"
+        );
+        assert!(offset % 8 == 0, "Offset must be 8-byte aligned");
+        let offset_scaled = offset / 8; // ARM64 STP uses 8-byte scaled offset
+        assert!(
+            offset_scaled >= -64 && offset_scaled <= 63,
+            "Scaled offset must be 7-bit signed"
+        );
+        let offset_bits = (offset_scaled as u32) & 0x7F;
         let instruction = 0xA9800000
             | (offset_bits << 15)
             | (src2.as_u32() << 10)
@@ -282,9 +306,18 @@ impl ARM64CodeGen {
     }
 
     /// LDP - Load pair post-indexed: {src1, src2} = [base], base += offset
-    pub fn ldp_post_index(&mut self, dst1: Register, dst2: Register, base: Register, offset: i8) {
-        assert!(offset >= -64 && offset <= 63, "Offset must be 7-bit signed");
-        let offset_bits = (offset as u32) & 0x7F;
+    pub fn ldp_post_index(&mut self, dst1: Register, dst2: Register, base: Register, offset: i32) {
+        assert!(
+            offset >= -512 && offset <= 504,
+            "Offset must be in range -512 to 504"
+        );
+        assert!(offset % 8 == 0, "Offset must be 8-byte aligned");
+        let offset_scaled = offset / 8; // ARM64 LDP uses 8-byte scaled offset
+        assert!(
+            offset_scaled >= -64 && offset_scaled <= 63,
+            "Scaled offset must be 7-bit signed"
+        );
+        let offset_bits = (offset_scaled as u32) & 0x7F;
         let instruction = 0xA8C00000
             | (offset_bits << 15)
             | (dst2.as_u32() << 10)

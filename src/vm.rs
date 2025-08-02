@@ -65,6 +65,9 @@ pub enum Instruction {
     // No operation
     Nop,
 
+    // JIT-only breakpoint (no-op in interpreter, breakpoint in JIT)
+    BrkJit,
+
     // (Heap operations removed - now handled via GetHP/SetHP + Load/Store)
 
     // Low-level memory operations
@@ -120,6 +123,7 @@ impl fmt::Display for Instruction {
             Instruction::SetPC => write!(f, "set_pc"),
             Instruction::Label(name) => write!(f, "{}:", name),
             Instruction::Nop => write!(f, "nop"),
+            Instruction::BrkJit => write!(f, "brk_jit"),
             // (Heap operation Display removed)
             Instruction::Load => write!(f, "load"),
             Instruction::Store => write!(f, "store"),
