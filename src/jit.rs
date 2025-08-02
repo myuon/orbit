@@ -351,16 +351,18 @@ impl ARM64JITCompiler {
 
         // Second pass: generate code and record jump/call target positions
         for (instruction_idx, instruction) in instructions.iter().enumerate() {
+            if instruction_idx == 0 && !is_function {
+                gen.function_prologue();
+            }
             let vm_addr = start_addr + instruction_idx;
-            // Record jump target positions
+            // Record jump target positions (after prologue)
             if jump_targets.contains_key(&vm_addr) {
                 jump_targets.insert(vm_addr, gen.position());
             }
-            // Record call target positions
+            // Record call target positions (after prologue)
             if call_targets.contains_key(&vm_addr) {
                 call_targets.insert(vm_addr, gen.position());
             }
-            // Add function prologue only for the first instruction of function compilation
             if instruction_idx == 0 && is_function {
                 gen.function_prologue();
             }
@@ -563,25 +565,19 @@ impl ARM64JITCompiler {
                 }
 
                 Instruction::Ret => {
-                    if is_function {
-                        // For functions: Pop return address from stack and set as PC
-                        gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3); // Pop return address (ValueEncoded)
+                    // For functions: Pop return address from stack and set as PC
+                    gen.pop_from_stack(REG_TEMP1, REG_C_STACK, REG_C_SP, REG_TEMP2, REG_TEMP3); // Pop return address (ValueEncoded)
 
-                        // Remove the ValueEncoding bit (1u64 << 63) to get the actual address
-                        // Use LSL/LSR trick to clear the MSB: shift left 1 bit, then right 1 bit
-                        gen.lsl_imm(REG_TEMP1, REG_TEMP1, 1); // Left shift by 1 (removes MSB)
-                        gen.lsr_imm(REG_TEMP1, REG_TEMP1, 1); // Right shift by 1 (restores position, MSB=0)
+                    // Remove the ValueEncoding bit (1u64 << 63) to get the actual address
+                    // Use LSL/LSR trick to clear the MSB: shift left 1 bit, then right 1 bit
+                    gen.lsl_imm(REG_TEMP1, REG_TEMP1, 1); // Left shift by 1 (removes MSB)
+                    gen.lsr_imm(REG_TEMP1, REG_TEMP1, 1); // Right shift by 1 (restores position, MSB=0)
 
-                        gen.str(REG_TEMP1, REG_C_PC, 0); // Store actual address to *REG_C_PC
-                        
-                        // Function epilogue and return
-                        gen.function_epilogue();
-                        gen.ret();
-                    } else {
-                        // For jump blocks: Don't pop from stack, just return to VM
-                        // The VM will handle PC update after JIT execution
-                        gen.ret();
-                    }
+                    gen.str(REG_TEMP1, REG_C_PC, 0); // Store actual address to *REG_C_PC
+
+                    // Function epilogue and return
+                    gen.function_epilogue();
+                    gen.ret();
                 }
 
                 Instruction::Jump(_label) => {
@@ -600,7 +596,6 @@ impl ARM64JITCompiler {
                     // Emit placeholder for branch instruction
                     gen.emit(0x0);
                     jump_sources.insert(vm_addr, gen.position() - 1);
-
                 }
 
                 Instruction::JumpIfZeroRel(offset) => {
